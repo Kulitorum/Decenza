@@ -100,13 +100,15 @@ private slots:
             var TranslationManager={translate:function(key,fallback){return fallback;}};
             var _carryProposal={
                 changes:[{field:"targetWeight",before:60,after:59.10000000000001}],
-                persistentEffects:[{record:"bag",field:"doseWeightG",before:20,after:19.700000000000003}],
-                bagName:"Gran Bar"
+                persistentEffects:[{record:"bag",field:"doseWeightG",before:20,after:19.700000000000003},
+                                   {record:"equipment",field:"lastGrindSetting",before:"10",after:"11"},
+                                   {record:"equipment",field:"lastRpm",before:600,after:700}],
+                bagName:"Gran Bar",equipmentName:"Niche Zero"
             };
             carryForwardSummary();
         )JS"));
         QVERIFY2(!result.isError(), qPrintable(result.toString()));
-        QCOMPARE(result.toString(), QStringLiteral("Stop at (ratio unchanged): 60 g → 59.1 g\nSaved bag “Gran Bar”: Dose 20 g → 19.7 g"));
+        QCOMPARE(result.toString(), QStringLiteral("Stop at (ratio unchanged): 60 g → 59.1 g\nSaved bag “Gran Bar”: Dose 20 g → 19.7 g\nSaved equipment “Niche Zero”: Grind 10 → 11\nSaved equipment “Niche Zero”: RPM 600 → 700"));
     }
     void reviewLeaveWaitsForSavesAndResumesOnce()
     {
@@ -198,20 +200,31 @@ private slots:
         ShotReviewSetup setup;
         setup.brew.activeBagId = 1;
         setup.brew.activeRecipeId = 7;
+        setup.brew.activeEquipmentId = 9;
         const QVariantMap recipe{{"id", 7}, {"name", "Morning"}, {"bagId", 1},
                                  {"doseG", 19.0}, {"grindPinned", "10"},
                                  {"profileTitle", "Profile"}, {"drinkType", "espresso"}};
         const QVariantMap bag{{"id", 2}, {"doseWeightG", 16.0},
                               {"grinderSetting", "3"}, {"yieldValue", 39.0},
                               {"yieldMode", "absolute"}};
+        const QVariantMap equipment{{"id", 9}, {"name", "Niche Zero"},
+                                     {"lastGrindSetting", "10"}, {"lastRpm", 600}};
         QVariantMap plan = shotReviewPersistentPlan(setup, {{"bagId", 2}}, recipe, bag);
         QVERIFY(plan.value("valid").toBool());
         QVERIFY(plan.value("bagPatch").toMap().isEmpty());
         QCOMPARE(plan.value("recipePatch").toMap(), (QVariantMap{{"bagId", 2}}));
         QCOMPARE(plan.value("effects").toList().size(), 1);
+        QVERIFY(plan.value("equipmentPatch").toMap().isEmpty());
 
         plan = shotReviewPersistentPlan(setup, {{"bagId", 2}, {"doseWeight", 20.0},
-                                                {"grinderSetting", "11"}}, recipe, bag);
+                                                {"grinderSetting", "11"}, {"rpm", 700}}, recipe, bag, equipment);
+        QVERIFY(plan.value("valid").toBool());
+        QCOMPARE(plan.value("equipmentPatch").toMap(), (QVariantMap{{"lastGrindSetting", "11"}, {"lastRpm", 700}}));
+        QCOMPARE(plan.value("equipmentId").toInt(), 9);
+        int equipmentEffects = 0;
+        for (const auto& effect : plan.value("effects").toList())
+            if (effect.toMap().value("record") == "equipment") ++equipmentEffects;
+        QCOMPARE(equipmentEffects, 2);
         const auto bagPatch = plan.value("bagPatch").toMap();
         const auto recipePatch = plan.value("recipePatch").toMap();
         QCOMPARE(bagPatch.value("doseWeightG").toDouble(), 20.0);
@@ -222,6 +235,11 @@ private slots:
         QCOMPARE(recipePatch.value("grindPinned").toString(), QStringLiteral("11"));
         QVERIFY(!recipePatch.contains("yieldG"));
         QVERIFY(!shotReviewPersistentPlan(setup, {{"bagId", 2}}, recipe, {}).value("valid").toBool());
+        QVERIFY(!shotReviewPersistentPlan(setup, {{"grinderSetting", "11"}}, recipe, bag).value("valid").toBool());
+        setup.brew.activeEquipmentId = -1;
+        plan = shotReviewPersistentPlan(setup, {{"bagId", 2}, {"rpm", 700}}, recipe, bag);
+        QVERIFY(plan.value("valid").toBool());
+        QVERIFY(plan.value("equipmentPatch").toMap().isEmpty());
     }
     void reviewProposalIncludesOnlyNetCorrections()
     {

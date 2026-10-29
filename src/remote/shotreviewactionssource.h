@@ -47,7 +47,10 @@ private:
                             const ShotReviewSetup& expected, const QVariantMap& bag);
     void completeCarryPreview(const QString& requestId, const QVariantMap& proposed,
                               const ShotReviewSetup& expected, const QVariantMap& bag,
-                              const QVariantMap& recipe);
+                              const QVariantMap& recipe, const QVariantMap& equipment);
+    void requestCarryEquipment(const QString& requestId, const QVariantMap& proposed,
+                               const ShotReviewSetup& expected, const QVariantMap& bag,
+                               const QVariantMap& recipe);
     void failCarryPreview(const QString& requestId, const QString& reason);
     void invalidateCarryProposals(bool recordChanged = false);
     void invalidateCarryForShot(qint64 shotId);

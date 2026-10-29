@@ -53,7 +53,7 @@ The system SHALL offer carry-forward only for the latest saved shot when the cur
 - **THEN** no corrections are offered for the next shot in that app session
 
 ### Requirement: Confirm only the actual corrections and their effects
-The offer SHALL list each eligible net correction and the resulting next-shot values and persistent recipe or bag changes. It SHALL exclude feedback and measurements that describe the completed shot. An edit reverted to its opening value SHALL not be offered. If no eligible net correction would change the next setup, no offer SHALL be shown.
+The offer SHALL list each eligible net correction and the resulting next-shot values and persistent recipe, bag or equipment dial changes. It SHALL exclude feedback and measurements that describe the completed shot. An edit reverted to its opening value SHALL not be offered. If no eligible net correction would change the next setup, no offer SHALL be shown.
 
 #### Scenario: Dose under a ratio
 - **GIVEN** the next shot is 18 g at 1:3, stopping at 54 g
@@ -82,6 +82,13 @@ The confirmation SHALL offer keeping the next shot unchanged or applying the dis
 - **WHEN** the user accepts a bean correction that explicitly lists an active recipe's bag-link update
 - **THEN** the recipe remains active and is linked to the corrected bag
 - **AND** the bag change does not alter the recipe's other fields or the live brew settings
+
+#### Scenario: Accepted dial correction survives equipment selection
+- **WHEN** the user accepts a grind or RPM correction with equipment selected
+- **THEN** the confirmation discloses the corrected equipment package's saved dial values
+- **AND** those explicitly corrected fields are saved with the bag and recipe changes
+- **AND** reselecting that equipment preserves the accepted dial
+- **AND** a bean-only correction does not write equipment dial values
 
 ### Requirement: Revalidate the offer and fail safely
 The system SHALL revalidate the shot's latest status and the next-shot setup before applying an offer. If the setup changes while the offer is open, the offer SHALL be withdrawn without applying it. Failed or unavailable writes SHALL be reported; the shot correction SHALL remain saved and the next-shot setup SHALL not be left partially updated.

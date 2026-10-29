@@ -312,7 +312,8 @@ T.Page {
             doseG: TranslationManager.translate("postshotreview.carry.dose", "Dose"),
             grinderSetting: TranslationManager.translate("postshotreview.carry.grind", "Grind"),
             grindPinned: TranslationManager.translate("postshotreview.carry.grind", "Grind"),
-            rpm: "RPM", rpmPinned: "RPM",
+            lastGrindSetting: TranslationManager.translate("postshotreview.carry.grind", "Grind"),
+            rpm: "RPM", rpmPinned: "RPM", lastRpm: "RPM",
             equipmentId: TranslationManager.translate("postshotreview.carry.equipment", "Equipment"),
             barista: TranslationManager.translate("postshotreview.carry.barista", "Barista"),
             targetWeight: TranslationManager.translate("postshotreview.carry.target", "Stop at (ratio unchanged)")
@@ -339,6 +340,8 @@ T.Page {
             const effect = effects[j]
             const record = effect.record === "recipe"
                 ? TranslationManager.translate("postshotreview.carry.recipe", "Saved recipe") + " “" + (_carryProposal.recipeName || "") + "”"
+                : effect.record === "equipment"
+                ? TranslationManager.translate("postshotreview.carry.savedEquipment", "Saved equipment") + " “" + (_carryProposal.equipmentName || "") + "”"
                 : TranslationManager.translate("postshotreview.carry.bag", "Saved bag") + " “" + (_carryProposal.bagName || "") + "”"
             if (effect.field === "bagId")
                 lines.push(record + ": " + TranslationManager.translate("postshotreview.carry.recipeBag", "use the corrected beans"))

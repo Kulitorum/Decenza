@@ -75,3 +75,20 @@ editable fields and all captured espresso, steam and DYE settings matched the
 starting values exactly; only the recipe's ordinary last-used timestamp advanced.
 The assistant did not start another app instance. No abrupt-process-termination
 recovery is provided.
+
+## PR review follow-up: equipment dial persistence
+
+Addressed the P2 finding on PR #2134 by adding only explicitly approved grind/RPM
+fields to the existing persistent plan and transaction. The shared confirmation
+names the equipment and its before/after dial values. Bean-only corrections do
+not read or write equipment dial memory. Existing record invalidation, stale-row
+checks and field-scoped cancellation restoration also cover the equipment write;
+no new storage service or recovery mechanism was added.
+
+Qt Creator focused run `1793221417750` passed both affected suites. Full run
+`1793221417751` passed all 207 suites with no failures, skips or test warnings.
+Build `1793221414983` passed with zero errors and warnings. Regression coverage
+checks equipment reselection, disclosed effects, stale equipment, unapproved
+fields, recipe-write failure rolling back the equipment dial, cancellation at
+both boundaries and preservation of another editor's equipment name/RPM.
+The additional native/browser inspection awaits the user's restart.

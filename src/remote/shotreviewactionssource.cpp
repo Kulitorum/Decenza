@@ -153,6 +153,12 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
         connect(controller->recipeStorage(), &RecipeStorage::recipeRemoved, this,
                 [this](qint64 id) { invalidateCarryForRecord(QStringLiteral("recipe"), id); });
     }
+    if (controller->equipmentStorage()) {
+        connect(controller->equipmentStorage(), &EquipmentStorage::packageUpdated, this,
+                [this](qint64 id, bool success) { if (success) invalidateCarryForRecord(QStringLiteral("equipment"), id); });
+        connect(controller->equipmentStorage(), &EquipmentStorage::packageDeleted, this,
+                [this](qint64 id, bool success) { if (success) invalidateCarryForRecord(QStringLiteral("equipment"), id); });
+    }
     if (bleManager) {
         connect(bleManager, &BLEManager::refractometerConnectedChanged,
                 this, &NativeShotReviewActionSource::publishRefractometerState);
@@ -256,7 +262,12 @@ void NativeShotReviewActionSource::invalidateCarryForRecord(const QString& kind,
         if (baseline == m_reviewBaselines.cend()) continue;
         const qint64 openedBag = preview.opening.value(QStringLiteral("bagId"), -1).toLongLong();
         const qint64 savedBag = preview.saved.value(QStringLiteral("bagId"), -1).toLongLong();
+        const qint64 openedEquipment = preview.opening.value(QStringLiteral("equipmentId"), -1).toLongLong();
+        const qint64 savedEquipment = preview.saved.value(QStringLiteral("equipmentId"), -1).toLongLong();
+        const qint64 equipmentId = (openedEquipment > 0 ? openedEquipment : -1) != (savedEquipment > 0 ? savedEquipment : -1)
+            ? savedEquipment : baseline->setup.brew.activeEquipmentId;
         const qint64 target = kind == QLatin1String("recipe") ? baseline->setup.brew.activeRecipeId
+            : kind == QLatin1String("equipment") ? equipmentId
             : ((openedBag > 0 ? openedBag : -1) != (savedBag > 0 ? savedBag : -1)
                ? savedBag : baseline->setup.brew.activeBagId);
         if (target == id) preview.recordChanged = true;
@@ -530,7 +541,7 @@ void NativeShotReviewActionSource::requestCarryRecipe(const QString& requestId,
     if (!m_pendingCarryPreviews.contains(requestId)) return;
     const qint64 recipeId = expected.brew.activeRecipeId;
     if (recipeId <= 0) {
-        completeCarryPreview(requestId, proposed, expected, bag, {});
+        requestCarryEquipment(requestId, proposed, expected, bag, {});
     } else if (!m_controller || !m_controller->recipeStorage()) {
         failCarryPreview(requestId, QStringLiteral("The active recipe is unavailable."));
     } else {
@@ -542,7 +553,34 @@ void NativeShotReviewActionSource::requestCarryRecipe(const QString& requestId,
                     failCarryPreview(requestId, reason.isEmpty() ? QStringLiteral("The active recipe is unavailable.") : reason);
                     return;
                 }
-                completeCarryPreview(requestId, proposed, expected, bag, recipe);
+                requestCarryEquipment(requestId, proposed, expected, bag, recipe);
+            });
+    }
+}
+
+void NativeShotReviewActionSource::requestCarryEquipment(const QString& requestId,
+                                                         const QVariantMap& proposed,
+                                                         const ShotReviewSetup& expected,
+                                                         const QVariantMap& bag,
+                                                         const QVariantMap& recipe)
+{
+    if (!m_pendingCarryPreviews.contains(requestId)) return;
+    const QVariantMap patch = proposed.value(QStringLiteral("patch")).toMap();
+    const qint64 equipmentId = patch.value(QStringLiteral("equipmentId"), expected.brew.activeEquipmentId).toLongLong();
+    if (equipmentId <= 0 || (!patch.contains(QStringLiteral("grinderSetting")) && !patch.contains(QStringLiteral("rpm")))) {
+        completeCarryPreview(requestId, proposed, expected, bag, recipe, {});
+    } else if (!m_controller || !m_controller->equipmentStorage()) {
+        failCarryPreview(requestId, QStringLiteral("The selected equipment is unavailable."));
+    } else {
+        m_controller->equipmentStorage()->requestPackageWithCompletion(equipmentId, this,
+            [this, requestId, proposed, expected, bag, recipe](qint64, bool success,
+                                                             const QVariantMap& equipment, const QString& reason) {
+                if (!m_pendingCarryPreviews.contains(requestId)) return;
+                if (!success || equipment.isEmpty()) {
+                    failCarryPreview(requestId, reason.isEmpty() ? QStringLiteral("The selected equipment is unavailable.") : reason);
+                    return;
+                }
+                completeCarryPreview(requestId, proposed, expected, bag, recipe, equipment);
             });
     }
 }
@@ -551,7 +589,8 @@ void NativeShotReviewActionSource::completeCarryPreview(const QString& requestId
                                                         const QVariantMap& proposed,
                                                         const ShotReviewSetup& expected,
                                                         const QVariantMap& bag,
-                                                        const QVariantMap& recipe)
+                                                        const QVariantMap& recipe,
+                                                        const QVariantMap& equipment)
 {
     const auto it = m_pendingCarryPreviews.find(requestId);
     if (it == m_pendingCarryPreviews.end()) return;
@@ -572,7 +611,7 @@ void NativeShotReviewActionSource::completeCarryPreview(const QString& requestId
         return;
     }
     const QVariantMap patch = proposed.value(QStringLiteral("patch")).toMap();
-    const QVariantMap plan = shotReviewPersistentPlan(expected, patch, recipe, bag);
+    const QVariantMap plan = shotReviewPersistentPlan(expected, patch, recipe, bag, equipment);
     if (!plan.value(QStringLiteral("valid")).toBool()) {
         finish(requestId, QStringLiteral("previewCarryForward"), false,
                {{QStringLiteral("reviewId"), request.reviewId}}, QStringLiteral("The selected records changed."));
@@ -585,6 +624,10 @@ void NativeShotReviewActionSource::completeCarryPreview(const QString& requestId
     result.insert(QStringLiteral("proposalId"), requestId);
     result.insert(QStringLiteral("persistentEffects"), plan.value(QStringLiteral("effects")));
     result.insert(QStringLiteral("recipeName"), recipe.value(QStringLiteral("name")));
+    QString equipmentName = equipment.value(QStringLiteral("name")).toString();
+    if (equipmentName.isEmpty()) equipmentName = (equipment.value(QStringLiteral("grinderBrand")).toString()
+        + QLatin1Char(' ') + equipment.value(QStringLiteral("grinderModel")).toString()).trimmed();
+    result.insert(QStringLiteral("equipmentName"), equipmentName);
     result.insert(QStringLiteral("bagName"), bag.value(QStringLiteral("coffeeName")));
     result.insert(QStringLiteral("bagRoaster"), bag.value(QStringLiteral("roasterName")));
     result.insert(QStringLiteral("previousBagName"), expected.beanType);
@@ -920,6 +963,8 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
                             emit self->m_controller->bagStorage()->bagsChanged();
                         if (!proposal.persistentPlan.value(QStringLiteral("recipePatch")).toMap().isEmpty())
                             emit self->m_controller->recipeStorage()->recipesChanged();
+                        if (!proposal.persistentPlan.value(QStringLiteral("equipmentPatch")).toMap().isEmpty())
+                            self->m_controller->equipmentStorage()->notifyPackagesChangedExternally();
                     }
                     self->finish(requestId, QStringLiteral("applyCarryForward"), error.isEmpty(),
                                  {{QStringLiteral("reviewId"), reviewId}}, error);

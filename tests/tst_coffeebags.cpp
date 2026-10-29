@@ -611,17 +611,26 @@ private slots:
             Recipe recipe; recipe.name = "Recipe"; recipe.profileTitle = "Profile";
             recipe.bagId = oldId; recipe.doseG = 19; recipe.yieldMode = QStringLiteral("ratio"); recipe.yieldValue = 3;
             const qint64 recipeId = RecipeStorage::insertRecipeStatic(db, recipe);
+            EquipmentPackage equipment; equipment.name = QStringLiteral("Review grinder");
+            equipment.lastGrindSetting = QStringLiteral("10"); equipment.lastRpm = 600;
+            const qint64 equipmentId = EquipmentStorage::createPackageWithGrinderStatic(db, equipment, "Niche", "Zero", "63mm");
+            QVERIFY(equipmentId > 0);
+            QVariantMap originalEquipment = EquipmentStorage::loadPackageStatic(db, equipmentId).toVariantMap();
+            const QVariantMap identity = EquipmentStorage::editableSnapshotStatic(db, equipmentId);
+            for (auto field = identity.cbegin(); field != identity.cend(); ++field)
+                originalEquipment.insert(field.key(), field.value());
             QVERIFY(oldId > 0 && newId > 0 && recipeId > 0);
             const qint64 shotId = insertShot(db, "R", "Old", 1000, {}, oldId);
             QVERIFY(shotId > 0);
             QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId,
-                {{"bagId", newId}, {"doseWeight", 20.0}}));
+                {{"bagId", newId}, {"doseWeight", 20.0}, {"grinderSetting", "11"}, {"rpm", 700}}));
             const QVariantMap originalBag = CoffeeBagStorage::loadBagStatic(db, newId).toVariantMap();
             const QVariantMap originalRecipe = RecipeStorage::loadRecipeStatic(db, recipeId).toVariantMap();
             ShotReviewSetup setup; setup.brew.activeBagId = oldId; setup.brew.activeRecipeId = recipeId;
+            setup.brew.activeEquipmentId = equipmentId;
+            const QVariantMap approvedPatch{{"bagId", newId}, {"doseWeight", 20.0}, {"grinderSetting", "11"}, {"rpm", 700}};
             const QVariantMap plan = shotReviewPersistentPlan(setup,
-                {{"bagId", newId}, {"doseWeight", 20.0}}, originalRecipe, originalBag);
-            const QVariantMap approvedPatch{{"bagId", newId}, {"doseWeight", 20.0}};
+                approvedPatch, originalRecipe, originalBag, originalEquipment);
             QVERIFY(plan.value("valid").toBool());
             {
                 auto unsafePlan = plan;
@@ -641,6 +650,22 @@ private slots:
                 QCOMPARE(stageShotReviewWrites(db, txn, shotId, unsafePlan, approvedPatch, originalBag, originalRecipe),
                          QStringLiteral("invalid"));
             }
+            {
+                auto unsafePlan = plan;
+                unsafePlan.insert("equipmentPatch", QVariantMap{{"name", "Not approved"}});
+                auto txn = DbWriteTxn::begin(db, "test unapproved equipment write");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, unsafePlan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("invalid"));
+            }
+            QVERIFY(EquipmentStorage::updatePackageFieldsStatic(db, equipmentId, {{"lastRpm", 650}}));
+            {
+                auto txn = DbWriteTxn::begin(db, "test stale equipment");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, plan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("staleEquipment"));
+            }
+            QVERIFY(EquipmentStorage::updatePackageFieldsStatic(db, equipmentId, {{"lastRpm", 600}}));
             QSqlQuery trigger(db);
             QVERIFY(trigger.exec("CREATE TRIGGER review_fail BEFORE UPDATE ON recipes BEGIN SELECT RAISE(ABORT, 'injected'); END"));
             trigger.finish();
@@ -654,6 +679,8 @@ private slots:
             QCOMPARE(publications, 0);
             QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).doseWeightG, 16.0);
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).bagId, oldId);
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).lastGrindSetting, QStringLiteral("10"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).lastRpm, 600);
             QVERIFY(trigger.exec("DROP TRIGGER review_fail"));
             trigger.finish();
             // A lost client or a new operation can cancel at either owner
@@ -669,6 +696,8 @@ private slots:
                 QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).toVariantMap(), originalBag);
                 QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).editableSnapshot(),
                          Recipe::editableSnapshot(originalRecipe));
+                QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).lastGrindSetting, QStringLiteral("10"));
+                QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).lastRpm, 600);
             }
             QVariantMap publishedBag, publishedRecipe;
             QCOMPARE(commitShotReviewWrites(db, shotId, plan, approvedPatch, originalBag, originalRecipe,
@@ -690,6 +719,14 @@ private slots:
             QCOMPARE(finalRecipe.doseG, 20.0);
             QCOMPARE(finalRecipe.yieldValue, 3.0);
             QCOMPARE(finalRecipe.yieldMode, QStringLiteral("ratio"));
+            // Reselecting the same equipment must retain the approved dial,
+            // rather than restoring the package's pre-review values.
+            clearDyeSettings();
+            SettingsDye dye;
+            dye.switchToEquipment(EquipmentStorage::loadPackageStatic(db, equipmentId).toVariantMap());
+            QCOMPARE(dye.dyeGrinderSetting(), QStringLiteral("11"));
+            QCOMPARE(dye.dyeGrinderRpm(), 700);
+            clearDyeSettings();
             {
                 auto txn = DbWriteTxn::begin(db, "test stale review");
                 QVERIFY(txn.ok());
@@ -698,12 +735,16 @@ private slots:
             }
             QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, recipeId, {{"name", "Edited elsewhere"}}));
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, newId, {{"notes", "Keep this note"}}));
+            QVERIFY(EquipmentStorage::updatePackageFieldsStatic(db, equipmentId, {{"name", "Keep this equipment name"}, {"lastRpm", 800}}));
             QVERIFY(restoreShotReviewWrites(db, plan, originalBag, originalRecipe,
                                             finalBag.toVariantMap(), finalRecipe.toVariantMap()));
             QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).doseWeightG, 16.0);
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).bagId, oldId);
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).name, QStringLiteral("Edited elsewhere"));
             QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).notes, QStringLiteral("Keep this note"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).lastGrindSetting, QStringLiteral("10"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).lastRpm, 800);
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, equipmentId).name, QStringLiteral("Keep this equipment name"));
             const qint64 newerId = insertShot(db, "R", "New", 1001, {}, newId);
             QVERIFY(newerId > shotId);
             {

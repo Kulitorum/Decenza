@@ -2,6 +2,7 @@
 
 #include "coffeebagstorage.h"
 #include "recipestorage.h"
+#include "equipmentstorage.h"
 #include "core/dbutils.h"
 
 #include <QSqlQuery>
@@ -17,15 +18,23 @@ inline bool restoreShotReviewWrites(QSqlDatabase& db, const QVariantMap& plan,
     const qint64 recipeId = plan.value(QStringLiteral("recipeId")).toLongLong();
     const QVariantMap bagFields = plan.value(QStringLiteral("bagPatch")).toMap();
     const QVariantMap recipeFields = plan.value(QStringLiteral("recipePatch")).toMap();
+    const qint64 equipmentId = plan.value(QStringLiteral("equipmentId")).toLongLong();
+    const QVariantMap equipmentFields = plan.value(QStringLiteral("equipmentPatch")).toMap();
+    const QVariantMap originalEquipment = plan.value(QStringLiteral("equipmentBefore")).toMap();
+    const QVariantMap currentEquipment = equipmentFields.isEmpty() ? QVariantMap()
+        : EquipmentStorage::loadPackageStatic(db, equipmentId).toVariantMap();
     const QVariantMap currentBag = bagFields.isEmpty() ? QVariantMap() : CoffeeBagStorage::loadBagStatic(db, bagId).toVariantMap();
     const QVariantMap currentRecipe = recipeFields.isEmpty() ? QVariantMap() : RecipeStorage::loadRecipeStatic(db, recipeId).toVariantMap();
-    QVariantMap bagUndo, recipeUndo;
+    QVariantMap bagUndo, recipeUndo, equipmentUndo;
     // Restore only our writes. A later edit to another field, or to one of
     // these fields, belongs to that editor and must survive cancellation.
     for (auto it = bagFields.cbegin(); it != bagFields.cend(); ++it)
         if (currentBag.value(it.key()) == writtenBag.value(it.key())) bagUndo.insert(it.key(), originalBag.value(it.key()));
     for (auto it = recipeFields.cbegin(); it != recipeFields.cend(); ++it)
         if (currentRecipe.value(it.key()) == writtenRecipe.value(it.key())) recipeUndo.insert(it.key(), originalRecipe.value(it.key()));
+    for (auto it = equipmentFields.cbegin(); it != equipmentFields.cend(); ++it)
+        if (currentEquipment.value(it.key()) == it.value()) equipmentUndo.insert(it.key(), originalEquipment.value(it.key()));
+    if (!equipmentUndo.isEmpty() && !EquipmentStorage::updatePackageFieldsStatic(db, equipmentId, equipmentUndo)) return false;
     if (!bagUndo.isEmpty() && !CoffeeBagStorage::updateBagFieldsStatic(db, bagId, bagUndo)) return false;
     if (!recipeUndo.isEmpty() && !RecipeStorage::updateRecipeFieldsStatic(db, recipeId, recipeUndo)) return false;
     return transaction.commit();
@@ -99,6 +108,8 @@ inline QString stageShotReviewWrites(QSqlDatabase& db, const DbWriteTxn& transac
     }
     const QVariantMap bagPatch = plan.value(QStringLiteral("bagPatch")).toMap();
     const QVariantMap recipePatch = plan.value(QStringLiteral("recipePatch")).toMap();
+    const qint64 equipmentId = plan.value(QStringLiteral("equipmentId")).toLongLong();
+    const QVariantMap equipmentPatch = plan.value(QStringLiteral("equipmentPatch")).toMap();
     const QMap<QString, QString> bagSource{{QStringLiteral("doseWeightG"), QStringLiteral("doseWeight")},
         {QStringLiteral("grinderSetting"), QStringLiteral("grinderSetting")},
         {QStringLiteral("rpm"), QStringLiteral("rpm")}, {QStringLiteral("equipmentId"), QStringLiteral("equipmentId")}};
@@ -114,9 +125,15 @@ inline QString stageShotReviewWrites(QSqlDatabase& db, const DbWriteTxn& transac
         }
         return true;
     };
-    if (!followsApproval(bagPatch, bagSource) || !followsApproval(recipePatch, recipeSource))
+    const QMap<QString, QString> equipmentSource{{QStringLiteral("lastGrindSetting"), QStringLiteral("grinderSetting")},
+        {QStringLiteral("lastRpm"), QStringLiteral("rpm")}};
+    if (!followsApproval(bagPatch, bagSource) || !followsApproval(recipePatch, recipeSource)
+        || !followsApproval(equipmentPatch, equipmentSource))
         return QStringLiteral("invalid");
-    if ((!bagPatch.isEmpty() && bagId <= 0) || (!recipePatch.isEmpty() && recipeId <= 0))
+    if ((!bagPatch.isEmpty() && bagId <= 0) || (!recipePatch.isEmpty() && recipeId <= 0)
+        || (!equipmentPatch.isEmpty() && equipmentId <= 0)
+        || (approvedPatch.contains(QStringLiteral("equipmentId")) && equipmentId > 0
+            && equipmentId != approvedPatch.value(QStringLiteral("equipmentId")).toLongLong()))
         return QStringLiteral("invalid");
     if (bagId > 0) {
         const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
@@ -128,6 +145,18 @@ inline QString stageShotReviewWrites(QSqlDatabase& db, const DbWriteTxn& transac
         if (!recipe.isValid() || expected.isEmpty() || recipe.editableSnapshot() != expected)
             return QStringLiteral("staleRecipe");
     }
+    if (equipmentId > 0) {
+        const EquipmentPackage equipment = EquipmentStorage::loadPackageStatic(db, equipmentId);
+        if (!equipment.isValid() || equipment.toVariantMap()
+            != EquipmentPackage::fromVariantMap(plan.value(QStringLiteral("equipmentBefore")).toMap()).toVariantMap())
+            return QStringLiteral("staleEquipment");
+        const QVariantMap identity = EquipmentStorage::editableSnapshotStatic(db, equipmentId);
+        const QVariantMap expected = plan.value(QStringLiteral("equipmentBefore")).toMap();
+        for (auto field = identity.cbegin(); field != identity.cend(); ++field)
+            if (field.value() != expected.value(field.key())) return QStringLiteral("staleEquipment");
+    }
+    if (!equipmentPatch.isEmpty() && !EquipmentStorage::updatePackageFieldsStatic(db, equipmentId, equipmentPatch))
+        return QStringLiteral("equipmentWriteFailed");
     if (!bagPatch.isEmpty() && !CoffeeBagStorage::updateBagFieldsStatic(db, bagId, bagPatch))
         return QStringLiteral("bagWriteFailed");
     if (!recipePatch.isEmpty() && !RecipeStorage::updateRecipeFieldsStatic(db, recipeId, recipePatch))
@@ -160,5 +189,5 @@ QString commitShotReviewWrites(QSqlDatabase& db, qint64 shotId, const QVariantMa
     }
     if (publishIfCurrent(bag, recipe)) return {};
     return restoreShotReviewWrites(db, plan, originalBag, originalRecipe, bag, recipe) ? cancelled
-        : QStringLiteral("The next shot changed while saving. Please review the recipe and bag changes.");
+        : QStringLiteral("The next shot changed while saving. Please review the saved changes.");
 }
