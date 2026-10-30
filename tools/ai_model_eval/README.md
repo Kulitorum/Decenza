@@ -103,6 +103,10 @@ comparisons. A provider-reported bill (OpenRouter) is stored as
 `reported_cost_usd`; a token-rate estimate is stored as `uncached_cost_usd`.
 Printed summaries keep the two totals separate, including in mixed-provider runs.
 Only the token-rate estimate excludes cache read/write adjustments.
+Each invocation resets `usage.json` before loading keys or making requests.
+Every attempted call is recorded, including errors; billed/usage-bearing errors
+count toward cost totals. Calls without usage or price data have no cost field
+and are reported as excluded, rather than being treated as free.
 
 ### 5. Be honest about sample size
 
