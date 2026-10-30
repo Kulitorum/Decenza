@@ -9,4 +9,4 @@
 - [x] 2.1 Update the firmware tests for the new builds, and assert exactly one manifest entry per channel.
 - [x] 2.2 Update `docs/CLAUDE_MD/FIRMWARE_UPDATE.md`.
 - [x] 2.3 Wiki manual: checked. `Manual.md` names channels but no build numbers, so no edit is needed.
-- [ ] 2.4 Full test suite green through Qt Creator.
+- [x] 2.4 Full test suite green through Qt Creator. 207/207 on this branch at `77731e47b` (2026-10-30).

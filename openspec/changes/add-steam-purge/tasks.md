@@ -21,4 +21,4 @@
 
 - [x] 4.1 Wiki manual, Steam section: two sentences on Purge after steaming and the idle Purge pill. Verify: drafted in the wiki clone, pushed only on the user's OK.
 - [x] 4.2 Full suite through Qt Creator. Verify: all green.
-- [ ] 4.3 Real DE1 with the GHC active: Purge from the idle pill starts without a tap and ends by itself; time it and correct `STEAM_PURGE_SECONDS`. Verify: result recorded here; held for the user if no machine is available.
+- [ ] 4.3 Real DE1 with the GHC active: Purge from the idle pill starts without a tap and ends by itself; time it and correct `STEAM_PURGE_SECONDS`. Verify: result recorded here; held for the user if no machine is available. HELD (2026-10-30): tested on hardware in the beta; this change is archived after that check.
