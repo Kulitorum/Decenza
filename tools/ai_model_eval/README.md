@@ -97,7 +97,16 @@ model — the cheapest response is unmistakable — and broke the blind after th
 fact. Objective criteria (did it emit the block, did it name the failure)
 survive that leak; subjective quality ranking does not.
 
-Write your judgments down *before* `replay.py reveal`.
+Write your judgments down *before* `replay.py reveal` or opening `usage.json`.
+The latter records per-call input, output, cached and reasoning tokens for cost
+comparisons. A provider-reported bill (OpenRouter) is stored as
+`reported_cost_usd`; a token-rate estimate is stored as `uncached_cost_usd`.
+Printed summaries keep the two totals separate, including in mixed-provider runs.
+Only the token-rate estimate excludes cache read/write adjustments.
+Each invocation resets `usage.json` before loading keys or making requests.
+Every attempted call is recorded, including errors; billed/usage-bearing errors
+count toward cost totals. Calls without usage or price data have no cost field
+and are reported as excluded, rather than being treated as free.
 
 ### 5. Be honest about sample size
 
@@ -127,6 +136,181 @@ checked on 2026-07-30 and found wrong — one listed Terra at $2.50/$15 against 
 actual $2.00/$12.
 
 ## Findings log
+
+### 2026-10-30 — Adopt Terra low and Luna medium for advisor requests
+
+Implemented the requested choices for analysis and conversation turns: Terra
+`low`, Luna `medium`. Direct OpenAI and OpenRouter Luna share the advisor choice;
+OpenAI translation retains `none` for Luna/Terra, and OpenRouter Test Connection
+retains Luna `none` at its 10-token cap. The replay defaults and request-shape
+probe mirror those paths. Sol's setting and the provider defaults are unchanged.
+
+Live probes passed OpenAI Terra low and Luna medium, each translator at none +
+temperature 0.3, both Responses web-search paths at low, and OpenRouter Luna
+medium at 4,096 tokens / none at 10 tokens. No private espresso prompts were
+sent to OpenRouter. Its medium advisor acceptance is verified; the quality and
+cost estimate comes from the direct Luna replay below, not an OpenRouter replay.
+
+Luna's displayed estimate is now $0.0022/shot, about $0.20/month at 3 shots/day,
+using the tasted medium-effort workload. Terra remains ~$0.015/shot. Changed
+translation keys prevent previously cached cost/guidance text from persisting.
+Regression checks cover advisor reasoning on both one-shot and conversation
+requests, plus the independent connection-test setting. Qt Creator/build/tests
+remain on the maintainer's explicit hold; these are live API probe results.
+
+### 2026-10-30 — Terra high/xhigh match low's checks at higher cost
+
+Two runs of all six stored v4 scenarios at high/xhigh/max, preserving the app's
+4,096-token cap. High and xhigh completed 12 calls each; max was rejected with
+HTTP 400 `unsupported_value`. The Chat Completions error listed only none, low,
+medium, high and xhigh, despite the
+[model page](https://developers.openai.com/api/docs/models/gpt-6.1-terra) listing
+max. This records the tested endpoint's behavior, not a claim about Responses or
+future account availability. No max quality result was obtained.
+
+| Terra effort | Usable blocks on tasted shots | Taste gate on untasted shots | Mean reasoning tokens | Mean cost/analysis |
+|---|---|---|---|---|
+| low (prior runs) | 8/8 | 4/4 | 55 | $0.014525 |
+| medium (prior runs) | 8/8 | 4/4 | 298 | $0.015812 |
+| high | 8/8 | 4/4 | 734 (328–1,024) | $0.018031 |
+| xhigh | 8/8 | 4/4 | 2,348 (864–3,522) | $0.026248 |
+
+Mean input was 13,131 tokens; high/xhigh total output including reasoning was
+980/2,624 tokens. Costs use the same standard $1/$5 per million input/output
+before cache read/write adjustments. High adds $0.003506 (+24%) over low;
+xhigh adds $0.011723 (+81%). At 90 analyses/month, totals are ~$1.31 for low,
+$1.62 for high and $2.36 for xhigh. Tasted scenarios alone averaged
+$0.018987/$0.028047 at high/xhigh. Fully warm projections are $0.005557/$0.013774.
+The 24 completed calls total $0.531355 before cache adjustments, not an invoice.
+
+No output truncations, wrong-type/prose settings, missing required JSON fields,
+grind-direction reversals or material reference-context mistakes were observed
+in the high/xhigh replies. Suggestions matched the already defensible low/medium
+changes: coarser on the bitter restricted shot, return to a better-rated setting
+on the low-score shot, shorter yield on bitter overshoot, and a small coarser
+step or longer yield on the mildly sour shot. One reply noticed the future
+defrost date. No clear overall quality gain emerged on these six saved cases.
+
+Keep Terra's advisor at low. The sample does not establish equal performance on
+all tasks; a broader fresh-shot set would be needed to separate settings that
+all passed these checks. Criteria and judgments were recorded before reading
+per-effort keys/metering. No production settings or Qt Creator state changed.
+Private runs: `blind-terra61-remaining-r1-20261030`,
+`blind-terra61-remaining-r2-20261030`.
+
+### 2026-10-30 — Luna high adds cost and hits the app's output cap
+
+Follow-up: two runs of all six stored v4 scenarios at `high` (12 calls), with
+the same 4,096 total output-token cap. High returned usable blocks on 7/8 tasted
+cases and preserved the taste gate on 4/4 untasted cases. On the second sour
+case, all 4,096 completion tokens were reasoning, `finish_reason` was `length`,
+and the visible reply was empty. Medium had returned 8/8 without truncation.
+
+High averaged 2,472 reasoning tokens (512–4,096), 2,735 total output tokens, and
+13,131 input tokens. Normalized cost before cache read/write adjustments was
+$0.002681 per analysis, versus medium's $0.002094: +$0.000586 (~28%), about
+$0.053 more for 90 analyses/month. High totals ~$0.24/month on that basis.
+Tasted scenarios alone averaged $0.002992, including the failed answer. A fully
+warm prompt projects $0.001499 per analysis. The twelve calls total $0.032168
+before cache adjustments; token cost includes the failed reply.
+
+The visible high replies gave defensible grind/yield changes and showed no
+material reference-context error in this small sample. That does not establish
+superiority to medium; high lowered usable-answer consistency at the shipped cap.
+Keep the recommendation at medium. A higher cap was not evaluated, and no Luna
+production setting was changed. This single-effort follow-up was not blinded;
+response judgments preceded opening metering. Qt Creator remained untouched.
+Private runs: `blind-luna6-high-r1-20261030`, `blind-luna6-high-r2-20261030`.
+
+### 2026-10-30 — Luna benefits most from medium reasoning in this replay
+
+Two runs of all six `captured_v4` scenarios at none/low/medium (36 API calls),
+using the existing 4,096-token output cap. Criteria and reply judgments were
+written before opening effort labels and token usage. Labels used different
+seeds across runs. This compares reasoning effort on one model, not model quality
+across providers. Qt Creator was not used for this follow-up.
+
+| Luna effort | Usable blocks on tasted shots | Taste gate on untasted shots | Mean reasoning tokens | Mean cost/analysis |
+|---|---|---|---|---|
+| none | 4/8 | 4/4 | 0 | $0.001436 |
+| low | 6/8 | 4/4 | 137 (0–484) | $0.001507 |
+| medium | 8/8 | 4/4 | 1,285 (251–2,048) | $0.002094 |
+
+Mean input was 13,131 tokens; output including reasoning was 245/387/1,563
+respectively. Costs use standard $0.10/$0.50 input/output per million, before cache
+reads/writes, at identical input workloads. Low adds $0.000071 (~5%); medium
+adds $0.000659 (~46%). Medium's increase is about $0.06 for 90 analyses/month.
+On tasted prompts alone, medium averaged $0.002235, about $0.20 for 90 shots.
+With a fully warm prompt, projected totals are $0.000254/$0.000325/$0.000913.
+The 36 calls total $0.06044 before cache adjustments; this is not an invoice.
+
+At none, two score-only replies asked for flavor instead of giving a next-shot
+block, one bitter/overshoot reply gave only prose advice, and one sour reply
+asked another question. Low still omitted the block on one bitter/overshoot
+and one sour reply despite recommending changes in prose. Medium returned all
+eight blocks, made defensible grind/yield changes, and never truncated. No
+setting emitted prose in `grinderSetting` or gave a direction reversal. One none
+reply said to return to 6.5 despite already being at 6.5 on the bitter 47-second
+shot; low/medium proposed 6.75.
+
+Context reasoning is still imperfect. None twice labeled the same-bean
+`bestRecentShot` as a different bean and once treated another bean's session as
+a grind change within the current setup. Low made an unsupported different-profile
+claim; one medium reply also referenced another bean's session without explaining
+that boundary. More thinking helped usable advice, not every context detail.
+
+The capture audit also found that v4's history-heavy prompt lacks the older
+blowout and recentAdvice block described by its caption. Those axes cannot be
+scored here; the separate current-blowout prompt remains valid. The prior Terra
+historical-blowout claim was corrected in its findings entry and AI_ADVISOR.md.
+
+Recommendation: medium for Luna's advisor, low for Terra's. During this replay,
+Luna's production setting was still none; the subsequent adoption entry above
+records the requested implementation. This small stored-prompt sample is not a production success rate.
+Private runs: `blind-luna6-reasoning-r1-20261030` and
+`blind-luna6-reasoning-r2-20261030`.
+
+### 2026-10-30 — Terra 6.1 added; low reasoning improves next-shot consistency
+
+OpenAI's third option is `gpt-6.1-terra`, at $1/$5 per million input/output
+and $0.05 cached input. Sol ($2/$10) and Luna ($0.10/$0.50) are still priced
+correctly; [official pricing](https://developers.openai.com/api/docs/pricing).
+Sol stays the default. The request-shape probe passed advisor `none`, translator
+`none` + temperature 0.3, and Responses web search at `low`. The reasoning replays
+also verified the advisor at `low` and `medium` with the app's 4,096-token cap.
+
+Used stored `captured_v4` prompts (October 7), not a fresh app capture. First,
+two responses per six scenarios at `none`: 6/8 tasted responses had a usable
+next-shot block; one score-only and one bitter/overshoot response asked questions
+instead. An emission run added 4/4; the matched reasoning comparison added 3/4,
+for 13/16 overall at none. All four initial untasted responses asked for taste,
+and both current blowouts prompted prep/scale checks without regrinding.
+
+Compared none/low/medium once on all six scenarios, then repeated low/medium.
+Both reasoning levels emitted 8/8 tasted blocks and respected the taste gate on
+4/4 untasted responses. No direction reversals, prose settings, invented tasted
+flavors or output truncations. Sour's coarser step was defensible against its high
+peak pressure and restricted early flow, as in the prior October evaluation.
+Correction from the Luna follow-up: `captured_v4/untasted-run.json` contains no
+older blowout despite its caption. The earlier claim that Terra missed that
+failed shot was wrong; historical-blowout detection cannot be scored on v4.
+
+Low averaged 55 reasoning tokens (0–162), medium 298 (103–466). Mean input was
+13,131 tokens. At equal uncached rates, including all output and reasoning:
+none $0.01426, low $0.01453 (+$0.00027, ~2%), medium $0.01581 (+$0.00155, ~11%).
+Actual cache hits and writes varied; these are normalized token-rate estimates,
+not bills. A fully warm prompt projects $0.00178/$0.00205/$0.00334 respectively.
+On tasted scenarios alone, low cost $0.01481 before cache adjustments.
+
+Outcome: advisor requests use low on Terra; translator keeps none. Medium had
+no clear quality gain. This is a small sample, not proof of superiority to Sol or
+Luna. Judgments were written before opening per-effort usage/key files; blinding
+hides effort labels, not the identity of this single model.
+
+Private run directories: `blind-terra61-20261030`,
+`emission-terra61-tokens-20261030`, `blind-terra61-reasoning-20261030`, and
+`blind-terra61-reasoning-repeat-20261030`. New runs save `usage.json`; older pilot
+runs only printed aggregate costs. Do not commit their private prompts/replies.
 
 ### 2026-10-07 — Haiku 5.5 admitted as Anthropic's value pick, with low-effort thinking
 

@@ -25,6 +25,7 @@
     "ignored-advice: whether recentAdvice changes behaviour (see caveat below)"
    ],
    "notes": [
+    "2026-10-30 audit: captured_v4/untasted-run contains no older blowout or recentAdvice block. For v4, score the taste gate only; the historical-blowout and ignored-advice axes are not exercised.",
     "2026-07-30: both 5.6 models flagged the blowout; both 5.4 models missed it.",
     "gpt-5.4-mini additionally invented a grind trend that did not exist.",
     "CAVEAT on the ignored-advice axis: the shipped prompt's rule for",
@@ -89,6 +90,7 @@
     "grinderSetting is a setting, not prose"
    ],
    "notes": [
+    "2026-10-30: the v4 prompt has a 10.2-bar peak and restricted early flow. A small coarser step can be defensible; the old caption is not a mandatory finer-grind answer.",
     "2026-07-30: this is the scenario that exposed prose in grinderSetting.",
     "gpt-5.6-terra wrote 'a touch coarser than 9' at BOTH efforts;",
     "gpt-5.4-mini wrote 'slightly coarser than 9' at low. Keep this scenario."
