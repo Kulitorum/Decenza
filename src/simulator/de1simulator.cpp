@@ -497,7 +497,7 @@ void DE1Simulator::onSimulationTimerTick()
         m_pressure = 0.5 + fractalNoise(elapsed * 1.0, 2) * 0.3;
     } else if (m_state == DE1::State::SteamRinse) {
         // The firmware ends a purge itself; nothing asks for Idle.
-        if (elapsed >= STEAM_PURGE_SECONDS) {
+        if (elapsed >= m_steamPurgeSeconds) {
             SIM_INFO(QStringLiteral("Steam purge complete"));
             stopOperation();
             return;

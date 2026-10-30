@@ -21,9 +21,13 @@ class MachineControlService final : public RemoteService
     Q_PROPERTY(int phase READ phase NOTIFY stateChanged FINAL)
     Q_PROPERTY(int currentFrameIndex READ currentFrameIndex NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY stateChanged FINAL)
-    Q_PROPERTY(QString pendingDrinkStep READ pendingDrinkStep NOTIFY stateChanged FINAL)
+    Q_PROPERTY(int pendingDrinkStep READ pendingDrinkStep NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool drinkSequenceActive READ drinkSequenceActive NOTIFY stateChanged FINAL)
 public:
+    // Mirrors DrinkSequenceController::Step (asserted in tst_machinecontrolservice).
+    enum class DrinkStep { None, HotWater, Espresso };
+    Q_ENUM(DrinkStep)
+
     ~MachineControlService() override;
 
     qint64 selectedRecipeId() const;
@@ -34,7 +38,7 @@ public:
     int phase() const;
     int currentFrameIndex() const;
     QString currentFrameName() const;
-    QString pendingDrinkStep() const;
+    int pendingDrinkStep() const;
     bool drinkSequenceActive() const;
 
     void setNode(QRemoteObjectNode* node) override;

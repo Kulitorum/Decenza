@@ -81,6 +81,24 @@ private slots:
         QCOMPARE(received.count(), 2);
     }
 
+    // A purge from a non-idle state goes through Idle first, as de1app's
+    // start_steam_rinse does; from Idle it is the one request.
+    void steamPurgeRequestsSteamRinse() {
+        TestFixture f;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        f.transport.clearWrites();
+        f.device.startSteamPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 QList<QByteArray>{QByteArray(1, char(DE1::State::SteamRinse))});
+
+        f.transport.clearWrites();
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ready));
+        f.device.startSteamPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 (QList<QByteArray>{QByteArray(1, char(DE1::State::Idle)),
+                                    QByteArray(1, char(DE1::State::SteamRinse))}));
+    }
+
     void gcAbortPendingBlocksNewOperationsButAllowsStop() {
         TestFixture f;
         f.device.setGcAbortPending(true);

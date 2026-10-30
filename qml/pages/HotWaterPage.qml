@@ -141,6 +141,10 @@ T.Page {
             page.pendingPageActionId = ""
             page.pendingPageAction = ""
             if (!success) {
+                if (action === "skip") {
+                    actionToast.show(message)
+                    return
+                }
                 if (action === "adjust-target") {
                     // Refused because the pour is ending. Once it has ended, the
                     // completion overlay already says so.
@@ -524,7 +528,7 @@ T.Page {
             AccessibleButton {
                 id: skipDrinkStepButton
                 Layout.alignment: Qt.AlignHCenter
-                visible: MachineControlService.pendingDrinkStep === "espresso"
+                visible: MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso
                 text: TranslationManager.translate("drinkSequence.button.skip", "Skip")
                 icon.source: "qrc:/icons/espresso.svg"
                 tintIcon: true
@@ -539,7 +543,13 @@ T.Page {
                     page.liveFocusNeighbour(skipDrinkStepButton, false).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
-                onClicked: MachineControlService.skipDrinkStep(SteamService.state.controlContextId)
+                onClicked: {
+                    if (page.pendingPageActionId)
+                        return
+                    page.pendingPageActionId = MachineControlService.skipDrinkStep(
+                                SteamService.state.controlContextId)
+                    page.pendingPageAction = "skip"
+                }
             }
 
             // Stop button for headless machines

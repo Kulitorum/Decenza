@@ -5,7 +5,7 @@
 - Steam completion today: on Idle/Ready, `main.qml` shows "Steam Complete" through the shared `OperationCompletionOverlay` (1.5 s, `completionDuration`), then `leaveOperationPage()`. Hot water and flush use the same overlay.
 - Heater off is a built-in entry in the steam pitcher list (`SettingsBrew::heaterOffPitcherEntry`). The idle steam row renders that list with `PresetPillRow` in two places: `IdlePage.qml` (full) and `SteamItem.qml` (compact popup).
 - The app's start gate (`MachineControlStartPolicy::machineCanStart`) refuses every start when the GHC is active and not in simulation.
-- Four hand-written allow-lists of "an operation is running" (`mcptools_control.cpp` stop, `profilemanager.cpp`, `main.cpp`, plus `maincontroller.cpp`'s review kind) would each need the new phase. `MachineState::isOperating()` is a deny-list and already counts it.
+- Three hand-written allow-lists of "an operation is running" (`mcptools_control.cpp` stop, `profilemanager.cpp`, `main.cpp`) would each need the new phase, as would `main.qml`'s `operationActive`. `MachineState::isOperating()` is a deny-list and already counts it.
 
 ## Goals / Non-Goals
 
@@ -14,7 +14,7 @@
 - The new phase is added in one place; collections of phases derive from `isOperating()`.
 
 **Non-Goals:**
-- No Stop button for a purge (the firmware ends it). Back on the post-steam window is the one way to cut one short.
+- No Stop button for a purge (the firmware ends it). Back on the post-steam window and MCP `machine_stop` are the only ways to cut one short.
 - No MCP action to start a purge (`machine_start` is unchanged). MCP still reports the phase.
 - No change to the two-tap steam stop (`steam_two_tap_stop`) or the auto-flush countdown.
 
@@ -29,7 +29,7 @@ The hand-written lists in `mcptools_control.cpp` (`operationRunning`), `profilem
 `DE1Device::startSteamPurge()`: Idle first if not idle, then `requestState(SteamRinse)`, as `start_steam_rinse` does. A `start-steam-purge` command on `MachineControlService` checks the context and `isReady()`, but not `isHeadless`, through a `MachineControlStartPolicy::purgeCanStart` beside `machineCanStart`. That keeps the exemption as one named rule rather than a missing check. The Steam page and the idle pill both use this command.
 
 ### D3. A 10 s post-steam window in the shared completion overlay
-Steam already ends through `OperationCompletionOverlay` in both shells, and the steam page's post-session warnings already suspend and finish it, so the window lives there rather than in a new page state. A "steam" completion lasts `steamCompletionDuration` (10 s) instead of 1.5 s and shows Purge and Done. Done finishes it. A bottom bar's Back (steam only) requests Idle if a purge or steam is running, then finishes it. Purge calls `start-steam-purge` and `OperationCompletionState.hold()`s the countdown, then finishes once the phase has been through `SteamPurge` and is idle again (or the request fails). A repeat steam completion during the purge is ignored, since native `main.qml` re-announces one when the purge returns to Idle. Hot water and flush keep 1.5 s. The countdown is a UI auto-dismiss, which the timer rule allows.
+Steam already ends through `OperationCompletionOverlay` in both shells, and the steam page's post-session warnings already suspend and finish it, so the window lives there rather than in a new page state. A "steam" completion lasts `steamCompletionDuration` (10 s) instead of 1.5 s and shows Purge and Done. Done finishes it. A bottom bar's Back (steam only) requests Idle if a purge or steam is running and finishes once the host accepts it. A failed Purge or Back shows the host's reason under the buttons and restarts the countdown; a disconnect ends a purge. Purge calls `start-steam-purge` and `OperationCompletionState.hold()`s the countdown, then finishes once the phase has been through `SteamPurge` and is idle again . A repeat steam completion during the purge is ignored, since native `main.qml` re-announces one when the purge returns to Idle. Hot water and flush keep 1.5 s. The countdown is a UI auto-dismiss, which the timer rule allows.
 *Alternative:* a post-steam view inside `SteamPage`. Rejected: it would duplicate the overlay's timing and the suspend/finish handshake the warning dialogs depend on.
 
 ### D4. A Purge action pill

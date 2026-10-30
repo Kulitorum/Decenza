@@ -743,8 +743,8 @@ void MachineState::updatePhase() {
                 // Delay 200ms after resetTimer/startTimer to avoid BLE command contention —
                 // WriteWithoutResponse can silently drop packets when sent in rapid succession.
                 if (m_phase == Phase::HotWater) {
-                    // An americano's water lands in the cup the espresso is still
-                    // settling in; end that settle before the tare below zeroes it.
+                    // Hot water started while an espresso still settles: end that
+                    // settle before the tare below zeroes the reading.
                     if (m_timingController)
                         m_timingController->endSettlingForHotWater();
                     m_hotWaterTarePending = true;

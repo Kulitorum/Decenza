@@ -972,9 +972,9 @@ private slots:
                      .arg(tc.currentWeight(), 0, 'f', 2)));
     }
 
-    // An americano's hot water starts inside the 5 s firmware window, while the
-    // espresso is still settling, and tares the scale 200 ms later. The shot is
-    // saved at shotProcessingReady, so that is where its weight is read.
+    // Hot water started while the espresso still settles tares the scale 200 ms
+    // later. The shot is saved at shotProcessingReady, so that is where its
+    // weight is read.
     void hotWaterAfterASteadyReadingSavesItAndLearns() {
         DE1Device device;
         ShotTimingController tc(&device);

@@ -533,7 +533,7 @@ T.StackView {
         // A long black's water can open the Hot Water page before the drink flag
         // arrives; once it does, the cup view takes the drink over.
         function onDrinkInCupViewChanged() {
-            if (AppShell.drinkInCupView && root.currentItem
+            if (AppShell.drinkInCupView && !root.busy && root.currentItem
                     && root.currentItem.objectName === "hotWaterPage")
                 root.showOperationPage(root.espressoPage, "espressoPage")
         }

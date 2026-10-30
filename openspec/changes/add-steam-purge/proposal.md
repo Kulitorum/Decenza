@@ -23,7 +23,7 @@ The Steam page's Purge buttons were removed in `remove-steam-purge-buttons` (202
 
 ## Impact
 
-- `MachineState` phase list (`machinephase.h`) and every consumer that names phases: widget label tables (iOS, Android, `WIDGET_SNAPSHOT.md`). Four hand-written "operation running" lists (`mcptools_control.cpp`, `profilemanager.cpp`, `main.cpp`) collapse onto `MachineState::isOperating()`, so the new phase is counted once.
+- `MachineState` phase list (`machinephase.h`) and every consumer that names phases: widget label tables (iOS, Android, `WIDGET_SNAPSHOT.md`). Three hand-written "operation running" lists (`mcptools_control.cpp`, `profilemanager.cpp`, `main.cpp`) and `main.qml`'s `operationActive` collapse onto `MachineState::isOperating()`, so the new phase is counted once.
 - `DE1Device` purge start, `MachineControlService` command with a GHC-exempt start policy, simulator purge.
-- QML: `SteamPage.qml` post-steam window, the idle steam pill rows (`IdlePage.qml`, `SteamItem.qml`), `main.qml` steam completion.
+- QML: the post-steam window in the shared `OperationCompletionOverlay.qml`, Back on `SteamPage.qml`, the idle steam pill rows (`IdlePage.qml`, `SteamItem.qml`), and a screen-reader announcement for a purge in `main.qml`.
 - Wiki manual: the Steam section.

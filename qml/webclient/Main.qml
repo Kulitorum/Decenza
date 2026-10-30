@@ -635,6 +635,7 @@ ApplicationWindow {
         return navigation.showOperationPage(component, pageObjectName)
     }
     EspressoCompletionCoordinator {
+        id: espressoCompletion
         isCalibrationShot: window.pageStack.find(item => item.objectName === "sensorCalibrationPage") !== null
         postShotReviewTimeout: Number(RecipeContext.preferences.postShotReviewTimeout)
         onLeaveOperationPageRequested: window.leaveOperationPage()
@@ -747,7 +748,9 @@ ApplicationWindow {
             if (previous === MachineState.Phase.Steaming && name === "steamPage") {
                 completionOverlay.showCompletion(
                     TranslationManager.translate("main.completion.steam", "Steam Complete"), "steam")
-            } else if (previous === MachineState.Phase.HotWater && name === "hotWaterPage") {
+            } else if (previous === MachineState.Phase.HotWater
+                       && (name === "hotWaterPage" || name === "espressoPage")
+                       && !espressoCompletion.heldForDrink) {
                 completionOverlay.showCompletion(
                     TranslationManager.translate("main.completion.hotwater", "Hot Water Complete"), "hotwater")
             } else if (previous === MachineState.Phase.Flushing && name === "flushPage"

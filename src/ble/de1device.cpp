@@ -1538,7 +1538,7 @@ void DE1Device::startUnattended(DE1::State state) {
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator && !m_isHeadless
         && !m_simulator->acceptsUnattendedStart(state)) {
-        DEVICE_INFO(QStringLiteral("Simulated GHC refused %1: it needs a tap on the machine")
+        DEVICE_WARN(QStringLiteral("Simulated GHC refused %1: it needs a tap on the machine")
                         .arg(DE1::stateToString(state)));
         return;
     }
@@ -1547,6 +1547,9 @@ void DE1Device::startUnattended(DE1::State state) {
         startHotWater();
     else if (state == DE1::State::Espresso)
         startEspresso();
+    else
+        DEVICE_WARN(QStringLiteral("startUnattended has no start for %1; nothing requested")
+                        .arg(DE1::stateToString(state)));
 }
 
 void DE1Device::startSteamPurge() {

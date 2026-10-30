@@ -2314,9 +2314,11 @@ bool MainController::dispatchHomeRecipeStart(const QString& requestId, qint64 re
     // A long black's first step is its hot water; DrinkSequenceController
     // requests the espresso when that ends.
     if (RecipeEditFields::drinkSequence(activeRecipe())
-        == RecipeEditFields::DrinkSequence::WaterBefore)
+        == RecipeEditFields::DrinkSequence::WaterBefore) {
+        if (m_drinkSequence)
+            m_drinkSequence->expectRecipeWater();
         m_device->startHotWater();
-    else
+    } else
         m_device->startEspresso();
     emit recipeShotStartRequestCompleted(requestId, recipeId, true, QString());
     return true;
@@ -4616,14 +4618,10 @@ void MainController::setTimingController(ShotTimingController* controller)
     }
 }
 
-QString MainController::pendingDrinkStep() const
+int MainController::pendingDrinkStep() const
 {
-    switch (m_drinkSequence ? m_drinkSequence->pendingStep() : DrinkSequenceController::Step::None) {
-    case DrinkSequenceController::Step::HotWater: return QStringLiteral("hotWater");
-    case DrinkSequenceController::Step::Espresso: return QStringLiteral("espresso");
-    case DrinkSequenceController::Step::None: break;
-    }
-    return QString();
+    return static_cast<int>(m_drinkSequence ? m_drinkSequence->pendingStep()
+                                            : DrinkSequenceController::Step::None);
 }
 
 bool MainController::drinkSequenceActive() const

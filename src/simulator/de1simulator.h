@@ -58,6 +58,9 @@ public:
     // timed yet: this is a guess, to correct once one is (add-steam-purge 4.3).
     static constexpr double STEAM_PURGE_SECONDS = 3.0;
     bool acceptsUnattendedStart(DE1::State requested) const;
+#ifdef DECENZA_TESTING
+    void setSteamPurgeSecondsForTesting(double seconds) { m_steamPurgeSeconds = seconds; }
+#endif
 
 public slots:
     // Machine control (called from GHC buttons or app)
@@ -247,17 +250,18 @@ private:
     static constexpr double COFFEE_DENSITY = 1.03;        // g/ml (dissolved solids increase density)
     static constexpr double SCALE_NOISE_AMP = 0.05;       // ±0.05g scale jitter
 
-    // Ending phase - pressure decay through puck
+    // Ending: drip and vent after the pump stops.
     // Drip after the pump stops, as drip / flow-at-stop: the tablet's learned SAW lag
     // for D-Flow/Q was 0.92 s (1.08 g at 1.18 g/s, 2026-10-30).
     static constexpr double DRIP_TIME_CONSTANT_S = 0.9;
-    static constexpr double PRESSURE_VENT_TIME_CONSTANT_S = 0.5;
+    static constexpr double PRESSURE_VENT_TIME_CONSTANT_S = 0.5;  // a guess, not measured
     // A real DE1 holds Espresso/Ending this long before reporting Idle, whether the
     // profile ran out or a stop was requested: 21 tablet shots (2026-10-30) went Idle
     // 4.4-6.1 s after the stop-at-weight stop, median 5.1 s.
     static constexpr double ENDING_SECONDS = 5.0;
 
     int m_tickCount = 0;  // For 5Hz sample output
+    double m_steamPurgeSeconds = STEAM_PURGE_SECONDS;
 };
 
 #endif  // DECENZA_SIMULATOR

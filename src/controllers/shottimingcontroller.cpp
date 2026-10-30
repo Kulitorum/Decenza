@@ -191,9 +191,9 @@ void ShotTimingController::endShot()
     // Keep display timer running during settling so graph continues to update
     if (m_sawTriggeredThisShot) {
         startSettlingTimer();
-        // The shot's end arrives queued, so an americano's hot water, requested at
-        // the Idle report, can already be pouring. Its flow-start call found no
-        // settle to end; end this one now, before the water's tare lands.
+        // The shot's end arrives queued, so hot water started at the Idle report
+        // can already be pouring; its flow-start call found no settle to end.
+        // End this one now, before the water's tare lands.
         if (m_machineState && m_machineState->phase() == MachineState::Phase::HotWater) {
             endSettlingForHotWater();
             emit shotTimeChanged();

@@ -110,9 +110,9 @@ QString MachineControlService::currentFrameName() const
     return ready() ? m_state->currentFrameName() : QString();
 }
 
-QString MachineControlService::pendingDrinkStep() const
+int MachineControlService::pendingDrinkStep() const
 {
-    return ready() ? m_state->pendingDrinkStep() : QString();
+    return ready() ? m_state->pendingDrinkStep() : static_cast<int>(DrinkStep::None);
 }
 
 bool MachineControlService::drinkSequenceActive() const

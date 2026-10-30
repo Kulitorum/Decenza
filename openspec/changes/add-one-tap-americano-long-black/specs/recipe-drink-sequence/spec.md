@@ -35,7 +35,7 @@ Starting a qualifying recipe from the app (a tap on its selected pill, or the Es
 - **THEN** the app requests espresso
 
 ### Requirement: The second step is requested when the first ends
-A sequence SHALL be armed when the first step starts flowing with a qualifying recipe active, however it was started. The app SHALL request the second step once, at the later of the shot's settled end (americano only) and 4 seconds after the machine reports Idle, with no firmware or GHC check and no retry. The second step SHALL NOT arm a further step.
+An americano SHALL be armed when its espresso starts flowing with the recipe active, however it was started. A long black SHALL be armed only on hot water its recipe tap started, so other hot water with that recipe active is not followed by a shot. The app SHALL request the second step once, at the later of the shot's settled end (americano only) and 4 seconds after the machine reports Idle, with no firmware or GHC check and no retry. The second step SHALL NOT arm a further step.
 
 #### Scenario: Americano hot water follows the shot
 - **GIVEN** an active americano recipe
@@ -57,6 +57,11 @@ A sequence SHALL be armed when the first step starts flowing with a qualifying r
 - **WHEN** the user starts the espresso from the GHC and it ends
 - **THEN** the app requests hot water
 
+#### Scenario: Hot water for tea with a long black selected
+- **GIVEN** an active long black recipe
+- **WHEN** the user starts hot water from the Hot Water control, not the recipe
+- **THEN** no espresso is requested when the hot water ends
+
 #### Scenario: Refused request is not retried
 - **WHEN** the machine does not enter the second step after the request
 - **THEN** the app sends no further request for that drink and the machine stays as the firmware left it
@@ -72,9 +77,14 @@ While the first step runs, its operation page SHALL show a Skip button naming th
 - **WHEN** the user taps Skip during the americano's espresso
 - **THEN** no hot water is requested when the shot ends
 
-#### Scenario: Warming a cup with a long black active
-- **WHEN** the user runs hot water to warm a cup with a long black recipe active and taps Skip
+#### Scenario: Skipping espresso on a long black
+- **WHEN** the user taps Skip during the long black's hot water
 - **THEN** no espresso is requested when the hot water ends
+
+#### Scenario: Skip while waiting after the first step
+- **WHEN** the user taps Skip after the first step has ended, before the second is requested
+- **THEN** that step is not requested
+- **AND** the next drink with the same recipe sequences normally
 
 ### Requirement: A sequence ends with its drink
 An armed sequence SHALL be dropped when the machine goes anywhere other than Idle at the end of the first step (sleep, disconnect, or another operation).

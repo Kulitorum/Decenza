@@ -10,10 +10,16 @@
 
 #include <utility>
 
+#include "controllers/drinksequencecontroller.h"
 #include "core/machinecontrolstartpolicy.h"
 #include "remote/machinecontrolespressopolicy.h"
 #include "remote/machinecontrolservice_qml.h"
 #include "rep_machinecontrolservice_source.h"
+
+// The step crosses the remote boundary as an int; QML reads it as DrinkStep.
+static_assert(int(MachineControlService::DrinkStep::None) == int(DrinkSequenceController::Step::None)
+              && int(MachineControlService::DrinkStep::HotWater) == int(DrinkSequenceController::Step::HotWater)
+              && int(MachineControlService::DrinkStep::Espresso) == int(DrinkSequenceController::Step::Espresso));
 
 class PendingMachineControlSource final : public MachineControlStateSimpleSource
 {
@@ -338,7 +344,7 @@ void tst_MachineControlService::startPolicyRejectsStaleDeferredContexts()
     QVERIFY(!machineAllowed({}, QStringLiteral("a"), true, true, true));
     QVERIFY(!machineAllowed(QStringLiteral("a"), QStringLiteral("a"), false, true, true));
     QVERIFY(!machineAllowed(QStringLiteral("a"), QStringLiteral("a"), true, false, false));
-    // A purge is the one start a GHC machine accepts from the app.
+    // purgeCanStart is the one start policy that ignores the GHC.
     QVERIFY(MachineControlStartPolicy::purgeCanStart(QStringLiteral("a"), QStringLiteral("a"), true));
     QVERIFY(!MachineControlStartPolicy::purgeCanStart(QStringLiteral("a"), QStringLiteral("a"), false));
     QVERIFY(!MachineControlStartPolicy::purgeCanStart(QStringLiteral("a"), QStringLiteral("b"), true));
@@ -536,7 +542,7 @@ void tst_MachineControlService::presentationEventsBaselineReconnectAndReportGaps
     source.setPhase(6);
     source.setCurrentFrameIndex(2);
     source.setCurrentFrameName(QStringLiteral("Main pour"));
-    source.setPendingDrinkStep(QStringLiteral("hotWater"));
+    source.setPendingDrinkStep(static_cast<int>(MachineControlService::DrinkStep::HotWater));
 
     QRemoteObjectHost host;
     QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
@@ -550,7 +556,7 @@ void tst_MachineControlService::presentationEventsBaselineReconnectAndReportGaps
     QCOMPARE(service->phase(), 6);
     QCOMPARE(service->currentFrameIndex(), 2);
     QCOMPARE(service->currentFrameName(), QStringLiteral("Main pour"));
-    QCOMPARE(service->pendingDrinkStep(), QStringLiteral("hotWater"));
+    QCOMPARE(service->pendingDrinkStep(), static_cast<int>(MachineControlService::DrinkStep::HotWater));
 
     QSignalSpy events(service, &MachineControlService::presentationEvent);
     QSignalSpy missed(service, &MachineControlService::presentationEventsMissed);

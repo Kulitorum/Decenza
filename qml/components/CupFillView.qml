@@ -182,7 +182,7 @@ Item {
         // reading is past its tare by now.
         if (waterPhase) {
             waterTared = true
-            if (MachineControlService.pendingDrinkStep === "espresso") {
+            if (MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso) {
                 waterFirst = true
             } else {
                 extractionSeen = true
@@ -218,11 +218,9 @@ Item {
         }
     }
 
-    // Repaint on liquidWeight (displayWeight plus a drink's water), not currentWeight: the two are the same value
-    // whenever the view is not holding, and during the hold this repaints only
-    // when late drip actually raises the held peak rather than on every sample
-    // the scale sends. While animTimer runs, its next tick (<= 33 ms) draws the
-    // new weight anyway.
+    // Repaint on liquidWeight, not currentWeight: during a hold it changes only
+    // when late drip raises the held peak, not on every scale sample. While
+    // animTimer runs, its next tick (<= 33 ms) draws the new weight anyway.
     onLiquidWeightChanged: { if (!animTimer.running) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
     // Redraw once when the hold begins, so the frame comes from the held state
     // rather than whatever the last live paint left behind.

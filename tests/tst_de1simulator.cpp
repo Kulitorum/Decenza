@@ -118,10 +118,10 @@ private slots:
     void steamPurgeEndsByItself() {
         DE1Simulator sim;
         sim.wakeUp();
+        sim.setSteamPurgeSecondsForTesting(0.2);
         sim.startSteamPurge();
         QCOMPARE(sim.state(), DE1::State::SteamRinse);
-        QTRY_COMPARE_WITH_TIMEOUT(sim.state(), DE1::State::Idle,
-                                  int(DE1Simulator::STEAM_PURGE_SECONDS * 1000) + 2000);
+        QTRY_COMPARE(sim.state(), DE1::State::Idle);
     }
 
     void aFrameWithBothAnExitConditionAndZeroLengthAdvancesOnlyOnce() {

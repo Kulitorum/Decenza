@@ -4,7 +4,7 @@ An americano or long black recipe already records its hot water and the pour ord
 
 ## What Changes
 
-- An americano recipe (hot water ordered `after`, no milk) becomes one drink. When its espresso ends, the app requests hot water at once.
+- An americano recipe (hot water ordered `after`, no milk) becomes one drink. When its espresso ends, the app requests hot water at the later of the shot settling and 4 s into Idle.
 - A long black recipe (hot water ordered `before`, no milk) becomes one drink. Starting the recipe from the app starts the hot water first, and when that ends the app requests the espresso.
 - The second step is always requested, regardless of firmware or GHC state. Where the firmware refuses it, the drink stops after the first step, as it does today. Long black therefore starts working on GHC machines when Decent ships its firmware, with no Decenza change.
 - The first step's operation page names the step that follows and offers Skip, for when the first step was not meant as part of the drink (for example hot water run to warm a cup).
@@ -24,7 +24,7 @@ An americano or long black recipe already records its hot water and the pour ord
 ## Impact
 
 - New `src/controllers/` sequencer driven by `MachineState` phase changes, so it runs however the first step was started: recipe pill, Espresso button, GHC, or MCP.
-- `MainController::requestStartRecipeShotWhenApplied` starts hot water instead of espresso for a long black.
+- `MainController::dispatchHomeRecipeStart` starts hot water instead of espresso for a long black.
 - `ShotTimingController` ends settling when hot water starts.
-- Shared native/Wasm UI: a "then hot water" / "then espresso" line with a Skip action on the Espresso and Hot Water pages, through the existing services (`SHARED_UI.md`).
+- Shared native/Wasm UI: a Skip button on the Espresso and Hot Water pages, through the existing services (`SHARED_UI.md`).
 - Wiki manual: a short entry on one-tap americano and long black.

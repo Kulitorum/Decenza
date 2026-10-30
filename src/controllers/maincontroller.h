@@ -237,10 +237,10 @@ class MainController : public QObject,
                NOTIFY steamAutoFlushCountdownChanged FINAL)
     Q_PROPERTY(bool steamSoftStopped READ steamSoftStopped NOTIFY steamSoftStoppedChanged FINAL)
     // The step an americano or long black will request when the running one
-    // ends: "hotWater", "espresso", or "" (recipe-drink-sequence).
-    Q_PROPERTY(QString pendingDrinkStep READ pendingDrinkStep NOTIFY pendingDrinkStepChanged FINAL)
-    // True from arming until the second step starts or will not; the first
-    // step's page stays up meanwhile.
+    // ends: a DrinkSequenceController::Step (recipe-drink-sequence).
+    Q_PROPERTY(int pendingDrinkStep READ pendingDrinkStep NOTIFY pendingDrinkStepChanged FINAL)
+    // True from arming until the second step ends, or is skipped, dropped or
+    // refused; the drink stays on screen meanwhile.
     Q_PROPERTY(bool drinkSequenceActive READ drinkSequenceActive NOTIFY drinkSequenceActiveChanged FINAL)
 
 public:
@@ -258,7 +258,7 @@ public:
     bool steamHeaterOn() const { return m_steamHeaterPolicy && m_steamHeaterPolicy->resolve().on; }
     double steamAutoFlushCountdown() const;
     bool steamSoftStopped() const { return m_steamStopState.softStopped(); }
-    QString pendingDrinkStep() const;
+    int pendingDrinkStep() const;
     bool drinkSequenceActive() const;
     void skipPendingDrinkStep();
 

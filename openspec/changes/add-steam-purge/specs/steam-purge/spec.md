@@ -5,7 +5,7 @@ Lets the user run the DE1's firmware steam purge (SteamRinse) from the app: on t
 ## ADDED Requirements
 
 ### Requirement: Purge requests the firmware steam purge
-A Purge control SHALL request the DE1's SteamRinse state. The app SHALL allow it whenever the machine is ready, including when the GHC is active. The firmware ends a purge by itself; the app SHALL stop one only when the user leaves the post-steam window with Back.
+A Purge control SHALL request the DE1's SteamRinse state. The app SHALL allow it whenever the machine is ready, including when the GHC is active. The firmware ends a purge by itself; the app SHALL stop one only on Back from the post-steam window or an MCP `machine_stop`.
 
 #### Scenario: Purge on a machine with an active GHC
 - **GIVEN** a ready machine whose group head controller is active

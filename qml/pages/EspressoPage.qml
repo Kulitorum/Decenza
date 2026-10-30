@@ -110,35 +110,27 @@ T.Page {
     function stopAndGoBack() {
         if (Object.keys(pendingMachineActions).length > 0)
             return
+        // A drink's hot water shown in the cup: Stop stops the water. Checked
+        // first because Skip clears the cup-view flag while the water still runs.
+        // A successful stop needs no navigation here: the hot water ending does it.
+        if (MachineState.phase === MachineState.Phase.HotWater) {
+            const waterRequestId = MachineControlService.stopHotWater(MachineState.controlContextId)
+            const pendingWater = Object.assign({}, pendingMachineActions)
+            pendingWater[waterRequestId] = { operation: "stop-hot-water" }
+            pendingMachineActions = pendingWater
+            return
+        }
         if (NavigationPolicy.machineOperationPage(MachineState.phase, MachineState.Phase,
                                                   AppShell.drinkInCupView) !== "espressoPage") {
             AppShell.dismissRequested()
             return
         }
-        // A drink's hot water shown in the cup: Stop stops the water.
-        // A successful stop needs no navigation here: the drink ending does it.
-        if (MachineState.phase === MachineState.Phase.HotWater) {
-            const waterRequestId = MachineControlService.stopHotWater(MachineState.controlContextId)
-            if (waterRequestId !== "") {
-                const pendingWater = Object.assign({}, pendingMachineActions)
-                pendingWater[waterRequestId] = { operation: "stop-hot-water" }
-                pendingMachineActions = pendingWater
-            } else {
-                showActionFailure()
-            }
-            return
-        }
         const previousStopReason = AppShell.stopReason
         AppShell.stopReason = "manual"
         const requestId = MachineControlService.stopEspresso(MachineState.controlContextId)
-        if (requestId !== "") {
-            const pending = Object.assign({}, pendingMachineActions)
-            pending[requestId] = { operation: "stop-espresso", previousStopReason: previousStopReason }
-            pendingMachineActions = pending
-        } else {
-            AppShell.stopReason = previousStopReason
-            showActionFailure()
-        }
+        const pending = Object.assign({}, pendingMachineActions)
+        pending[requestId] = { operation: "stop-espresso", previousStopReason: previousStopReason }
+        pendingMachineActions = pending
     }
 
     function requestMachineAction(operation, argument) {
@@ -149,17 +141,16 @@ T.Page {
             requestId = MachineControlService.bumpTargetWeight(MachineState.controlContextId, argument)
         else if (operation === "skip-frame")
             requestId = MachineControlService.skipFrame(MachineState.controlContextId)
-        if (requestId === "") {
-            showActionFailure()
-            return
-        }
+        else if (operation === "skip-drink-step")
+            requestId = MachineControlService.skipDrinkStep(MachineState.controlContextId)
         const pending = Object.assign({}, pendingMachineActions)
         pending[requestId] = { operation: operation }
         pendingMachineActions = pending
     }
 
-    function showActionFailure() {
-        actionToast.show(TranslationManager.translate(
+    // The host's own reason when it gave one, e.g. "There is no next step to skip."
+    function showActionFailure(message) {
+        actionToast.show(message || TranslationManager.translate(
             "espresso.action.failed", "The espresso action could not be completed. Please try again."))
     }
 
@@ -285,7 +276,7 @@ T.Page {
                         && AppShell.stopReason === "manual")
                     AppShell.stopReason = action.previousStopReason
                 if (espressoPage.StackView.status === StackView.Active)
-                    espressoPage.showActionFailure()
+                    espressoPage.showActionFailure(message)
             } else if (operation === "stop-espresso"
                        && espressoPage.StackView.status === StackView.Active) {
                 AppShell.dismissRequested()
@@ -686,7 +677,7 @@ T.Page {
     // here for an americano, and for a long black whose water the cup view shows.
     AccessibleButton {
         id: skipDrinkStepButton
-        visible: MachineControlService.pendingDrinkStep !== ""
+        visible: MachineControlService.pendingDrinkStep !== MachineControlService.DrinkStep.None
         // Beside Stop, clear of the cup; in Stop's place when Stop is hidden (GHC).
         anchors.left: espressoStopButton.visible ? espressoStopButton.right : undefined
         anchors.leftMargin: Theme.spacingMedium
@@ -695,16 +686,16 @@ T.Page {
         anchors.bottom: espressoStopButton.visible ? undefined : infoBar.top
         anchors.bottomMargin: Theme.scaled(20)
         text: TranslationManager.translate("drinkSequence.button.skip", "Skip")
-        icon.source: MachineControlService.pendingDrinkStep === "espresso"
+        icon.source: MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso
                      ? "qrc:/icons/espresso.svg" : "qrc:/icons/water.svg"
         tintIcon: true
         iconAfterText: true
-        accessibleName: MachineControlService.pendingDrinkStep === "espresso"
+        accessibleName: MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso
                         ? TranslationManager.translate("drinkSequence.accessible.skipEspresso", "Skip espresso")
                         : TranslationManager.translate("drinkSequence.accessible.skipWater", "Skip water")
         KeyNavigation.tab: espressoStopButton.visible ? espressoStopButton : espressoBackButton
         KeyNavigation.backtab: viewModeMouseArea
-        onClicked: MachineControlService.skipDrinkStep(MachineState.controlContextId)
+        onClicked: espressoPage.requestMachineAction("skip-drink-step")
     }
 
     // Tappable legend to toggle graph lines (only visible in chart mode)

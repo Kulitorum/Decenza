@@ -3,6 +3,7 @@
 #include "ble/de1device.h"
 #include "ble/blemanager.h"
 #include "ble/scaledeviceproxy.h"
+#include "controllers/drinksequencecontroller.h"
 #include "controllers/maincontroller.h"
 #include "controllers/profilemanager.h"
 #include "core/settings.h"
@@ -141,7 +142,8 @@ NativeMachineControlServiceSource::NativeMachineControlServiceSource(
                             : static_cast<int>(MachineState::Phase::Disconnected));
     setCurrentFrameIndex(-1);
     setCurrentFrameName(m_controller ? m_controller->currentFrameName() : QString());
-    setPendingDrinkStep(m_controller ? m_controller->pendingDrinkStep() : QString());
+    setPendingDrinkStep(m_controller ? m_controller->pendingDrinkStep()
+                                     : static_cast<int>(DrinkSequenceController::Step::None));
     setDrinkSequenceActive(m_controller && m_controller->drinkSequenceActive());
     if (m_controller) {
         connect(m_controller, &MainController::pendingDrinkStepChanged, this, [this] {
@@ -375,7 +377,7 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
 
     if (operation == QLatin1String("skip-drink-step")) {
         const bool current = m_controller && m_machineState && fields.isEmpty()
-            && !m_controller->pendingDrinkStep().isEmpty()
+            && m_controller->pendingDrinkStep() != static_cast<int>(DrinkSequenceController::Step::None)
             && expectedContextId == m_machineState->controlContextId();
         if (!current) {
             finish(requestId, operation, false,

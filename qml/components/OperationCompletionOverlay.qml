@@ -1,5 +1,6 @@
 import QtQuick
 import Decenza
+import "OperationNavigationPolicy.js" as OperationNavigationPolicy
 
 // The single completion treatment and timeout used by both application shells.
 // The shell owns what happens after finished(); this component only presents the
@@ -22,6 +23,10 @@ Rectangle {
     property string _purgeRequestId: ""
     property bool _purging: false
     property bool _purgeSeen: false
+    // Back's stop request; the window leaves once the host has accepted it.
+    property string _backRequestId: ""
+    // The host's reason when Purge or Back failed, shown under the buttons.
+    property string _actionError: ""
 
     // A long black's hot water is only the first step: its completion waits until
     // the drink resolves, and is dropped if the espresso starts (its page replaces
@@ -56,34 +61,42 @@ Rectangle {
     Connections {
         target: MachineControlService
         function onStateChanged() {
+            const phase = MachineControlService.phase
             // The second step started: its page replaces this one, so this
-            // completion belongs to nothing on screen any more.
+            // completion belongs to nothing on screen any more. A transient
+            // state between the steps (Refill, Busy) has no page and keeps it.
             if (root._heldForDrink && root._serviceReady
-                    && !root._isIdlePhase(MachineControlService.phase))
+                    && OperationNavigationPolicy.machineOperationPage(
+                           phase, MachineState.Phase, AppShell.drinkInCupView) !== "")
                 root._heldForDrink = false
             if (root._purging) {
-                if (MachineControlService.phase === MachineState.Phase.SteamPurge)
+                if (phase === MachineState.Phase.SteamPurge)
                     root._purgeSeen = true
-                else if (root._purgeSeen && root._isIdlePhase(MachineControlService.phase))
+                else if (phase === MachineState.Phase.Disconnected || !root._serviceReady
+                         || (root._purgeSeen && root._isIdlePhase(phase)))
                     root._endPurge()
             }
         }
         function onCompleted(requestId, operation, success, message, result) {
-            if (requestId !== root._purgeRequestId)
-                return
-            root._purgeRequestId = ""
-            if (!success)
-                root._endPurge()
+            if (requestId === root._purgeRequestId) {
+                root._purgeRequestId = ""
+                if (!success)
+                    root._resumeAfterFailure(message)
+            } else if (requestId === root._backRequestId) {
+                root._backRequestId = ""
+                if (success)
+                    root._endPurge()
+                else
+                    root._resumeAfterFailure(message)
+            }
         }
     }
 
     function _startPurge() {
-        if (_purging)
+        if (_purging || _backRequestId)
             return
-        const requestId = MachineControlService.startSteamPurge(MachineState.controlContextId)
-        if (requestId === "")
-            return
-        _purgeRequestId = requestId
+        _actionError = ""
+        _purgeRequestId = MachineControlService.startSteamPurge(MachineState.controlContextId)
         _purging = true
         _purgeSeen = false
         completionState.hold()
@@ -95,14 +108,27 @@ Rectangle {
         completionState.finish()
     }
 
+    // The window stays up with its buttons and counts down again.
+    function _resumeAfterFailure(message) {
+        _purging = false
+        _purgeSeen = false
+        _actionError = message
+        completionState.showCompletion(completionState.message, completionState.completionType)
+    }
+
     // Back stops whatever is still running, then leaves like Done.
     function _back() {
+        if (_backRequestId)
+            return
         const phase = MachineControlService.phase
-        if (_purging || phase === MachineState.Phase.SteamPurge
-                || phase === MachineState.Phase.Steaming)
-            MachineControlService.requestIdle(MachineState.controlContextId)
+        if (!_purging && phase !== MachineState.Phase.SteamPurge
+                && phase !== MachineState.Phase.Steaming) {
+            _endPurge()
+            return
+        }
         _purgeRequestId = ""
-        _endPurge()
+        completionState.hold()
+        _backRequestId = MachineControlService.requestIdle(MachineState.controlContextId)
     }
 
     OperationCompletionState {
@@ -119,8 +145,9 @@ Rectangle {
 
     function showCompletion(text, type) {
         // The steam page re-announces its completion when a purge returns to Idle.
-        if (_purging)
+        if (_purging || _backRequestId)
             return
+        _actionError = ""
         if (_drinkActive) {
             _heldForDrink = true
             _heldText = text
@@ -135,6 +162,10 @@ Rectangle {
     function cancel() {
         _heldForDrink = false
         _purging = false
+        _purgeSeen = false
+        _purgeRequestId = ""
+        _backRequestId = ""
+        _actionError = ""
         completionState.cancel()
     }
 
@@ -185,7 +216,6 @@ Rectangle {
             visible: root.completionType === "steam" && !root._purging
 
             AccessibleButton {
-                id: purgeButton
                 primary: true
                 text: TranslationManager.translate("steam.label.purge", "Purge")
                 accessibleName: TranslationManager.translate("steam.accessible.purgeWand",
@@ -205,6 +235,14 @@ Rectangle {
             visible: root._purging
             text: TranslationManager.translate("steam.label.purging", "Purging…")
             color: Theme.textSecondaryColor
+            font: Theme.bodyFont
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: root.completionType === "steam" && !root._purging && root._actionError !== ""
+            text: root._actionError
+            color: Theme.errorColor
             font: Theme.bodyFont
         }
     }

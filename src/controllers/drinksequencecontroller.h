@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
@@ -15,9 +16,10 @@ class MachineState;
 // Runs an americano or long black recipe as one drink (recipe-drink-sequence):
 // after the first step's flow ends, request the second step once, at the later
 // of the shot settling (americano only) and IDLE_DELAY_MS into the DE1's Idle.
-// Keyed on machine events, so a GHC or MCP start sequences too. No firmware or
-// GHC gate: firmware without the post-step window refuses the request, and that
-// is the whole failure mode.
+// An americano arms on any espresso flow, so a GHC or MCP start sequences too; a
+// long black arms only on the hot water its recipe tap started, so hot water for
+// tea does not pull a shot. No firmware or GHC gate: firmware without the
+// post-step window refuses the request, and that is the whole failure mode.
 class DrinkSequenceController final : public QObject
 {
     Q_OBJECT
@@ -29,6 +31,7 @@ public:
     // A deliberate pause, not a guard: the maintainer's choice to let the cup
     // finish dripping. It must stay inside firmware 1359's 5 s window.
     static constexpr int IDLE_DELAY_MS = 4000;
+    static constexpr int FIRMWARE_WINDOW_MS = 5000;
     // The DE1 sends nothing when it refuses a request, so a second step that has
     // not started this long after the request is taken as refused. A deliberate,
     // documented exception to the "no timers as guards" rule, like startEspresso's
@@ -42,13 +45,12 @@ public:
                             ActiveRecipeProvider activeRecipe, QObject* parent = nullptr);
 
     // The step that will be requested when the current one ends.
-    Step pendingStep() const { return m_pending; }
+    Step pendingStep() const { return m_stage == Stage::Pending ? m_step : Step::None; }
     // From arming until the second step has finished, or is skipped, dropped or
     // refused. The drink stays on screen as one operation for this whole span.
-    bool isActive() const
-    {
-        return m_pending != Step::None || m_awaitingStart != Step::None || m_running != Step::None;
-    }
+    bool isActive() const { return m_stage != Stage::Idle; }
+    // The recipe tap is starting a long black's hot water: arm on that flow only.
+    void expectRecipeWater() { m_recipeWaterExpected = true; }
     // Drop the pending step for this drink only.
     void skip();
     // The espresso's settled end (ShotTimingController::shotProcessingReady).
@@ -64,27 +66,28 @@ signals:
     void activeChanged();
 
 private:
+    enum class Stage { Idle, Pending, AwaitingStart, Running };
+
     void onFlowStarted(int phase);
     void onDeviceStateChanged();
     void drop(const QString& why);
-    void setPending(Step step);
+    void setStage(Stage stage, Step step);
     void fireIfReady();
-    void endAwaitingStart(const QString& refusedWhy);
-    void finishDrink();
 
     QPointer<DE1Device> m_device;
     QPointer<MachineState> m_machineState;
     ActiveRecipeProvider m_activeRecipe;
-    Step m_pending = Step::None;
+    Stage m_stage = Stage::Idle;
+    Step m_step = Step::None;
     DE1::State m_firstStepState = DE1::State::Idle;
-    // Set by Skip, cleared when the machine leaves the first step, so a flow
-    // that restarts inside the same operation cannot re-arm what was skipped.
+    // Set by a Skip made during the first step, cleared when the machine leaves
+    // it, so a flow that restarts inside that operation cannot re-arm the step.
     bool m_skipped = false;
+    bool m_recipeWaterExpected = false;
     bool m_shotSettled = false;
     bool m_idleDelayDone = false;
     QTimer m_idleDelay;
-    Step m_awaitingStart = Step::None;
-    Step m_running = Step::None;
+    QElapsedTimer m_sinceIdle;
     QTimer m_startTimeout;
     QString m_recipeName;
 };
