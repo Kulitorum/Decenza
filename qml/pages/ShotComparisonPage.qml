@@ -21,6 +21,12 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var comparisonModel: ComparisonService
+    // The displayed shots can change without changing the Repeater's count.
+    property int _summaryVersion: 0
+    Connections {
+        target: shotComparisonPage.comparisonModel
+        function onShotsChanged() { shotComparisonPage._summaryVersion++ }
+    }
     readonly property var navigationContext: ({selectedShotIds: ComparisonService.selectedShotIds,
                                                baseShotId: ComparisonService.baseShotId,
                                                windowStart: ComparisonService.windowStart})
@@ -172,7 +178,10 @@ T.Page {
                     delegate: RowLayout {
                         id: inputSummary
                         required property int index
-                        readonly property var info: shotComparisonPage.comparisonModel.getShotInfo(index)
+                        readonly property var info: {
+                            let version = shotComparisonPage._summaryVersion
+                            return shotComparisonPage.comparisonModel.getShotInfo(index)
+                        }
                         Layout.fillWidth: true
                         spacing: Theme.spacingSmall
 
