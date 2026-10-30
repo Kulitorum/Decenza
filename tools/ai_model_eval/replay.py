@@ -389,6 +389,7 @@ def audit_block(text: str) -> dict:
 
 
 def spend(model: str, usage: dict) -> float:
+    """Reported cost when available; otherwise an uncached token-rate estimate."""
     if usage.get("cost") is not None:      # OpenRouter bills and reports it per call
         return float(usage["cost"])
     if model not in PRICES:
@@ -419,7 +420,8 @@ def run(args) -> None:
     os.makedirs(outdir, exist_ok=True)
 
     rng = random.Random(args.seed)
-    keymap, results, total = {}, {}, 0.0
+    keymap, results = {}, {}
+    cost_totals = {}
     usage_records = []
 
     for scen in scenarios:
@@ -458,12 +460,15 @@ def run(args) -> None:
                     keymap[scen["key"]][labels[i]] = tag
                     write_key(outdir, keymap)
                 continue
-            total += spend(model, usage)
+            cost = spend(model, usage)
+            cost_field = ("reported_cost_usd" if usage.get("cost") is not None
+                          else "uncached_cost_usd")
+            cost_totals[cost_field] = cost_totals.get(cost_field, 0.0) + cost
             # Keep metering separately from blinded replies. Open only after
             # judging: token counts and effort can reveal model identity.
             usage_records.append({"scenario": scen["key"], "model": model,
                                   "effort": effort, "usage": usage, "finish": finish,
-                                  "uncached_cost_usd": spend(model, usage)})
+                                  cost_field: cost})
             with open(os.path.join(outdir, "usage.json"), "w") as f:
                 json.dump(usage_records, f, indent=2)
             reasoning = usage.get("reasoning_tokens", 0)
@@ -535,7 +540,12 @@ def run(args) -> None:
                 extra = ("   " + "  ".join(flags)) if flags else ""
                 print(f"  {model:15s} {effort:5s} {' '.join(cells)}{extra}")
 
-    print(f"\nToken-rate cost estimate (before cache adjustments): ${total:.4f}")
+    for field, label in (
+        ("uncached_cost_usd", "Token-rate cost estimate (before cache adjustments)"),
+        ("reported_cost_usd", "Provider-reported cost (billing adjustments included)"),
+    ):
+        if field in cost_totals:
+            print(f"\n{label}: ${cost_totals[field]:.4f}")
 
 
 def reveal(args) -> None:

@@ -99,8 +99,10 @@ survive that leak; subjective quality ranking does not.
 
 Write your judgments down *before* `replay.py reveal` or opening `usage.json`.
 The latter records per-call input, output, cached and reasoning tokens for cost
-comparisons. Printed costs use uncached token rates (except provider-reported
-OpenRouter costs); they are estimates before cache reads/writes, not billed spend.
+comparisons. A provider-reported bill (OpenRouter) is stored as
+`reported_cost_usd`; a token-rate estimate is stored as `uncached_cost_usd`.
+Printed summaries keep the two totals separate, including in mixed-provider runs.
+Only the token-rate estimate excludes cache read/write adjustments.
 
 ### 5. Be honest about sample size
 
