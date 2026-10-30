@@ -18,4 +18,4 @@
 - [x] 3.1 Run the appropriate Qt Creator build and focused tests, including shared QML resource checks if new files are added; verify results are clean.
 - [x] 3.2 With the user starting the app, inspect the history and comparison flows in native and host-served Wasm at tablet and narrow sizes, including search, selection, paging, rebasing and graph inspection; record any remaining limitations.
 
-  Verification: native landscape and 1024×600 host-served Wasm; native selection, paging, graph inspection and resizing, and Wasm filtering, selection, paging, rebasing and inspection. Native rebasing was not separately exercised.
+  Verification: native landscape and landscape host-served Wasm; selection, paging, rebasing and graph inspection were exercised. After the review fix, both interfaces refreshed the summary and base marker correctly when paging and rebasing with four shots.
