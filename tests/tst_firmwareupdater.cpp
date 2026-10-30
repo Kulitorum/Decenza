@@ -689,18 +689,18 @@ private slots:
 
         updater.checkForUpdate();
 
-        QCOMPARE(updater.availableVersion(), 1352);
-        QCOMPARE(updater.availableVersionLabel(), QStringLiteral("1352"));
+        QCOMPARE(updater.availableVersion(), 1358);
+        QCOMPARE(updater.availableVersionLabel(), QStringLiteral("1358"));
         QCOMPARE(updater.availableChannelLabel(), QStringLiteral("Stable"));
-        QVERIFY(updater.availableReleaseNotes().contains(QStringLiteral("NoAC")));
+        QVERIFY(updater.availableReleaseNotes().contains(QStringLiteral("Cold maintenance")));
 
         cache.setChannel(DE1::Firmware::FirmwareAssetCache::Channel::EarlyAccess);
         updater.checkForUpdate();
 
-        QCOMPARE(updater.availableVersion(), 1358);
-        QCOMPARE(updater.availableVersionLabel(), QStringLiteral("1358"));
+        QCOMPARE(updater.availableVersion(), 1359);
+        QCOMPARE(updater.availableVersionLabel(), QStringLiteral("1359"));
         QCOMPARE(updater.availableChannelLabel(), QStringLiteral("Early access"));
-        QVERIFY(updater.availableReleaseNotes().contains(QStringLiteral("Cold maintenance")));
+        QVERIFY(updater.availableReleaseNotes().contains(QStringLiteral("hot water")));
     }
 
     void bundledCheckError_surfacesNonRetryableFileValidityFailure() {

@@ -13,7 +13,7 @@ Two buttons:
 
 ## What happens automatically
 
-- 30 seconds after the app starts (and at most once per 168 hours), Decenza compares the selected bundled firmware entry against the DE1's installed build. Stable is bundled build 1352; Early access, opt-in via Settings → Firmware, is bundled build 1358. No network request is needed for the check or for the firmware bytes.
+- 30 seconds after the app starts (and at most once per 168 hours), Decenza compares the selected bundled firmware entry against the DE1's installed build. Stable is bundled build 1358; Early access, opt-in via Settings → Firmware, is bundled build 1359. No network request is needed for the check or for the firmware bytes.
 - The bundled manifest build is compared against `MMR 0x800010` (the firmware build number the DE1 reports over BLE). Strictly greater = newer.
 - Persistence: `firmware/lastCheckedAt` (epoch seconds) lives in `QSettings`.
 
@@ -62,12 +62,12 @@ Failure types and what they mean:
 
 ## Where the firmware comes from
 
-Decenza ships the firmware images in the app bundle, using Decaid's firmware manifest as the source of truth. Two channels:
+Decenza ships the firmware images in the app bundle, described by `resources/firmware/manifest.json` (Decaid's manifest format). Each channel is the manifest entry whose `channel` is `stable` or `early-access`, so moving a build between channels is a manifest edit; `tst_firmwareassetcachehelpers` fails if two entries share a channel. Two channels:
 
 | Channel | Bundled build | Who should pick it |
 |---|---|---|
-| Stable (default) | 1352 (`de1-1352.bin`) | Everyone, unless you have a reason to opt into pre-release firmware. |
-| Early access (opt-in) | 1358 (`de1-1358.bin`) | Testers who want to try the newer bundled firmware before it becomes Decenza's default. |
+| Stable (default) | 1358 (`de1-1358.bin`, de1app `7e94ef3c`) | Everyone, unless you have a reason to opt into pre-release firmware. |
+| Early access (opt-in) | 1359 (`de1-1359.bin`, a Decenza-specific build from Decent, not in de1app/decaid) | Testers. Adds a 5 s window after Espresso → Idle in which a BLE HotWater request starts without a GHC tap. |
 
 The Firmware tab shows release notes from the selected Decaid manifest entry, tied to the displayed channel and version. Early access is persisted as `firmware/EA`; the one-time upgrade removes the obsolete `firmware/nightlyChannel` key and resets every install to Stable before a user opts into Early access again.
 

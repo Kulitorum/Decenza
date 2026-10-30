@@ -23,6 +23,39 @@ inline bool hotWaterActive(const QString& hotWaterJson)
     return doc.isObject() && doc.object().value(QStringLiteral("hasWater")).toBool();
 }
 
+inline bool milkActive(const QString& steamJson)
+{
+    if (steamJson.isEmpty())
+        return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(steamJson.toUtf8());
+    return doc.isObject() && doc.object().value(QStringLiteral("hasMilk")).toBool();
+}
+
+// Whether a recipe brews as one two-step drink, and which step leads
+// (recipe-drink-sequence): a profile, active hot water and no milk; the block
+// order picks the steps. Read from the blocks, never drinkType, so the label
+// (Recipe::deriveDrinkType) and the machine cannot disagree.
+enum class DrinkSequence { None, WaterAfter, WaterBefore };
+
+inline DrinkSequence drinkSequence(const QString& profileTitle, const QString& steamJson,
+                                   const QString& hotWaterJson)
+{
+    if (profileTitle.trimmed().isEmpty() || !hotWaterActive(hotWaterJson) || milkActive(steamJson))
+        return DrinkSequence::None;
+    return QJsonDocument::fromJson(hotWaterJson.toUtf8()).object()
+                   .value(QStringLiteral("order")).toString() == QLatin1String("before")
+        ? DrinkSequence::WaterBefore
+        : DrinkSequence::WaterAfter;
+}
+
+// The same, from a recipe's raw fields (Recipe::toVariantMap, the active-recipe cache).
+inline DrinkSequence drinkSequence(const QVariantMap& recipe)
+{
+    return drinkSequence(recipe.value(QStringLiteral("profileTitle")).toString(),
+                         recipe.value(QStringLiteral("steamJson")).toString(),
+                         recipe.value(QStringLiteral("hotWaterJson")).toString());
+}
+
 inline bool saveValidationPasses(const QString& name, const QString& profileTitle,
                                  const QString& hotWaterJson)
 {

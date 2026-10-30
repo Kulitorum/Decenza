@@ -6,8 +6,11 @@
 
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
+#include "controllers/drinksequencecontroller.h"
+#include "controllers/shottimingcontroller.h"
 #include "core/settings.h"
 #include "mocks/MockScaleDevice.h"
+#include "mocks/MockTransport.h"
 
 // Test MachineState phase transitions, volume reset, tare lifecycle, and signals.
 // Uses DECENZA_TESTING friend access to manipulate private state directly.
@@ -60,8 +63,264 @@ private:
         f.scale.resetTareCount();
     }
 
+    // The real BLE path end to end: state notifications in through the transport,
+    // requested states out through it. Simulation mode would swallow the requests.
+    struct SequenceFixture {
+        MockTransport transport;
+        DE1Device device;
+        Settings settings;
+        MockScaleDevice scale;
+        MachineState state{&device};
+        QVariantMap recipe;
+        DrinkSequenceController sequence{&device, &state, [this] { return recipe; }};
+
+        explicit SequenceFixture(const QString& order) {
+            device.setTransport(&transport);
+            sequence.setIdleDelayForTesting(20);
+            sequence.setStartTimeoutForTesting(200);
+            state.setSettings(&settings);
+            state.setScale(&scale);
+            recipe = {{"name", "Drink"}, {"profileTitle", "Profile"},
+                      {"hotWaterJson", QStringLiteral("{\"hasWater\":true,\"vesselName\":\"Mug\","
+                                                      "\"order\":\"%1\"}").arg(order)}};
+            notify(DE1::State::Idle, DE1::SubState::Ready);
+            transport.clearWrites();
+        }
+        void notify(DE1::State s, DE1::SubState ss) {
+            QByteArray d;
+            d.append(static_cast<char>(s));
+            d.append(static_cast<char>(ss));
+            emit transport.dataReceived(DE1::Characteristic::STATE_INFO, d);
+        }
+        QList<QByteArray> requested() const {
+            return transport.writesFor(DE1::Characteristic::REQUESTED_STATE);
+        }
+        static QByteArray one(DE1::State s) { return QByteArray(1, static_cast<char>(s)); }
+    };
+
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void drinkSequenceRequestsTheSecondStepOnceAtIdle_data() {
+        QTest::addColumn<QString>("order");
+        QTest::addColumn<int>("firstState");
+        QTest::addColumn<int>("firstSubState");
+        QTest::addColumn<int>("secondState");
+        QTest::newRow("americano") << "after" << int(DE1::State::Espresso)
+                                   << int(DE1::SubState::Pouring) << int(DE1::State::HotWater);
+        QTest::newRow("long-black") << "before" << int(DE1::State::HotWater)
+                                    << int(DE1::SubState::Pouring) << int(DE1::State::Espresso);
+    }
+
+    void drinkSequenceRequestsTheSecondStepOnceAtIdle() {
+        QFETCH(QString, order);
+        QFETCH(int, firstState);
+        QFETCH(int, firstSubState);
+        QFETCH(int, secondState);
+        SequenceFixture f(order);
+        const bool americano = order == "after";
+        if (!americano)
+            f.sequence.expectRecipeWater();
+
+        f.notify(DE1::State(firstState), DE1::SubState(firstSubState));
+        QVERIFY(f.sequence.pendingStep() != DrinkSequenceController::Step::None);
+        QVERIFY(f.requested().isEmpty());
+
+        // A long black has no shot to settle: it must fire without one.
+        if (americano)
+            f.sequence.onShotSettled();
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QVERIFY(f.requested().isEmpty());  // the Idle delay has not run yet
+        QTRY_COMPARE(f.requested(), QList<QByteArray>{f.one(DE1::State(secondState))});
+        QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::None);
+
+        // The drink stays one operation on screen until its second step ends, and
+        // that step arms nothing further.
+        QVERIFY(f.sequence.isActive());
+        f.notify(DE1::State(secondState), DE1::SubState::Pouring);
+        QTest::qWait(250);  // past the start timeout: a started step is not a refusal
+        QVERIFY(f.sequence.isActive());
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QVERIFY(!f.sequence.isActive());
+        QTest::qWait(60);
+        QCOMPARE(f.requested().size(), 1);
+    }
+
+    // A state the DE1 only passes through on the way to the requested step is not
+    // a refusal; only another operation or sleep is.
+    void drinkSequenceWaitsThroughATransientState() {
+        SequenceFixture f("after");
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.sequence.onShotSettled();
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(f.requested(), QList<QByteArray>{f.one(DE1::State::HotWater)});
+        f.notify(DE1::State::Busy, DE1::SubState::Ready);
+        QVERIFY(f.sequence.isActive());
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        QTest::qWait(250);  // past the start timeout
+        QVERIFY(f.sequence.isActive());
+        f.notify(DE1::State::Steam, DE1::SubState::Heating);
+        QVERIFY(!f.sequence.isActive());
+    }
+
+    // The DE1 says nothing when it refuses: a step that never starts ends the
+    // drink after the start timeout, so the first step's page does not hang.
+    void drinkSequenceEndsWhenTheSecondStepNeverStarts() {
+        SequenceFixture f("after");
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.sequence.onShotSettled();
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(f.requested(), QList<QByteArray>{f.one(DE1::State::HotWater)});
+        QVERIFY(f.sequence.isActive());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("did not start within .* likely refused"));
+        QTRY_VERIFY(!f.sequence.isActive());
+    }
+
+    // The later of the two: an americano's water waits for the shot's settle even
+    // when the Idle delay has already run, and a long black has no shot to wait for.
+    void drinkSequenceWaitsForTheShotToSettle() {
+        SequenceFixture f("after");
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTest::qWait(60);
+        QVERIFY(f.requested().isEmpty());
+
+        f.sequence.onShotSettled();
+        QCOMPARE(f.requested(), QList<QByteArray>{f.one(DE1::State::HotWater)});
+    }
+
+    // With a long black selected, hot water the recipe did not start (tea) is
+    // not the drink's first step and must not pull a shot.
+    void longBlackArmsOnlyOnItsRecipeWater() {
+        SequenceFixture f("before");
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::None);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTest::qWait(60);
+        QVERIFY(f.requested().isEmpty());
+    }
+
+    // Skip after the first step has ended: there is no flow left to re-arm, so
+    // the latch must not outlive this drink and swallow the next one.
+    void skipWhileWaitingLeavesTheNextDrinkSequenced() {
+        SequenceFixture f("after");
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        f.sequence.skip();
+        QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::None);
+
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::HotWater);
+    }
+
+    void drinkSequenceEndsOnDisconnect_data() {
+        QTest::addColumn<bool>("started");
+        QTest::newRow("requested") << false;
+        QTest::newRow("started") << true;
+    }
+
+    // Once the second step is requested or running, only a state change or a
+    // disconnect can end the drink; a stuck one would hold its page forever.
+    void drinkSequenceEndsOnDisconnect() {
+        QFETCH(bool, started);
+        SequenceFixture f("after");
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.sequence.onShotSettled();
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(f.requested(), QList<QByteArray>{f.one(DE1::State::HotWater)});
+        if (started)
+            f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        QVERIFY(f.sequence.isActive());
+
+        // The transport only warns about a drop in the middle of an operation.
+        if (started)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unrequested drop"));
+        f.transport.setConnectedSim(false);
+        QVERIFY(!f.sequence.isActive());
+    }
+
+    // Hot water started after the shot ended but while it still settles: the
+    // flow-start edge must end the settle before the water's tare zeroes it.
+    void hotWaterDuringSettlingEndsIt() {
+        TestFixture f;
+        ShotTimingController tc(&f.device);
+        tc.setScale(&f.scale);
+        tc.setMachineState(&f.state);
+        f.state.setTimingController(&tc);
+
+        tc.startShot();
+        tc.onSawTriggered(34.8, 1.5, 36.0);
+        tc.onWeightSample(34.8, 1.5);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QSignalSpy ready(&tc, &ShotTimingController::shotProcessingReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+
+        QVERIFY(!tc.isSawSettling());
+        QCOMPARE(ready.count(), 1);
+        f.state.setTimingController(nullptr);
+    }
+
+    // The order the simulator produced on 2026-10-30: the espresso's queued end
+    // reached the timing controller after the americano's hot water had started,
+    // so settling began during the pour and the water's tare read as a cup lift.
+    void hotWaterBeforeTheQueuedShotEndSkipsSettling() {
+        TestFixture f;
+        ShotTimingController tc(&f.device);
+        tc.setScale(&f.scale);
+        tc.setMachineState(&f.state);
+        f.state.setTimingController(&tc);
+
+        tc.startShot();
+        tc.onSawTriggered(34.8, 1.5, 36.0);
+        tc.onWeightSample(34.8, 1.5);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+
+        QSignalSpy ready(&tc, &ShotTimingController::shotProcessingReady);
+        QSignalSpy learning(&tc, &ShotTimingController::sawLearningComplete);
+        tc.endShot();
+
+        QVERIFY(!tc.isSawSettling());
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(tc.currentWeight(), 34.8);
+        QCOMPARE(learning.count(), 0);
+        f.state.setTimingController(nullptr);
+    }
+
+    void drinkSequenceNotRequested_data() {
+        QTest::addColumn<QString>("how");
+        QTest::newRow("never-poured") << "never-poured";
+        QTest::newRow("went-to-sleep") << "sleep";
+        QTest::newRow("skipped") << "skip";
+        QTest::newRow("disconnected") << "disconnect";
+    }
+
+    void drinkSequenceNotRequested() {
+        QFETCH(QString, how);
+        SequenceFixture f("after");
+
+        if (how == "never-poured") {
+            f.notify(DE1::State::Espresso, DE1::SubState::Heating);
+        } else {
+            f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+            QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::HotWater);
+            if (how == "sleep")
+                f.notify(DE1::State::Sleep, DE1::SubState::Ready);
+            else if (how == "skip")
+                f.sequence.skip();
+            else {
+                QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unrequested drop"));
+                f.transport.setConnectedSim(false);
+            }
+        }
+        QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::None);
+
+        f.sequence.onShotSettled();
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTest::qWait(60);
+        QVERIFY(!f.requested().contains(f.one(DE1::State::HotWater)));
+    }
 
     // ==========================================
     // Phase Mapping (de1app update_de1_state)
@@ -127,6 +386,9 @@ private slots:
         QTest::newRow("AirPurge")
             << int(DE1::State::AirPurge) << int(DE1::SubState::Ready)
             << int(MachineState::Phase::Transport);
+        QTest::newRow("SteamRinse")
+            << int(DE1::State::SteamRinse) << int(DE1::SubState::Ready)
+            << int(MachineState::Phase::SteamPurge);
     }
 
     void phaseMapping() {
@@ -138,6 +400,14 @@ private slots:
         f.setDE1State(static_cast<DE1::State>(de1State),
                       static_cast<DE1::SubState>(de1SubState));
         QCOMPARE(int(f.state.phase()), expectedPhase);
+    }
+
+    // A purge blocks other starts but is not a flow (no shot or scale timer).
+    void steamPurgeIsAnOperationButNotAFlow() {
+        TestFixture f;
+        f.setDE1State(DE1::State::SteamRinse, DE1::SubState::Ready);
+        QVERIFY(!f.state.isReady());
+        QVERIFY(!f.state.isFlowing());
     }
 
     // ==========================================

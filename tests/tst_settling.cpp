@@ -972,6 +972,65 @@ private slots:
                      .arg(tc.currentWeight(), 0, 'f', 2)));
     }
 
+    // Hot water started while the espresso still settles tares the scale 200 ms
+    // later. The shot is saved at shotProcessingReady, so that is where its
+    // weight is read.
+    void hotWaterAfterASteadyReadingSavesItAndLearns() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        MockScaleDevice scale;
+        scale.mockSetConnected(true);
+        tc.setScale(&scale);
+
+        tc.startShot();
+        tc.onSawTriggered(36.0, 2.0, 36.5);
+        tc.endShot();
+        feedPlateauUntilCaptured(tc, 36.8, 0.2);
+
+        double savedG = -1.0;
+        QObject::connect(&tc, &ShotTimingController::shotProcessingReady,
+                         [&tc, &savedG] { savedG = tc.currentWeight(); });
+        QSignalSpy learnSpy(&tc, &ShotTimingController::sawLearningComplete);
+
+        tc.endSettlingForHotWater();
+
+        QVERIFY(!tc.isSawSettling());
+        QVERIFY2(savedG > 36.6 && savedG < 37.0,
+                 qPrintable(QString("Expected ~36.8 g, saved %1 g").arg(savedG, 0, 'f', 2)));
+        QCOMPARE(learnSpy.count(), 1);
+    }
+
+    void hotWaterBeforeTheWeightSettlesSavesTheLastReading() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        MockScaleDevice scale;
+        scale.mockSetConnected(true);
+        tc.setScale(&scale);
+
+        QSignalSpy readySpy(&tc, &ShotTimingController::shotProcessingReady);
+        tc.endSettlingForHotWater();  // not settling: hot water alone saves nothing
+        QCOMPARE(readySpy.count(), 0);
+
+        tc.startShot();
+        readySpy.clear();
+        tc.onSawTriggered(36.0, 2.0, 36.5);
+        tc.endShot();
+        tc.onWeightSample(36.4, 1.0);
+        QCOMPARE(tc.m_lastCleanSettlingAvg, 0.0);
+
+        double savedG = -1.0;
+        QObject::connect(&tc, &ShotTimingController::shotProcessingReady,
+                         [&tc, &savedG] { savedG = tc.currentWeight(); });
+        QSignalSpy learnSpy(&tc, &ShotTimingController::sawLearningComplete);
+
+        tc.endSettlingForHotWater();
+
+        QVERIFY(!tc.isSawSettling());
+        QCOMPARE(readySpy.count(), 1);
+        QCOMPARE(savedG, 36.4);
+        QCOMPARE(learnSpy.count(), 0);
+    }
+
     void sawLearningCompleteFiresBeforeShotProcessingReady() {
         // SAW_LEARNING.md requires the [SAW] accuracy / accumulated / committed lines
         // to land in the per-shot debug log. shotProcessingReady triggers stopCapture

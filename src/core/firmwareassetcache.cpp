@@ -25,10 +25,12 @@ QString productLabelForChannel(FirmwareAssetCache::Channel channel) {
         : QStringLiteral("Early access");
 }
 
-QString artifactIdForChannel(FirmwareAssetCache::Channel channel) {
+// The manifest's `channel` field picks the build, so moving a build between
+// channels is a manifest edit only.
+QString manifestChannelFor(FirmwareAssetCache::Channel channel) {
     return channel == FirmwareAssetCache::Channel::Stable
-        ? QStringLiteral("de1-1352")
-        : QStringLiteral("de1-1358");
+        ? QStringLiteral("stable")
+        : QStringLiteral("early-access");
 }
 
 bool requireString(const QJsonObject& obj, const QString& key, QString* out,
@@ -361,16 +363,15 @@ std::optional<FirmwareCatalogEntry> FirmwareAssetCache::selectedEntry(QString* e
         return std::nullopt;
     }
 
-    const QString wantedId = artifactIdForChannel(m_channel);
+    const QString wanted = manifestChannelFor(m_channel);
     for (const FirmwareCatalogEntry& entry : entries) {
-        if (entry.id == wantedId) {
+        if (entry.channel == wanted) {
             return entry;
         }
     }
 
     if (error) {
-        *error = QStringLiteral("Bundled firmware manifest does not contain %1")
-                     .arg(wantedId);
+        *error = QStringLiteral("Bundled firmware manifest has no %1 build").arg(wanted);
     }
     return std::nullopt;
 }

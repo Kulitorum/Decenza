@@ -191,6 +191,14 @@ void ShotTimingController::endShot()
     // Keep display timer running during settling so graph continues to update
     if (m_sawTriggeredThisShot) {
         startSettlingTimer();
+        // The shot's end arrives queued, so hot water started at the Idle report
+        // can already be pouring; its flow-start call found no settle to end.
+        // End this one now, before the water's tare lands.
+        if (m_machineState && m_machineState->phase() == MachineState::Phase::HotWater) {
+            endSettlingForHotWater();
+            emit shotTimeChanged();
+            return;
+        }
         // Don't stop display timer - keep time incrementing for graph
         // shotProcessingReady will be emitted after settling completes
         SAWT_LOG(QStringLiteral("Triggered - waiting for weight to settle before processing shot"));
@@ -700,7 +708,38 @@ void ShotTimingController::abandonSettling(double reading, double flowShort,
                       .arg(reading, 0, 'f', 1).arg(m_settlingPeakWeight, 0, 'f', 1)
                       .arg(saved.weightG, 0, 'f', 1).arg(savedFrom));
     }
-    m_weight = saved.weightG;
+    finishAbandonedSettle(saved.weightG);
+}
+
+void ShotTimingController::endSettlingForHotWater()
+{
+    if (!m_sawSettling)
+        return;
+    // A clean average is a settled shot that simply ran out of time, so it still
+    // teaches SAW. Without one, save what a cup lift would: the reading at the
+    // flow-start edge predates the hot water's tare, so it is still the coffee.
+    if (m_lastCleanSettlingAvg > 0.0) {
+        SAWT_INFO(QStringLiteral("Hot water started during settling — saved %1 g, the last "
+                                 "steady reading")
+                      .arg(m_lastCleanSettlingAvg, 0, 'f', 1));
+        m_weight = m_lastCleanSettlingAvg;
+        emit weightChanged();
+        m_settlingTimer.stop();
+        onSettlingComplete();
+        return;
+    }
+    const AbandonedSettle saved = abandonedSettleWeight(
+        0.0, settleBaseG(m_weightAtStop, m_settleStartWeight), m_weight, false);
+    SAWT_INFO(QStringLiteral("Hot water started before the weight settled — saved %1 g, %2; "
+                             "skipping learning")
+                  .arg(saved.weightG, 0, 'f', 1)
+                  .arg(QString::fromLatin1(abandonedSettleSourceText(saved.source))));
+    finishAbandonedSettle(saved.weightG);
+}
+
+void ShotTimingController::finishAbandonedSettle(double savedG)
+{
+    m_weight = savedG;
     emit weightChanged();
 
     m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation

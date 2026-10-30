@@ -1401,6 +1401,9 @@ void DE1Device::requestState(DE1::State state) {
         case DE1::State::HotWaterRinse:
             m_simulator->startFlush();
             break;
+        case DE1::State::SteamRinse:
+            m_simulator->startSteamPurge();
+            break;
         case DE1::State::Idle:
             if (m_simulator->state() == DE1::State::Sleep) {
                 m_simulator->wakeUp();
@@ -1529,6 +1532,31 @@ void DE1Device::startHotWater() {
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::HotWater);
+}
+
+void DE1Device::startUnattended(DE1::State state) {
+#ifdef DECENZA_SIMULATOR
+    if (m_simulationMode && m_simulator && !m_isHeadless
+        && !m_simulator->acceptsUnattendedStart(state)) {
+        DEVICE_WARN(QStringLiteral("Simulated GHC refused %1: it needs a tap on the machine")
+                        .arg(DE1::stateToString(state)));
+        return;
+    }
+#endif
+    if (state == DE1::State::HotWater)
+        startHotWater();
+    else if (state == DE1::State::Espresso)
+        startEspresso();
+    else
+        DEVICE_WARN(QStringLiteral("startUnattended has no start for %1; nothing requested")
+                        .arg(DE1::stateToString(state)));
+}
+
+void DE1Device::startSteamPurge() {
+    DEVICE_INFO(QStringLiteral("Starting steam purge"));
+    if (m_state != DE1::State::Idle)
+        requestState(DE1::State::Idle);
+    requestState(DE1::State::SteamRinse);
 }
 
 void DE1Device::startFlush() {

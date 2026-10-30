@@ -77,6 +77,7 @@ class ShotTimingController;
 class TranslationManager;
 class ScaleDeviceProxy;
 class SteamAutoFlushController;
+class DrinkSequenceController;
 struct ShotSample;
 
 class MainController : public QObject,
@@ -235,6 +236,12 @@ class MainController : public QObject,
     Q_PROPERTY(double steamAutoFlushCountdown READ steamAutoFlushCountdown
                NOTIFY steamAutoFlushCountdownChanged FINAL)
     Q_PROPERTY(bool steamSoftStopped READ steamSoftStopped NOTIFY steamSoftStoppedChanged FINAL)
+    // The step an americano or long black will request when the running one
+    // ends: a DrinkSequenceController::Step (recipe-drink-sequence).
+    Q_PROPERTY(int pendingDrinkStep READ pendingDrinkStep NOTIFY pendingDrinkStepChanged FINAL)
+    // True from arming until the second step ends, or is skipped, dropped or
+    // refused; the drink stays on screen meanwhile.
+    Q_PROPERTY(bool drinkSequenceActive READ drinkSequenceActive NOTIFY drinkSequenceActiveChanged FINAL)
 
 public:
     explicit MainController(QNetworkAccessManager* networkManager,
@@ -251,6 +258,9 @@ public:
     bool steamHeaterOn() const { return m_steamHeaterPolicy && m_steamHeaterPolicy->resolve().on; }
     double steamAutoFlushCountdown() const;
     bool steamSoftStopped() const { return m_steamStopState.softStopped(); }
+    int pendingDrinkStep() const;
+    bool drinkSequenceActive() const;
+    void skipPendingDrinkStep();
 
     // Non-profile accessors
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
@@ -291,7 +301,7 @@ public:
     }
     void setBLEManager(BLEManager* bleManager);
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
-    void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
+    void setTimingController(ShotTimingController* controller);
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
     SteamDataModel* steamDataModel() const { return m_steamDataModel; }
@@ -606,6 +616,8 @@ signals:
                                          bool success, const QString& reason);
     void steamHeaterStateChanged();
     void steamAutoFlushCountdownChanged();
+    void pendingDrinkStepChanged();
+    void drinkSequenceActiveChanged();
     void steamSoftStoppedChanged();
     void steamPageActionSucceeded(const QString& action, bool dismissPage);
     void steamPageActionFailed(const QString& action, const QString& message);
@@ -841,6 +853,7 @@ private:
     PreparationController* m_preparation = nullptr;
     SteamPageEditor* m_steamPageEditor = nullptr;
     SteamAutoFlushController* m_steamAutoFlush = nullptr;
+    DrinkSequenceController* m_drinkSequence = nullptr;
     SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;
     ProfileStorage* m_profileStorage = nullptr;

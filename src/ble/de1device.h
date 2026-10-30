@@ -279,6 +279,15 @@ public slots:
     void startEspresso();
     void startSteam();
     void startHotWater();
+    // Start HotWater or Espresso with no one at the machine: a recipe's second
+    // step. On hardware this is the same BLE request as startHotWater/
+    // startEspresso, and a GHC machine accepts it only inside the firmware's
+    // post-step window. In simulation with the GHC active, the simulator applies
+    // that rule, since the app's own controls stand in for GHC taps there.
+    void startUnattended(DE1::State state);
+    // The firmware's steam-wand purge (SteamRinse). It ends by itself, and a GHC
+    // machine accepts it without a tap.
+    void startSteamPurge();
     void startFlush();
     void startDescale();
     bool cancelPendingDescale(); // Cancel only a descale still waiting for cold preparation

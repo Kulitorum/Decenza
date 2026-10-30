@@ -643,6 +643,12 @@ void MachineState::updatePhase() {
             m_phase = Phase::Transport;
             break;
 
+        // A firmware steam-wand purge (add-steam-purge): an operation the firmware
+        // ends itself, not a steam session.
+        case DE1::State::SteamRinse:
+            m_phase = Phase::SteamPurge;
+            break;
+
         default:
             m_phase = Phase::Idle;
             break;
@@ -737,6 +743,10 @@ void MachineState::updatePhase() {
                 // Delay 200ms after resetTimer/startTimer to avoid BLE command contention —
                 // WriteWithoutResponse can silently drop packets when sent in rapid succession.
                 if (m_phase == Phase::HotWater) {
+                    // Hot water started while an espresso still settles: end that
+                    // settle before the tare below zeroes the reading.
+                    if (m_timingController)
+                        m_timingController->endSettlingForHotWater();
                     m_hotWaterTarePending = true;
                     QTimer::singleShot(200, this, [this]() {
                         // Cleared on BOTH paths: the early return leaves no tare coming,

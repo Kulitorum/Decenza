@@ -398,21 +398,11 @@ T.ApplicationWindow {
 
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
-        var phase = MachineState.phase
         // Treat an in-progress firmware flash as an active operation so the
         // auto-sleep countdown can't fire mid-upload and cut BLE.
         var fw = MainController.firmwareUpdater
         if (fw && fw.isFlashing) return true
-        return phase === MachineState.Phase.EspressoPreheating ||
-               phase === MachineState.Phase.Preinfusion ||
-               phase === MachineState.Phase.Pouring ||
-               phase === MachineState.Phase.Ending ||
-               phase === MachineState.Phase.Steaming ||
-               phase === MachineState.Phase.HotWater ||
-               phase === MachineState.Phase.Flushing ||
-               phase === MachineState.Phase.Descaling ||
-               phase === MachineState.Phase.Cleaning ||
-               phase === MachineState.Phase.Transport
+        return MachineState.isOperating
     }
 
     // Sleep countdown timer - ticks every minute
@@ -3137,6 +3127,7 @@ T.ApplicationWindow {
         function onPhaseChanged() {
             let phase = MachineState.phase
             let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+            const wasHotWater = root.previousPhase === MachineState.Phase.HotWater
             let wasIdle = (root.previousPhase === MachineState.Phase.Idle ||
                           root.previousPhase === MachineState.Phase.Ready ||
                           root.previousPhase === MachineState.Phase.Heating)
@@ -3219,7 +3210,8 @@ T.ApplicationWindow {
                 }
             }
 
-            const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+            const operationPage = OperationNavigationPolicy.machineOperationPage(
+                phase, MachineState.Phase, AppShell.drinkInCupView)
             if (operationPage !== "") {
                 if (!pageStack.busy) navigation.showMachineOperation(phase)
             } else if (phase === MachineState.Phase.Sleep) {
@@ -3244,8 +3236,13 @@ T.ApplicationWindow {
 
                 if (currentPage === "steamPage") {
                     root.showCompletion(trSteamComplete.text, "steam")
-                } else if (currentPage === "hotWaterPage") {
-                    root.showCompletion(trHotWaterComplete.text, "hotwater")
+                } else if (currentPage === "hotWaterPage"
+                           || (currentPage === "espressoPage" && wasHotWater)) {
+                    // A long black's water may have run on the espresso page (cup
+                    // view). An americano's water ends its drink, and the shot's
+                    // review takes the page instead.
+                    if (!espressoCompletion.heldForDrink)
+                        root.showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
                     if (AppShell.userExitedFlush) {
                         WebDebugLogger.debug("DE1", "main", ["Phase Idle/Ready: flush exited by user, skipping completion overlay"].map(String).join(" "))
@@ -3811,6 +3808,7 @@ T.ApplicationWindow {
     Tr { id: trAnnounceShotComplete; key: "main.accessibility.shotComplete"; fallback: "Shot complete"; visible: false }
     Tr { id: trAnnounceSteaming; key: "main.accessibility.steaming"; fallback: "Steaming"; visible: false }
     Tr { id: trAnnounceHotWater; key: "main.accessibility.dispensingHotWater"; fallback: "Dispensing hot water"; visible: false }
+    Tr { id: trAnnounceSteamPurge; key: "main.accessibility.purgingSteamWand"; fallback: "Purging the steam wand"; visible: false }
     Tr { id: trAnnounceFlushing; key: "main.accessibility.flushing"; fallback: "Flushing"; visible: false }
     Tr { id: trAnnounceDescaling; key: "main.accessibility.descaling"; fallback: "Descaling in progress"; visible: false }
     Tr { id: trAnnounceCleaning; key: "main.accessibility.cleaning"; fallback: "Cleaning in progress"; visible: false }
@@ -3869,6 +3867,9 @@ T.ApplicationWindow {
                     break
                 case MachineState.Phase.Transport:
                     announcement = trAnnounceTransport.text
+                    break
+                case MachineState.Phase.SteamPurge:
+                    announcement = trAnnounceSteamPurge.text
                     break
             }
 

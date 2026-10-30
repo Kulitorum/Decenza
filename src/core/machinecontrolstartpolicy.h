@@ -26,6 +26,14 @@ inline bool machineCanStart(const QString& expectedContextId,
         && deviceCanStart(ready, headless, simulation);
 }
 
+// A steam purge needs no GHC tap on any firmware (add-steam-purge), so unlike
+// every other start it is allowed whatever the GHC state.
+inline bool purgeCanStart(const QString& expectedContextId,
+                          const QString& currentContextId, bool ready)
+{
+    return contextMatches(expectedContextId, currentContextId) && ready;
+}
+
 inline bool recipeCanStart(const QString& expectedContextId,
                            const QString& currentContextId,
                            qint64 expectedRecipeId,

@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include "core/recipeeditfields.h"
 #include "history/recipestorage.h"
 #include "history/coffeebagstorage.h"
 #include "history/equipmentstorage.h"
@@ -288,6 +289,34 @@ private slots:
         QVERIFY(!Recipe::namesProfile(QString(), "D-Flow / Q"));
         QVERIFY(!Recipe::namesProfile(QString(), QString()));
         QVERIFY(!Recipe::namesProfile("   ", "   "));
+    }
+
+    void drinkSequenceFollowsTheBlocks_data() {
+        QTest::addColumn<QString>("profileTitle");
+        QTest::addColumn<QString>("steamJson");
+        QTest::addColumn<QString>("hotWaterJson");
+        QTest::addColumn<int>("expected");
+        const QString milk = "{\"hasMilk\":true,\"milkWeightG\":150}";
+        const QString after = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"after\"}";
+        const QString before = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"before\"}";
+        const int none = int(RecipeEditFields::DrinkSequence::None);
+        QTest::newRow("americano") << "P" << "" << after << int(RecipeEditFields::DrinkSequence::WaterAfter);
+        QTest::newRow("long-black") << "P" << "" << before << int(RecipeEditFields::DrinkSequence::WaterBefore);
+        QTest::newRow("order-missing-is-after")
+            << "P" << "" << "{\"hasWater\":true,\"vesselName\":\"Cup\"}"
+            << int(RecipeEditFields::DrinkSequence::WaterAfter);
+        QTest::newRow("milk-and-water") << "P" << milk << before << none;
+        QTest::newRow("hot-water-tea") << "" << "" << after << none;
+        QTest::newRow("no-water") << "P" << "" << "" << none;
+        QTest::newRow("water-off") << "P" << "" << "{\"hasWater\":false,\"order\":\"before\"}" << none;
+    }
+
+    void drinkSequenceFollowsTheBlocks() {
+        QFETCH(QString, profileTitle);
+        QFETCH(QString, steamJson);
+        QFETCH(QString, hotWaterJson);
+        QFETCH(int, expected);
+        QCOMPARE(int(RecipeEditFields::drinkSequence(profileTitle, steamJson, hotWaterJson)), expected);
     }
 
     void deriveDrinkTypeMatrix() {

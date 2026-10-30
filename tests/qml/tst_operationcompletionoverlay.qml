@@ -908,6 +908,20 @@ TestCase {
         compare(finishedCount, 1)
     }
 
+    // The purge and long-black holds keep the completion on screen past its
+    // countdown; only finish() ends it.
+    function test_holdKeepsCompletionVisibleUntilFinished() {
+        state.showCompletion("Steam Complete", "steam")
+        state.hold()
+        wait(80)
+        compare(state.visible, true)
+        compare(finishedCount, 0)
+
+        state.finish()
+        compare(finishedCount, 1)
+        compare(state.pending, false)
+    }
+
     function test_cancelResetsSuspensionForNextOperation() {
         state.suspend()
         state.showCompletion("Old completion", "steam")

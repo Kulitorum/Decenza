@@ -107,6 +107,8 @@ T.Page {
         if (hotWaterSubtractButton.visible)
             chain.push(hotWaterSubtractButton, hotWaterAddButton)
         chain.push(liveFlowRateInput)
+        if (skipDrinkStepButton.visible)
+            chain.push(skipDrinkStepButton)
         if (hotWaterStopButton.visible)
             chain.push(hotWaterStopButton)
         return chain
@@ -139,6 +141,10 @@ T.Page {
             page.pendingPageActionId = ""
             page.pendingPageAction = ""
             if (!success) {
+                if (action === "skip") {
+                    actionToast.show(message)
+                    return
+                }
                 if (action === "adjust-target") {
                     // Refused because the pour is ending. Once it has ended, the
                     // completion overlay already says so.
@@ -517,6 +523,34 @@ T.Page {
             }
 
             Item { Layout.fillHeight: true }
+
+            // A long black's next step, skippable for this drink (recipe-drink-sequence).
+            AccessibleButton {
+                id: skipDrinkStepButton
+                Layout.alignment: Qt.AlignHCenter
+                visible: MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso
+                text: TranslationManager.translate("drinkSequence.button.skip", "Skip")
+                icon.source: "qrc:/icons/espresso.svg"
+                tintIcon: true
+                iconAfterText: true
+                accessibleName: TranslationManager.translate("drinkSequence.accessible.skipEspresso",
+                                                             "Skip espresso")
+                Keys.onTabPressed: function(event) {
+                    page.liveFocusNeighbour(skipDrinkStepButton, true).forceActiveFocus(Qt.TabFocusReason)
+                    event.accepted = true
+                }
+                Keys.onBacktabPressed: function(event) {
+                    page.liveFocusNeighbour(skipDrinkStepButton, false).forceActiveFocus(Qt.TabFocusReason)
+                    event.accepted = true
+                }
+                onClicked: {
+                    if (page.pendingPageActionId)
+                        return
+                    page.pendingPageActionId = MachineControlService.skipDrinkStep(
+                                SteamService.state.controlContextId)
+                    page.pendingPageAction = "skip"
+                }
+            }
 
             // Stop button for headless machines
             Rectangle {

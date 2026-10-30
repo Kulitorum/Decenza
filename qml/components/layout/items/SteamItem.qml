@@ -214,7 +214,7 @@ LayoutWidgetItem {
             PresetPillRow {
                 id: popupPillRow
                 maxWidth: Theme.scaled(600)
-                presets: SteamService.state.steamPitcherPresets
+                presets: SteamLabels.steamRow(SteamService.state.steamPitcherPresets)
                 selectedIndex: SteamService.state.selectedSteamPitcherDisplayIndex
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
@@ -223,9 +223,9 @@ LayoutWidgetItem {
                 pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
                 onPresetSelected: function(index) {
-                HomePresetActions.tapSteamPitcher(index)
-                presetPopup.close()
-            }
+                    HomePresetActions.tapSteamRowEntry(index)
+                    presetPopup.close()
+                }
             }
         }
     }

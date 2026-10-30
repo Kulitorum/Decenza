@@ -18,7 +18,8 @@
     X(Refill)                       \
     X(Descaling)                    \
     X(Cleaning)                     \
-    X(Transport)
+    X(Transport)                    \
+    X(SteamPurge)
 
 enum class MachinePhase {
 #define DECENZA_DECLARE_MACHINE_PHASE(name) name,

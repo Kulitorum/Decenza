@@ -97,6 +97,33 @@ class tst_De1Simulator : public QObject {
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    // Firmware 1359 accepts an untapped HotWater only straight after an espresso
+    // returns to Idle. The 5 s expiry needs a clock and is left to the live check.
+    void unattendedHotWaterOnlyRightAfterAnEspresso() {
+        DE1Simulator sim;
+        sim.wakeUp();
+        QVERIFY(!sim.acceptsUnattendedStart(DE1::State::HotWater));
+
+        sim.startEspresso();
+        sim.stop();
+        QVERIFY(sim.acceptsUnattendedStart(DE1::State::HotWater));
+        QVERIFY(!sim.acceptsUnattendedStart(DE1::State::Espresso));
+
+        sim.startHotWater();
+        sim.stop();
+        QVERIFY(!sim.acceptsUnattendedStart(DE1::State::HotWater));
+    }
+
+    // The firmware ends a purge itself: nothing asks the simulator for Idle.
+    void steamPurgeEndsByItself() {
+        DE1Simulator sim;
+        sim.wakeUp();
+        sim.setSteamPurgeSecondsForTesting(0.2);
+        sim.startSteamPurge();
+        QCOMPARE(sim.state(), DE1::State::SteamRinse);
+        QTRY_COMPARE(sim.state(), DE1::State::Idle);
+    }
+
     void aFrameWithBothAnExitConditionAndZeroLengthAdvancesOnlyOnce() {
         // The OTHER half of the fix, which the test below cannot reach.
         //

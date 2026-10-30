@@ -2493,19 +2493,7 @@ void ProfileManager::restoreCurrentProfile() {
 void ProfileManager::uploadCurrentProfile() {
     // Guard: Don't upload profile during active operations - this corrupts the running shot!
     if (m_machineState) {
-        auto phase = m_machineState->phase();
-        bool isActivePhase = (phase == MachineState::Phase::EspressoPreheating ||
-                              phase == MachineState::Phase::Preinfusion ||
-                              phase == MachineState::Phase::Pouring ||
-                              phase == MachineState::Phase::Ending ||
-                              phase == MachineState::Phase::Steaming ||
-                              phase == MachineState::Phase::HotWater ||
-                              phase == MachineState::Phase::Flushing ||
-                              phase == MachineState::Phase::Descaling ||
-                              phase == MachineState::Phase::Cleaning ||
-                              phase == MachineState::Phase::Transport);
-
-        if (isActivePhase) {
+        if (m_machineState->isOperating()) {
             DIAG_WARN(PROFILES, "ProfileManager") << "uploadCurrentProfile() BLOCKED during active phase:"
                        << m_machineState->phaseString();
 

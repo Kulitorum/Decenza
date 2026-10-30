@@ -81,6 +81,24 @@ private slots:
         QCOMPARE(received.count(), 2);
     }
 
+    // A purge from a non-idle state goes through Idle first, as de1app's
+    // start_steam_rinse does; from Idle it is the one request.
+    void steamPurgeRequestsSteamRinse() {
+        TestFixture f;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        f.transport.clearWrites();
+        f.device.startSteamPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 QList<QByteArray>{QByteArray(1, char(DE1::State::SteamRinse))});
+
+        f.transport.clearWrites();
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ready));
+        f.device.startSteamPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 (QList<QByteArray>{QByteArray(1, char(DE1::State::Idle)),
+                                    QByteArray(1, char(DE1::State::SteamRinse))}));
+    }
+
     void gcAbortPendingBlocksNewOperationsButAllowsStop() {
         TestFixture f;
         f.device.setGcAbortPending(true);
@@ -159,10 +177,10 @@ private slots:
         QTest::addColumn<bool>("deferred");
         QTest::addColumn<bool>("ghcConfirmed");
         QTest::newRow("unknown-ghc") << 0 << false << true << true;
-        QTest::newRow("stable-ghc") << 1352 << false << true << true;
+        QTest::newRow("pre-native-ghc") << 1352 << false << true << true;
         QTest::newRow("native-boundary-ghc") << 1356 << false << false << true;
-        QTest::newRow("early-access-ghc") << 1358 << false << false << true;
-        QTest::newRow("stable-no-ghc") << 1352 << true << false << true;
+        QTest::newRow("post-native-ghc") << 1358 << false << false << true;
+        QTest::newRow("pre-native-no-ghc") << 1352 << true << false << true;
         QTest::newRow("unknown-firmware-ghc-unread") << 0 << true << true << false;
         QTest::newRow("old-firmware-ghc-unread") << 1352 << true << true << false;
         QTest::newRow("native-firmware-ghc-unread") << 1356 << true << false << false;

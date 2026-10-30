@@ -90,6 +90,11 @@ QtObject {
     // Drives the stop-reason overlay that draws above every page.
     property string stopReason: ""
 
+    // An americano or long black with the cup view: the Espresso page shows both
+    // steps (recipe-drink-sequence). Every page-for-phase decision passes this.
+    readonly property bool drinkInCupView: MachineControlService.drinkSequenceActive
+        && RecipeContext.preferences.espressoExtractionView === "cupFill"
+
     // Set by FlushPage's back-arrow / STOP handlers to suppress the 1.5 s "Flush
     // Complete" overlay when the user explicitly chose to leave. Single-shot:
     // cleared on the next Idle/Ready transition regardless of current page.

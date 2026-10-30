@@ -103,24 +103,34 @@ T.Page {
         }
     }
 
+    readonly property string stopName: MachineState.phase === MachineState.Phase.HotWater
+        ? TranslationManager.translate("hotwater.accessible.stopHotWater", "Stop hot water")
+        : TranslationManager.translate("espresso.accessible.stopShot", "Stop espresso shot")
+
     function stopAndGoBack() {
         if (Object.keys(pendingMachineActions).length > 0)
             return
-        if (NavigationPolicy.machineOperationPage(MachineState.phase, MachineState.Phase) !== "espressoPage") {
+        // A drink's hot water shown in the cup: Stop stops the water. Checked
+        // first because Skip clears the cup-view flag while the water still runs.
+        // A successful stop needs no navigation here: the hot water ending does it.
+        if (MachineState.phase === MachineState.Phase.HotWater) {
+            const waterRequestId = MachineControlService.stopHotWater(MachineState.controlContextId)
+            const pendingWater = Object.assign({}, pendingMachineActions)
+            pendingWater[waterRequestId] = { operation: "stop-hot-water" }
+            pendingMachineActions = pendingWater
+            return
+        }
+        if (NavigationPolicy.machineOperationPage(MachineState.phase, MachineState.Phase,
+                                                  AppShell.drinkInCupView) !== "espressoPage") {
             AppShell.dismissRequested()
             return
         }
         const previousStopReason = AppShell.stopReason
         AppShell.stopReason = "manual"
         const requestId = MachineControlService.stopEspresso(MachineState.controlContextId)
-        if (requestId !== "") {
-            const pending = Object.assign({}, pendingMachineActions)
-            pending[requestId] = { operation: "stop-espresso", previousStopReason: previousStopReason }
-            pendingMachineActions = pending
-        } else {
-            AppShell.stopReason = previousStopReason
-            showActionFailure()
-        }
+        const pending = Object.assign({}, pendingMachineActions)
+        pending[requestId] = { operation: "stop-espresso", previousStopReason: previousStopReason }
+        pendingMachineActions = pending
     }
 
     function requestMachineAction(operation, argument) {
@@ -131,17 +141,16 @@ T.Page {
             requestId = MachineControlService.bumpTargetWeight(MachineState.controlContextId, argument)
         else if (operation === "skip-frame")
             requestId = MachineControlService.skipFrame(MachineState.controlContextId)
-        if (requestId === "") {
-            showActionFailure()
-            return
-        }
+        else if (operation === "skip-drink-step")
+            requestId = MachineControlService.skipDrinkStep(MachineState.controlContextId)
         const pending = Object.assign({}, pendingMachineActions)
         pending[requestId] = { operation: operation }
         pendingMachineActions = pending
     }
 
-    function showActionFailure() {
-        actionToast.show(TranslationManager.translate(
+    // The host's own reason when it gave one, e.g. "There is no next step to skip."
+    function showActionFailure(message) {
+        actionToast.show(message || TranslationManager.translate(
             "espresso.action.failed", "The espresso action could not be completed. Please try again."))
     }
 
@@ -267,7 +276,7 @@ T.Page {
                         && AppShell.stopReason === "manual")
                     AppShell.stopReason = action.previousStopReason
                 if (espressoPage.StackView.status === StackView.Active)
-                    espressoPage.showActionFailure()
+                    espressoPage.showActionFailure(message)
             } else if (operation === "stop-espresso"
                        && espressoPage.StackView.status === StackView.Active) {
                 AppShell.dismissRequested()
@@ -375,7 +384,8 @@ T.Page {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: graphLegend.visible ? graphLegend.top
-                      : (espressoStopButton.visible ? espressoStopButton.top : infoBar.top)
+                      : espressoStopButton.visible ? espressoStopButton.top
+                      : skipDrinkStepButton.visible ? skipDrinkStepButton.top : infoBar.top
         anchors.topMargin: portalReadout.visible
                          ? portalReadout.y + portalReadout.height + Theme.spacingSmall
                          : Theme.scaled(50)
@@ -406,6 +416,8 @@ T.Page {
             goalFlow: MainController.filteredGoalFlow
             shotTime: MachineState.shotTime
             phase: MachineState.phase
+            waterTarget: AppShell.drinkInCupView ? MachineState.hotWaterTargetWeight : 0
+            waterFlow: MachineState.smoothedScaleFlowRate
         }
     }
 
@@ -447,7 +459,8 @@ T.Page {
             accessibleName: TranslationManager.translate("espresso.viewMode.button", "Change extraction view")
             accessibleItem: viewModeButton
             activeFocusOnTab: true
-            KeyNavigation.tab: espressoStopButton.visible ? espressoStopButton : espressoBackButton
+            KeyNavigation.tab: skipDrinkStepButton.visible ? skipDrinkStepButton
+                             : espressoStopButton.visible ? espressoStopButton : espressoBackButton
             KeyNavigation.backtab: skipFrameButton.visible ? skipFrameButton : espressoBackButton
             Keys.onReturnPressed: function(event) { viewSelectorDialog.open(); event.accepted = true }
             Keys.onSpacePressed:  function(event) { viewSelectorDialog.open(); event.accepted = true }
@@ -625,9 +638,9 @@ T.Page {
 
         activeFocusOnTab: true
         KeyNavigation.tab: espressoBackButton
-        KeyNavigation.backtab: viewModeMouseArea
+        KeyNavigation.backtab: skipDrinkStepButton.visible ? skipDrinkStepButton : viewModeMouseArea
         Accessible.role: Accessible.Button
-        Accessible.name: TranslationManager.translate("espresso.accessible.stopShot", "Stop espresso shot")
+        Accessible.name: espressoPage.stopName
         Accessible.focusable: true
         Accessible.onPressAction: espressoPage.stopAndGoBack()
         Keys.onReturnPressed: function(event) {
@@ -651,13 +664,38 @@ T.Page {
         AccessibleTapHandler {
             id: stopTapHandler
             anchors.fill: parent
-            accessibleName: TranslationManager.translate("espresso.accessible.stopShot", "Stop espresso shot")
+            accessibleName: espressoPage.stopName
             accessibleItem: espressoStopButton
             Accessible.ignored: true
             onAccessibleClicked: {
                 espressoPage.stopAndGoBack()
             }
         }
+    }
+
+    // The drink's next step, skippable for this drink (recipe-drink-sequence). Shown
+    // here for an americano, and for a long black whose water the cup view shows.
+    AccessibleButton {
+        id: skipDrinkStepButton
+        visible: MachineControlService.pendingDrinkStep !== MachineControlService.DrinkStep.None
+        // Beside Stop, clear of the cup; in Stop's place when Stop is hidden (GHC).
+        anchors.left: espressoStopButton.visible ? espressoStopButton.right : undefined
+        anchors.leftMargin: Theme.spacingMedium
+        anchors.verticalCenter: espressoStopButton.visible ? espressoStopButton.verticalCenter : undefined
+        anchors.horizontalCenter: espressoStopButton.visible ? undefined : parent.horizontalCenter
+        anchors.bottom: espressoStopButton.visible ? undefined : infoBar.top
+        anchors.bottomMargin: Theme.scaled(20)
+        text: TranslationManager.translate("drinkSequence.button.skip", "Skip")
+        icon.source: MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso
+                     ? "qrc:/icons/espresso.svg" : "qrc:/icons/water.svg"
+        tintIcon: true
+        iconAfterText: true
+        accessibleName: MachineControlService.pendingDrinkStep === MachineControlService.DrinkStep.Espresso
+                        ? TranslationManager.translate("drinkSequence.accessible.skipEspresso", "Skip espresso")
+                        : TranslationManager.translate("drinkSequence.accessible.skipWater", "Skip water")
+        KeyNavigation.tab: espressoStopButton.visible ? espressoStopButton : espressoBackButton
+        KeyNavigation.backtab: viewModeMouseArea
+        onClicked: espressoPage.requestMachineAction("skip-drink-step")
     }
 
     // Tappable legend to toggle graph lines (only visible in chart mode)
@@ -667,7 +705,8 @@ T.Page {
         portalAvailable: LiveShotGraph.portalSampleCount > 0 || BelkaPortal.owned
         visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
-        anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top
+        anchors.bottom: espressoStopButton.visible ? espressoStopButton.top
+                      : skipDrinkStepButton.visible ? skipDrinkStepButton.top : infoBar.top
         anchors.bottomMargin: Theme.spacingSmall
     }
 
@@ -702,7 +741,8 @@ T.Page {
                 activeFocusOnTab: true
                 KeyNavigation.tab: weightAdjustmentGrid.visible ? subtractFiveButton
                                    : (skipFrameButton.visible ? skipFrameButton : viewModeMouseArea)
-                KeyNavigation.backtab: espressoStopButton.visible ? espressoStopButton : viewModeMouseArea
+                KeyNavigation.backtab: espressoStopButton.visible ? espressoStopButton
+                                     : skipDrinkStepButton.visible ? skipDrinkStepButton : viewModeMouseArea
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("espresso.accessible.stop", "Stop and go back")
                 Accessible.focusable: true
@@ -935,9 +975,12 @@ T.Page {
                 spacing: Theme.scaled(4)
 
                 // Show volume display when only volume target is set (no weight target)
-                readonly property bool isVolumeMode: MachineState.targetVolume > 0 && MachineState.targetWeight <= 0
+                // A drink's hot water shown in the cup view: the readout follows the water.
+                readonly property bool waterMode: MachineState.phase === MachineState.Phase.HotWater
+                readonly property bool isVolumeMode: !waterMode && MachineState.targetVolume > 0 && MachineState.targetWeight <= 0
                 readonly property double currentValue: isVolumeMode ? MachineState.pourVolume : espressoPage.currentWeight
-                readonly property double targetValue: isVolumeMode ? MachineState.targetVolume : MachineState.targetWeight
+                readonly property double targetValue: waterMode ? MachineState.hotWaterTargetWeight
+                                                    : isVolumeMode ? MachineState.targetVolume : MachineState.targetWeight
                 readonly property string unit: isVolumeMode ? "ml" : "g"
                 readonly property color displayColor: isVolumeMode ? Theme.flowColor : Theme.weightColor
 
@@ -957,6 +1000,7 @@ T.Page {
                     }
                     Text {
                         text: ProfileManager.brewByRatioActive && !weightVolumeColumn.isVolumeMode
+                              && !weightVolumeColumn.waterMode
                             ? "1:" + ProfileManager.brewByRatio.toFixed(1) + " (" + MachineState.targetWeight.toFixed(0) + "g)"
                             : "/ " + weightVolumeColumn.targetValue.toFixed(0) + " " + weightVolumeColumn.unit
                         color: Theme.textSecondaryColor

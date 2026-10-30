@@ -806,6 +806,8 @@ set(SOURCES
     src/controllers/preparationcontroller.h
     src/controllers/steamautoflushcontroller.cpp
     src/controllers/steamautoflushcontroller.h
+    src/controllers/drinksequencecontroller.cpp
+    src/controllers/drinksequencecontroller.h
     src/core/preparationstate.cpp
     src/core/preparationstate.h
     src/core/stableweightcapture.cpp
