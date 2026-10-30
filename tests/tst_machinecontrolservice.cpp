@@ -25,6 +25,7 @@ public:
     using MachineControlStateSimpleSource::setPhase;
     using MachineControlStateSimpleSource::setCurrentFrameIndex;
     using MachineControlStateSimpleSource::setCurrentFrameName;
+    using MachineControlStateSimpleSource::setPendingDrinkStep;
 
     int calls = 0;
     QStringList requestIds;
@@ -181,6 +182,22 @@ void tst_MachineControlService::disconnectFailsPendingWithoutReplay()
     QCOMPARE(source.expectedContextId, QStringLiteral("ctx-3"));
     source.complete(nextId, QStringLiteral("skip-frame"), true);
     QTRY_COMPARE(completed.size(), 2);
+
+    const QString skipStepId = service->skipDrinkStep(QStringLiteral("ctx-4"));
+    QTRY_COMPARE(source.calls, 3);
+    QCOMPARE(source.operation, QStringLiteral("skip-drink-step"));
+    QVERIFY(source.fields.isEmpty());
+    QCOMPARE(source.expectedContextId, QStringLiteral("ctx-4"));
+    source.complete(skipStepId, QStringLiteral("skip-drink-step"), true);
+    QTRY_COMPARE(completed.size(), 3);
+
+    const QString purgeId = service->startSteamPurge(QStringLiteral("ctx-5"));
+    QTRY_COMPARE(source.calls, 4);
+    QCOMPARE(source.operation, QStringLiteral("start-steam-purge"));
+    QVERIFY(source.fields.isEmpty());
+    QCOMPARE(source.expectedContextId, QStringLiteral("ctx-5"));
+    source.complete(purgeId, QStringLiteral("start-steam-purge"), true);
+    QTRY_COMPARE(completed.size(), 4);
 }
 
 void tst_MachineControlService::hostErrorIsVisibleAndClearedOnNextRequest()
@@ -321,6 +338,10 @@ void tst_MachineControlService::startPolicyRejectsStaleDeferredContexts()
     QVERIFY(!machineAllowed({}, QStringLiteral("a"), true, true, true));
     QVERIFY(!machineAllowed(QStringLiteral("a"), QStringLiteral("a"), false, true, true));
     QVERIFY(!machineAllowed(QStringLiteral("a"), QStringLiteral("a"), true, false, false));
+    // A purge is the one start a GHC machine accepts from the app.
+    QVERIFY(MachineControlStartPolicy::purgeCanStart(QStringLiteral("a"), QStringLiteral("a"), true));
+    QVERIFY(!MachineControlStartPolicy::purgeCanStart(QStringLiteral("a"), QStringLiteral("a"), false));
+    QVERIFY(!MachineControlStartPolicy::purgeCanStart(QStringLiteral("a"), QStringLiteral("b"), true));
 
     QVERIFY(MachineControlStartPolicy::simulatedShotCanRun(true, false, false, false,
                                                             true, true, true, true));
@@ -515,6 +536,7 @@ void tst_MachineControlService::presentationEventsBaselineReconnectAndReportGaps
     source.setPhase(6);
     source.setCurrentFrameIndex(2);
     source.setCurrentFrameName(QStringLiteral("Main pour"));
+    source.setPendingDrinkStep(QStringLiteral("hotWater"));
 
     QRemoteObjectHost host;
     QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
@@ -528,6 +550,7 @@ void tst_MachineControlService::presentationEventsBaselineReconnectAndReportGaps
     QCOMPARE(service->phase(), 6);
     QCOMPARE(service->currentFrameIndex(), 2);
     QCOMPARE(service->currentFrameName(), QStringLiteral("Main pour"));
+    QCOMPARE(service->pendingDrinkStep(), QStringLiteral("hotWater"));
 
     QSignalSpy events(service, &MachineControlService::presentationEvent);
     QSignalSpy missed(service, &MachineControlService::presentationEventsMissed);

@@ -106,7 +106,8 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
         "Get current machine state: phase, connection status, readiness, heating, water level, "
         "firmware version, and live shot scalars. `phase` is the canonical state field — one of "
         "Disconnected | Sleep | Idle | Heating | Ready | EspressoPreheating | Preinfusion | "
-        "Pouring | Ending | Steaming | HotWater | Flushing | Refill | Descaling | Cleaning. "
+        "Pouring | Ending | Steaming | HotWater | Flushing | Refill | Descaling | Cleaning | "
+        "Transport | SteamPurge. "
         "Platform/OS info has moved to app_get_info to keep poll responses small.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState, profileManager, mainController](const QJsonObject&) -> QJsonObject {

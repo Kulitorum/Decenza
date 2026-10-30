@@ -101,6 +101,10 @@ public:
     // Tare control
     void tare();
 
+    // Hot water started while the last espresso is still settling. Ends settling
+    // before the hot water's tare can reach the reading; see SAW_LEARNING.md.
+    void endSettlingForHotWater();
+
 signals:
     void extractionClockStarted();
     void shotTimeChanged();
@@ -137,6 +141,8 @@ private:
     void completeSettling();
     // `disturbance` is None for a cup lift.
     void abandonSettling(double reading, double flowShort, Settling::SettleDisturbance disturbance);
+    // The tail every abandon shares: save `savedG`, leave settling, release the shot.
+    void finishAbandonedSettle(double savedG);
     void tracePostSettle(double weight);
     void flushPostSettleTrace(const QString& reason = QString());
     QString postSettleEndReason() const;

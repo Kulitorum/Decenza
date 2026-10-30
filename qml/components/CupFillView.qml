@@ -23,6 +23,13 @@ Item {
     property real currentPressure: 0
     property real goalPressure: 0
     property real goalFlow: 0
+    // An americano or long black's added water (recipe-drink-sequence). Non-zero
+    // only for a drink in the cup view; latched below so the drink keeps its full
+    // size after the flag that supplied it clears.
+    property real waterTarget: 0
+    // The scale's flow: the DE1 reports no group flow while hot water pours, so
+    // the water's stream is driven by this.
+    property real waterFlow: 0
 
     // Tracking color: green = on track, yellow = drifting, red = way off
     readonly property bool hasGoal: (goalPressure > 0 || goalFlow > 0) &&
@@ -78,6 +85,38 @@ Item {
     // shot, not a live instrument.
     readonly property real displayWeight: holding ? heldWeight : currentWeight
 
+    // ---- A drink's water ----
+    // The scale is tared when hot water starts, so during HotWater it reads the
+    // water alone; its peak is the water in the cup, kept across a long black's
+    // espresso (which tares again). Coffee is held at its peak while water pours.
+    readonly property bool waterPhase: phase === MachineState.Phase.HotWater
+    property real waterWeight: 0
+    // The hot-water tare lands ~200 ms into the pour and re-bases the reading to
+    // zero; until it does, the reading still carries what was in the cup before
+    // (an americano's shot), so the water is the rise above the reading at the
+    // water's start. A reading that drops below that start is the tare landing.
+    property real waterStartReading: 0
+    property bool waterTared: false
+    property real latchedWaterTarget: 0
+    // A long black: water reached the cup before any coffee. Its crema survives.
+    property bool waterFirst: false
+    readonly property real coffeeWeight: waterPhase ? (extractionSeen ? heldWeight : 0) : displayWeight
+    readonly property real liquidWeight: coffeeWeight + waterWeight
+    readonly property real drinkTarget: targetWeight + latchedWaterTarget
+    readonly property real waterShare: liquidWeight > 0 ? waterWeight / liquidWeight : 0
+    readonly property real streamFlow: waterPhase ? Math.max(currentFlow, waterFlow) : currentFlow
+    // How full the cup looks. By weight a shot is ~10% of an americano and would
+    // barely move, so a drink is drawn half coffee, half water, each filling its
+    // half by its own progress. The weight text still reports the real grams.
+    readonly property real visualFill: {
+        if (latchedWaterTarget <= 0)
+            return drinkTarget > 0 ? Math.min(liquidWeight / drinkTarget, 1.0) : 0
+        const coffeePart = targetWeight > 0 ? Math.min(coffeeWeight / targetWeight, 1.0) : 0
+        const waterPart = Math.min(waterWeight / latchedWaterTarget, 1.0)
+        return 0.5 * coffeePart + 0.5 * waterPart
+    }
+    onWaterTargetChanged: { if (waterTarget > 0) latchedWaterTarget = waterTarget }
+
     // heldWeight tracks the peak weight seen since flow began, rather than
     // being sampled once when the cycle ends. A single boundary sample had two
     // defects, and peak-tracking removes both:
@@ -94,16 +133,36 @@ Item {
     // Tracking only once extraction has been seen keeps a pre-flow residual
     // reading (an untared cup during preheat) out of the peak.
     onCurrentWeightChanged: {
-        if (extractionSeen && currentWeight > heldWeight)
+        if (waterPhase) {
+            if (!waterTared && currentWeight < waterStartReading - 0.5)
+                waterTared = true
+            const water = waterTared ? currentWeight : currentWeight - waterStartReading
+            if (water > waterWeight)
+                waterWeight = water
+        } else if (extractionSeen && currentWeight > heldWeight) {
             heldWeight = currentWeight
+        }
     }
 
     property int previousPhase: -1
     onPhaseChanged: {
         if (isEspressoCycle(phase) && !isEspressoCycle(previousPhase)) {
-            // Entering a cycle — discard any frame held from the previous shot.
+            // Entering a cycle — discard any frame held from the previous shot,
+            // unless this espresso joins a long black's water.
             extractionSeen = false
             heldWeight = 0
+            if (!waterFirst || waterTarget <= 0) {
+                waterFirst = false
+                waterWeight = 0
+                latchedWaterTarget = waterTarget
+            }
+        }
+        if (phase === MachineState.Phase.HotWater && previousPhase !== MachineState.Phase.HotWater) {
+            waterFirst = !extractionSeen
+            if (waterFirst)
+                waterWeight = 0
+            waterStartReading = currentWeight
+            waterTared = false
         }
         if (isExtractionPhase(phase))
             extractionSeen = true
@@ -117,6 +176,19 @@ Item {
         previousPhase = phase
         if (isExtractionPhase(phase))
             extractionSeen = true
+        // Opened while water pours: a long black's first step (the espresso is
+        // still to come), or the user switching to the cup during an americano's
+        // water, whose finished shot is drawn at its target. Either way the
+        // reading is past its tare by now.
+        if (waterPhase) {
+            waterTared = true
+            if (MachineControlService.pendingDrinkStep === "espresso") {
+                waterFirst = true
+            } else {
+                extractionSeen = true
+                heldWeight = targetWeight
+            }
+        }
     }
 
     property real wavePhase: 0
@@ -133,10 +205,10 @@ Item {
         // however long SAW settling delays the save behind it). The held cup
         // can still redraw when late drip raises the peak; that is data
         // arriving, not animation.
-        running: root.currentFlow > 0.1 ||
-                 (root.displayWeight > 0 && root.inEspressoCycle)
+        running: root.streamFlow > 0.1 ||
+                 (root.liquidWeight > 0 && (root.inEspressoCycle || root.waterPhase))
         onTriggered: {
-            if (root.currentFlow > 0.1) {
+            if (root.streamFlow > 0.1) {
                 root.wavePhase += 0.15
                 root.ripplePhase += 0.12
             }
@@ -146,12 +218,12 @@ Item {
         }
     }
 
-    // Repaint on displayWeight, not currentWeight: the two are the same value
+    // Repaint on liquidWeight (displayWeight plus a drink's water), not currentWeight: the two are the same value
     // whenever the view is not holding, and during the hold this repaints only
     // when late drip actually raises the held peak rather than on every sample
     // the scale sends. While animTimer runs, its next tick (<= 33 ms) draws the
     // new weight anyway.
-    onDisplayWeightChanged: { if (!animTimer.running) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
+    onLiquidWeightChanged: { if (!animTimer.running) { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() } }
     // Redraw once when the hold begins, so the frame comes from the held state
     // rather than whatever the last live paint left behind.
     onHoldingChanged:       { liquidCanvas.requestPaint(); effectsCanvas.requestPaint() }
@@ -187,13 +259,13 @@ Item {
         // on this view, the fill survives the phase leaving the cycle. With
         // nothing latched, a resting cup on the scale still renders empty.
         var hasExtraction = root.extractionPhase || root.extractionSeen
-        var fillRatio = (root.targetWeight > 0 && hasExtraction)
-            ? Math.min(root.displayWeight / root.targetWeight, 1.0) : 0
+            || root.waterPhase || root.waterWeight > 0
+        var fillRatio = hasExtraction ? root.visualFill : 0
         var interiorH = cupH * 0.8  // 100% fill reaches 80% of cup height
         var fillH = fillRatio * interiorH
         var fillTopY = botCy - fillH
         var isPouring = root.phase === MachineState.Phase.Preinfusion ||
-                        root.phase === MachineState.Phase.Pouring
+                        root.phase === MachineState.Phase.Pouring || root.waterPhase
 
         return {
             cx: cx, rimCy: rimCy, botCy: botCy,
@@ -202,6 +274,22 @@ Item {
             fillRatio: fillRatio, interiorH: interiorH,
             fillH: fillH, fillTopY: fillTopY, isPouring: isPouring
         }
+    }
+
+    // The liquid's vertical gradient, stop by stop. Pure coffee is the espresso
+    // palette; added water moves it toward a diluted brown by the water share, and
+    // water with no coffee yet (a long black's first step) is pale and clear.
+    readonly property var espressoStops: ["#140600", "#1E0A00", "#3A1808", "#5A2E14",
+                                          "#7A4422", "#a86e3e", "#c08050"]
+    readonly property var dilutedStops: ["#4A2610", "#5A3016", "#74421F", "#8E5A2E",
+                                         "#A8743F", "#C49260", "#D4A878"]
+    function liquidColor(i: int): color {
+        if (coffeeWeight <= 0)
+            return Qt.rgba(0.78, 0.87, 0.95, 0.30 + 0.06 * i)
+        const a = Qt.color(espressoStops[i])
+        const b = Qt.color(dilutedStops[i])
+        const t = Math.min(waterShare * 1.3, 1.0)
+        return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1)
     }
 
     // Helper: draw front half of an ellipse arc (PI to 2*PI)
@@ -285,7 +373,7 @@ Item {
                     // drew coffee in exactly the pre-flow case the gate exists
                     // to prevent. Pre-existing; the gate was load-bearing but
                     // never actually reached this far.
-                    if (root.displayWeight <= 0 || g.fillRatio <= 0) return
+                    if (root.liquidWeight <= 0 || g.fillRatio <= 0) return
 
                     // Shift fill forward so coffee appears with crema at first weight
                     var effectiveFillRatio = Math.min(g.fillRatio + 0.12, 1.0)
@@ -295,18 +383,14 @@ Item {
                     var t = effectiveFillH / g.interiorH
                     var fillRx = g.cupBotW + (g.cupW - g.cupBotW) * t
                     var fillOvalH = g.botOvalH + (g.rimOvalH - g.botOvalH) * t
-                    var waveAmp = root.currentFlow > 0.1 ? h * 0.006 : 0
+                    var waveAmp = root.streamFlow > 0.1 ? h * 0.006 : 0
                     var wSteps = 36
 
                     // Liquid body — uses same effectiveFillTopY as crema
                     var liqVertGrad = ctx.createLinearGradient(0, g.botCy + g.botOvalH, 0, effectiveFillTopY)
-                    liqVertGrad.addColorStop(0, "#140600")
-                    liqVertGrad.addColorStop(0.15, "#1E0A00")
-                    liqVertGrad.addColorStop(0.35, "#3A1808")
-                    liqVertGrad.addColorStop(0.55, "#5A2E14")
-                    liqVertGrad.addColorStop(0.75, "#7A4422")
-                    liqVertGrad.addColorStop(0.9, "#a86e3e")
-                    liqVertGrad.addColorStop(1.0, "#c08050")
+                    var stops = [0, 0.15, 0.35, 0.55, 0.75, 0.9, 1.0]
+                    for (let si = 0; si < stops.length; si++)
+                        liqVertGrad.addColorStop(stops[si], root.liquidColor(si))
 
                     ctx.beginPath()
                     ctx.moveTo(g.cx - g.cupBotW, g.botCy)
@@ -363,8 +447,11 @@ Item {
                     }
 
                     // Crema
-                    if (effectiveFillRatio > 0.10) {
+                    if (effectiveFillRatio > 0.10 && root.coffeeWeight > 0) {
+                        // Water poured onto an americano's shot breaks its crema;
+                        // a long black's espresso lands on the water and keeps it.
                         let cremaFade = Math.min((effectiveFillRatio - 0.10) / 0.15, 1.0)
+                            * (root.waterFirst ? 1.0 : 1.0 - root.waterShare)
                         let cremaRx = fillRx * 0.88
                         let cremaRy = fillOvalH * 0.75
 
@@ -447,7 +534,7 @@ Item {
                     ctx.fillRect(g.cx + fillRx - menW, effectiveFillTopY - h * 0.01, menW, menH)
 
                     // Ripple rings
-                    if (g.isPouring && root.currentFlow > 0.3 && effectiveFillRatio < 0.95) {
+                    if (g.isPouring && root.streamFlow > 0.3 && effectiveFillRatio < 0.95) {
                         for (let rp = 0; rp < 3; rp++) {
                             let rpAge = (root.ripplePhase + rp * 2.0) % 6.0
                             if (rpAge > 3.0) continue
@@ -512,12 +599,16 @@ Item {
                 var N = 36
 
                 // ---- Stream from above (during extraction) ----
-                if (g.isPouring && root.currentFlow > 0.3 && root.displayWeight > 0 && g.fillRatio < 1.0) {
+                if (g.isPouring && root.streamFlow > 0.3 && (root.liquidWeight > 0 || root.waterPhase)
+                        && g.fillRatio < 1.0) {
                     let streamTopY = 0  // enters from top of screen
                     let cupFloorY = g.botCy - g.botOvalH - cupH * 0.02
-                    let streamBot = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
+                    let streamBot = root.liquidWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
                     let streamLen = Math.max(streamBot - streamTopY, cupH * 0.01)
-                    let streamTopW = Math.min(cupH * 0.032 + root.currentFlow * cupH * 0.007, cupH * 0.06)
+                    // Sizes use the espresso flow range: hot water runs several times
+                    // faster, and an unclamped flow turns the droplets into blobs.
+                    let visFlow = Math.min(root.streamFlow, 3.0)
+                    let streamTopW = Math.min(cupH * 0.032 + visFlow * cupH * 0.007, cupH * 0.06)
                     let streamBotW = streamTopW * 0.5
                     let streamSegs = 20
 
@@ -537,11 +628,20 @@ Item {
                     }
                     ctx.closePath()
                     let stGrad = ctx.createLinearGradient(0, streamTopY, 0, streamBot)
-                    stGrad.addColorStop(0, Qt.rgba(0.55, 0.35, 0.18, 0.5))
-                    stGrad.addColorStop(0.15, Qt.rgba(0.52, 0.32, 0.16, 0.65))
-                    stGrad.addColorStop(0.4, Qt.rgba(0.48, 0.28, 0.14, 0.75))
-                    stGrad.addColorStop(0.7, Qt.rgba(0.42, 0.24, 0.12, 0.82))
-                    stGrad.addColorStop(1, Qt.rgba(0.38, 0.20, 0.10, 0.88))
+                    if (root.waterPhase) {
+                        // Water: the espresso stream's column, in a pale glassy tint.
+                        stGrad.addColorStop(0, Qt.rgba(0.82, 0.90, 0.97, 0.55))
+                        stGrad.addColorStop(0.15, Qt.rgba(0.78, 0.87, 0.96, 0.65))
+                        stGrad.addColorStop(0.4, Qt.rgba(0.74, 0.84, 0.94, 0.72))
+                        stGrad.addColorStop(0.7, Qt.rgba(0.70, 0.81, 0.92, 0.78))
+                        stGrad.addColorStop(1, Qt.rgba(0.66, 0.78, 0.90, 0.82))
+                    } else {
+                        stGrad.addColorStop(0, Qt.rgba(0.55, 0.35, 0.18, 0.5))
+                        stGrad.addColorStop(0.15, Qt.rgba(0.52, 0.32, 0.16, 0.65))
+                        stGrad.addColorStop(0.4, Qt.rgba(0.48, 0.28, 0.14, 0.75))
+                        stGrad.addColorStop(0.7, Qt.rgba(0.42, 0.24, 0.12, 0.82))
+                        stGrad.addColorStop(1, Qt.rgba(0.38, 0.20, 0.10, 0.88))
+                    }
                     ctx.fillStyle = stGrad
                     ctx.fill()
 
@@ -553,7 +653,8 @@ Item {
                         if (ssC === 0) ctx.moveTo(g.cx + wobC, streamTopY + streamLen * ssCt)
                         else ctx.lineTo(g.cx + wobC, streamTopY + streamLen * ssCt)
                     }
-                    ctx.strokeStyle = Qt.rgba(0.75, 0.55, 0.32, 0.25)
+                    ctx.strokeStyle = root.waterPhase ? Qt.rgba(1, 1, 1, 0.30)
+                                                      : Qt.rgba(0.75, 0.55, 0.32, 0.25)
                     ctx.lineWidth = streamTopW * 0.25
                     ctx.lineCap = "round"
                     ctx.stroke()
@@ -563,22 +664,29 @@ Item {
                         let drT = ((root.wavePhase * 1.5 + dr * 1.4) % 3.5) / 3.5
                         if (drT > 0.95) continue
                         let drY = streamTopY + streamLen * drT
-                        if (root.displayWeight > 0 && drY > effectiveFillTopY + cupH * 0.01) continue
+                        if (root.liquidWeight > 0 && drY > effectiveFillTopY + cupH * 0.01) continue
                         let drWob = Math.sin(root.wavePhase * 2.2 + drT * 5.0) * cupH * 0.006 * drT
-                        let drSize = (cupH * 0.006 + root.currentFlow * cupH * 0.001) * (1 - drT * 0.3)
+                        let drSize = (cupH * 0.006 + visFlow * cupH * 0.001) * (1 - drT * 0.3)
                         ctx.beginPath()
                         ctx.arc(g.cx + drWob, drY, drSize, 0, Math.PI * 2)
-                        ctx.fillStyle = Qt.rgba(0.65, 0.42, 0.22, 0.4 + drT * 0.35)
+                        ctx.fillStyle = root.waterPhase ? Qt.rgba(0.80, 0.89, 0.97, 0.30 + drT * 0.25)
+                                                        : Qt.rgba(0.65, 0.42, 0.22, 0.4 + drT * 0.35)
                         ctx.fill()
                     }
 
                     // Splash glow
-                    let splashY = root.displayWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
+                    let splashY = root.liquidWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
                     let splashR = cupH * 0.042
                     let splashGlow = ctx.createRadialGradient(g.cx, splashY, cupH * 0.005, g.cx, splashY, splashR)
-                    splashGlow.addColorStop(0, Qt.rgba(0.7, 0.5, 0.3, 0.5))
-                    splashGlow.addColorStop(0.4, Qt.rgba(0.6, 0.4, 0.2, 0.2))
-                    splashGlow.addColorStop(1, Qt.rgba(0.5, 0.3, 0.15, 0))
+                    if (root.waterPhase) {
+                        splashGlow.addColorStop(0, Qt.rgba(0.9, 0.95, 1.0, 0.45))
+                        splashGlow.addColorStop(0.4, Qt.rgba(0.85, 0.92, 1.0, 0.18))
+                        splashGlow.addColorStop(1, Qt.rgba(0.8, 0.9, 1.0, 0))
+                    } else {
+                        splashGlow.addColorStop(0, Qt.rgba(0.7, 0.5, 0.3, 0.5))
+                        splashGlow.addColorStop(0.4, Qt.rgba(0.6, 0.4, 0.2, 0.2))
+                        splashGlow.addColorStop(1, Qt.rgba(0.5, 0.3, 0.15, 0))
+                    }
                     ctx.beginPath()
                     ctx.arc(g.cx, splashY, splashR, 0, Math.PI * 2)
                     ctx.fillStyle = splashGlow
@@ -586,11 +694,11 @@ Item {
                 }
 
                 // ---- Steam wisps ----
-                if (root.displayWeight > 0 && root.currentFlow < 2.0) {
-                    let steamAlphaBase = Math.min(root.displayWeight / 5.0, 1.0) * 0.14
+                if (root.liquidWeight > 0 && root.streamFlow < 2.0) {
+                    let steamAlphaBase = Math.min(root.liquidWeight / 5.0, 1.0) * 0.14
                     for (let sp = 0; sp < 4; sp++) {
                         let steamOffX = (sp - 1.5) * g.cupW * 0.25
-                        let steamBaseY = root.displayWeight > 0 ? effectiveFillTopY : g.rimCy
+                        let steamBaseY = root.liquidWeight > 0 ? effectiveFillTopY : g.rimCy
                         let steamStartY = Math.min(steamBaseY, g.rimCy) - cupH * 0.007
                         let steamH2 = cupH * (0.07 + sp * 0.023)
                         let steamEndY = steamStartY - steamH2
@@ -654,7 +762,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: root.displayWeight.toFixed(1) + TranslationManager.translate("common.unit.grams", "g")
+            text: root.liquidWeight.toFixed(1) + TranslationManager.translate("common.unit.grams", "g")
             color: Theme.tintedOverlayColor(root.trackColor, 0.5)
             font.pixelSize: Theme.scaled(38)
             font.weight: Font.Bold
@@ -662,8 +770,8 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: root.targetWeight > 0
-                ? TranslationManager.translate("espresso.cupFill.target", "target") + " " + root.targetWeight.toFixed(0) + TranslationManager.translate("common.unit.grams", "g")
+            text: root.drinkTarget > 0
+                ? TranslationManager.translate("espresso.cupFill.target", "target") + " " + root.drinkTarget.toFixed(0) + TranslationManager.translate("common.unit.grams", "g")
                 : ""
             color: Theme.tintedOverlayColor(root.trackColor, 0.4)
             font.pixelSize: Theme.scaled(16)

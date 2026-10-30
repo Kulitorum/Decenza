@@ -736,7 +736,8 @@ ApplicationWindow {
         const previous = window.previousMachinePhase
         window.previousMachinePhase = phase
 
-        const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+        const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase,
+                                                                              AppShell.drinkInCupView)
         if (previous !== phase && operationPage !== "") {
             completionOverlay.cancel()
             navigation.showMachineOperation(phase)

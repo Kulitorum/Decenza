@@ -39,6 +39,7 @@ LayoutWidgetItem {
             case MachineState.Phase.Descaling:           return Theme.accentColor
             case MachineState.Phase.Cleaning:            return Theme.accentColor
             case MachineState.Phase.Transport:           return Theme.accentColor
+            case MachineState.Phase.SteamPurge:          return Theme.accentColor
             default:                                         return Theme.textSecondaryColor
         }
     }
@@ -61,6 +62,7 @@ LayoutWidgetItem {
             case MachineState.Phase.Descaling:           return TranslationManager.translate("machineStatus.descaling", "Descaling")
             case MachineState.Phase.Cleaning:            return TranslationManager.translate("machineStatus.cleaning", "Cleaning")
             case MachineState.Phase.Transport:           return TranslationManager.translate("machineStatus.transport", "Transport")
+            case MachineState.Phase.SteamPurge:          return TranslationManager.translate("machineStatus.steamPurge", "Purging")
             default:                                         return TranslationManager.translate("machineStatus.unknown", "Unknown")
         }
     }

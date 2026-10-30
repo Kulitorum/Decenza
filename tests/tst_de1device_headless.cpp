@@ -159,10 +159,10 @@ private slots:
         QTest::addColumn<bool>("deferred");
         QTest::addColumn<bool>("ghcConfirmed");
         QTest::newRow("unknown-ghc") << 0 << false << true << true;
-        QTest::newRow("stable-ghc") << 1352 << false << true << true;
+        QTest::newRow("pre-native-ghc") << 1352 << false << true << true;
         QTest::newRow("native-boundary-ghc") << 1356 << false << false << true;
-        QTest::newRow("early-access-ghc") << 1358 << false << false << true;
-        QTest::newRow("stable-no-ghc") << 1352 << true << false << true;
+        QTest::newRow("post-native-ghc") << 1358 << false << false << true;
+        QTest::newRow("pre-native-no-ghc") << 1352 << true << false << true;
         QTest::newRow("unknown-firmware-ghc-unread") << 0 << true << true << false;
         QTest::newRow("old-firmware-ghc-unread") << 1352 << true << true << false;
         QTest::newRow("native-firmware-ghc-unread") << 1356 << true << false << false;

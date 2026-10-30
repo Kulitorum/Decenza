@@ -167,7 +167,8 @@ T.StackView {
     }
 
     function showMachineOperation(phase) {
-        const pageName = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+        const pageName = OperationNavigationPolicy.machineOperationPage(
+            phase, MachineState.Phase, AppShell.drinkInCupView)
         if (pageName !== "") showOperationPage(root[pageName], pageName)
     }
 
@@ -529,6 +530,13 @@ T.StackView {
     Connections {
         target: AppShell
 
+        // A long black's water can open the Hot Water page before the drink flag
+        // arrives; once it does, the cup view takes the drink over.
+        function onDrinkInCupViewChanged() {
+            if (AppShell.drinkInCupView && root.currentItem
+                    && root.currentItem.objectName === "hotWaterPage")
+                root.showOperationPage(root.espressoPage, "espressoPage")
+        }
         function onBackRequested() { root.goBack() }
 
         function onProfileEditorRequested() { root.goToProfileEditor() }

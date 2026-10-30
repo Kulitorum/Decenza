@@ -3,6 +3,8 @@
 #include "core/appsettings.h"
 #include "maincontroller.h"
 #include "steamautoflushcontroller.h"
+#include "drinksequencecontroller.h"
+#include "core/recipeeditfields.h"
 #include "ble/scaledeviceproxy.h"
 #include <QUuid>
 #include "shottimingcontroller.h"
@@ -230,6 +232,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     m_steamAutoFlush = new SteamAutoFlushController(m_settings ? m_settings->brew() : nullptr,
                                                     m_device, m_machineState, this);
+    m_drinkSequence = new DrinkSequenceController(m_device, m_machineState,
+                                                  [this] { return activeRecipe(); }, this);
+    connect(m_drinkSequence, &DrinkSequenceController::pendingStepChanged,
+            this, &MainController::pendingDrinkStepChanged);
+    connect(m_drinkSequence, &DrinkSequenceController::activeChanged,
+            this, &MainController::drinkSequenceActiveChanged);
     connect(m_steamAutoFlush, &SteamAutoFlushController::remainingSecondsChanged,
             this, &MainController::steamAutoFlushCountdownChanged);
     connect(m_steamAutoFlush, &SteamAutoFlushController::expired, this, [this] {
@@ -2303,7 +2311,13 @@ bool MainController::dispatchHomeRecipeStart(const QString& requestId, qint64 re
         m_pendingHomeRecipeStartRecipeId = -1;
         m_pendingHomeRecipeStartContextId.clear();
     }
-    m_device->startEspresso();
+    // A long black's first step is its hot water; DrinkSequenceController
+    // requests the espresso when that ends.
+    if (RecipeEditFields::drinkSequence(activeRecipe())
+        == RecipeEditFields::DrinkSequence::WaterBefore)
+        m_device->startHotWater();
+    else
+        m_device->startEspresso();
     emit recipeShotStartRequestCompleted(requestId, recipeId, true, QString());
     return true;
 }
@@ -4590,6 +4604,37 @@ bool MainController::pushShotSettings(double steamTempC, const QString& reason) 
 double MainController::steamAutoFlushCountdown() const
 {
     return m_steamAutoFlush ? m_steamAutoFlush->remainingSeconds() : 0.0;
+}
+
+void MainController::setTimingController(ShotTimingController* controller)
+{
+    m_timingController = controller;
+    // shotProcessingReady is the shot's settled end: an americano's water waits for it.
+    if (m_timingController && m_drinkSequence) {
+        connect(m_timingController, &ShotTimingController::shotProcessingReady,
+                m_drinkSequence, &DrinkSequenceController::onShotSettled);
+    }
+}
+
+QString MainController::pendingDrinkStep() const
+{
+    switch (m_drinkSequence ? m_drinkSequence->pendingStep() : DrinkSequenceController::Step::None) {
+    case DrinkSequenceController::Step::HotWater: return QStringLiteral("hotWater");
+    case DrinkSequenceController::Step::Espresso: return QStringLiteral("espresso");
+    case DrinkSequenceController::Step::None: break;
+    }
+    return QString();
+}
+
+bool MainController::drinkSequenceActive() const
+{
+    return m_drinkSequence && m_drinkSequence->isActive();
+}
+
+void MainController::skipPendingDrinkStep()
+{
+    if (m_drinkSequence)
+        m_drinkSequence->skip();
 }
 
 void MainController::setSteamTemperatureImmediate(double temp) {

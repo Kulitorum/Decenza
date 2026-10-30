@@ -76,6 +76,7 @@ crash.
 | Descaling | Descaling |
 | Cleaning | Cleaning |
 | Transport | Transport |
+| SteamPurge | Purging |
 
 ## Display rules (consumers)
 

@@ -10,6 +10,11 @@ class MachineControlState
     PROP(int phase READONLY)
     PROP(int currentFrameIndex READONLY)
     PROP(QString currentFrameName READONLY)
+    // "hotWater", "espresso" or "": the step an americano or long black will
+    // request when the running one ends (recipe-drink-sequence).
+    PROP(QString pendingDrinkStep READONLY)
+    // True until the second step starts or will not: the first step's page holds.
+    PROP(bool drinkSequenceActive READONLY)
 
     SLOT(void execute(QString requestId, QString operation, QVariantMap fields,
                       QString expectedContextId))

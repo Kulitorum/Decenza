@@ -3219,7 +3219,8 @@ T.ApplicationWindow {
                 }
             }
 
-            const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+            const operationPage = OperationNavigationPolicy.machineOperationPage(
+                phase, MachineState.Phase, AppShell.drinkInCupView)
             if (operationPage !== "") {
                 if (!pageStack.busy) navigation.showMachineOperation(phase)
             } else if (phase === MachineState.Phase.Sleep) {

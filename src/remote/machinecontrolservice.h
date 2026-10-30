@@ -21,6 +21,8 @@ class MachineControlService final : public RemoteService
     Q_PROPERTY(int phase READ phase NOTIFY stateChanged FINAL)
     Q_PROPERTY(int currentFrameIndex READ currentFrameIndex NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString pendingDrinkStep READ pendingDrinkStep NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool drinkSequenceActive READ drinkSequenceActive NOTIFY stateChanged FINAL)
 public:
     ~MachineControlService() override;
 
@@ -32,6 +34,8 @@ public:
     int phase() const;
     int currentFrameIndex() const;
     QString currentFrameName() const;
+    QString pendingDrinkStep() const;
+    bool drinkSequenceActive() const;
 
     void setNode(QRemoteObjectNode* node) override;
     static void setPublishedNode(QRemoteObjectNode* node);
@@ -78,6 +82,8 @@ public:
     Q_INVOKABLE QString bumpFlushSeconds(const QString& expectedContextId, double deltaSec);
     Q_INVOKABLE QString bumpHotWaterTarget(const QString& expectedContextId, double deltaG);
     Q_INVOKABLE QString skipFrame(const QString& expectedContextId);
+    Q_INVOKABLE QString skipDrinkStep(const QString& expectedContextId);
+    Q_INVOKABLE QString startSteamPurge(const QString& expectedContextId);
     Q_INVOKABLE QString applyHotWaterSettings(const QString& expectedContextId);
     Q_INVOKABLE QString applyFlushSettings(const QString& expectedContextId);
 

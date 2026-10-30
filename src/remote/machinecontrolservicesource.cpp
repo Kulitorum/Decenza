@@ -141,6 +141,18 @@ NativeMachineControlServiceSource::NativeMachineControlServiceSource(
                             : static_cast<int>(MachineState::Phase::Disconnected));
     setCurrentFrameIndex(-1);
     setCurrentFrameName(m_controller ? m_controller->currentFrameName() : QString());
+    setPendingDrinkStep(m_controller ? m_controller->pendingDrinkStep() : QString());
+    setDrinkSequenceActive(m_controller && m_controller->drinkSequenceActive());
+    if (m_controller) {
+        connect(m_controller, &MainController::pendingDrinkStepChanged, this, [this] {
+            if (m_controller)
+                setPendingDrinkStep(m_controller->pendingDrinkStep());
+        });
+        connect(m_controller, &MainController::drinkSequenceActiveChanged, this, [this] {
+            if (m_controller)
+                setDrinkSequenceActive(m_controller->drinkSequenceActive());
+        });
+    }
     if (m_controller && m_controller->shotDataModel()) {
         const auto& markers = m_controller->shotDataModel()->phaseMarkersList();
         if (!markers.isEmpty() && markers.constLast().frameNumber >= 0) {
@@ -344,6 +356,34 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
         m_controller->bumpTargetWeight(deltaG);
         finish(requestId, operation, true, {},
                {{QStringLiteral("targetWeightG"), m_machineState->targetWeight()}});
+        return;
+    }
+
+    if (operation == QLatin1String("start-steam-purge")) {
+        const bool allowed = fields.isEmpty() && m_machineState && m_device
+            && MachineControlStartPolicy::purgeCanStart(
+                expectedContextId, m_machineState->controlContextId(), m_machineState->isReady());
+        if (!allowed) {
+            finish(requestId, operation, false,
+                   QStringLiteral("The machine is not ready to purge the steam wand."));
+            return;
+        }
+        m_device->startSteamPurge();
+        finish(requestId, operation, true, {}, {{QStringLiteral("dispatched"), true}});
+        return;
+    }
+
+    if (operation == QLatin1String("skip-drink-step")) {
+        const bool current = m_controller && m_machineState && fields.isEmpty()
+            && !m_controller->pendingDrinkStep().isEmpty()
+            && expectedContextId == m_machineState->controlContextId();
+        if (!current) {
+            finish(requestId, operation, false,
+                   QStringLiteral("There is no next step to skip."));
+            return;
+        }
+        m_controller->skipPendingDrinkStep();
+        finish(requestId, operation, true);
         return;
     }
 

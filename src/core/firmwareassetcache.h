@@ -16,8 +16,9 @@
 #include "core/firmwareheader.h"
 
 // Loads and validates bundled DE1 firmware binaries shipped with Decenza.
-// The firmware catalog is Decaid's manifest, included in resources alongside
-// the binaries. Two product channels are exposed: Stable and Early access.
+// The firmware catalog is a manifest in Decaid's format, included in resources
+// alongside the binaries. Two product channels are exposed: Stable and Early
+// access, each the manifest entry whose `channel` is "stable" / "early-access".
 //
 // Test scaffolding can still point setCacheRoot() at a temporary directory
 // containing bootfwupdate.dat; that override keeps FirmwareUpdater state

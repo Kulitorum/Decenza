@@ -19,6 +19,18 @@ QtObject {
     readonly property string heaterOffName:
         TranslationManager.translate("steam.pitcher.heaterOff", "Heater off")
 
+    // The steam row's one action entry, after the pitchers: a firmware steam-wand
+    // purge (add-steam-purge). Not a pitcher, so never stored, selected or edited.
+    readonly property var purgePill: ({
+        steamPurge: true,
+        name: MachineState.phase === MachineState.Phase.SteamPurge
+              ? TranslationManager.translate("steam.label.purging", "Purging…")
+              : TranslationManager.translate("steam.label.purge", "Purge")
+    })
+    function isPurgePill(preset) { return !!preset && preset.steamPurge === true }
+    // The pitchers SteamService lists, then the purge entry.
+    function steamRow(presets) { return (presets || []).concat([purgePill]) }
+
     // The label for a pitcher preset map returned by SteamService.
     function pitcherName(preset) {
         if (!preset)
@@ -31,6 +43,8 @@ QtObject {
     // "twin of ... keep in sync" comment on each, which is a note that they will
     // drift, not a mechanism that stops them.
     function pitcherPillLabel(preset, name) {
+        if (isPurgePill(preset))
+            return name
         if (preset && preset.disabled === true)
             return pitcherName(preset)
         if (!name || name.toLowerCase().indexOf("pitcher") >= 0)
@@ -44,7 +58,7 @@ QtObject {
     function pitcherPillSuffix(preset) {
         if (!SteamService.state.scaleConnected || SteamService.state.scaleIsFlowScale)
             return ""
-        if (!preset || preset.disabled === true)
+        if (!preset || preset.disabled === true || isPurgePill(preset))
             return ""
         var pitcherWeight = preset.pitcherWeightG ?? 0
         if (pitcherWeight <= 0)

@@ -1980,7 +1980,7 @@ int main(int argc, char *argv[])
     // Strategy:
     //   - App startup:
     //       • Call idleGc() immediately and start the 15-minute periodic timer.
-    //   - EspressoPreheating / HotWater / Flush start:
+    //   - Any operation starting (MachineState::isOperating):
     //       • Stop the periodic timer (no GC right before or during a shot).
     //       • Raise heap utilization threshold to 0.95 (GC only if heap is 95% full).
     //         No explicit System.gc() here — GC near preinfusion is worse than no GC.
@@ -2009,14 +2009,7 @@ int main(int argc, char *argv[])
         static bool s_inOperation = false;
         const Phase phase = machineState.phase();
 
-        const bool enteringOp = !s_inOperation && (
-            phase == Phase::EspressoPreheating ||   // earliest signal for espresso
-            phase == Phase::HotWater ||
-            phase == Phase::Steaming ||
-            phase == Phase::Flushing ||
-            phase == Phase::Descaling ||
-            phase == Phase::Cleaning ||
-            phase == Phase::Transport);
+        const bool enteringOp = !s_inOperation && machineState.isOperating();
 
         const bool exitingOp = s_inOperation && (
             phase == Phase::Idle ||

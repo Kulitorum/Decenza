@@ -21,32 +21,37 @@ private slots:
         QVERIFY2(!entries.isEmpty(), qPrintable(error));
         QCOMPARE(entries.size(), 2);
 
-        QHash<QString, DE1::Firmware::FirmwareCatalogEntry> byId;
+        // Selection picks the first entry per channel, so a rotation that
+        // leaves two builds on one channel would silently ship the wrong one.
+        QHash<QString, DE1::Firmware::FirmwareCatalogEntry> byChannel;
         for (const auto& entry : entries) {
-            byId.insert(entry.id, entry);
+            QVERIFY2(!byChannel.contains(entry.channel), qPrintable(entry.channel));
+            byChannel.insert(entry.channel, entry);
         }
-        QVERIFY(byId.contains(QStringLiteral("de1-1352")));
-        QVERIFY(byId.contains(QStringLiteral("de1-1358")));
+        QVERIFY(byChannel.contains(QStringLiteral("stable")));
+        QVERIFY(byChannel.contains(QStringLiteral("early-access")));
 
-        const auto stable = byId.value(QStringLiteral("de1-1352"));
-        QCOMPARE(stable.build, uint32_t(1352));
+        const auto stable = byChannel.value(QStringLiteral("stable"));
+        QCOMPARE(stable.id, QStringLiteral("de1-1358"));
+        QCOMPARE(stable.build, uint32_t(1358));
         QCOMPARE(stable.byteLength, qint64(463872));
         QCOMPARE(stable.sha256Hex,
-                 QByteArray("d9433b85167566d7b457e03e2151e860c10ff5d3b4e41b163667b8314aeb2927"));
+                 QByteArray("ada25161ebbd661b44b3aab2c7756f42d95064a931462b3d134e8db66d198747"));
         QCOMPARE(stable.expectedHeaderBoardMarker, uint32_t(0xDE100001));
         QCOMPARE(stable.expectedBodyByteCount, uint32_t(461824));
-        QCOMPARE(stable.expectedCpuByteCount, uint32_t(298592));
-        QVERIFY(stable.releaseNotes.contains(QStringLiteral("NoAC")));
+        QCOMPARE(stable.expectedCpuByteCount, uint32_t(298880));
+        QVERIFY(stable.releaseNotes.contains(QStringLiteral("Cold maintenance")));
 
-        const auto early = byId.value(QStringLiteral("de1-1358"));
-        QCOMPARE(early.build, uint32_t(1358));
-        QCOMPARE(early.byteLength, qint64(463872));
+        const auto early = byChannel.value(QStringLiteral("early-access"));
+        QCOMPARE(early.id, QStringLiteral("de1-1359"));
+        QCOMPARE(early.build, uint32_t(1359));
+        QCOMPARE(early.byteLength, qint64(464896));
         QCOMPARE(early.sha256Hex,
-                 QByteArray("ada25161ebbd661b44b3aab2c7756f42d95064a931462b3d134e8db66d198747"));
+                 QByteArray("4b9ed1c16ee4c015052765505404a4c5fb54a6c4e20063faf44b4b06dbd1cc81"));
         QCOMPARE(early.expectedHeaderBoardMarker, uint32_t(0xDE100001));
-        QCOMPARE(early.expectedBodyByteCount, uint32_t(461824));
-        QCOMPARE(early.expectedCpuByteCount, uint32_t(298880));
-        QVERIFY(early.releaseNotes.contains(QStringLiteral("Cold maintenance")));
+        QCOMPARE(early.expectedBodyByteCount, uint32_t(462848));
+        QCOMPARE(early.expectedCpuByteCount, uint32_t(299584));
+        QVERIFY(early.releaseNotes.contains(QStringLiteral("hot water")));
     }
 
     void bundledFilesValidateAgainstManifest() {
@@ -81,24 +86,24 @@ private slots:
         QCOMPARE(results.size(), 1);
         auto stable = results.takeFirst();
         QCOMPARE(stable.kind, DE1::Firmware::FirmwareAssetCache::CheckResult::Newer);
-        QCOMPARE(stable.remoteVersion, uint32_t(1352));
+        QCOMPARE(stable.remoteVersion, uint32_t(1358));
         QCOMPARE(stable.channelLabel, QStringLiteral("Stable"));
-        QVERIFY(stable.releaseNotes.contains(QStringLiteral("NoAC")));
+        QVERIFY(stable.releaseNotes.contains(QStringLiteral("Cold maintenance")));
 
         cache.setChannel(DE1::Firmware::FirmwareAssetCache::Channel::EarlyAccess);
-        cache.checkForUpdate(/*installed*/ 1358);
+        cache.checkForUpdate(/*installed*/ 1359);
         QCOMPARE(results.size(), 1);
         auto early = results.takeFirst();
         QCOMPARE(early.kind, DE1::Firmware::FirmwareAssetCache::CheckResult::Same);
-        QCOMPARE(early.remoteVersion, uint32_t(1358));
+        QCOMPARE(early.remoteVersion, uint32_t(1359));
         QCOMPARE(early.channelLabel, QStringLiteral("Early access"));
-        QVERIFY(early.releaseNotes.contains(QStringLiteral("Cold maintenance")));
+        QVERIFY(early.releaseNotes.contains(QStringLiteral("hot water")));
 
         cache.checkForUpdate(/*installed*/ 2000);
         QCOMPARE(results.size(), 1);
         auto downgrade = results.takeFirst();
         QCOMPARE(downgrade.kind, DE1::Firmware::FirmwareAssetCache::CheckResult::Older);
-        QCOMPARE(downgrade.remoteVersion, uint32_t(1358));
+        QCOMPARE(downgrade.remoteVersion, uint32_t(1359));
     }
 
     void invalidManifestRejected() {

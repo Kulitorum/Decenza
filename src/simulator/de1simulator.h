@@ -51,6 +51,14 @@ public:
     void setDose(double grams);
     void setGrindSetting(const QString& setting);
 
+    // The firmware's GHC rule for a request no one tapped for. Models build 1359:
+    // HotWater within ESPRESSO_HOT_WATER_WINDOW_MS of an espresso returning to Idle.
+    static constexpr qint64 ESPRESSO_HOT_WATER_WINDOW_MS = 5000;
+    // A steam purge ends by itself on real hardware. Its length has not been
+    // timed yet: this is a guess, to correct once one is (add-steam-purge 4.3).
+    static constexpr double STEAM_PURGE_SECONDS = 3.0;
+    bool acceptsUnattendedStart(DE1::State requested) const;
+
 public slots:
     // Machine control (called from GHC buttons or app)
     void startEspresso();
@@ -60,6 +68,7 @@ public slots:
     void startDescale();
     void startClean();
     void startAirPurge();
+    void startSteamPurge();
     void stop();
     void goToSleep();
     void wakeUp();
@@ -94,6 +103,7 @@ private:
 
     // Profile execution
     void executeFrame();
+    void enterEnding();
     void executeEnding(double dt);
     bool checkExitCondition(const ProfileFrame& frame);
     void advanceToNextFrame();
@@ -127,6 +137,7 @@ private:
     // Timing
     QTimer m_tickTimer;
     QElapsedTimer m_shotTimer;
+    QElapsedTimer m_sinceEspressoEnded;  // valid only while Idle after an espresso
     QElapsedTimer m_operationTimer;
     static constexpr int TICK_INTERVAL_MS = 100;  // 10Hz simulation, send samples at 5Hz
 
@@ -165,6 +176,8 @@ private:
 
     // Ending phase tracking
     double m_endingStartTime = 0.0;   // When ending phase began
+    double m_flowAtEndingStart = 0.0;
+    double m_pressureAtEndingStart = 0.0;
 
     // Descale/clean simulation
     int m_descaleStep = 0;            // Current descale substate (8-12)
@@ -235,9 +248,14 @@ private:
     static constexpr double SCALE_NOISE_AMP = 0.05;       // ±0.05g scale jitter
 
     // Ending phase - pressure decay through puck
-    static constexpr double HEADSPACE_VOLUME = 12.0;      // ml of water above puck under pressure
-    static constexpr double MIN_ENDING_PRESSURE = 0.15;   // Pressure threshold to end simulation
-    static constexpr double MAX_ENDING_TIME = 10.0;       // Safety timeout for ending phase (seconds)
+    // Drip after the pump stops, as drip / flow-at-stop: the tablet's learned SAW lag
+    // for D-Flow/Q was 0.92 s (1.08 g at 1.18 g/s, 2026-10-30).
+    static constexpr double DRIP_TIME_CONSTANT_S = 0.9;
+    static constexpr double PRESSURE_VENT_TIME_CONSTANT_S = 0.5;
+    // A real DE1 holds Espresso/Ending this long before reporting Idle, whether the
+    // profile ran out or a stop was requested: 21 tablet shots (2026-10-30) went Idle
+    // 4.4-6.1 s after the stop-at-weight stop, median 5.1 s.
+    static constexpr double ENDING_SECONDS = 5.0;
 
     int m_tickCount = 0;  // For 5Hz sample output
 };

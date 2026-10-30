@@ -22,6 +22,11 @@ QtObject {
         completionTimer.restart()
     }
 
+    // Keep the completion on screen without counting down; finish() ends it.
+    function hold() {
+        completionTimer.stop()
+    }
+
     function suspend() {
         suspended = true
         pending = false

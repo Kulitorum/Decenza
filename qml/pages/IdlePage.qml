@@ -1015,7 +1015,7 @@ T.Page {
                     PresetPillRow {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: steamPresetLoader.width
-                        presets: SteamService.state.steamPitcherPresets
+                        presets: SteamLabels.steamRow(SteamService.state.steamPitcherPresets)
                         selectedIndex: SteamService.state.selectedSteamPitcherDisplayIndex
                         supportLongPress: true
                         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
@@ -1032,13 +1032,15 @@ T.Page {
                         // name already says pitcher and for the built-in entry.
                         pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
-                        onPresetSelected: function(index) { HomePresetActions.tapSteamPitcher(index) }
+                        onPresetSelected: function(index) { HomePresetActions.tapSteamRowEntry(index) }
 
                         // Long-press a pitcher to open the steam page settings, where you set
                         // the duration and either tap "Weigh" next to Reference milk (with milk
                         // on the scale) or "Use as baseline" to teach this pitcher its
                         // milk-weight -> steam-time reference.
                         onPresetLongPressed: function(index) {
+                            if (SteamLabels.isPurgePill(presets[index]))
+                                return
                             HomePresetActions.selectSteamPitcher(index)
                             AppShell.steamRequested()
                         }

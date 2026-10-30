@@ -177,6 +177,12 @@ void DE1Simulator::setState(DE1::State state, DE1::SubState subState)
     bool stateChanged = (m_state != state);
     bool subStateChanged = (m_subState != subState);
 
+    if (stateChanged) {
+        if (m_state == DE1::State::Espresso && state == DE1::State::Idle)
+            m_sinceEspressoEnded.start();
+        else
+            m_sinceEspressoEnded.invalidate();
+    }
     m_state = state;
     m_subState = subState;
 
@@ -188,6 +194,13 @@ void DE1Simulator::setState(DE1::State state, DE1::SubState subState)
         SIM_LOG(QStringLiteral("SubState -> %1").arg(DE1::subStateToString(subState)));
         emit this->subStateChanged();
     }
+}
+
+bool DE1Simulator::acceptsUnattendedStart(DE1::State requested) const
+{
+    return requested == DE1::State::HotWater && m_state == DE1::State::Idle
+        && m_sinceEspressoEnded.isValid()
+        && m_sinceEspressoEnded.elapsed() <= ESPRESSO_HOT_WATER_WINDOW_MS;
 }
 
 void DE1Simulator::startEspresso()
@@ -335,9 +348,23 @@ void DE1Simulator::startAirPurge()
     setState(DE1::State::AirPurge, DE1::SubState::Ready);  // no dedicated air-purge substate
 }
 
+void DE1Simulator::startSteamPurge()
+{
+    if (m_state == DE1::State::Sleep) wakeUp();
+    SIM_INFO(QStringLiteral("Starting steam purge"));
+    startOperation(DE1::State::SteamRinse);
+    setState(DE1::State::SteamRinse, DE1::SubState::Ready);
+}
+
 void DE1Simulator::stop()
 {
     SIM_INFO(QStringLiteral("Stop requested"));
+    // A stop mid-extraction ends like the profile running out: Ending, then Idle.
+    if (m_state == DE1::State::Espresso
+        && (m_subState == DE1::SubState::Preinfusion || m_subState == DE1::SubState::Pouring)) {
+        enterEnding();
+        return;
+    }
     stopOperation();
 }
 
@@ -468,6 +495,13 @@ void DE1Simulator::onSimulationTimerTick()
         }
         m_flow = 2.0 + fractalNoise(elapsed * 0.6, 2) * 1.0;
         m_pressure = 0.5 + fractalNoise(elapsed * 1.0, 2) * 0.3;
+    } else if (m_state == DE1::State::SteamRinse) {
+        // The firmware ends a purge itself; nothing asks for Idle.
+        if (elapsed >= STEAM_PURGE_SECONDS) {
+            SIM_INFO(QStringLiteral("Steam purge complete"));
+            stopOperation();
+            return;
+        }
     }
 
     // Send shot samples at 5Hz (every other tick at 10Hz)
@@ -589,9 +623,8 @@ void DE1Simulator::executeFrame()
     // ========== EXTRACTION PHASE ==========
     if (m_currentFrameIndex >= m_profile.steps().size()) {
         SIM_INFO(QStringLiteral("Shot complete (all frames done)"));
-        m_endingStartTime = m_shotTimer.elapsed() / 1000.0;
-        setState(DE1::State::Espresso, DE1::SubState::Ending);
-        return;  // executeEnding() will handle pressure decay
+        enterEnding();
+        return;  // executeEnding() will handle the drip
     }
 
     const ProfileFrame& frame = m_profile.steps()[m_currentFrameIndex];
@@ -776,30 +809,23 @@ void DE1Simulator::executeFrame()
     }
 }
 
+void DE1Simulator::enterEnding()
+{
+    m_endingStartTime = m_shotTimer.elapsed() / 1000.0;
+    m_flowAtEndingStart = m_flow;
+    m_pressureAtEndingStart = m_pressure;
+    setState(DE1::State::Espresso, DE1::SubState::Ending);
+}
+
 void DE1Simulator::executeEnding(double dt)
 {
-    // Simulate pressure bleeding off through the puck after pump stops
-    // The headspace water above the puck is under pressure and must drain through
-    // This creates the characteristic slow drip of rich, oily coffee at the end
-
     double shotTime = m_shotTimer.elapsed() / 1000.0;
+    const double sinceStop = shotTime - m_endingStartTime;
 
-    // Flow is driven by remaining pressure through puck resistance (Darcy's law)
-    // As pressure drops, flow slows - creating the slow drip effect
-    m_flow = calculateFlow(m_pressure, m_puckResistance);
-
-    // Pressure decays as water volume drains from headspace
-    // dP/dt = -flow / headspace_volume * pressure_per_ml
-    // Simplified: pressure drops proportionally to flow rate
-    double pressureLossRate = m_flow / HEADSPACE_VOLUME * m_pressure;
-    m_pressure -= pressureLossRate * dt;
-
-    // Add subtle noise to make it look natural
-    double pressureNoise = fractalNoise(shotTime * 3.0, 2) * 0.03;
-    m_pressure = qMax(0.0, m_pressure + pressureNoise);
-
-    // Clamp flow to realistic minimum
-    m_flow = qMax(0.0, m_flow);
+    // The pump has stopped and the DE1 vents the group: flow decays from its value
+    // at the stop, so the drip totals flow-at-stop x DRIP_TIME_CONSTANT_S.
+    m_flow = m_flowAtEndingStart * qExp(-sinceStop / DRIP_TIME_CONSTANT_S);
+    m_pressure = m_pressureAtEndingStart * qExp(-sinceStop / PRESSURE_VENT_TIME_CONSTANT_S);
 
     // Continue tracking volume and yield - this is the rich, oily stuff
     if (m_flow > 0.01) {
@@ -821,13 +847,8 @@ void DE1Simulator::executeEnding(double dt)
 
     // Shot samples are sent by onSimulationTimerTick() - no need to duplicate here
 
-    // End simulation when pressure has fully bled off or timeout reached
-    double endingTime = shotTime - m_endingStartTime;
-    if (m_pressure < MIN_ENDING_PRESSURE) {
-        SIM_INFO(QStringLiteral("Pressure bled off, shot complete"));
-        stopOperation();
-    } else if (endingTime > MAX_ENDING_TIME) {
-        SIM_INFO(QStringLiteral("Ending timeout, shot complete"));
+    if (sinceStop >= ENDING_SECONDS) {
+        SIM_INFO(QStringLiteral("Ending complete, shot complete"));
         stopOperation();
     }
 }
@@ -877,9 +898,8 @@ void DE1Simulator::advanceToNextFrame()
     if (m_currentFrameIndex >= m_profile.steps().size()) {
         SIM_LOG(QStringLiteral("All %1 frames complete, entering Ending")
                     .arg(m_profile.steps().size()));
-        m_endingStartTime = m_shotTimer.elapsed() / 1000.0;
-        setState(DE1::State::Espresso, DE1::SubState::Ending);
-        return;  // executeEnding() will handle pressure decay
+        enterEnding();
+        return;  // executeEnding() will handle the drip
     }
 
     const auto& nextFrame = m_profile.steps()[m_currentFrameIndex];

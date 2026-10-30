@@ -590,6 +590,9 @@ add_decenza_test(tst_autoflowcal
 add_decenza_test(tst_machinestate
     tst_machinestate.cpp
     mocks/MockScaleDevice.h
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/drinksequencecontroller.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/drinksequencecontroller.cpp
 )
 
 # Shared request tracking for the facade tests, with one QObject/moc owner.

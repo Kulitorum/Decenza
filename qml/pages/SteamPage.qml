@@ -130,6 +130,15 @@ T.Page {
             pendingNavigationAction = ""
     }
 
+    // Back stops a running steam the way Stop does, as Back stops a shot on the
+    // espresso page; otherwise it leaves the page.
+    function backFromPage() {
+        if (isSteaming || steamSoftStopped || isSteamHeating || isPuffing)
+            stopSteamFromPage()
+        else
+            leaveSteamFromPage()
+    }
+
     function leaveSteamFromPage() {
         if (pendingNavigationAction !== "")
             return
@@ -2306,11 +2315,14 @@ T.Page {
     // Hidden translation helper for "No pitcher"
     Tr { id: noPitcherText; key: "steam.label.noPitcher"; fallback: "No pitcher"; visible: false }
 
-    // Bottom bar (hide during soft-stop waiting for purge, steam heating, and puffing)
     BottomBar {
-        visible: !steamPage.isSteaming && !steamPage.steamSoftStopped && !steamPage.isSteamHeating && !steamPage.isPuffing
         title: steamPage.getCurrentPitcherName() || noPitcherText.text
-        onBackClicked: steamPage.leaveSteamFromPage()
+        backAccessibleName: steamPage.isSteaming || steamPage.steamSoftStopped
+                            || steamPage.isSteamHeating || steamPage.isPuffing
+            ? TranslationManager.translate("steam.accessible.stopAndGoBack", "Stop steaming and go back")
+            : TranslationManager.translate("bottombar.button.back.accessible",
+                                           "Back. Return to previous screen")
+        onBackClicked: steamPage.backFromPage()
 
         // The built-in "Heater off" entry carries no duration, flow or
         // temperature. The sliders keep the LAST real pitcher's values while
