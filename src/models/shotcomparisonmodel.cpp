@@ -212,6 +212,9 @@ void ShotComparisonModel::scheduleLoad()
                 shot.timestamp = record.summary.timestamp;
                 shot.duration = record.summary.duration;
                 shot.pourStartSec = record.cachedAnalysis ? record.cachedAnalysis->detectors.pourStartSec : 0.0;
+                shot.grinderSetting = record.grinderSetting;
+                shot.doseWeightG = record.summary.doseWeight;
+                shot.temperatureOverrideC = record.temperatureOverride;
                 shot.pressure = record.pressure;
                 shot.flow = record.flow;
                 shot.temperature = record.temperature;
@@ -378,6 +381,10 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["isBase"] = shot.id == m_baseShotId;
     result["profileName"] = shot.profileName;
     result["pourStartSec"] = shot.pourStartSec;
+    result["grinderSetting"] = shot.grinderSetting.trimmed();
+    result["doseG"] = shot.doseWeightG > 0 ? QVariant(shot.doseWeightG) : QVariant();
+    result["temperatureOverrideC"] = shot.temperatureOverrideC > 0
+        ? QVariant(shot.temperatureOverrideC) : QVariant();
 
     result["dateTime"] = ShotHistoryStorage::shortDateTime(shot.timestamp);
     return result;

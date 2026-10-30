@@ -6,12 +6,17 @@
 #include <QQmlEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QTemporaryDir>
 #include <utility>
 
 #include "../src/remote/comparisonservice.h"
 #include "../src/remote/comparisonservice_qml.h"
 #include "../src/remote/comparisonservicesource.h"
 #include "rep_comparisonservice_source.h"
+#include "../src/models/shotcomparisonmodel.h"
+#include "../src/history/shothistorystorage.h"
 
 class TestComparisonSource final : public ComparisonStateSimpleSource
 {
@@ -85,7 +90,47 @@ private slots:
     void sourceSnapshotPreservesOneSeriesPerDisplayedShot();
     void inspectorReadoutPreservesChannelListsAcrossTheRemoteSnapshot();
     void restoredSelectionQueriesOnlyItsFinalBaseAndWindow();
+    void shotInfoKeepsRecordedValuesAcrossPagingAndRebase();
 };
+
+void ComparisonServiceTest::shotInfoKeepsRecordedValuesAcrossPagingAndRebase()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("shots.db"));
+    ShotHistoryStorage storage;
+    QVERIFY(storage.initialize(path));
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("comparison-info-seed"));
+        db.setDatabaseName(path);
+        QVERIFY(db.open());
+        QSqlQuery q(db);
+        QVERIFY(q.exec(QStringLiteral("INSERT INTO shots (id, uuid, timestamp, profile_name, duration_seconds, dose_weight, grinder_setting, temperature_override) VALUES "
+            "(1, 'a', 1000, 'Test', 30, 18.0, '10', 92), "
+            "(2, 'b', 2000, 'Test', 30, 18.2, '9', 0), "
+            "(3, 'c', 3000, 'Test', 30, 0, '', 93), "
+            "(4, 'd', 4000, 'Test', 30, 19, '8', 94)")));
+        db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("comparison-info-seed"));
+
+    ShotComparisonModel model;
+    model.setStorage(&storage);
+    model.setSelection({qint64(1), qint64(2), qint64(3), qint64(4)});
+    QTRY_VERIFY(!model.loading());
+    QCOMPARE(model.getShotInfo(0).value(QStringLiteral("doseG")).toDouble(), 18.0);
+    QCOMPARE(model.getShotInfo(1).value(QStringLiteral("doseG")).toDouble(), 18.2);
+    QVERIFY(model.getShotInfo(1).value(QStringLiteral("temperatureOverrideC")).isNull());
+    QVERIFY(model.getShotInfo(2).value(QStringLiteral("doseG")).isNull());
+    QVERIFY(model.getShotInfo(2).value(QStringLiteral("grinderSetting")).toString().isEmpty());
+    model.shiftWindowRight();
+    QTRY_VERIFY(!model.loading());
+    QCOMPARE(model.getShotInfo(2).value(QStringLiteral("grinderSetting")).toString(), QStringLiteral("8"));
+    model.setBaseShot(2);
+    QTRY_VERIFY(!model.loading());
+    QCOMPARE(model.getShotInfo(0).value(QStringLiteral("doseG")).toDouble(), 18.2);
+    QVERIFY(model.getShotInfo(0).value(QStringLiteral("isBase")).toBool());
+}
 
 void ComparisonServiceTest::requestCorrelationDiscardsSupersededSnapshots()
 {
