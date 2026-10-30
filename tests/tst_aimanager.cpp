@@ -761,8 +761,15 @@ private slots:
 
         settings.ai()->setProviderModel("openai", "gpt-6-luna");
         QVERIFY(changed.count() > 0);
-        QVERIFY(mgr.selectedCostHint().contains("$0.0015 per shot"));
+        QVERIFY(mgr.selectedCostHint().contains("$0.0022 per shot"));
         QVERIFY(mgr.modelDisplayNames().value("openai") != solName);
+
+        changed.clear();
+        settings.ai()->setProviderModel("openai", "gpt-6.1-terra");
+        QVERIFY(changed.count() > 0);
+        QCOMPARE(mgr.currentModelName(), QStringLiteral("gpt-6.1-terra"));
+        QVERIFY(mgr.selectedCostHint().contains("$0.015 per shot"));
+        QCOMPARE(mgr.modelDisplayNames().value("openai").toString(), QStringLiteral("GPT-6.1 Terra"));
     }
 
     // A saved model the catalog no longer offers is cleared at startup, so the

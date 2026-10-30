@@ -47,6 +47,7 @@ RESULTS = os.path.join(HERE, "runs")        # gitignored
 # on 2026-10-07, whose rates apply to prompts up to 100K tokens).
 PRICES = {
     "gpt-6.1-sol":   (2.00, 10.00),
+    "gpt-6.1-terra": (1.00, 5.00),
     "gpt-6-sol":     (2.00, 10.00),
     "gpt-6-luna":    (0.10, 0.50),
     "gpt-5.6-sol":   (4.00, 20.00),
@@ -88,7 +89,7 @@ def provider_of(model: str) -> str:
         return "openrouter"
     return "anthropic" if model.startswith("claude-") else "gemini" if model.startswith("gemini-") else "openai"
 
-# AIRequestShape::setOpenRouterReasoning: "none" for Luna, "enabled" for
+# AIRequestShape::setOpenRouterAdvisorReasoning: "medium" for Luna, "enabled" for
 # Gemma, "low" for the app's other OpenRouter models. A candidate outside the
 # catalog is sent nothing, i.e. the model's own default.
 OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
@@ -101,8 +102,10 @@ DEFAULT_EFFORT = "app"            # each model's own setting, as below
 
 
 def openai_app_effort(model: str) -> str:
-    """AIRequestShape::disableOpenAIReasoning: gpt-6.1-sol takes no "none"."""
-    return "low" if model == "gpt-6.1-sol" else "none"
+    """AIRequestShape::setOpenAIAdvisorReasoning: Terra low, Luna medium."""
+    if model == "gpt-6-luna":
+        return "medium"
+    return "low" if model in ("gpt-6.1-sol", "gpt-6.1-terra") else "none"
 
 # structuredNext contract — src/ai/shotsummarizer.cpp, "Response Format".
 REQUIRED_FIELDS = ["expectedDurationSec", "expectedFlowMlPerSec",
@@ -293,7 +296,7 @@ def call(key: str, model: str, effort: str, system: str, user: str):
             if effort != "app":
                 body["reasoning"] = {"effort": effort}
             elif model == "openai/gpt-6-luna":
-                body["reasoning"] = {"effort": "none"}
+                body["reasoning"] = {"effort": "medium"}
             elif model == "google/gemma-4-31b-it":
                 body["reasoning"] = {"enabled": True}
             elif model in OPENROUTER_CATALOG_LOW:
@@ -417,6 +420,7 @@ def run(args) -> None:
 
     rng = random.Random(args.seed)
     keymap, results, total = {}, {}, 0.0
+    usage_records = []
 
     for scen in scenarios:
         with open(os.path.join(args.captured, scen["key"] + ".json")) as f:
@@ -455,6 +459,13 @@ def run(args) -> None:
                     write_key(outdir, keymap)
                 continue
             total += spend(model, usage)
+            # Keep metering separately from blinded replies. Open only after
+            # judging: token counts and effort can reveal model identity.
+            usage_records.append({"scenario": scen["key"], "model": model,
+                                  "effort": effort, "usage": usage, "finish": finish,
+                                  "uncached_cost_usd": spend(model, usage)})
+            with open(os.path.join(outdir, "usage.json"), "w") as f:
+                json.dump(usage_records, f, indent=2)
             reasoning = usage.get("reasoning_tokens", 0)
             a = audit_block(text)
             results[(scen["key"], model, effort)] = a
@@ -524,7 +535,7 @@ def run(args) -> None:
                 extra = ("   " + "  ".join(flags)) if flags else ""
                 print(f"  {model:15s} {effort:5s} {' '.join(cells)}{extra}")
 
-    print(f"\nTotal spend: ${total:.4f}")
+    print(f"\nToken-rate cost estimate (before cache adjustments): ${total:.4f}")
 
 
 def reveal(args) -> None:

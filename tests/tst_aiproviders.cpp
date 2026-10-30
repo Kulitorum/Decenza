@@ -360,18 +360,20 @@ private slots:
 
     // Every catalogued model must send a thinking setting (and, on OpenAI, a
     // temperature or none) that was verified live (tools/ai_model_eval,
-    // 2026-10-05 and -06): the accepted values differ by model and a wrong one
+    // 2026-10-05, -06 and -30): the accepted values differ by model and a wrong one
     // 400s every request. The table is that record; a model added to a catalog
     // fails here until it has been probed and recorded.
     void everyCataloguedModelSendsAVerifiedThinkingSetting()
     {
         const QHash<QString, QString> verified = {
-            {"gpt-6.1-sol", "reasoning_effort=low temperature=no"},
-            {"gpt-6-luna", "reasoning_effort=none temperature=yes"},
+            {"gpt-6.1-sol", "reasoning_effort=low temperature=no advisor=low"},
+            {"gpt-6-luna", "reasoning_effort=none temperature=yes advisor=medium"},
+            // Live advisor, translator and Responses web-search probe, 2026-10-30.
+            {"gpt-6.1-terra", "reasoning_effort=none temperature=yes advisor=low"},
             {"claude-sonnet-5-5", "thinking=between_tools advisor=between_tools"},
             {"claude-haiku-5-5", "thinking=disabled advisor=adaptive/low"},
             {"gemini-3.8-flash", "thinkingLevel=low"},
-            {"openai/gpt-6-luna", R"(reasoning={"effort":"none"})"},
+            {"openai/gpt-6-luna", R"(reasoning={"effort":"medium"})"},
             {"openai/gpt-6.1-sol", R"(reasoning={"effort":"low"})"},
             {"anthropic/claude-sonnet-5.5", R"(reasoning={"effort":"low"})"},
             {"anthropic/claude-haiku-5.5", R"(reasoning={"effort":"low"})"},
@@ -384,8 +386,11 @@ private slots:
             if (provider == QLatin1String("openai")) {
                 AIRequestShape::disableOpenAIReasoning(body, model);
                 AIRequestShape::setOpenAITemperature(body, model, 0.3);
+                QJsonObject advisor;
+                AIRequestShape::setOpenAIAdvisorReasoning(advisor, model);
                 return "reasoning_effort=" + body["reasoning_effort"].toString()
-                     + (body.contains("temperature") ? " temperature=yes" : " temperature=no");
+                     + (body.contains("temperature") ? " temperature=yes" : " temperature=no")
+                     + " advisor=" + advisor["reasoning_effort"].toString();
             }
             if (provider == QLatin1String("anthropic")) {
                 AIRequestShape::disableAnthropicThinking(body, model);
@@ -397,7 +402,7 @@ private slots:
                      + (effort.isEmpty() ? QString() : "/" + effort);
             }
             if (provider == QLatin1String("openrouter")) {
-                AIRequestShape::setOpenRouterReasoning(body, model);
+                AIRequestShape::setOpenRouterAdvisorReasoning(body, model);
                 return "reasoning="
                      + QString::fromUtf8(QJsonDocument(body["reasoning"].toObject()).toJson(QJsonDocument::Compact));
             }
@@ -421,6 +426,35 @@ private slots:
         }
     }
 
+    // Terra uses low and Luna medium while translation keeps none. Exercise
+    // both advisor paths so neither silently keeps the translation setting.
+    void openAiAdvisorRequestsCarryTheReasoningSetting()
+    {
+        QNetworkAccessManager nam;
+        FakeProviderServer server;
+        server.respondWith("{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}");
+        OpenAIProvider provider(&nam, "key");
+        provider.setBaseUrl(server.baseUrl());
+        QSignalSpy completed(&provider, &AIProvider::analysisComplete);
+        const QJsonArray turn{QJsonObject{{"role", "user"}, {"content", "hi"}}};
+        for (const AIProvider::ModelOption& opt : provider.availableModels()) {
+            provider.setModel(opt.id);
+            QJsonObject expected;
+            AIRequestShape::setOpenAIAdvisorReasoning(expected, opt.id);
+            const std::function<void()> paths[] = {
+                [&] { provider.analyze("system", "user"); QVERIFY(completed.wait(5000)); },
+                [&] { provider.analyzeConversation("system", turn); QVERIFY(completed.wait(5000)); },
+            };
+            for (const auto& send : paths) {
+                send();
+                const QJsonObject body = server.lastRequest();
+                QCOMPARE(body["model"].toString(), opt.id);
+                QCOMPARE(body["reasoning_effort"], expected["reasoning_effort"]);
+                QVERIFY(!body.contains("temperature"));
+            }
+        }
+    }
+
     // Every OpenRouter request path sends the model's setting from
     // AIRequestShape (whose values the verified table above pins).
     void openRouterRequestsCarryTheReasoningSetting()
@@ -436,11 +470,10 @@ private slots:
         for (const AIProvider::ModelOption& opt : provider.availableModels()) {
             provider.setModel(opt.id);
             QJsonObject expected;
-            AIRequestShape::setOpenRouterReasoning(expected, opt.id);
+            AIRequestShape::setOpenRouterAdvisorReasoning(expected, opt.id);
             const std::function<void()> paths[] = {
                 [&] { provider.analyze("system", "user"); QVERIFY(completed.wait(5000)); },
                 [&] { provider.analyzeConversation("system", turn); QVERIFY(completed.wait(5000)); },
-                [&] { provider.testConnection(); QVERIFY(tested.wait(5000)); },
             };
             for (const auto& send : paths) {
                 send();
@@ -448,6 +481,14 @@ private slots:
                 QCOMPARE(body["model"].toString(), opt.id);
                 QCOMPARE(body["reasoning"].toObject(), expected["reasoning"].toObject());
             }
+            // Connection testing's 10-token cap must not run Luna's thinking.
+            QJsonObject probeExpected;
+            AIRequestShape::setOpenRouterReasoning(probeExpected, opt.id);
+            if (opt.id == AIRequestShape::kOpenRouterDefaultModel)
+                QCOMPARE(probeExpected["reasoning"].toObject()["effort"].toString(), QStringLiteral("none"));
+            provider.testConnection();
+            QVERIFY(tested.wait(5000));
+            QCOMPARE(server.lastRequest()["reasoning"].toObject(), probeExpected["reasoning"].toObject());
         }
     }
 
@@ -458,6 +499,7 @@ private slots:
         checkProvider<OpenAIProvider>(nam, {
             { "gpt-6.1-sol", "GPT-6.1 Sol" },
             { "gpt-6-luna", "GPT-6 Luna" },
+            { "gpt-6.1-terra", "GPT-6.1 Terra" },
         });
     }
 
@@ -832,7 +874,7 @@ private slots:
         const QJsonObject body = server.lastRequest();
         if (provider == QLatin1String("openai")) {
             QJsonObject expected;
-            AIRequestShape::disableOpenAIReasoning(expected, p->modelName());
+            AIRequestShape::setOpenAIAdvisorReasoning(expected, p->modelName());
             QCOMPARE(body["reasoning_effort"], expected["reasoning_effort"]);
         } else if (provider == QLatin1String("gemini")) {
             QCOMPARE(body["generationConfig"].toObject(), AIRequestShape::geminiGenerationConfig(p->modelName()));

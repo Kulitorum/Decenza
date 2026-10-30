@@ -19,14 +19,16 @@ constexpr int kMaxOutputTokens = 4096;
 
 // The thinking/reasoning setting, sent explicitly on every request and per
 // model, because the accepted values differ and a wrong one 400s every request.
-// Lowest is right for both callers: hidden thinking is billed at the output
-// rate, and on OpenAI reasoning cost the advisor its nextShot block (counts in
+// Routine callers use the lowest supported setting; advisor exceptions below
+// are backed by replays. Hidden thinking is billed at the output rate, and on
+// older OpenAI models reasoning cost the advisor its nextShot block (counts in
 // tools/ai_model_eval/README.md, 2026-07-30). Omitting the field is not an
 // option on Anthropic: newer models then think adaptively, which can use the
 // whole max_tokens budget and return no text (#1691).
 //
 // The direct-provider values were verified live on 2026-10-05, OpenRouter's on
-// 2026-10-06 (tools/ai_model_eval). A model added to a catalog must be probed
+// 2026-10-06, and Terra/Luna advisor efforts on 2026-10-30 (tools/ai_model_eval).
+// A model added to a catalog must be probed
 // and added here and to tst_aiproviders' verified table.
 
 // claude-sonnet-5-5 rejects {"type":"disabled"} and asks for "between_tools"
@@ -54,11 +56,22 @@ inline void setAnthropicAdvisorThinking(QJsonObject& requestBody, const QString&
     requestBody["output_config"] = QJsonObject{{QStringLiteral("effort"), QStringLiteral("low")}};
 }
 
-// gpt-6.1-sol accepts low/medium/high/xhigh only; the rest take "none".
+// gpt-6.1-sol cannot turn reasoning off; Luna and Terra 6.1 take "none".
 inline void disableOpenAIReasoning(QJsonObject& requestBody, const QString& model)
 {
     requestBody["reasoning_effort"] = model == QLatin1String("gpt-6.1-sol") ? QStringLiteral("low")
                                                                              : QStringLiteral("none");
+}
+
+// The 2026-10-30 replay: Terra low and Luna medium each emitted usable
+// next-shot blocks on 8/8 tasted cases. Translation keeps none for both.
+inline void setOpenAIAdvisorReasoning(QJsonObject& requestBody, const QString& model)
+{
+    disableOpenAIReasoning(requestBody, model);
+    if (model == QLatin1String("gpt-6.1-terra"))
+        requestBody["reasoning_effort"] = QStringLiteral("low");
+    else if (model == QLatin1String("gpt-6-luna"))
+        requestBody["reasoning_effort"] = QStringLiteral("medium");
 }
 
 // A non-default temperature, where the model takes one: gpt-6.1-sol at its
@@ -89,8 +102,9 @@ inline QJsonObject geminiGenerationConfig(const QString& model)
                        {QStringLiteral("maxOutputTokens"), kMaxOutputTokens}};
 }
 
-// OpenRouter: openai/gpt-6-luna takes "none" (1.1-1.4K reasoning tokens per
-// reply without it). Sol, Sonnet 5.5, 3.8 Flash and GLM-5.3 Flash make
+// OpenRouter's minimal connection settings: Luna takes "none" (1.1-1.4K
+// reasoning tokens per reply without it). Its advisor override is below.
+// Sol, Sonnet 5.5, 3.8 Flash and GLM-5.3 Flash make
 // reasoning mandatory and 400 on "none"; the first three reasoned 0-62 tokens
 // at "low". GLM, Gemma 4 and Haiku 5.5 were judged at these settings. Only
 // catalog models reach here.
@@ -103,5 +117,14 @@ inline void setOpenRouterReasoning(QJsonObject& requestBody, const QString& mode
     else
         requestBody["reasoning"] = QJsonObject{{QStringLiteral("effort"),
             model == kOpenRouterDefaultModel ? QStringLiteral("none") : QStringLiteral("low")}};
+}
+
+// Match direct Luna's advisor effort (live-probed 2026-10-30); Test Connection
+// keeps none at its 10-token cap. Other models retain their existing settings.
+inline void setOpenRouterAdvisorReasoning(QJsonObject& requestBody, const QString& model)
+{
+    setOpenRouterReasoning(requestBody, model);
+    if (model == kOpenRouterDefaultModel)
+        requestBody["reasoning"] = QJsonObject{{QStringLiteral("effort"), QStringLiteral("medium")}};
 }
 }  // namespace AIRequestShape
