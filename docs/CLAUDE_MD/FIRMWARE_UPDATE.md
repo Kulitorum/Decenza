@@ -189,3 +189,28 @@ Eight non-obvious bugs surfaced only after trying a real flash. Worth reading be
 6. **Queue depth ≠ wire depth.** `BleTransport::queueCommand` enqueues immediately but BLE drains at ACK speed. Progress-from-queued-count jumps to 90 % in seconds and hangs; progress-from-ACK-count tracks the wire and is what the user should see.
 7. **Verify timeouts need to be generous.** 10 s is too tight; 60 s works. Bootloader verification of the entire 453 KB image plus signature/checksum takes real time.
 8. **The QML name is case-sensitive: `MainController`, capital M, not `mainController`.** Getting it wrong resolves the object to undefined silently — the tab rendered with `fw = null` for ages before we caught it. *(`MainController` is no longer a context property; it is a compile-time QML singleton, so a file using it needs `import Decenza`. The lesson survives the mechanism change, and qmllint now catches the misspelling instead of the user finding it.)*
+
+## Diagnosing slow BLE uploads
+
+`[DE1][BLE] firmware BLE timing` is a bounded DEBUG summary after the first 64
+acknowledgements, then each 1024, with the remainder flushed at the next map request
+or transport teardown. It records packet rate (16 firmware payload bytes per packet),
+acknowledged count, retry attempts, maximum pending depth, and average/maximum times:
+
+- `writeToQtSignal`: dispatch into `QLowEnergyService::writeCharacteristic` to our
+  direct `characteristicWritten` signal tap. This includes Qt, the platform Bluetooth
+  stack, radio/device response, and upstream callback delivery; it is **not** an HCI
+  measurement and cannot distinguish those components alone.
+- `qtDelivery`: that signal tap to our queued ACK handler on the transport thread.
+- `issueCall`: synchronous time spent inside `writeCharacteristic`.
+- `queueRelease`: ACK-handler entry through shared queue completion bookkeeping.
+- `ackConsumers`: synchronous ACK consumers, including updater progress publication.
+- `drainCheck`: the transport's pending-count/drain check.
+- `nextDispatchGap`: end of the previous measured ACK handler to the next firmware
+  write dispatch. Includes event-loop delay and any intervening operations.
+
+Times use a monotonic clock. Summaries cover the latest window; they store aggregate
+counts/sums/maxima, without per-packet history or payload logging. Retry ACK latency is measured
+from the latest attempt; packet rate also includes retry backoff. A large pending
+count is expected for the bulk upload. Queue scans remain unchanged so their measured
+cost can guide an optimization instead of attributing radio latency to them.
