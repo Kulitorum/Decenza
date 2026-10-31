@@ -345,18 +345,19 @@ Item {
                     from: 0
                     to: 1
                     value: firmwareTab.fw ? firmwareTab.fw.progress : 0
+                    indeterminate: firmwareTab.fw && (firmwareTab.fw.state === firmwareTab.stateErasing
+                                                     || firmwareTab.fw.state === firmwareTab.stateVerifying)
                 }
 
                 Text {
                     Layout.fillWidth: true
+                    visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateUploading
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.Wrap
                     text: {
-                        if (!firmwareTab.fw) return ""
+                        if (!firmwareTab.fw || firmwareTab.fw.state !== firmwareTab.stateUploading) return ""
                         const percent = Math.floor(firmwareTab.fw.progress * 100)
-                        if (firmwareTab.fw.state !== firmwareTab.stateUploading)
-                            return TranslationManager.translate("firmware.tab.progressPercent", "%1%").arg(percent)
                         const seconds = firmwareTab.fw.estimatedUploadSecondsRemaining ?? -1
                         if (seconds < 0)
                             return TranslationManager.translate("firmware.tab.uploadEstimating", "%1% · Estimating upload time…").arg(percent)

@@ -267,8 +267,8 @@ private slots:
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         QTRY_COMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
             .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Uploading));
-        QTRY_VERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
-            .value(QStringLiteral("progress")).toDouble() > 0.0);
+        QCOMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("progress")).toDouble(), 0.0);
         QCOMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
             .value(QStringLiteral("estimatedUploadSecondsRemaining")).toInt(), -1);
         QTRY_VERIFY(firmwareChunkWriteCount(f.transport) > 0);
@@ -280,6 +280,8 @@ private slots:
         }
         QTRY_VERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
             .value(QStringLiteral("estimatedUploadSecondsRemaining")).toInt() > 0);
+        QTRY_VERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("progress")).toDouble() > 0.0);
         service->setNode(nullptr);
         QVERIFY(!service->ready());
         QCOMPARE(f.updater.state(), FirmwareUpdater::State::Uploading); // Client departure is navigation only.
@@ -312,6 +314,7 @@ private slots:
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         const qsizetype chunks = blob.size() / 16;
         QTRY_COMPARE(firmwareChunkWriteCount(f.transport), chunks);
+        QCOMPARE(f.updater.progress(), 0.0);
         // All packets queued without ACKs must still leave the estimate unknown.
         QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
 
@@ -326,6 +329,7 @@ private slots:
         }
         const int remaining = f.updater.estimatedUploadSecondsRemaining();
         QVERIFY(remaining >= 60 && remaining <= 61);
+        QCOMPARE(f.updater.progress(), 0.5);
 
         qsizetype seen = 0;
         for (const auto& write : std::as_const(f.transport.writes)) {
@@ -333,6 +337,7 @@ private slots:
             emit f.transport.writeComplete(write.first, write.second);
         }
         QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), 0);
+        QCOMPARE(f.updater.progress(), 1.0);
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
         QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
 
@@ -344,10 +349,27 @@ private slots:
         f.updater.retry();
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
         QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
+        QCOMPARE(f.updater.progress(), 0.0);
         QVERIFY(f.updater.m_uploadStartedMs >= 0);
     }
 
     // ===== §4b: error paths =====
+
+    void preparationDoesNotAdvanceUploadProgress()
+    {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.setPostEraseWaitMs(5000);
+        QSignalBlocker blocked(&f.cache);
+        f.updater.startUpdate();
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Downloading);
+        blocked.unblock();
+        emit f.cache.downloadProgress(100, 100);
+        QCOMPARE(f.updater.progress(), 0.0);
+        emit f.cache.downloadFinished(f.cache.cachePath(), DE1::Firmware::Header{});
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        QCOMPARE(f.updater.progress(), 0.0);
+    }
 
     void verifyTimeoutStartsAtRequestAckAndLateSuccessRecovers()
     {
