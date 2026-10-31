@@ -69,15 +69,9 @@
 #include <QUuid>
 #include <QSslServer>
 #include <QSocketNotifier>
-#include <cerrno>
-#include <iterator>
 
 #ifdef Q_OS_WIN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <winsock2.h>
-#include <windows.h>
 #else
 #include <sys/socket.h>
 #include <unistd.h>
@@ -100,58 +94,15 @@
 #include "shotservertls.h"
 
 namespace {
-void tlsCheckpoint(const char* operation)
-{
-    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS checkpoint:" << operation;
-}
-
-void logQtTlsRuntime()
-{
-    tlsCheckpoint("query Qt TLS backend and runtime versions");
-    DIAG_DEBUG(NETWORK, "ShotServer") << "Qt TLS backends=" << QSslSocket::availableBackends()
-             << "active=" << QSslSocket::activeBackend()
-             << "supportsSsl=" << QSslSocket::supportsSsl()
-             << "compiledLibrary=" << QSslSocket::sslLibraryBuildVersionString()
-             << "runtimeLibrary=" << QSslSocket::sslLibraryVersionString();
-}
-
-#ifdef Q_OS_WIN
-void logWindowsTlsModules()
-{
-    for (const wchar_t* name : {L"libssl-3-x64.dll", L"libcrypto-3-x64.dll",
-                                L"qopensslbackend.dll", L"qopensslbackendd.dll",
-                                L"qschannelbackend.dll", L"qschannelbackendd.dll",
-                                L"ucrtbase.dll", L"vcruntime140.dll"}) {
-        const HMODULE module = GetModuleHandleW(name);
-        if (!module)
-            continue;
-        wchar_t path[32768];
-        const DWORD length = GetModuleFileNameW(module, path, DWORD(std::size(path)));
-        if (length == 0 || length >= std::size(path)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "Cannot identify loaded TLS/runtime module:"
-                     << QString::fromWCharArray(name) << "Windows error=" << GetLastError();
-        } else {
-            DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded TLS/runtime module:"
-                     << QString::fromWCharArray(name) << QString::fromWCharArray(path, int(length));
-        }
-    }
-    const HMODULE executable = GetModuleHandleW(nullptr);
-    DIAG_DEBUG(NETWORK, "ShotServer") << "Executable exports OPENSSL_Applink:"
-             << (executable && GetProcAddress(executable, "OPENSSL_Applink") != nullptr);
-}
-#endif
-
 #ifndef Q_OS_IOS
 void logOpenSslFailure(const char* operation)
 {
-    const int systemError = errno;
     const unsigned long error = ERR_peek_last_error();
     char description[256] = {};
     if (error)
         ERR_error_string_n(error, description, sizeof(description));
     DIAG_WARN(NETWORK, "ShotServer") << "TLS operation failed:" << operation
-             << "OpenSSL error=" << Qt::hex << error << Qt::dec << description
-             << "last errno=" << systemError;
+             << "OpenSSL error=" << Qt::hex << error << Qt::dec << description;
 }
 #endif
 }
@@ -462,9 +413,6 @@ void ShotServer::setPort(int port)
 
 bool ShotServer::start()
 {
-    DIAG_DEBUG(NETWORK, "ShotServer") << "Start requested: port=" << m_port
-             << "authentication=" << isSecurityEnabled() << "existingServer=" << (m_server != nullptr);
-    tlsCheckpoint("request local network access");
     LocalNetworkAccess::request(LocalNetworkAccess::Feature::WebServer);
     if (m_server) {
         stop();
@@ -474,7 +422,6 @@ bool ShotServer::start()
         DIAG_WARN(NETWORK, "ShotServer") << "TLS setup failed, cannot start secure server";
         return false;
     }
-    tlsCheckpoint("construct and configure SSL server");
     auto* sslServer = new HttpRedirectSslServer([this](QSslServer* server) {
         if (m_sslCert.expiryDate() > QDateTime::currentDateTime()
             && ShotServerTls::coversAddresses(m_sslCert.subjectAlternativeNames(),
@@ -514,7 +461,6 @@ bool ShotServer::start()
         DIAG_WARN(NETWORK, "ShotServer") << "SSL peer verify error:" << error.errorString();
     });
 
-    tlsCheckpoint("bind listening socket");
     if (!m_server->listen(QHostAddress::Any, m_port)) {
         DIAG_WARN(NETWORK, "ShotServer") << "Failed to start TLS on port" << m_port << m_server->errorString();
         delete m_server;
@@ -523,13 +469,11 @@ bool ShotServer::start()
     }
 
     // Load persisted sessions
-    tlsCheckpoint("load persisted authentication sessions");
     loadSessions(m_sessions, kAuthSessionsKey);
     loadSessions(m_remoteWebSessions, kRemoteWebSessionsKey);
 
     DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
 
-    tlsCheckpoint("construct remote session server");
     m_sessionHostId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_recentSessionActionRequestIds.clear();
     m_sessionActionRequestOrder.clear();
@@ -3230,27 +3174,10 @@ void ShotServer::sendRedirect(QTcpSocket* rawSocket, const QString& location, co
 
 bool ShotServer::setupTls()
 {
-    tlsCheckpoint("begin certificate setup");
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    const bool directoryReady = QDir().mkpath(dataDir);
+    QDir().mkpath(dataDir);
     QString certPath = dataDir + "/server.crt";
     QString keyPath = dataDir + "/server.key";
-    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS data directory:" << dataDir
-             << "createdOrExists=" << directoryReady << "writable=" << QFileInfo(dataDir).isWritable();
-    for (const QString& path : {certPath, keyPath}) {
-        const QFileInfo info(path);
-        DIAG_DEBUG(NETWORK, "ShotServer") << "TLS file:" << path << "exists=" << info.exists()
-                 << "sizeBytes=" << info.size() << "readable=" << info.isReadable()
-                 << "modified=" << info.lastModified().toString(Qt::ISODate);
-    }
-#ifdef Q_OS_WIN
-    logWindowsTlsModules();
-#endif
-#ifndef Q_OS_IOS
-    tlsCheckpoint("query linked OpenSSL runtime");
-    DIAG_DEBUG(NETWORK, "ShotServer") << "Linked OpenSSL compiled=" << OPENSSL_VERSION_TEXT
-             << "runtime=" << OpenSSL_version(OPENSSL_VERSION);
-#endif
 
     // iOS uses RSA keys (SecureTransport requires RSA/DSA for PKCS12), other platforms use EC
 #ifdef Q_OS_IOS
@@ -3260,7 +3187,6 @@ bool ShotServer::setupTls()
 #endif
 
     const auto loadCertificate = [&]() {
-        tlsCheckpoint("open certificate and private key files");
         QFile certFile(certPath);
         QFile keyFile(keyPath);
         if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
@@ -3275,24 +3201,15 @@ bool ShotServer::setupTls()
             DIAG_WARN(NETWORK, "ShotServer") << "TLS file read errors: certificate="
                      << certFile.errorString() << "key=" << keyFile.errorString();
         }
-        tlsCheckpoint("parse certificate through Qt TLS backend");
+
         m_sslCert = QSslCertificate(certPem, QSsl::Pem);
-        tlsCheckpoint("parse private key through Qt TLS backend");
         m_sslKey = QSslKey(keyPem, keyAlgo, QSsl::Pem);
-        DIAG_DEBUG(NETWORK, "ShotServer") << "TLS parse result: certificateNull=" << m_sslCert.isNull()
-                 << "keyNull=" << m_sslKey.isNull() << "keyAlgorithm=" << m_sslKey.algorithm()
-                 << "keyBits=" << m_sslKey.length();
-        logQtTlsRuntime();
-#ifdef Q_OS_WIN
-        logWindowsTlsModules();
-#endif
         return !m_sslCert.isNull() && !m_sslKey.isNull();
     };
 
     // Check if cert/key already exist
     if (QFile::exists(certPath) && QFile::exists(keyPath)) {
         if (loadCertificate()) {
-            tlsCheckpoint("validate certificate expiry and network addresses");
             if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
                 DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate expired, regenerating";
             } else if (!ShotServerTls::coversAddresses(m_sslCert.subjectAlternativeNames(),
@@ -3308,7 +3225,6 @@ bool ShotServer::setupTls()
     }
 
     // Generate new self-signed certificate
-    tlsCheckpoint("begin self-signed certificate generation");
     if (!generateSelfSignedCert(certPath, keyPath)) {
         DIAG_WARN(NETWORK, "ShotServer") << "Failed to generate self-signed certificate";
         return false;
@@ -3619,21 +3535,16 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
 {
     // Generate EC P-256 key pair using OpenSSL EVP API
-    const char* operation = nullptr;
-    const auto checkpoint = [&operation](const char* next) {
-        operation = next;
-        tlsCheckpoint(operation);
-    };
-    const auto succeeded = [&operation](bool ok) {
+    const auto succeeded = [](bool ok, const char* operation) {
         if (!ok)
             logOpenSslFailure(operation);
         return ok;
     };
-    checkpoint("create OpenSSL EC key context");
+
     EVP_PKEY* pkey = nullptr;
     EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
     if (!pctx) {
-        logOpenSslFailure(operation);
+        logOpenSslFailure("create EC key context");
         return false;
     }
 
@@ -3641,17 +3552,13 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     X509* x509 = nullptr;
 
     do {
-        checkpoint("initialize EC key generation");
-        if (!succeeded(EVP_PKEY_keygen_init(pctx) > 0)) break;
-        checkpoint("select EC P-256 curve");
-        if (!succeeded(EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) > 0)) break;
-        checkpoint("generate EC key pair");
-        if (!succeeded(EVP_PKEY_keygen(pctx, &pkey) > 0)) break;
+        if (!succeeded(EVP_PKEY_keygen_init(pctx) > 0, "initialize EC key generation")) break;
+        if (!succeeded(EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) > 0, "select EC curve")) break;
+        if (!succeeded(EVP_PKEY_keygen(pctx, &pkey) > 0, "generate EC key pair")) break;
 
         // Create X509 certificate
-        checkpoint("allocate X509 certificate");
         x509 = X509_new();
-        if (!succeeded(x509 != nullptr)) break;
+        if (!succeeded(x509 != nullptr, "allocate X509 certificate")) break;
 
         // Set version to v3
         X509_set_version(x509, 2);
@@ -3666,16 +3573,14 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         // -Werror=unused-result did NOT catch this one: OpenSSL does not mark RAND_bytes
         // warn_unused_result the way Apple marks SecRandomCopyBytes. The flag found the iOS
         // instance and was silent on the branch that five of the six platforms actually build.
-        checkpoint("generate random certificate serial");
         ASN1_INTEGER* serialNumber = X509_get_serialNumber(x509);
         unsigned char serial_bytes[16];
-        if (!succeeded(RAND_bytes(serial_bytes, sizeof(serial_bytes)) == 1)) break;
+        if (!succeeded(RAND_bytes(serial_bytes, sizeof(serial_bytes)) == 1, "generate certificate serial")) break;
         BIGNUM* bn = BN_bin2bn(serial_bytes, sizeof(serial_bytes), nullptr);
         BN_to_ASN1_INTEGER(bn, serialNumber);
         BN_free(bn);
 
         // Set validity: now to 10 years from now
-        checkpoint("set certificate validity and identity");
         X509_gmtime_adj(X509_get_notBefore(x509), 0);
         X509_gmtime_adj(X509_get_notAfter(x509), 10L * 365 * 24 * 60 * 60);
 
@@ -3692,11 +3597,9 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
         // Add Subject Alternative Names (required by modern browsers)
         // Include all local IP addresses so the cert works regardless of which interface is used
-        checkpoint("enumerate network addresses for certificate");
         const QStringList sanEntries = ShotServerTls::certificateNames(ShotServerTls::localAddresses());
         QByteArray sanStr = sanEntries.join(",").toUtf8();
 
-        checkpoint("encode certificate address extension");
         X509V3_CTX ctx;
         X509V3_set_ctx(&ctx, x509, x509, nullptr, nullptr, 0);
         X509_EXTENSION* sanExt = X509V3_EXT_conf_nid(nullptr, &ctx, NID_subject_alt_name, sanStr.constData());
@@ -3706,21 +3609,19 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         }
 
         // Sign with our private key
-        checkpoint("sign X509 certificate");
-        if (!succeeded(X509_sign(x509, pkey, EVP_sha256()) > 0)) break;
+        if (!succeeded(X509_sign(x509, pkey, EVP_sha256()) > 0, "sign X509 certificate")) break;
 
         QString writeError;
-        checkpoint("encode and save certificate PEM");
         if (!TlsPemWriter::write(certPath, [&](BIO* buffer) {
-                return succeeded(PEM_write_bio_X509(buffer, x509) == 1) ? 1 : 0;
+                return succeeded(PEM_write_bio_X509(buffer, x509) == 1, "encode certificate PEM");
             }, &writeError)) {
             DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath << writeError;
             break;
         }
 
-        checkpoint("encode and save private key PEM");
         if (!TlsPemWriter::write(keyPath, [&](BIO* buffer) {
-                return succeeded(PEM_write_bio_PrivateKey(buffer, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1) ? 1 : 0;
+                return succeeded(PEM_write_bio_PrivateKey(buffer, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1,
+                                 "encode private key PEM");
             }, &writeError)) {
             DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath << writeError;
             break;
@@ -3729,7 +3630,6 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         // Restrict private key file permissions (owner-only). Warn rather than break, for the
         // reason given on the iOS branch: the key works, it is just less protected, and this
         // matters most on a shared desktop account.
-        checkpoint("set private key file permissions");
         if (!QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
             DIAG_WARN(NETWORK, "ShotServer") << "could not restrict permissions on the private key" << keyPath
                        << "- it may be readable by other users of this machine";
@@ -3738,12 +3638,10 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         success = true;
     } while (false);
 
-    tlsCheckpoint("release certificate generation objects");
     if (x509) X509_free(x509);
     if (pkey) EVP_PKEY_free(pkey);
     EVP_PKEY_CTX_free(pctx);
 
-    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate generation returned:" << success;
     return success;
 }
 #endif // Q_OS_IOS

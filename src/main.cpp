@@ -1176,25 +1176,6 @@ int main(int argc, char *argv[])
     DIAG_DEBUG(APP, "Platform") << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
-    DIAG_DEBUG(APP, "Startup") << "Qt compiled:" << QT_VERSION_STR << "runtime:" << qVersion()
-             << "build ABI:" << QSysInfo::buildAbi()
-             << "platform plugin:" << QGuiApplication::platformName();
-    DIAG_DEBUG(APP, "Startup") << "Executable:" << QCoreApplication::applicationFilePath()
-             << "working directory:" << QDir::currentPath()
-             << "data directory:" << QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    DIAG_DEBUG(APP, "Startup") << "Qt plugin search paths:" << QCoreApplication::libraryPaths();
-    {
-        AppSettings startupSettings;
-        DIAG_DEBUG(APP, "Startup") << "Settings store:" << startupSettings.fileName()
-                 << "format:" << startupSettings.format() << "status:" << startupSettings.status();
-    }
-    // Only backend/configuration overrides: the full environment can contain credentials.
-    for (const char* name : {"QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_PLATFORM",
-                             "QT_QUICK_BACKEND", "QSG_RHI_BACKEND", "QSG_RENDER_LOOP",
-                             "QT_MEDIA_BACKEND", "OPENSSL_CONF", "OPENSSL_MODULES", "OPENSSL_ENGINES"}) {
-        if (qEnvironmentVariableIsSet(name))
-            DIAG_DEBUG(APP, "Startup") << "Environment override:" << name << '=' << qEnvironmentVariable(name);
-    }
     if (QScreen *screen = QGuiApplication::primaryScreen()) {
         // Windows expresses monitor scaling as a percentage (100/125/150%...),
         // which Qt turns into a devicePixelRatio that can be fractional unless

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "core/diagnosticlogging.h"
-
 #include <QSaveFile>
 #include <QString>
 #include <openssl/bio.h>
@@ -27,13 +25,11 @@ bool write(const QString& path, Encoder encode, QString* error)
         return false;
     }
 
-    DIAG_DEBUG(NETWORK, "TlsPemWriter") << "Open Qt PEM output:" << path << "sizeBytes=" << length;
     QSaveFile output(path);
     if (!output.open(QIODevice::WriteOnly) || output.write(bytes, length) != length) {
         *error = output.errorString();
         return false;
     }
-    DIAG_DEBUG(NETWORK, "TlsPemWriter") << "Commit Qt PEM output:" << path;
     if (!output.commit()) {
         *error = output.errorString();
         return false;
