@@ -13,6 +13,10 @@ TLS DLL paths and whether the executable exports `OPENSSL_Applink`. The last
 checkpoint identifies the operation entered, even if it exits without a crash
 report. Certificate/key contents and authentication secrets are never logged.
 
+Desktop and Android encode PEM with OpenSSL memory BIOs and save through Qt
+(`tlspemwriter.h`). No C runtime file handle crosses into the OpenSSL DLL; this
+avoids Windows' `OPENSSL_Applink` dependency and supports Unicode file paths.
+
 ## Browser entry points
 
 `/` opens the packaged Wasm app; `/wasm/` remains its compatible entry. The

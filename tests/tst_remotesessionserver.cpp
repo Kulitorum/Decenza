@@ -11,6 +11,14 @@
 
 #include <utility>
 
+#ifdef DECENZA_TEST_OPENSSL_PEM
+#include "network/tlspemwriter.h"
+#include <QTemporaryDir>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#endif
+
 #include "network/remotesessionserver.h"
 #include "network/shotservertls.h"
 #include "remote/qtrowebsocketdevice.h"
@@ -91,6 +99,82 @@ class TestRemoteSessionServer : public QObject
 private slots:
     void initTestCase() { qRegisterMetaType<QTcpSocket*>(); }
     void init() { QTest::failOnWarning(); }
+
+#ifdef DECENZA_TEST_OPENSSL_PEM
+    void pemFilesRoundTrip_data()
+    {
+        QTest::addColumn<bool>("privateKey");
+        QTest::addColumn<bool>("replace");
+        QTest::newRow("new-certificate") << false << false;
+        QTest::newRow("replace-certificate") << false << true;
+        QTest::newRow("new-private-key") << true << false;
+        QTest::newRow("replace-private-key") << true << true;
+    }
+
+    void pemFilesRoundTrip()
+    {
+        QFETCH(bool, privateKey);
+        QFETCH(bool, replace);
+        const std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> context(
+            EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr), EVP_PKEY_CTX_free);
+        QVERIFY(context);
+        QVERIFY(EVP_PKEY_keygen_init(context.get()) > 0);
+        QVERIFY(EVP_PKEY_CTX_set_ec_paramgen_curve_nid(context.get(), NID_X9_62_prime256v1) > 0);
+        EVP_PKEY* rawKey = nullptr;
+        const int generated = EVP_PKEY_keygen(context.get(), &rawKey);
+        const std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key(rawKey, EVP_PKEY_free);
+        QVERIFY(generated > 0);
+        QVERIFY(key);
+        const std::unique_ptr<X509, decltype(&X509_free)> certificate(X509_new(), X509_free);
+        QVERIFY(certificate);
+        QCOMPARE(X509_set_version(certificate.get(), 2), 1);
+        QCOMPARE(ASN1_INTEGER_set(X509_get_serialNumber(certificate.get()), 1), 1);
+        QVERIFY(X509_gmtime_adj(X509_getm_notBefore(certificate.get()), 0));
+        QVERIFY(X509_gmtime_adj(X509_getm_notAfter(certificate.get()), 3600));
+        QCOMPARE(X509_set_pubkey(certificate.get(), key.get()), 1);
+        const std::unique_ptr<X509_NAME, decltype(&X509_NAME_free)> subject(X509_NAME_new(), X509_NAME_free);
+        QVERIFY(subject);
+        QCOMPARE(X509_NAME_add_entry_by_txt(subject.get(), "CN", MBSTRING_ASC,
+            reinterpret_cast<const unsigned char*>("Decenza test"), -1, -1, 0), 1);
+        QCOMPARE(X509_set_subject_name(certificate.get(), subject.get()), 1);
+        QCOMPARE(X509_set_issuer_name(certificate.get(), subject.get()), 1);
+        QVERIFY(X509_sign(certificate.get(), key.get(), EVP_sha256()) > 0);
+
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("réseau-咖啡.pem"));
+        if (replace) {
+            QFile old(path);
+            QVERIFY(old.open(QIODevice::WriteOnly));
+            QCOMPARE(old.write("invalid old PEM"), 15);
+        }
+        QString error;
+        QVERIFY2(TlsPemWriter::write(path, [&](BIO* buffer) {
+            return privateKey
+                ? PEM_write_bio_PrivateKey(buffer, key.get(), nullptr, nullptr, 0, nullptr, nullptr)
+                : PEM_write_bio_X509(buffer, certificate.get());
+        }, &error), qPrintable(error));
+        QVERIFY(error.isEmpty());
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray pem = file.readAll();
+        const std::unique_ptr<BIO, decltype(&BIO_free)> input(
+            BIO_new_mem_buf(pem.constData(), int(pem.size())), BIO_free);
+        QVERIFY(input);
+        if (privateKey) {
+            const std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> decoded(
+                PEM_read_bio_PrivateKey(input.get(), nullptr, nullptr, nullptr), EVP_PKEY_free);
+            QVERIFY(decoded);
+            QCOMPARE(EVP_PKEY_eq(key.get(), decoded.get()), 1);
+        } else {
+            const std::unique_ptr<X509, decltype(&X509_free)> decoded(
+                PEM_read_bio_X509(input.get(), nullptr, nullptr, nullptr), X509_free);
+            QVERIFY(decoded);
+            QCOMPARE(X509_check_private_key(decoded.get(), key.get()), 1);
+            QCOMPARE(X509_verify(decoded.get(), key.get()), 1);
+        }
+    }
+#endif
 
     void certificateMustCoverNewNetworkAddresses()
     {

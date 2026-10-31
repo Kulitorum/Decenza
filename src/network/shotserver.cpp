@@ -87,6 +87,7 @@
 #include <Security/Security.h>
 #import <Foundation/Foundation.h>
 #else
+#include "tlspemwriter.h"
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/pem.h>
@@ -3708,36 +3709,20 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         checkpoint("sign X509 certificate");
         if (!succeeded(X509_sign(x509, pkey, EVP_sha256()) > 0)) break;
 
-        // Write certificate to PEM file.
-        //
-        // The fopen was checked but the write was not, and success = true below ran regardless,
-        // so a disk that filled up mid-write yielded a truncated cert and a reported success.
-        // Both PEM_write_* return 1 on success. fclose is checked too and deliberately runs
-        // BEFORE the verdict: buffered output is flushed at close, so that is where a
-        // write-out-of-space error usually appears, and breaking early would leak the FILE*.
-        checkpoint("open certificate output file");
-        FILE* certFile = fopen(certPath.toLocal8Bit().constData(), "wb");
-        if (!succeeded(certFile != nullptr)) break;
-        checkpoint("write certificate PEM through OpenSSL FILE API");
-        const bool certWritten = succeeded(PEM_write_X509(certFile, x509) == 1);
-        checkpoint("close certificate output file");
-        const bool certClosed = succeeded(fclose(certFile) == 0);
-        if (!certWritten || !certClosed) {
-            DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath;
+        QString writeError;
+        checkpoint("encode and save certificate PEM");
+        if (!TlsPemWriter::write(certPath, [&](BIO* buffer) {
+                return succeeded(PEM_write_bio_X509(buffer, x509) == 1) ? 1 : 0;
+            }, &writeError)) {
+            DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath << writeError;
             break;
         }
 
-        // Write private key to PEM file
-        checkpoint("open private key output file");
-        FILE* keyFile = fopen(keyPath.toLocal8Bit().constData(), "wb");
-        if (!succeeded(keyFile != nullptr)) break;
-        checkpoint("write private key PEM through OpenSSL FILE API");
-        const bool keyWritten =
-            succeeded(PEM_write_PrivateKey(keyFile, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1);
-        checkpoint("close private key output file");
-        const bool keyClosed = succeeded(fclose(keyFile) == 0);
-        if (!keyWritten || !keyClosed) {
-            DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath;
+        checkpoint("encode and save private key PEM");
+        if (!TlsPemWriter::write(keyPath, [&](BIO* buffer) {
+                return succeeded(PEM_write_bio_PrivateKey(buffer, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1) ? 1 : 0;
+            }, &writeError)) {
+            DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath << writeError;
             break;
         }
 
