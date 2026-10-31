@@ -6,6 +6,8 @@ Decenza ships a built-in DE1 firmware updater that mirrors what the original `de
 
 **Settings → Firmware tab.**
 
+The firmware manager and power-cycle prompt inhibit the client's screensaver while open, including after success or failure. Native auto-sleep pauses too; closing the dialog restores normal inactivity behavior. The panel staying loaded after closing does not retain that inhibition.
+
 Two buttons:
 
 - **Check now** — forces a check against the bundled firmware catalog. Bypasses the once-per-week throttle.

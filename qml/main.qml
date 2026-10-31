@@ -273,6 +273,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: firmwareRebootRequiredDialog
+        inhibitScreensaver: true
         logName: "Firmware reboot required"
         modal: true
         dim: true
@@ -398,6 +399,7 @@ T.ApplicationWindow {
 
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
+        if (AppShell.screensaverInhibited) return true
         // Treat an in-progress firmware flash as an active operation so the
         // auto-sleep countdown can't fire mid-upload and cut BLE.
         var fw = MainController.firmwareUpdater
@@ -3264,6 +3266,10 @@ T.ApplicationWindow {
     Connections {
         target: AppShell
         function onImmediateQuitRequested() { Qt.quit() }
+        function onScreensaverInhibitedChanged() {
+            if (AppShell.screensaverInhibited)
+                ScreensaverManager.screensaverActive = false
+        }
         function onQuitRequested() {
             if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing)
                 firmwareFlashExitDialog.open()
@@ -3294,6 +3300,10 @@ T.ApplicationWindow {
     }
 
     function goToScreensaver() {
+        if (AppShell.screensaverInhibited) {
+            ScreensaverManager.screensaverActive = false
+            return
+        }
         // Already showing (the P shortcut is unguarded): replacing the page with
         // itself would only restart the video. The flag is the one thing to check:
         // left clear under a showing page, auto-sleep re-slept the machine every

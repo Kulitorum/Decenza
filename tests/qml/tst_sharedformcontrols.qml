@@ -718,6 +718,9 @@ TestCase {
     }
 
     function init() {
+        browserBackDialogTest.close()
+        browserBackDialogTest.inhibitScreensaver = false
+        browserBackDialogTest.browserUnloadDirty = true
         conversationFocusDialog.close()
         tryCompare(conversationFocusDialog, "visible", false)
         equipmentImeTarget = null
@@ -1492,6 +1495,33 @@ TestCase {
         browserBackDialogTest.close()
         compare(AppShell._browserDialogs.length, 0)
         compare(AppShell.consumeBrowserBack(), false)
+    }
+
+    function test_firmwareDialogInhibitsScreensaverUntilClosed() {
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.inhibitScreensaver = true
+        browserBackDialogTest.open()
+        tryCompare(browserBackDialogTest, "visible", true)
+        compare(AppShell.screensaverInhibited, true)
+        browserBackDialogTest.inhibitScreensaver = false
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.inhibitScreensaver = true
+        compare(AppShell.screensaverInhibited, true)
+        // Firmware state may change or the panel may remain loaded: the visible
+        // dialog owns the inhibition until it is explicitly closed.
+        browserBackDialogTest.browserUnloadDirty = false
+        compare(AppShell.screensaverInhibited, true)
+        browserBackDialogTest.close()
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.inhibitScreensaver = false
+        browserBackDialogTest.browserUnloadDirty = true
+    }
+
+    function test_ordinaryDialogDoesNotInhibitScreensaver() {
+        browserBackDialogTest.open()
+        tryCompare(browserBackDialogTest, "visible", true)
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.close()
     }
 
     function test_modalConversationBoundaryContainsTabAndRestoresPreviousFocus() {

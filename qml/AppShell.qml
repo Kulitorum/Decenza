@@ -41,6 +41,11 @@ QtObject {
     // callback is supplied by that shared base, not discovered on arbitrary QML.
     property var _browserDialogs: []
     property bool browserDialogDraftsDirty: false
+    // Client-local: an open firmware manager or reboot prompt must survive
+    // inactivity even after a failed/completed flash stops counting as busy.
+    readonly property bool screensaverInhibited: _browserDialogs.some(function(entry) {
+        return entry.dialog.inhibitScreensaver === true
+    })
 
     function registerBrowserDialog(dialog: var, dismissible: bool,
                                    dirty: bool, dismiss: var): void {

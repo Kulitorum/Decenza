@@ -586,6 +586,7 @@ ApplicationWindow {
     Connections {
         target: AppShell
         function onBrowserDialogDraftsDirtyChanged() { window.updateBeforeUnloadRequirement() }
+        function onScreensaverInhibitedChanged() { Qt.callLater(window.synchronizeSleepNavigation) }
     }
     Connections {
         target: HomePresetActions
@@ -695,7 +696,8 @@ ApplicationWindow {
     function synchronizeSleepNavigation() {
         if (!window.recipeServicesReady || !window.browserRouteHistoryReady
                 || window.applyingBrowserHistory || pageStack.busy) return
-        if (ScreensaverService.state.screensaverActive && !navigation.screensaverActive) {
+        if (ScreensaverService.state.screensaverActive && !navigation.screensaverActive
+                && !AppShell.screensaverInhibited) {
             if (navigation.currentItem) PopupCloser.closeAllUnder(navigation.currentItem)
             // Sleep is transient presentation, not another browser Back step.
             window.pushTrackedPage(navigation.screensaverPage, {}, true)
