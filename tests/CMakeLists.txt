@@ -2664,6 +2664,10 @@ add_decenza_test(tst_remotesessionserver
     ${CMAKE_SOURCE_DIR}/src/network/remotesessionserver.cpp
 )
 target_link_libraries(tst_remotesessionserver PRIVATE decenza_webrequestguardlib decenza_qtrowebsockettestlib Qt6::WebSockets)
+if(NOT ANDROID AND NOT IOS)
+    target_link_libraries(tst_remotesessionserver PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(tst_remotesessionserver PRIVATE DECENZA_TEST_OPENSSL_PEM)
+endif()
 
 add_decenza_test(tst_remotelastshotsnapshot
     tst_remotelastshotsnapshot.cpp

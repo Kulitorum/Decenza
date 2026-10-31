@@ -2,6 +2,12 @@
 
 The ShotServer is the in-app HTTP server that exposes shot history, settings, layout editor, and AI endpoints to the browser. It is split across multiple files; this doc captures the conventions that the routing layer and the embedded JavaScript must follow.
 
+## TLS certificate files
+
+Desktop and Android encode PEM with OpenSSL memory BIOs and save through Qt
+(`tlspemwriter.h`). No C runtime file handle crosses into the OpenSSL DLL; this
+avoids Windows' `OPENSSL_Applink` dependency and supports Unicode file paths.
+
 ## Browser entry points
 
 `/` opens the packaged Wasm app; `/wasm/` remains its compatible entry. The
