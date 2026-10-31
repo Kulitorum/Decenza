@@ -601,8 +601,8 @@ void FirmwareUpdater::onDownloadFailed(QString reason) {
 // ---- Phase 1: Erase ----------------------------------------------------
 
 void FirmwareUpdater::beginErasePhase() {
-    if (!m_device) {
-        failWith(QStringLiteral("No DE1 device configured"), false);
+    if (!m_device || !m_device->transport()) {
+        failWith(QStringLiteral("No DE1 transport configured"), false);
         return;
     }
     m_eraseInProgressSeen = false;
@@ -629,7 +629,15 @@ void FirmwareUpdater::beginErasePhase() {
     // guard is cleared in completeSuccess() and failWith().
     m_device->setFirmwareFlashInProgress(true);
     setProgress(0.0);
+    m_waitingForSleepAck = true;
     setState(State::Erasing);
+    // DE1app's firmware-mode reconnect and Decaid's firmware prelude both
+    // request Sleep before erasing. Use the normal serialized write path and
+    // its ACK/abandonment, keeping the flash guard engaged throughout.
+    m_device->requestFirmwareSleep();
+}
+
+void FirmwareUpdater::sendEraseRequest() {
     m_device->subscribeFirmwareNotifications();
     m_device->writeFWMapRequest(/*erase*/ 1, /*map*/ 1);
 
@@ -756,6 +764,13 @@ void FirmwareUpdater::onChunkPumpTick() {
 
 void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
                                            const QByteArray& data) {
+    if (m_state == State::Erasing && m_waitingForSleepAck &&
+        uuid == DE1::Characteristic::REQUESTED_STATE &&
+        data == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
+        m_waitingForSleepAck = false;
+        sendEraseRequest();
+        return;
+    }
     if (m_state == State::Verifying && uuid == DE1::Characteristic::FW_MAP_REQUEST &&
         data == buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF})) {
         if (!m_verifyRequestAcked) {
@@ -768,7 +783,9 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     // The erase request's own ACK is what proves this erase cycle has begun.
     // Until it lands, an A009 notification in state Erasing cannot have been
     // caused by our request — see onFwMapResponse.
-    if (m_state == State::Erasing && uuid == DE1::Characteristic::FW_MAP_REQUEST) {
+    if (m_state == State::Erasing && !m_waitingForSleepAck &&
+        uuid == DE1::Characteristic::FW_MAP_REQUEST &&
+        data == buildFWMapRequest(1, 1)) {
         m_eraseRequestAcked = true;
         return;
     }
@@ -818,6 +835,12 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
 
 void FirmwareUpdater::onFirmwareWriteAbandoned(const QBluetoothUuid& uuid,
                                                const QByteArray& data) {
+    if (m_state == State::Erasing && m_waitingForSleepAck &&
+        uuid == DE1::Characteristic::REQUESTED_STATE &&
+        data == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
+        failWith(QStringLiteral("Could not put DE1 to sleep before firmware update"), true);
+        return;
+    }
     if (m_state == State::Verifying && uuid == DE1::Characteristic::FW_MAP_REQUEST &&
         data == buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF})) {
         failWith(QStringLiteral("Could not send firmware verification request to DE1"), true);
@@ -1006,6 +1029,7 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
         << " retry=" << (retryable ? "yes" : "no")
         << " reason=" << reason;
     if (m_device) m_device->setFirmwareFlashInProgress(false);
+    m_waitingForSleepAck = false;
     m_eraseTimeoutTimer.stop();
     m_verifyTimeoutTimer.stop();
     m_postEraseWaitTimer.stop();

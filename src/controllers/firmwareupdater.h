@@ -192,6 +192,7 @@ private:
     void setProgress(double p);
     void failWith(const QString& reason, bool retryable);
     void beginErasePhase();
+    void sendEraseRequest();
     void beginUploadPhase();
     void beginVerifyPhase();
     void completeSuccess();
@@ -209,6 +210,7 @@ private:
     // — a terminal verify notification is byte-identical, and the retry path
     // can deliver one late.
     bool        m_eraseRequestAcked = false;
+    bool        m_waitingForSleepAck = false;
     bool        m_verifyRequestAcked = false;
     bool        m_verifyTimedOut = false;
     uint32_t    m_availableVersion = 0;
