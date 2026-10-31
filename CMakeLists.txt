@@ -1183,6 +1183,7 @@ set(HEADERS
     src/ble/portallogging.h
     src/controllers/portalcontroller.h
     src/ble/belkaportaldiscovery.h
+    src/ble/refractometerrecovery.h
     src/ble/blemanager.h
     src/ble/de1transport.h
     src/ble/de1device.h

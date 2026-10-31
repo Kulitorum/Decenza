@@ -806,6 +806,9 @@ signals:
     // via cancelWifiProbe()). main.cpp switches to the WiFi primary when reachable.
     void wifiPrimaryReachable(bool reachable);
     void disabledChanged();
+    // Fired after firmware suspension/resumption, including peripheral teardown.
+    // Lets the app restore retry timers that disconnect requests stopped.
+    void firmwareUpdateActiveChanged();
     // Emitted on BOTH edges of setScaleSimulated — see its implementation for
     // why the falling edge matters (nothing else re-arms the scale reconnect).
     void scaleSimulatedChanged();

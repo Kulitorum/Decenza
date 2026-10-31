@@ -287,6 +287,7 @@ extern "C" const char* __ubsan_default_options()
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
 #include "controllers/firmwareupdater.h"
+#include "ble/refractometerrecovery.h"
 #include "controllers/profilemanager.h"
 #include "controllers/shottimingcontroller.h"
 #include "ai/aimanager.h"
@@ -4055,6 +4056,8 @@ int main(int argc, char *argv[])
             stopReason = QStringLiteral("already connected");
         } else if (bleManager.isDisabled()) {
             stopReason = QStringLiteral("BLE is off (simulator mode) — will resume when it is re-enabled");
+        } else if (bleManager.firmwareUpdateActive()) {
+            stopReason = QStringLiteral("DE1 firmware update is active — will resume when it ends");
         }
         if (!stopReason.isEmpty()) {
             bleManager.refractometerDebug(
@@ -4134,74 +4137,18 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Arm the R2 reconnect when it drops during the hunt; stop it when it
-    // connects. refractometerConnectedChanged also fires transiently while a
-    // fresh connection is still being set up and on Forget — the saved-address
-    // guard and the !isActive() guard keep those from scrambling the backoff.
-    // Hunt-gated: the review page ends the hunt before disconnecting the R2
-    // (PostShotReviewPage.qml onDeactivating), so an ungated arm here started an
-    // off-page tick that could only stop itself. Hunt activation re-arms it.
-    QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged, handlerScope.get(),
-                     [&bleManager, &settings, &refractometerReconnectTimer,
-                      &refractometerReconnectAttempt, &reconnectDelays]() {
-        if (bleManager.isRefractometerConnected()) {
-            refractometerReconnectTimer.stop();
-            refractometerReconnectAttempt = 0;
-        } else if (!settings.savedRefractometerAddress().isEmpty()
-                   && bleManager.isRefractometerHunt()
-                   && !refractometerReconnectTimer.isActive()) {
-            refractometerReconnectAttempt = 0;
-            refractometerReconnectTimer.start(reconnectDelays[0]);
+    // Reconcile the same retry ladder on connection, hunt, BLE availability
+    // and firmware-suspension edges. In particular, firmware teardown stops
+    // the timer even when a browser keeps its review-page hunt open; resuming
+    // must re-arm it so a later scan error can recover without reopening it.
+    connectRefractometerRecovery(&bleManager, handlerScope.get(),
+        &refractometerReconnectTimer, refractometerReconnectAttempt, reconnectDelays[0],
+        [&settings] { return !settings.savedRefractometerAddress().isEmpty(); },
+        [&bleManager, &reconnectDelays] {
             bleManager.refractometerDebug(
-                QStringLiteral("Reconnect: scheduled first retry in %1 ms").arg(reconnectDelays[0]),
+                QStringLiteral("Reconnect: arming recovery tick in %1 ms").arg(reconnectDelays[0]),
                 QStringLiteral("main"));
-        }
-    });
-
-    // Arm/stop the R2 reconnect tick to track the review-page hunt. Hunt
-    // activation is the only arm for an R2 that dropped or never connected
-    // off-page (the connectedChanged arm is hunt-gated). The tick re-kicks a dead
-    // scan chain — onScanError deliberately does not re-chain.
-    QObject::connect(&bleManager, &BLEManager::refractometerHuntChanged, handlerScope.get(),
-                     [&bleManager, &settings, &refractometerReconnectTimer,
-                      &refractometerReconnectAttempt, &reconnectDelays](bool active) {
-        if (!active) {
-            refractometerReconnectTimer.stop();
-            refractometerReconnectAttempt = 0;
-            return;
-        }
-        if (!settings.savedRefractometerAddress().isEmpty()
-            && !bleManager.isRefractometerConnected()
-            && !refractometerReconnectTimer.isActive()) {
-            refractometerReconnectAttempt = 0;
-            refractometerReconnectTimer.start(reconnectDelays[0]);
-            bleManager.refractometerDebug(
-                QStringLiteral("Reconnect: review page opened — arming recovery tick in %1 ms")
-                    .arg(reconnectDelays[0]),
-                QStringLiteral("main"));
-        }
-    });
-
-    // Re-arm the R2 reconnect when BLE comes back during the hunt: the tick
-    // stops (rather than reschedules) while BLE is disabled. Off the review page
-    // there is nothing to resume — hunt activation arms it.
-    QObject::connect(&bleManager, &BLEManager::disabledChanged, handlerScope.get(),
-                     [&bleManager, &settings, &refractometerReconnectTimer,
-                      &refractometerReconnectAttempt, &reconnectDelays]() {
-        if (bleManager.isDisabled())
-            return;
-        if (!bleManager.isRefractometerHunt()
-            || settings.savedRefractometerAddress().isEmpty()
-            || bleManager.isRefractometerConnected()
-            || refractometerReconnectTimer.isActive())
-            return;
-        refractometerReconnectAttempt = 0;
-        refractometerReconnectTimer.start(reconnectDelays[0]);
-        bleManager.refractometerDebug(
-            QStringLiteral("Reconnect: BLE re-enabled, resuming retries in %1 ms")
-                .arg(reconnectDelays[0]),
-            QStringLiteral("main"));
-    });
+        });
 
     // No refractometer auto-connect at startup: the R2 is only used on the
     // post-shot review page, so it is pursued when that page opens (which fires

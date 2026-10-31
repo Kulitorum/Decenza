@@ -209,6 +209,7 @@ void BLEManager::setFirmwareUpdateActive(bool active)
         if (m_refractometerHunt)
             tryDirectConnectToRefractometer();
     }
+    emit firmwareUpdateActiveChanged();
 }
 
 bool BLEManager::isBluetoothAvailable() const
