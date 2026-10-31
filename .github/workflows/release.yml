@@ -1267,29 +1267,33 @@ jobs:
           curl -L "$OPENSSL_URL" | tar xz
           cd "openssl-${OPENSSL_VERSION}"
 
-          # Build arm64
-          ./Configure darwin64-arm64-cc no-shared no-tests \
-            --prefix="${INSTALL_PREFIX}/arm64" \
-            -mmacosx-version-min=12.0
-          make -j$(sysctl -n hw.ncpu)
-          make install_sw
-          make clean
-
-          # Build x86_64
-          ./Configure darwin64-x86_64-cc no-shared no-tests \
-            --prefix="${INSTALL_PREFIX}/x86_64" \
-            -mmacosx-version-min=12.0
-          make -j$(sysctl -n hw.ncpu)
-          make install_sw
+          for architecture in arm64 x86_64; do
+            ./Configure "darwin64-${architecture}-cc" shared no-tests \
+              --prefix="${INSTALL_PREFIX}/${architecture}" \
+              -mmacosx-version-min=12.0
+            make -j"$(sysctl -n hw.ncpu)"
+            make install_sw
+            make clean
+          done
 
           # Create universal libs
           mkdir -p "${INSTALL_PREFIX}/lib"
           cp -R "${INSTALL_PREFIX}/arm64/include" "${INSTALL_PREFIX}/"
-          for lib in libssl.a libcrypto.a; do
+          for lib in libssl.a libcrypto.a libssl.3.dylib libcrypto.3.dylib; do
             lipo -create \
               "${INSTALL_PREFIX}/arm64/lib/${lib}" \
               "${INSTALL_PREFIX}/x86_64/lib/${lib}" \
               -output "${INSTALL_PREFIX}/lib/${lib}"
+          done
+
+          for lib in libssl.3.dylib libcrypto.3.dylib; do
+            install_name_tool -id "@rpath/${lib}" "${INSTALL_PREFIX}/lib/${lib}"
+          done
+          for architecture in arm64 x86_64; do
+            install_name_tool \
+              -change "${INSTALL_PREFIX}/${architecture}/lib/libcrypto.3.dylib" \
+              "@loader_path/libcrypto.3.dylib" \
+              "${INSTALL_PREFIX}/lib/libssl.3.dylib"
           done
           echo "Universal OpenSSL installed at ${INSTALL_PREFIX}"
 
@@ -1343,6 +1347,20 @@ jobs:
 
           echo "Bundled frameworks:"
           ls -la "$APP_PATH/Contents/Frameworks/" | head -20
+
+      - name: Bundle OpenSSL runtime for Qt HTTPS
+        run: |
+          APP_PATH="build/macos/Release/Decenza.app"
+          test -s "$APP_PATH/Contents/PlugIns/tls/libqopensslbackend.dylib"
+          for lib in libssl.3.dylib libcrypto.3.dylib; do
+            bundled="$APP_PATH/Contents/Frameworks/$lib"
+            cp "$RUNNER_TEMP/openssl-universal/lib/$lib" "$bundled"
+            lipo "$bundled" -verify_arch x86_64 arm64
+            if otool -L "$bundled" | grep -F "$RUNNER_TEMP/openssl-universal"; then
+              echo "OpenSSL runtime still references its build directory: $lib" >&2
+              exit 1
+            fi
+          done
 
       - name: Sign the application
         env:
@@ -1901,11 +1919,7 @@ jobs:
         env:
           QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
           QML_SOURCES_PATHS: ${{ github.workspace }}/qml
-        run: |
-          ./linuxdeploy-x86_64.AppImage \
-            --appdir AppDir \
-            --plugin qt \
-            --output appimage
+        run: bash scripts/package_linux_appimage.sh x86_64
 
       - name: Rename AppImage
         run: |
@@ -2083,11 +2097,7 @@ jobs:
         env:
           QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
           QML_SOURCES_PATHS: ${{ github.workspace }}/qml
-        run: |
-          ./linuxdeploy-aarch64.AppImage \
-            --appdir AppDir \
-            --plugin qt \
-            --output appimage
+        run: bash scripts/package_linux_appimage.sh aarch64
 
       - name: Rename AppImage
         run: |
