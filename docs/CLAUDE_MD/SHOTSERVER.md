@@ -2,6 +2,17 @@
 
 The ShotServer is the in-app HTTP server that exposes shot history, settings, layout editor, and AI endpoints to the browser. It is split across multiple files; this doc captures the conventions that the routing layer and the embedded JavaScript must follow.
 
+## Diagnosing a startup or Network-enable exit
+
+In `debug.log`, `[App][Startup]` records the installation, Qt runtime, settings
+store and backend environment overrides. `[App][MainController]` startup
+checkpoints bracket storage, recipe, upload, synchronization and service setup.
+`[Network][ShotServer]` TLS checkpoints cover certificate generation/loading,
+backend discovery, socket binding and session setup; Windows also records loaded
+TLS DLL paths and whether the executable exports `OPENSSL_Applink`. The last
+checkpoint identifies the operation entered, even if it exits without a crash
+report. Certificate/key contents and authentication secrets are never logged.
+
 ## Browser entry points
 
 `/` opens the packaged Wasm app; `/wasm/` remains its compatible entry. The

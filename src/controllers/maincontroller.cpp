@@ -66,6 +66,7 @@
 #include <QScopedValueRollback>
 #include <tuple>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -154,6 +155,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     , m_shotDataModel(shotDataModel)
     , m_profileStorage(profileStorage)
 {
+    QElapsedTimer startupTimer;
+    startupTimer.start();
+    const auto checkpoint = [&startupTimer](const char* stage) {
+        DIAG_DEBUG(APP, "MainController") << "Startup checkpoint:" << stage
+                 << "elapsedMs=" << startupTimer.elapsed();
+    };
+    checkpoint("begin profile and machine wiring");
     if (m_device) {
         connect(m_device, &DE1Device::stateChanged,
                 this, &MainController::refreshSteamStopState);
@@ -497,6 +505,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         });
     }
     // Create visualizer uploader and importer
+    checkpoint("begin account and network clients");
     m_visualizer = new VisualizerUploader(m_networkManager, m_settings, this);
     m_visualizer->setDevice(m_device);
     m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
@@ -505,8 +514,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_decentAccount = new DecentAccount(m_networkManager, m_settings->decent(), this);
 
     // Create shot history storage and comparison model
+    checkpoint("begin shot history initialization");
     m_shotHistory = new ShotHistoryStorage(this);
-    m_shotHistory->initialize();
+    const bool historyInitialized = m_shotHistory->initialize();
+    DIAG_DEBUG(APP, "MainController") << "Shot history initialization result:" << historyInitialized
+             << "ready=" << m_shotHistory->isReady();
+    checkpoint("begin shot upload coordination");
     // Mirror the startup-seeded latest-shot id (initialize() reads MAX(id))
     // so QML's MainController.lastSavedShotId is valid across restarts —
     // no emit needed: QML bindings haven't been created yet.
@@ -576,6 +589,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Coffee bag storage shares the shot history database (coffee_bags
     // table, created by migration 19 inside initialize() above).
+    checkpoint("begin coffee bag storage and settings");
     m_bagStorage = new CoffeeBagStorage(this);
     m_bagStorage->initialize(m_shotHistory->databasePath());
     // Adopt the bag that the legacy preset import mapped bean/selectedPreset
@@ -587,6 +601,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Equipment storage shares the same database (equipment_packages +
     // equipment_items tables, created by migration 22). Switchable grinder
     // packages the active bag points at via equipment_id.
+    checkpoint("begin equipment storage and settings");
     m_equipmentStorage = new EquipmentStorage(this);
     m_equipmentStorage->initialize(m_shotHistory->databasePath());
     // Adopt the package that migration 35 merged the active selection into, if it
@@ -606,6 +621,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         m_settings->dye()->setActiveEquipmentId(healed);
     }
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
+    checkpoint("begin basket calibration history request");
 
     // One-time SAW upgrade path: stores written before the basket joined the SAW key hold
     // "<profile>::<scale>" buckets that no reader looks for any more. Copy each into
@@ -657,6 +673,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // deactivate-on-bag-swap watcher inside must see the swap first, so the
     // override reset that follows a bag change cannot be stamped onto a
     // recipe the user is in the act of leaving (add-recipes).
+    checkpoint("begin recipe storage and wiring");
     m_recipeStorage = new RecipeStorage(this);
     m_recipeStorage->initialize(m_shotHistory->databasePath());
     // Migration 31's deferred temp-offset conversion must be queued on the
@@ -690,6 +707,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         }
     }
     setupRecipeConnections();
+    checkpoint("begin bean search and profile override wiring");
 
     // One-time idle-button injections (issue #1586). What the gate means is
     // documented on ShotHistoryStorage::crossedSchemaVersion; what the injections
@@ -828,6 +846,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // list now — guarded internally on credentials being available.
     // Transiently-failed entries persist for the next boot; permanently
     // failed ones (404) are evicted (see updateFailed connect below).
+    checkpoint("begin pending Visualizer synchronization");
     processPendingVisualizerRatingSync();
 
     // One-time reconciliation: relink shots that were uploaded before
@@ -835,10 +854,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // then push their now-correct local rating to the cloud. Order-
     // independent of the migration16 drain above — see OpenSpec change
     // persist-visualizer-id-in-controller.
+    checkpoint("begin Visualizer reconciliation");
     processVisualizerReconciliation();
 
     // Edits made on visualizer.coffee come back: a pass now, every 30 minutes,
     // and as soon as an account is connected.
+    checkpoint("begin Visualizer background synchronization");
     m_visualizerSync = new VisualizerShotSync(m_visualizer, m_shotHistory, m_bagStorage, m_beanbase,
                                               m_networkManager, m_settings, this);
     m_visualizerSync->start();
@@ -972,6 +993,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     });
 
     // Create shot importer for importing .shot files from DE1 app
+    checkpoint("begin importers and comparison model");
     m_shotImporter = new ShotImporter(m_shotHistory, this);
 
     // Create profile converter for batch converting DE1 app profiles
@@ -987,6 +1009,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // It captures all qDebug/qWarning/etc. output during shot extraction
     m_shotDebugLogger = new ShotDebugLogger(this);
     // Create shot server for remote access to shot data
+    checkpoint("begin web server construction and settings");
     m_shotServer = new ShotServer(m_shotHistory, m_device, this);
     m_shotServer->setSettings(m_settings);
     m_shotServer->setProfileStorage(m_profileStorage);
@@ -994,9 +1017,16 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         m_shotServer->setPort(m_settings->network()->shotServerPort());
 
         // Start server if enabled in settings
+        DIAG_DEBUG(APP, "MainController") << "Startup network settings: webServer="
+                 << m_settings->network()->shotServerEnabled()
+                 << "port=" << m_settings->network()->shotServerPort()
+                 << "webAuthentication=" << m_settings->network()->webSecurityEnabled()
+                 << "mqtt=" << m_settings->mqtt()->mqttEnabled();
+        checkpoint("begin web server start (if enabled)");
         if (m_settings->network()->shotServerEnabled()) {
             m_shotServer->start();
         }
+        checkpoint("web server start returned; begin remaining service wiring");
 
         // React to settings changes
         connect(m_settings->network(), &SettingsNetwork::shotServerEnabledChanged, this, [this]() {
@@ -1038,6 +1068,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_shotServer->setMainController(this);
 
     // Create MQTT client for home automation
+    checkpoint("begin MQTT construction and wiring");
     m_mqttClient = new MqttClient(m_device, m_machineState, m_settings, m_settings->mqtt(), this);
 
     // Pass MainController reference for shot history access
@@ -1224,6 +1255,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     }
 
     // Initialize location provider and shot reporter for decenza.coffee shot map
+    checkpoint("begin location provider");
     m_locationProvider = new LocationProvider(m_networkManager, this);
     m_shotReporter = new ShotReporter(m_networkManager, m_settings, m_locationProvider, this);
 
@@ -1233,6 +1265,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     }
 
     // Initialize update checker
+    checkpoint("begin update services");
     m_updateChecker = new UpdateChecker(m_networkManager, m_settings, this);
     m_hdsFirmwareUpdate = new HdsFirmwareUpdateController(m_networkManager, this);
 
@@ -1375,6 +1408,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->refreshProfiles();
         requestRecipeTempOffsetConversion();
     });
+    checkpoint("construction complete");
 }
 
 void MainController::checkForSoftwareUpdates(bool userInitiated) {
