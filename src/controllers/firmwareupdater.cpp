@@ -312,6 +312,18 @@ QString FirmwareUpdater::stateText() const {
     return QString();
 }
 
+int FirmwareUpdater::estimatedUploadSecondsRemaining() const {
+    if (m_state != State::Uploading || !m_updateTimer.isValid() ||
+        m_chunksAcked <= 0 || m_chunksTotal <= 0) return -1;
+    if (m_chunksAcked >= m_chunksTotal) return 0;
+    const qint64 elapsedMs = m_updateTimer.elapsed() - m_uploadStartedMs;
+    if (elapsedMs <= 0) return -1;
+    // Average acknowledged throughput for this attempt, including BLE waits.
+    // Queueing chunks is much faster than sending them and cannot supply a rate.
+    const qint64 remainingMs = elapsedMs * (m_chunksTotal - m_chunksAcked) / m_chunksAcked;
+    return static_cast<int>((remainingMs + 999) / 1000);
+}
+
 void FirmwareUpdater::setState(State newState) {
     if (m_state == newState) return;
     DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
@@ -417,6 +429,8 @@ void FirmwareUpdater::startUpdate() {
     // next cycle's ambiguous-verify/AwaitingReboot logic.
     m_verifyingAmbiguous = false;
     m_flashCompleted = false;
+    m_verifyRequestAcked = false;
+    m_verifyTimedOut = false;
     m_verifyDisconnectGrace.stop();
     if (m_needsManualReboot) {
         m_needsManualReboot = false;
@@ -619,6 +633,9 @@ void FirmwareUpdater::beginErasePhase() {
         connect(t, &DE1Transport::writeComplete,
                 this, &FirmwareUpdater::onFirmwareWriteAcked,
                 Qt::UniqueConnection);
+        connect(t, &DE1Transport::writeAbandoned,
+                this, &FirmwareUpdater::onFirmwareWriteAbandoned,
+                Qt::UniqueConnection);
     }
 
     // Engage the MMR-write guard on the device *before* we subscribe or
@@ -673,6 +690,7 @@ void FirmwareUpdater::beginUploadPhase() {
     m_chunksTotal  = (m_firmwareBytes.size() + 15) / 16;  // ceil to 16-byte blocks
     m_chunksQueued = 0;
     m_chunksAcked  = 0;
+    m_uploadStartedMs = m_updateTimer.elapsed();
 
     // Subscribe to the transport's per-write ACK now. Deferred to this
     // point because m_device->transport() is not guaranteed to be set at
@@ -754,6 +772,15 @@ void FirmwareUpdater::onChunkPumpTick() {
 
 void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
                                            const QByteArray& data) {
+    if (m_state == State::Verifying && uuid == DE1::Characteristic::FW_MAP_REQUEST &&
+        data == buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF})) {
+        if (!m_verifyRequestAcked) {
+            m_verifyRequestAcked = true;
+            // Time the DE1's response, not the shared GATT queue's backlog.
+            m_verifyTimeoutTimer.start(m_verifyTimeoutMs);
+        }
+        return;
+    }
     // The erase request's own ACK is what proves this erase cycle has begun.
     // Until it lands, an A009 notification in state Erasing cannot have been
     // caused by our request — see onFwMapResponse.
@@ -805,8 +832,18 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
 
 // ---- Phase 3: Verify ---------------------------------------------------
 
+void FirmwareUpdater::onFirmwareWriteAbandoned(const QBluetoothUuid& uuid,
+                                               const QByteArray& data) {
+    if (m_state == State::Verifying && uuid == DE1::Characteristic::FW_MAP_REQUEST &&
+        data == buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF})) {
+        failWith(QStringLiteral("Could not send firmware verification request to DE1"), true);
+    }
+}
+
 void FirmwareUpdater::beginVerifyPhase() {
     if (!m_device) return;
+    m_verifyRequestAcked = false;
+    m_verifyTimedOut = false;
     setState(State::Verifying);
     setProgress(PROGRESS_UPLOAD_MAX);
 
@@ -822,11 +859,11 @@ void FirmwareUpdater::beginVerifyPhase() {
     // notification, which has no protocol cost.
     m_device->subscribeFirmwareNotifications();
     m_device->writeFWMapRequest(/*erase*/ 0, /*map*/ 1, {0xFF, 0xFF, 0xFF});
-    m_verifyTimeoutTimer.start(m_verifyTimeoutMs);
 }
 
 void FirmwareUpdater::onVerifyTimeout() {
-    if (m_state != State::Verifying) return;
+    if (m_state != State::Verifying || !m_verifyRequestAcked) return;
+    m_verifyTimedOut = true;
     failWith(QStringLiteral("No response from DE1 during verify"), true);
 }
 
@@ -880,7 +917,8 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
         return;
     }
 
-    if (m_state == State::Verifying) {
+    const bool lateVerify = m_state == State::Failed && m_verifyTimedOut && m_verifyRequestAcked;
+    if (m_state == State::Verifying || lateVerify) {
         // A notification is a verdict only when all four of these hold, which
         // is reaprime/decaid's `_isTerminalVerificationResponse`
         // (unified_de1.firmware.dart:142-147): WindowIncrement == 0,
@@ -911,6 +949,13 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
         m_verifyTimeoutTimer.stop();
         const QByteArray expected = QByteArray::fromHex("FFFFFD");
         if (firstError == expected) {
+            if (lateVerify) {
+                m_errorMessage.clear();
+                m_retryAvailable = false;
+                m_verifyTimedOut = false;
+                m_device->setFirmwareFlashInProgress(true);
+                DIAG_INFO(DE1, "Firmware") << "Late verification succeeded; power-cycle the DE1 to load the firmware";
+            }
             // Don't claim success yet. The bootloader says the new bank
             // verifies, but in practice the DE1 doesn't auto-reboot — on
             // every captured flash (both upgrade and downgrade) the
@@ -933,6 +978,7 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
             setProgress(1.0);
             setState(State::AwaitingReboot);
         } else {
+            m_verifyTimedOut = false;
             const QString detail = QStringLiteral(
                 "Verification failed at block %1.%2.%3"
             ).arg(uint8_t(firstError[0]))

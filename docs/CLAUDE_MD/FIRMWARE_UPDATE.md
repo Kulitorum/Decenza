@@ -23,7 +23,9 @@ Two buttons:
 
 - **Phase 1 — Erase**: `FWMapRequest(erase=1, map=1)` sent on characteristic `A009`. DE1 erases the inactive flash bank. Modern firmware sends a single erase-complete notification (`fwToErase=0`). The chunk pump starts as soon as that notification lands, with a 10 s fallback on every platform if it never does. Measured at +1.31 s on a DE1+/PCB 1.3, so the notification is the normal path and the timer is the exception. Matches reaprime/decaid; de1app gates on nothing and always waits the fixed 10 s.
 - **Phase 2 — Upload**: 28,992 sequential 20-byte packets streamed to characteristic `A006`. Each packet is `[len=16][addr24 BE][16-byte payload]`. Length byte is 16 (`0x10`) — same format as MMR writes which use length 4. Address is 24-bit **big-endian**. ACK-driven progress so the bar tracks bytes on the wire, not bytes in the BLE queue.
+  Below the bar, the native and browser firmware screens show the bar's percentage and approximate upload time remaining, based on average acknowledged throughput since upload began. Before the first timed ACK the line says it is estimating; verification time is separate.
 - **Phase 3 — Verify**: `FWMapRequest(erase=0, map=1, FirstError=FF,FF,FF)` on `A009`. DE1 verifies the inactive bank and replies with a 3-byte `FirstError`. `{0xFF, 0xFF, 0xFD}` = success; anything else = the byte offset of the first corrupt block.
+  The 60 s response timeout starts only after the exact verify request's write ACK. Queuing the request does not start that clock; transport write abandonment fails explicitly. A terminal success arriving after a response timeout restores the power-cycle prompt, provided no new attempt has started.
 
   **A notification is a verdict only when `WindowIncrement == 0`, `fwToErase == 0`, `fwToMap == 1` *and* `FirstError != FF FF FF`.** Anything else is the bootloader talking mid-scan, and its `FirstError` is a cursor rather than a corrupt-block address — reading it as one turns normal progress into a permanent-looking failure that survives Retry. We keep waiting; the 60 s verify timeout is the backstop. This is reaprime/decaid's `_isTerminalVerificationResponse` (`unified_de1.firmware.dart:142-147`).
 
@@ -31,6 +33,8 @@ Two buttons:
 - On success, the DE1 remaps the inactive bank as active. It does **not** auto-reboot in practice — on every captured flash (upgrade and downgrade) the machine keeps running the old firmware until the user flips its power switch. Decenza prompts for a power-cycle immediately after verify (see `FirmwareUpdater::AwaitingReboot`) and its auto-reconnect logic re-establishes BLE once the DE1 comes back up on the new firmware.
 
 ### BLE subscription timing (matters)
+
+During erase, upload and verification, BLEManager temporarily disconnects BLE scales and refractometers and blocks peripheral scans/connections; PORTAL is suspended too. Saved selections are retained and normal peripheral connections resume on a terminal outcome or the power-cycle prompt. An open refractometer hunt also regains its retry timer, so a later scan error can recover without reopening the review. WiFi and USB scales are unaffected, and DE1-only discovery remains available for recovery. This prevents scale heartbeat commands accumulating behind the image and delaying the verify request: the October 30 SM-X210 capture queued verification at +72:58, timed out at +73:58, then actually dispatched it about 3½ minutes after submission and received `FF FF FD` 1.3 s later.
 
 The FWMapRequest (A009) CCCD subscription is enabled **right before verify** — *not* at the start of erase. This matches `de1app/de1_comms.tcl:991`. The heavy upload-write burst appears to invalidate the A009 subscription on Android, so a re-subscribe immediately before the verify request is required for the verify response to reach the app.
 
@@ -56,7 +60,8 @@ Failure types and what they mean:
 | "DE1 disconnected during firmware update" | BLE dropped mid-update | Bring the DE1 back into range, reconnect, tap Retry. The bootloader handles half-flashed inactive banks gracefully — next boot still uses the active bank. |
 | "Verification failed at block A.B.C" | DE1 detected corruption at byte offset A·B·C during verify | Retry. If it repeats, this is worth a bug report — include the block offset. |
 | "DE1 did not reconnect after verify" | Disconnected during verify, didn't come back within the 180 s (3 min) ambiguous-verify grace window | Power-cycle the DE1 and reconnect; if the version reads as the new build, the update actually succeeded and we just missed the confirmation — Decenza will retroactively flip to "Update complete" once the new version reads back. |
-| "No response from DE1 during verify" | The 60 s verify timeout fired without a notification | Most commonly a missing subscribe before verify (fixed) or a bootloader that validated and rebooted without emitting a response (the ambiguous-verify path will catch this via post-reconnect version check). Retry is usually correct. |
+| "No response from DE1 during verify" | No terminal verdict within 60 s after the verify request's ACK | A late success restores the power-cycle prompt automatically. A disconnect/reconnect is checked against the target version. |
+| "Could not send firmware verification request to DE1" | The verify request exhausted its transport retries | Reconnect the DE1 and retry. |
 | "The firmware file is not valid. Please report this." | Bundled `.bin` failed manifest/header/digest validation | **Non-retryable.** The application bundle probably contains mismatched firmware assets — this should never happen. Report it. |
 | "Finish current operation first" | Tried to update mid-shot/steam/flush/descale | End the current operation and tap Retry. |
 
