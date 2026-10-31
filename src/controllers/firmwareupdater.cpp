@@ -39,11 +39,6 @@ namespace {
 // would have started while the bootloader was still erasing.
 constexpr int DEFAULT_POST_ERASE_WAIT_MS = 10000;
 
-// Progress weighting so the bar doesn't sit at 0% and 100% for seconds at
-// a time. See docs/plans/2026-04-20-firmware-update-design.md §5.3.
-constexpr double PROGRESS_ERASE_MAX  = 0.10;
-constexpr double PROGRESS_UPLOAD_MAX = 0.90;
-
 // Format an elapsed count as "[+MM:SS.ms]" — fits long uploads and is
 // trivially greppable with /\[\+\d+:/ to strip back to phase order.
 QString formatElapsed(qint64 ms) {
@@ -89,8 +84,6 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
                 this, &FirmwareUpdater::onDownloadFinished);
         connect(m_cache, &FirmwareAssetCache::downloadFailed,
                 this, &FirmwareUpdater::onDownloadFailed);
-        connect(m_cache, &FirmwareAssetCache::downloadProgress,
-                this, &FirmwareUpdater::onDownloadProgress);
     }
 
     if (m_device) {
@@ -463,6 +456,7 @@ void FirmwareUpdater::startUpdate() {
     // starts at [+00:00.000] — gives reviewers a crisp "how long did
     // each phase take" reading without mental math across sessions.
     m_updateTimer.restart();
+    setProgress(0.0);
 
     // Download (or short-circuit if already cached and valid).
     setState(State::Downloading);
@@ -604,21 +598,11 @@ void FirmwareUpdater::onDownloadFailed(QString reason) {
     failWith(reason, /*retryable*/ true);
 }
 
-void FirmwareUpdater::onDownloadProgress(qint64 received, qint64 total) {
-    if (m_state != State::Downloading || total <= 0) return;
-    // Download phase is counted as half of pre-erase work. We don't have a
-    // visible progress bar for "checking" vs "downloading" in the spec, so
-    // any download-phase progress just previews up to the erase phase's
-    // starting point.
-    const double frac = double(received) / double(total);
-    setProgress(frac * PROGRESS_ERASE_MAX);
-}
-
 // ---- Phase 1: Erase ----------------------------------------------------
 
 void FirmwareUpdater::beginErasePhase() {
-    if (!m_device) {
-        failWith(QStringLiteral("No DE1 device configured"), false);
+    if (!m_device || !m_device->transport()) {
+        failWith(QStringLiteral("No DE1 transport configured"), false);
         return;
     }
     m_eraseInProgressSeen = false;
@@ -644,10 +628,18 @@ void FirmwareUpdater::beginErasePhase() {
     // stray MMR write interleaved with chunks would corrupt the flash. The
     // guard is cleared in completeSuccess() and failWith().
     m_device->setFirmwareFlashInProgress(true);
+    setProgress(0.0);
+    m_waitingForSleepAck = true;
     setState(State::Erasing);
+    // DE1app's firmware-mode reconnect and Decaid's firmware prelude both
+    // request Sleep before erasing. Use the normal serialized write path and
+    // its ACK/abandonment, keeping the flash guard engaged throughout.
+    m_device->requestFirmwareSleep();
+}
+
+void FirmwareUpdater::sendEraseRequest() {
     m_device->subscribeFirmwareNotifications();
     m_device->writeFWMapRequest(/*erase*/ 1, /*map*/ 1);
-    setProgress(0.02);  // visible motion as Phase 1 starts
 
     // The DE1 tells us when the erase is done; prefer that over the clock.
     // The erase-complete notification (fwToErase=0, fwToMap=1) starts the
@@ -709,8 +701,8 @@ void FirmwareUpdater::beginUploadPhase() {
                                   "progress/verify will stall";
     }
 
+    setProgress(0.0);
     setState(State::Uploading);
-    setProgress(PROGRESS_ERASE_MAX);
     m_chunkPumpTimer.start();
 }
 
@@ -753,8 +745,8 @@ void FirmwareUpdater::onChunkPumpTick() {
         // All chunks are *queued* into BleTransport. Don't trigger verify
         // here — wait until onFirmwareWriteAcked sees the last ACK arrive
         // (m_chunksAcked == m_chunksTotal). The ACK-driven trigger means
-        // the user-visible progress bar keeps climbing smoothly to 90 % as
-        // each ACK clears the wire, instead of jumping to 90 % the moment
+        // the user-visible progress bar keeps climbing smoothly to 100 % as
+        // each ACK clears the wire, instead of jumping to 100 % the moment
         // we queue the last chunk and then freezing silently for minutes.
         m_chunkPumpTimer.stop();
         DIAG_CDEBUG(DE1, "Firmware", firmwareLog) << "upload queued to BLE ("
@@ -772,6 +764,13 @@ void FirmwareUpdater::onChunkPumpTick() {
 
 void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
                                            const QByteArray& data) {
+    if (m_state == State::Erasing && m_waitingForSleepAck &&
+        uuid == DE1::Characteristic::REQUESTED_STATE &&
+        data == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
+        m_waitingForSleepAck = false;
+        sendEraseRequest();
+        return;
+    }
     if (m_state == State::Verifying && uuid == DE1::Characteristic::FW_MAP_REQUEST &&
         data == buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF})) {
         if (!m_verifyRequestAcked) {
@@ -784,7 +783,9 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     // The erase request's own ACK is what proves this erase cycle has begun.
     // Until it lands, an A009 notification in state Erasing cannot have been
     // caused by our request — see onFwMapResponse.
-    if (m_state == State::Erasing && uuid == DE1::Characteristic::FW_MAP_REQUEST) {
+    if (m_state == State::Erasing && !m_waitingForSleepAck &&
+        uuid == DE1::Characteristic::FW_MAP_REQUEST &&
+        data == buildFWMapRequest(1, 1)) {
         m_eraseRequestAcked = true;
         return;
     }
@@ -816,7 +817,7 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
     }
 
     const double uploadFrac = double(m_chunksAcked) / double(m_chunksTotal);
-    setProgress(PROGRESS_ERASE_MAX + uploadFrac * (PROGRESS_UPLOAD_MAX - PROGRESS_ERASE_MAX));
+    setProgress(uploadFrac);
 
     if (m_chunksAcked >= m_chunksTotal) {
         DIAG_CDEBUG(DE1, "Firmware", firmwareLog)
@@ -834,6 +835,12 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
 
 void FirmwareUpdater::onFirmwareWriteAbandoned(const QBluetoothUuid& uuid,
                                                const QByteArray& data) {
+    if (m_state == State::Erasing && m_waitingForSleepAck &&
+        uuid == DE1::Characteristic::REQUESTED_STATE &&
+        data == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
+        failWith(QStringLiteral("Could not put DE1 to sleep before firmware update"), true);
+        return;
+    }
     if (m_state == State::Verifying && uuid == DE1::Characteristic::FW_MAP_REQUEST &&
         data == buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF})) {
         failWith(QStringLiteral("Could not send firmware verification request to DE1"), true);
@@ -845,7 +852,7 @@ void FirmwareUpdater::beginVerifyPhase() {
     m_verifyRequestAcked = false;
     m_verifyTimedOut = false;
     setState(State::Verifying);
-    setProgress(PROGRESS_UPLOAD_MAX);
+    setProgress(1.0);
 
     // Match de1app's exact ordering: re-enable A009 notifications RIGHT
     // before sending the verify request (de1_comms.tcl:991). The heavy
@@ -1022,6 +1029,7 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
         << " retry=" << (retryable ? "yes" : "no")
         << " reason=" << reason;
     if (m_device) m_device->setFirmwareFlashInProgress(false);
+    m_waitingForSleepAck = false;
     m_eraseTimeoutTimer.stop();
     m_verifyTimeoutTimer.stop();
     m_postEraseWaitTimer.stop();

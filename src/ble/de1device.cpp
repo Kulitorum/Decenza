@@ -2323,6 +2323,11 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 
 // ----- Firmware update (A009 / A006) -------------------------------------
 
+void DE1Device::requestFirmwareSleep() {
+    if (!m_transport) return;
+    writeRequestedState(DE1::State::Sleep, StateWrite::Normal);
+}
+
 void DE1Device::writeFWMapRequest(uint8_t fwToErase, uint8_t fwToMap,
                                   std::array<uint8_t, 3> firstError) {
     if (!m_transport) {

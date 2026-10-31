@@ -414,12 +414,16 @@ public slots:
     static int bucketHeaterVoltage(int raw);
 
     // ---- Firmware update (BLE A009 / A006) --------------------------------
-    // These three writers talk directly to the transport and deliberately
+    // These writers talk directly to the transport and deliberately
     // bypass the per-register MMR dedupe cache (m_lastMMRValues): firmware
     // uploads stream ~28,000 unique 16-byte chunks, populating the cache
     // with those would grow the hash uselessly and risk colliding with
     // real MMR register addresses. See tasks.md §3 and the firmware-update
     // design doc for the wire formats.
+
+    // Firmware owner's prelude: queue Sleep without clearing commands or
+    // dropping the flash guard that blocks all ordinary state writes.
+    void requestFirmwareSleep();
 
     // Write the 7-byte FWMapRequest to A009 (firmware-update control).
     // `fwToErase=1, fwToMap=1` starts Phase 1 (erase). A second call with

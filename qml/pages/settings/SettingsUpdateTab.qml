@@ -777,6 +777,7 @@ Item {
     // Firmware update dialog (full-screen) — hosts the SettingsFirmwareTab panel
     DecenzaDialog {
         id: firmwareDialog
+        inhibitScreensaver: true
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: parent ? parent.width - Theme.scaled(40) : Theme.scaled(800)

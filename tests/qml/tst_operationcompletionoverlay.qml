@@ -615,6 +615,22 @@ TestCase {
         compare(AppShell.browserDialogDraftsDirty, false)
     }
 
+    function test_screensaverInhibitionBelongsToEachOpenDialog() {
+        const firmwareManager = ({inhibitScreensaver: true})
+        const rebootPrompt = ({inhibitScreensaver: true})
+        const ordinaryDialog = ({inhibitScreensaver: false})
+        const dismiss = function() {}
+        AppShell.registerBrowserDialog(firmwareManager, true, false, dismiss)
+        AppShell.registerBrowserDialog(rebootPrompt, false, false, dismiss)
+        AppShell.registerBrowserDialog(ordinaryDialog, true, false, dismiss)
+        compare(AppShell.screensaverInhibited, true)
+        AppShell.unregisterBrowserDialog(firmwareManager)
+        compare(AppShell.screensaverInhibited, true)
+        AppShell.unregisterBrowserDialog(rebootPrompt)
+        compare(AppShell.screensaverInhibited, false)
+        AppShell.unregisterBrowserDialog(ordinaryDialog)
+    }
+
     function test_browserRouteStateIsBoundedAndRoundTripsSafeArguments() {
         const stack = [
             {route: "home", args: {}},

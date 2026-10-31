@@ -140,6 +140,8 @@ public:
     QString availableChannelLabel() const { return m_availableChannelLabel; }
     QString availableReleaseNotes() const { return m_availableReleaseNotes; }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
+    // Fraction of firmware packets acknowledged, 0..1. Preparation and verify
+    // have separate UI states and do not consume a share of this percentage.
     double progress() const { return m_progress; }
     // Upload only: -1 until ACKs establish a rate, or outside Uploading.
     // Projected through UpdateService alongside progress on each ACK.
@@ -173,7 +175,6 @@ private slots:
     void onCheckFinished(DE1::Firmware::FirmwareAssetCache::CheckResult result);
     void onDownloadFinished(QString path, DE1::Firmware::Header header);
     void onDownloadFailed(QString reason);
-    void onDownloadProgress(qint64 received, qint64 total);
     void onFwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
                          uint8_t fwToMap, QByteArray firstError);
     void onDeviceConnectionChanged();
@@ -191,6 +192,7 @@ private:
     void setProgress(double p);
     void failWith(const QString& reason, bool retryable);
     void beginErasePhase();
+    void sendEraseRequest();
     void beginUploadPhase();
     void beginVerifyPhase();
     void completeSuccess();
@@ -208,6 +210,7 @@ private:
     // — a terminal verify notification is byte-identical, and the retry path
     // can deliver one late.
     bool        m_eraseRequestAcked = false;
+    bool        m_waitingForSleepAck = false;
     bool        m_verifyRequestAcked = false;
     bool        m_verifyTimedOut = false;
     uint32_t    m_availableVersion = 0;
