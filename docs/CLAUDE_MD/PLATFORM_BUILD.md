@@ -128,7 +128,7 @@ Copy `installer/TEMPLATE_setupvars.iss` to `installer/setupvars.iss` and adjust 
 ```
 
 ### OpenSSL Dependency
-The app links OpenSSL directly (for TLS certificate generation in Remote Access). The installer must bundle `libssl-3-x64.dll` and `libcrypto-3-x64.dll`. If `OpenSslDir` is defined in `setupvars.iss`, the installer copies them automatically. Install OpenSSL for Windows from https://slproweb.com/products/Win32OpenSSL.html if you don't have it.
+The app links OpenSSL directly for TLS certificate generation. The installer must bundle `libssl-3-x64.dll`, `libcrypto-3-x64.dll` and Qt's `tls/qopensslbackend.dll` so Qt can serve HTTPS with the generated EC certificate. It passes `--force-openssl` to `windeployqt` and fails packaging if any of these files is missing. If `OpenSslDir` is defined in `setupvars.iss`, the installer copies the runtime DLLs automatically. Install OpenSSL for Windows from https://slproweb.com/products/Win32OpenSSL.html if you don't have it.
 
 ## Android Build & Signing
 
