@@ -145,9 +145,9 @@ T.Page {
             stringBrowserPage.trace("modelRefreshBegin", {
                 reason: reason, filterMode: filterMode, searchLength: searchFilter.length
             })
-            clear()
             var groups = LanguageService.strings
             var search = searchFilter.toLowerCase()
+            var filteredGroups = []
 
             for (let i = 0; i < groups.length; i++) {
                 let group = groups[i]
@@ -164,9 +164,39 @@ T.Page {
                     continue
                 }
 
-                append(group)
+                filteredGroups.push(group)
             }
-            stringBrowserPage.trace("modelRefreshEnd", { reason: reason })
+
+            // An unchanged edit still requests a refresh so deferred host changes
+            // can be accepted. Keep the delegates when row identities are unchanged.
+            var sameRows = count === filteredGroups.length
+            for (let i = 0; sameRows && i < count; i++)
+                sameRows = get(i).key === filteredGroups[i].key
+            if (sameRows) {
+                for (let i = 0; i < count; i++) {
+                    const row = filteredGroups[i]
+                    for (const role of Object.keys(row)) {
+                        if (get(i)[role] !== row[role])
+                            setProperty(i, role, row[role])
+                    }
+                }
+            } else {
+                const preservePosition = reason !== "filterModeChanged" && reason !== "searchFilterChanged"
+                const firstVisibleIndex = stringListView.indexAt(0, stringListView.contentY + 10)
+                const savedKey = preservePosition && firstVisibleIndex >= 0 ? get(firstVisibleIndex).key : ""
+                clear()
+                for (const group of filteredGroups)
+                    append(group)
+                if (savedKey) {
+                    for (let i = 0; i < count; i++) {
+                        if (get(i).key === savedKey) {
+                            stringListView.positionViewAtIndex(i, ListView.Beginning)
+                            break
+                        }
+                    }
+                }
+            }
+            stringBrowserPage.trace("modelRefreshEnd", { reason: reason, reset: !sameRows })
         }
 
         onFilterModeChanged: refresh("filterModeChanged")
@@ -184,26 +214,7 @@ T.Page {
             stringEditor.complete(requestId, operation, success, reason)
         }
         function onStringsChanged() {
-            // Save the fallback key of the first visible item (before refresh)
-            var savedKey = ""
-            var firstVisibleIndex = stringListView.indexAt(0, stringListView.contentY + 10)
-            if (firstVisibleIndex >= 0 && firstVisibleIndex < stringModel.count) {
-                savedKey = stringModel.get(firstVisibleIndex).fallback
-            }
-
             stringModel.refresh("stringsChanged")
-
-            // Find and scroll back to the saved item
-            if (savedKey) {
-                for (let i = 0; i < stringModel.count; i++) {
-                    if (stringModel.get(i).fallback === savedKey) {
-                        stringBrowserPage.trace("restorePositionBegin", { index: i })
-                        stringListView.positionViewAtIndex(i, ListView.Beginning)
-                        stringBrowserPage.trace("restorePositionEnd", { index: i })
-                        break
-                    }
-                }
-            }
         }
     }
 
@@ -582,37 +593,26 @@ T.Page {
                     return
                 }
 
-                // First ensure item is instantiated
-                positionViewAtIndex(idx, ListView.Center)
-                stringBrowserPage.trace("centerPositioned", { centerId: centerId, index: idx })
-
-                // Then adjust for keyboard after a frame
-                var pageHeight = stringListView.height * 2  // Approximate page height
                 Qt.callLater(function() {
+                    if (!stringBrowserPage.isEditing || stringBrowserPage.editingIndex !== idx) {
+                        stringBrowserPage.trace("centerSkipped", { centerId: centerId, reason: "editEnded" })
+                        return
+                    }
+                    // Wait for the editing header/layout change before positioning.
+                    positionViewAtIndex(idx, ListView.Center)
+                    stringBrowserPage.trace("centerPositioned", { centerId: centerId, index: idx })
                     var item = itemAtIndex(idx)
                     if (!item) {
                         stringBrowserPage.trace("centerSkipped", { centerId: centerId, reason: "missingItem" })
                         return
                     }
 
-                    // Get keyboard height
-                    var kbRect = Keyboard.rectangle
-                    var kbHeight = kbRect.height / Screen.devicePixelRatio
-                    if (kbHeight <= 0) {
-                        // Estimate keyboard at 40% of page height
-                        kbHeight = pageHeight * 0.4
-                    }
-
-                    // Calculate how much keyboard overlaps with ListView
-                    // Keyboard covers from bottom of screen, bottom bar is below ListView
-                    // So overlap = keyboard height - bottom bar height (if keyboard extends above bottom bar)
-                    var overlap = Math.max(0, kbHeight - Theme.bottomBarHeight)
-
-                    // Visible height is ListView height minus keyboard overlap
-                    var visibleHeight = height - overlap
-                    if (visibleHeight < Theme.scaled(100)) {
-                        visibleHeight = height * 0.4  // Sanity fallback
-                    }
+                    // Android uses adjustPan (as in SharedKeyboardAwareContainer).
+                    // Other platforms report Keyboard.rectangle in window coordinates.
+                    const kbRect = Keyboard.rectangle
+                    const keyboardOverlaps = Keyboard.visible && kbRect.height > 0 && Qt.platform.os !== "android"
+                    const visibleHeight = keyboardOverlaps
+                        ? Math.max(0, Math.min(height, mapFromItem(null, kbRect.x, kbRect.y).y)) : height
 
                     // Get item center position in content coordinates
                     var itemCenter = item.y + item.height / 2
@@ -622,18 +622,19 @@ T.Page {
                     var targetY = itemCenter - visibleCenter
 
                     // Clamp to valid range
-                    var maxY = Math.max(0, contentHeight - height)
+                    var minY = originY
+                    var maxY = Math.max(minY, originY + contentHeight - height)
                     stringBrowserPage.trace("centerAdjustBegin", {
                         centerId: centerId, index: idx, rowY: item.y, rowHeight: item.height,
-                        keyboardHeightUsed: kbHeight, visibleHeight: visibleHeight,
-                        targetY: targetY, maxY: maxY
+                        keyboardHeightUsed: keyboardOverlaps ? kbRect.height : 0, visibleHeight: visibleHeight,
+                        targetY: targetY, minY: minY, maxY: maxY
                     })
-                    contentY = Math.max(0, Math.min(targetY, maxY))
+                    contentY = Math.max(minY, Math.min(targetY, maxY))
                     stringBrowserPage.trace("centerAdjustEnd", { centerId: centerId, index: idx })
                 })
             }
 
-            delegate: Rectangle {
+            delegate: FocusScope {
                 id: delegateRoot
                 required property var model
                 required property int index
@@ -661,11 +662,19 @@ T.Page {
                 width: stringListView.width
                 // Calculate height based on tallest column content
                 height: Math.max(Theme.scaled(48), rowHeight + Theme.scaled(16))
-                color: delegateRoot.index % 2 === 0 ? Theme.cardBackgroundColor : Qt.darker(Theme.cardBackgroundColor, 1.05)
-                radius: Theme.scaled(4)
+                Rectangle {
+                    anchors.fill: parent
+                    color: delegateRoot.index % 2 === 0 ? Theme.cardBackgroundColor : Qt.darker(Theme.cardBackgroundColor, 1.05)
+                    radius: Theme.scaled(4)
+                }
 
                 // Functions at delegate level where singletons are accessible
                 function setEditing(editing, idx) {
+                    // updateCurrent() retains its delegate separately from visible
+                    // rows (Qt 6.12 qquickitemview.cpp:1834-1853).
+                    // The FocusScope keeps the editor focused when this selects it.
+                    if (editing)
+                        stringListView.currentIndex = idx
                     stringBrowserPage.isEditing = editing
                     stringBrowserPage.editingIndex = idx
                 }
