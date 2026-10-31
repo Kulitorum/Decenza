@@ -304,6 +304,19 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void screenZoomPreferenceNormalizesStoredStrings()
+    {
+        Fixture f;
+        const QString key = QStringLiteral("app.configurePageScale");
+        const QString storedKey = QStringLiteral("ui/configurePageScale");
+
+        f.settings.setValue(storedKey, QStringLiteral("true"));
+        QTRY_COMPARE(f.service->preferences().value(key), QVariant(true));
+        f.settings.setValue(storedKey, QStringLiteral("false"));
+        QTRY_COMPARE(f.service->preferences().value(key), QVariant(false));
+        QCOMPARE(f.service->preferences().value(key).metaType(), QMetaType::fromType<bool>());
+    }
+
     void admissionNotificationCannotDispatchAfterItsBindingChanges_data()
     {
         QTest::addColumn<int>("change");

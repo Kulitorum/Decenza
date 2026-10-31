@@ -420,7 +420,7 @@ QVariantMap NativeSettingsPreferencesSource::capturePreferences() const
         {QStringLiteral("app.launcherMode"), app->launcherMode()},
         {QStringLiteral("app.simulatorAvailable"), app->simulatorAvailable()},
         {QStringLiteral("app.isDebugBuild"), app->isDebugBuild()},
-        {QStringLiteral("app.configurePageScale"), m_settings->value(QStringLiteral("ui/configurePageScale"), false)},
+        {QStringLiteral("app.configurePageScale"), m_settings->boolValue(QStringLiteral("ui/configurePageScale"), false)},
         {QStringLiteral("app.simulationMode"), app->simulationMode()},
         {QStringLiteral("app.refractometerAutoTest"), app->refractometerAutoTest()},
         {QStringLiteral("app.autoCheckUpdates"), app->autoCheckUpdates()},
