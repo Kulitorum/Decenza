@@ -32,14 +32,48 @@ T.Page {
         : stringEditor.errorReason ? TranslationManager.translate("stringBrowser.saveFailed", "The translation could not be saved. Your draft is kept below; edit it to retry or discard it.") : ""
     readonly property string displayedLanguage: draft ? draft.context.language : stringEditor.displayedContext.language || TranslationManager.currentLanguage
     property bool isEnglish: displayedLanguage === "en"
+    property int diagnosticSequence: 0
+    property int diagnosticNextDelegateId: 0
+    property int diagnosticNextCenterId: 0
+
+    // Event snapshots only: per-frame logging would change the focus/scroll timing under investigation (#2145).
+    function trace(eventName: string, details: var): void {
+        if (!stringListView || !stringModel) return
+        const rectangle = Keyboard.rectangle
+        const window = stringBrowserPage.Window.window
+        const focusedItem = window ? window.activeFocusItem : null
+        const record = Object.assign({
+            sequence: ++diagnosticSequence,
+            event: eventName,
+            editing: isEditing,
+            editingIndex: editingIndex,
+            hasDraft: stringEditor.draft !== null,
+            pendingSave: pendingEdit !== "",
+            count: stringModel.count,
+            currentIndex: stringListView.currentIndex,
+            contentY: stringListView.contentY,
+            originY: stringListView.originY,
+            contentHeight: stringListView.contentHeight,
+            viewY: stringListView.y,
+            viewHeight: stringListView.height,
+            keyboardVisible: Keyboard.visible,
+            keyboardX: rectangle.x,
+            keyboardY: rectangle.y,
+            keyboardWidth: rectangle.width,
+            keyboardHeight: rectangle.height,
+            focusedItem: focusedItem ? String(focusedItem).slice(0, 160) : ""
+        }, details || {})
+        WebDebugLogger.debug("App", "StringBrowserPage", JSON.stringify(record))
+    }
 
     LanguageStringEditor {
         id: stringEditor
         executeOperation: function(operation, args) { return LanguageService.execute(operation, args) }
-        onRefreshRequested: stringModel.refresh()
+        onRefreshRequested: stringModel.refresh("editorRefreshRequested")
     }
 
     function discardDraft() {
+        trace("discardDraftRequested", {})
         if (!stringEditor.discard()) return
         isEditing = false
         editingIndex = -1
@@ -50,8 +84,10 @@ T.Page {
         searchField.text = initialSearchText
         stringModel.filterMode = initialFilterMode
         LanguageService.refreshStrings()
+        trace("pageOpened", {})
     }
     function handleBack() {
+        trace("backRequested", {})
         if (isEditing) {
             const row = stringListView.itemAtIndex(editingIndex)
             if (row) {
@@ -73,9 +109,13 @@ T.Page {
 
     Connections {
         target: Keyboard
+        function onVisibleChanged() {
+            stringBrowserPage.trace("keyboardVisibilityChanged", {})
+        }
         function onRectangleChanged() {
+            stringBrowserPage.trace("keyboardRectangleChanged", {})
             if (Keyboard.visible && stringBrowserPage.isEditing)
-                stringListView.centerOnItem(stringBrowserPage.editingIndex)
+                stringListView.centerOnItem(stringBrowserPage.editingIndex, "keyboardRectangleChanged")
         }
     }
 
@@ -95,10 +135,16 @@ T.Page {
         property int filterMode: 0  // 0=All, 1=Missing/Uncustomized, 2=AI Generated, 3=Customized (English only)
         property string searchFilter: ""
 
-        function refresh() {
+        function refresh(reason: string): void {
             if (LanguageService.stringsLoading || !stringEditor.acceptRefresh(LanguageService.stringsContext)) {
+                stringBrowserPage.trace("modelRefreshSkipped", {
+                    reason: reason, stringsLoading: LanguageService.stringsLoading
+                })
                 return
             }
+            stringBrowserPage.trace("modelRefreshBegin", {
+                reason: reason, filterMode: filterMode, searchLength: searchFilter.length
+            })
             clear()
             var groups = LanguageService.strings
             var search = searchFilter.toLowerCase()
@@ -120,16 +166,21 @@ T.Page {
 
                 append(group)
             }
+            stringBrowserPage.trace("modelRefreshEnd", { reason: reason })
         }
 
-        onFilterModeChanged: refresh()
-        onSearchFilterChanged: refresh()
+        onFilterModeChanged: refresh("filterModeChanged")
+        onSearchFilterChanged: refresh("searchFilterChanged")
     }
 
     // Refresh when translations change
     Connections {
         target: LanguageService
         function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === stringBrowserPage.pendingEdit)
+                stringBrowserPage.trace("editOperationCompleted", {
+                    operation: operation, success: success, reason: reason
+                })
             stringEditor.complete(requestId, operation, success, reason)
         }
         function onStringsChanged() {
@@ -140,13 +191,15 @@ T.Page {
                 savedKey = stringModel.get(firstVisibleIndex).fallback
             }
 
-            stringModel.refresh()
+            stringModel.refresh("stringsChanged")
 
             // Find and scroll back to the saved item
             if (savedKey) {
                 for (let i = 0; i < stringModel.count; i++) {
                     if (stringModel.get(i).fallback === savedKey) {
+                        stringBrowserPage.trace("restorePositionBegin", { index: i })
                         stringListView.positionViewAtIndex(i, ListView.Beginning)
+                        stringBrowserPage.trace("restorePositionEnd", { index: i })
                         break
                     }
                 }
@@ -504,23 +557,43 @@ T.Page {
             model: stringModel
             spacing: Theme.scaled(2)
 
+            onMovementStarted: stringBrowserPage.trace("movementStarted", {})
+            onMovementEnded: stringBrowserPage.trace("movementEnded", {})
+            onHeightChanged: {
+                if (stringBrowserPage.isEditing || stringEditor.draft !== null)
+                    stringBrowserPage.trace("viewHeightChanged", {})
+            }
+            onYChanged: {
+                if (stringBrowserPage.isEditing || stringEditor.draft !== null)
+                    stringBrowserPage.trace("viewYChanged", {})
+            }
+
             Accessible.role: Accessible.List
             Accessible.name: stringBrowserPage.isEnglish ? TranslationManager.translate("stringBrowser.accessible.customizationList", "String customization list") : TranslationManager.translate("stringBrowser.accessible.translationList", "Translation list")
             Accessible.description: TranslationManager.translate("stringBrowser.accessible.stringsSwipeToNavigate", "%1 strings. Swipe to navigate, double tap to edit.").replace("%1", stringModel.count)
 
 
             // Center editing item in visible area (accounting for keyboard)
-            function centerOnItem(idx) {
-                if (idx < 0 || idx >= count) return
+            function centerOnItem(idx: int, reason: string): void {
+                const centerId = ++stringBrowserPage.diagnosticNextCenterId
+                stringBrowserPage.trace("centerBegin", { centerId: centerId, index: idx, reason: reason })
+                if (idx < 0 || idx >= count) {
+                    stringBrowserPage.trace("centerSkipped", { centerId: centerId, reason: "invalidIndex" })
+                    return
+                }
 
                 // First ensure item is instantiated
                 positionViewAtIndex(idx, ListView.Center)
+                stringBrowserPage.trace("centerPositioned", { centerId: centerId, index: idx })
 
                 // Then adjust for keyboard after a frame
                 var pageHeight = stringListView.height * 2  // Approximate page height
                 Qt.callLater(function() {
                     var item = itemAtIndex(idx)
-                    if (!item) return
+                    if (!item) {
+                        stringBrowserPage.trace("centerSkipped", { centerId: centerId, reason: "missingItem" })
+                        return
+                    }
 
                     // Get keyboard height
                     var kbRect = Keyboard.rectangle
@@ -550,7 +623,13 @@ T.Page {
 
                     // Clamp to valid range
                     var maxY = Math.max(0, contentHeight - height)
+                    stringBrowserPage.trace("centerAdjustBegin", {
+                        centerId: centerId, index: idx, rowY: item.y, rowHeight: item.height,
+                        keyboardHeightUsed: kbHeight, visibleHeight: visibleHeight,
+                        targetY: targetY, maxY: maxY
+                    })
                     contentY = Math.max(0, Math.min(targetY, maxY))
+                    stringBrowserPage.trace("centerAdjustEnd", { centerId: centerId, index: idx })
                 })
             }
 
@@ -558,6 +637,26 @@ T.Page {
                 id: delegateRoot
                 required property var model
                 required property int index
+                property int diagnosticId: 0
+                property int diagnosticInitialIndex: -1
+                property string diagnosticFallback: ""
+                property bool diagnosticEditorFocused: false
+
+                function traceRow(eventName: string, details: var): void {
+                    stringBrowserPage.trace(eventName, Object.assign({
+                        rowInstance: diagnosticId, index: index,
+                        initialIndex: diagnosticInitialIndex, fallback: diagnosticFallback,
+                        rowY: y, rowHeight: height, editorFocused: diagnosticEditorFocused
+                    }, details || {}))
+                }
+
+                Component.onCompleted: {
+                    diagnosticId = ++stringBrowserPage.diagnosticNextDelegateId
+                    diagnosticInitialIndex = index
+                    diagnosticFallback = String(model.fallback || "").slice(0, 160)
+                    traceRow("rowCreated", {})
+                }
+                Component.onDestruction: traceRow("rowDestroyed", {})
 
                 width: stringListView.width
                 // Calculate height based on tallest column content
@@ -818,21 +917,33 @@ T.Page {
                             }
 
                             onActiveFocusChanged: {
+                                delegateRoot.diagnosticEditorFocused = activeFocus
+                                delegateRoot.traceRow(activeFocus ? "focusGained" : "focusLost", {
+                                    textLength: text.length, preeditLength: preeditText.length
+                                })
                                 if (activeFocus) {
                                     if (!stringEditor.beginEdit(delegateRoot.model.fallback, delegateRoot.model.translation || "")) {
+                                        delegateRoot.traceRow("beginEditRejected", {})
                                         focus = false
                                         return
                                     }
                                     delegateRoot.setEditing(true, delegateRoot.index)
                                     const currentIndex = delegateRoot.index
                                     Qt.callLater(function() {
+                                        stringBrowserPage.trace("focusCenterCallback", { index: currentIndex })
                                         if (stringBrowserPage.isEditing &&
                                             stringBrowserPage.editingIndex === currentIndex)
-                                            stringListView.centerOnItem(currentIndex)
+                                            stringListView.centerOnItem(currentIndex, "focusGained")
                                     })
                                 } else {
                                     if (!stringBrowserPage.draft || stringBrowserPage.draft.fallback !== delegateRoot.model.fallback
-                                        || stringBrowserPage.pendingEdit !== "") return
+                                        || stringBrowserPage.pendingEdit !== "") {
+                                        delegateRoot.traceRow("finishEditSkipped", {})
+                                        return
+                                    }
+                                    delegateRoot.traceRow("finishEditRequested", {
+                                        changed: text.trim() !== stringBrowserPage.draft.original
+                                    })
                                     delegateRoot.setEditing(false, -1)
                                     stringEditor.finishEdit(delegateRoot.model.fallback, text)
                                 }
@@ -860,12 +971,16 @@ T.Page {
                             }
 
                             function activateEditor() {
-                                if (stringEditor.beginEdit(delegateRoot.model.fallback, delegateRoot.model.translation || ""))
+                                delegateRoot.traceRow("activateRequested", {})
+                                const accepted = stringEditor.beginEdit(delegateRoot.model.fallback, delegateRoot.model.translation || "")
+                                delegateRoot.traceRow("activateResult", { accepted: accepted })
+                                if (accepted)
                                     forceActiveFocus()
                             }
 
                             // Focus loss submits the single save request after IME commit.
                             function exitEditing() {
+                                delegateRoot.traceRow("exitEditRequested", {})
                                 // Commit any IME pre-edit text before changing focus; the
                                 // focus-loss handler below is the single save path.
                                 Keyboard.commit()

@@ -355,6 +355,13 @@ general advice and conversations belong to AI. Storage owns database CRUD, backu
 restores and migrations. Network includes ShotServer and MQTT; Visualizer has its own
 owner. The live catalog contains the complete list.
 
+For String Customizer focus/scroll diagnostics (#2145), filter the submitted log by
+`[App][StringBrowserPage]` at DEBUG. Each JSON record has a page-local sequence number;
+`rowInstance` identifies a delegate across focus and destruction events, and `centerId`
+pairs the two scroll adjustments. Compare a failed tap on a scrolled row with a
+successful tap after narrowing the search. Records include geometry, refresh reasons
+and text lengths, but omit draft contents; scroll movement is logged at its boundaries.
+
 Android's `DiagnosticLog` bridge sends each runtime record through Qt once the logger
 is installed. Before Qt is available, receivers and services write prefixed logcat
 lines only. Uncaught-exception handlers and crash-report writers retain their
