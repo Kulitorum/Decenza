@@ -130,6 +130,7 @@ QVariantMap NativeUpdateServiceSource::capture() const
             {QStringLiteral("availableReleaseNotes"), m_firmwareUpdater->availableReleaseNotes()},
             {QStringLiteral("installedVersion"), m_firmwareUpdater->installedVersion()},
             {QStringLiteral("progress"), m_firmwareUpdater->progress()},
+            {QStringLiteral("estimatedUploadSecondsRemaining"), m_firmwareUpdater->estimatedUploadSecondsRemaining()},
             {QStringLiteral("errorMessage"), m_firmwareUpdater->errorMessage()},
             {QStringLiteral("retryAvailable"), m_firmwareUpdater->retryAvailable()},
             {QStringLiteral("needsManualReboot"), m_firmwareUpdater->needsManualReboot()}

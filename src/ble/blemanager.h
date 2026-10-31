@@ -83,6 +83,10 @@ public:
     bool isBluetoothAvailable() const;
     bool isScanningForScales() const { return m_scanningForScales; }
     bool isDisabled() const { return m_disabled; }
+    // Temporarily reserve BLE for the DE1's erase/upload/verify sequence.
+    // Saved peripheral selections survive; WiFi and USB scales remain usable.
+    void setFirmwareUpdateActive(bool active);
+    bool firmwareUpdateActive() const { return m_firmwareUpdateActive; }
     // Disable DE1 BLE operations (DE1 simulator mode — "no machine attached").
     // Deliberately does NOT gate scale connectivity: the scale simulator is a
     // separate user-facing switch (see setScaleSimulated). Scale scanning has
@@ -1291,6 +1295,7 @@ private:
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
+    bool m_firmwareUpdateActive = false;
     // Set from the "Simulated Scale" switch, NOT from DE1 simulation mode.
     // Gates the two real-scale connect paths (connectToSavedScale,
     // tryDirectConnectToScale) that used to consult m_disabled.

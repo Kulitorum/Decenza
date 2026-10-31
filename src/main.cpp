@@ -286,6 +286,7 @@ extern "C" const char* __ubsan_default_options()
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
+#include "controllers/firmwareupdater.h"
 #include "controllers/profilemanager.h"
 #include "controllers/shottimingcontroller.h"
 #include "ai/aimanager.h"
@@ -2445,6 +2446,14 @@ int main(int argc, char *argv[])
     BelkaPortalDevice belkaPortal([] { return new QtScaleBleTransport(); });
 #endif
     BelkaPortalForeign::s_singletonInstance = &belkaPortal;
+    QObject::connect(mainController.firmwareUpdater(), &FirmwareUpdater::stateChanged,
+                     &belkaPortal, [&bleManager, &belkaPortal, updater = mainController.firmwareUpdater()] {
+        const auto state = updater->state();
+        const bool transferring = state == FirmwareUpdater::State::Erasing
+            || state == FirmwareUpdater::State::Uploading || state == FirmwareUpdater::State::Verifying;
+        bleManager.setFirmwareUpdateActive(transferring);
+        belkaPortal.setFirmwareUpdateActive(transferring);
+    });
     if (mainController.shotServer())
         mainController.shotServer()->setBelkaPortalDevice(&belkaPortal);
     connectPortalDiscovery(&bleManager, &belkaPortal);

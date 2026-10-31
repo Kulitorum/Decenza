@@ -71,6 +71,7 @@ public:
     }
     void observeDevice(const QBluetoothDeviceInfo& info);
     void setMachineBusy(bool busy);
+    void setFirmwareUpdateActive(bool active);
     Q_INVOKABLE void clearDevices();
     Q_INVOKABLE void connectDevice(const QString& identifier);
     Q_INVOKABLE void disconnectDevice();
@@ -133,6 +134,7 @@ private:
     bool m_extractionActive = false;
     bool m_displayStartedForShot = false;
     bool m_reconnectEnabled = true;
+    bool m_firmwareUpdateActive = false;
     bool m_reconnectAttempted = false;
     QList<QByteArray> m_displayWrites;
     bool m_serviceFound = false;

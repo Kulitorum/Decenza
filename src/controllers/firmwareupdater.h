@@ -141,6 +141,9 @@ public:
     QString availableReleaseNotes() const { return m_availableReleaseNotes; }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
     double progress() const { return m_progress; }
+    // Upload only: -1 until ACKs establish a rate, or outside Uploading.
+    // Projected through UpdateService alongside progress on each ACK.
+    int estimatedUploadSecondsRemaining() const;
     QString errorMessage() const { return m_errorMessage; }
     bool retryAvailable() const { return m_retryAvailable; }
 
@@ -178,6 +181,7 @@ private slots:
     void onPostEraseWaitComplete();
     void onChunkPumpTick();
     void onFirmwareWriteAcked(const QBluetoothUuid& uuid, const QByteArray& data);
+    void onFirmwareWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& data);
     void onEraseTimeout();
     void onVerifyTimeout();
     void onVerifyDisconnectGrace();
@@ -204,6 +208,8 @@ private:
     // — a terminal verify notification is byte-identical, and the retry path
     // can deliver one late.
     bool        m_eraseRequestAcked = false;
+    bool        m_verifyRequestAcked = false;
+    bool        m_verifyTimedOut = false;
     uint32_t    m_availableVersion = 0;
     QString     m_availableVersionLabel;
     QString     m_availableChannelLabel;
@@ -279,6 +285,7 @@ private:
     // log lines with "[+MM:SS.ms]" so a later review of logcat can tell
     // at a glance how long each phase took.
     QElapsedTimer m_updateTimer;
+    qint64 m_uploadStartedMs = 0;  // relative to m_updateTimer; excludes erase
 
     // NB: these inline initializers are the actual defaults. The
     // constexpr DEFAULT_*_MS values in firmwareupdater.cpp are advisory

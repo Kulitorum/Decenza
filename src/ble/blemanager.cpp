@@ -182,6 +182,35 @@ BLEManager::BLEManager(QObject* parent)
     (void) BleCapability::linuxMissing();
 }
 
+void BLEManager::setFirmwareUpdateActive(bool active)
+{
+    if (m_firmwareUpdateActive == active) return;
+    m_firmwareUpdateActive = active;
+    if (active) {
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("DE1 firmware update: pausing BLE scales, refractometers and peripheral discovery"));
+        // Set the gate BEFORE teardown: disconnect handlers can request a retry.
+        stopScan();
+        clearScanRequestFlags();
+        m_scaleConnectDeferred = false;
+        const bool bleScale = m_scaleDevice && m_scaleDevice->bleTransport();
+        const bool savedBleScale = !m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
+            && !m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive);
+        if (bleScale || (!m_scaleDevice && savedBleScale)) {
+            resetScaleConnectionState();
+            // Destruction releases the transport's queued work as well as its
+            // heartbeat timer, so stale heartbeats cannot pile up behind chunks.
+            emit disconnectScaleRequested();
+        }
+        emit disconnectRefractometerRequested();
+    } else {
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("DE1 firmware update: resuming BLE peripherals"));
+        if (!m_scaleDevice || !m_scaleDevice->isConnected())
+            tryDirectConnectToScale();
+        if (m_refractometerHunt)
+            tryDirectConnectToRefractometer();
+    }
+}
+
 bool BLEManager::isBluetoothAvailable() const
 {
     if (m_disabled) return true;  // simulator mode — always report available
@@ -905,6 +934,7 @@ QString BLEManager::getScaleType(const QString& address) const {
 void BLEManager::connectToScale(const QString& address) {
     for (const auto& entry : m_scales) {
         if (entry.address.compare(address, Qt::CaseInsensitive) != 0) continue;
+        if (m_firmwareUpdateActive && entry.transport == QStringLiteral("ble")) return;
 
         scaleInfo(QString("Connecting to %1...").arg(entry.name));
         cancelManualWifiValidation();
@@ -1091,6 +1121,9 @@ void BLEManager::connectToSavedScale() {
     // the saved primary. Goes through tryDirectConnectToScale() — the direct-wake
     // path — so it works even when the chosen scale isn't in the discovered list.
     if (m_savedScaleAddress.isEmpty() || m_savedScaleType.isEmpty()) return;
+    if (m_firmwareUpdateActive &&
+        !m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive) &&
+        !m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) return;
 
     // USB saved-scale switch: USB needs neither Bluetooth nor a direct-wake. Hand
     // off to UsbScaleManager (usbConnectRequested) and skip the BLE guards below.
@@ -1168,6 +1201,10 @@ void BLEManager::connectToSavedScale() {
 }
 
 void BLEManager::startScan() {
+    if (m_firmwareUpdateActive && m_scanningForScales) {
+        clearScanRequestFlags();
+        return;
+    }
     if (m_disabled && !m_scanningForScales) {
         // In simulator mode, suppress DE1 scanning but allow scale/refractometer scans
         // (m_scanningForScales is set by scanForDevices() before calling here).
@@ -1298,6 +1335,10 @@ void BLEManager::requestBluetoothPermission() {
 }
 
 void BLEManager::doStartScan() {
+    if (m_firmwareUpdateActive && m_scanningForScales) {
+        clearScanRequestFlags();
+        return;
+    }
     // Always clear the DE1 device list for a fresh scan
     m_de1Devices.clear();
     emit devicesChanged();
@@ -1432,6 +1473,7 @@ void BLEManager::clearDevices() {
 }
 
 void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
+    if (m_firmwareUpdateActive && !isDE1Device(device)) return;
     // BLE is actually delivering devices → permission is healthy.
     m_anyBleSuccessThisSession = true;
 
@@ -2147,6 +2189,7 @@ void BLEManager::onScaleConnectionTimeout() {
 }
 
 void BLEManager::beginWifiFallbackToBleScan() {
+    if (m_firmwareUpdateActive) return;
     const QString hostname = m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
         ? m_savedScaleAddress.mid(QStringLiteral("wifi:").size())
         : QString();
@@ -2447,6 +2490,7 @@ QBluetoothDeviceInfo BLEManager::getRefractometerDeviceInfo(const QString& addre
 }
 
 void BLEManager::connectToRefractometer(const QString& address) {
+    if (m_firmwareUpdateActive) return;
     QBluetoothDeviceInfo info = getRefractometerDeviceInfo(address);
     if (info.isValid()) {
         refractometerInfo(QString("Connecting to refractometer: %1 (%2)").arg(info.name(), address));
@@ -2534,6 +2578,7 @@ void BLEManager::setRefractometerDevice(RefractometerDevice* device) {
 }
 
 void BLEManager::tryDirectConnectToRefractometer() {
+    if (m_firmwareUpdateActive) return;
     // The R2 is only used to read TDS/EY on the post-shot review page, so its
     // auto-reconnect is scoped to the hunt (review page open). Off that page we
     // don't need the R2, and keeping it scanning/connecting there was pure BLE
@@ -2687,6 +2732,7 @@ void BLEManager::tryDirectConnectToDE1() {
 }
 
 void BLEManager::scanForDevices() {
+    if (m_firmwareUpdateActive) return;
     // Note: m_disabled is intentionally not checked here — scale and refractometer
     // scanning is allowed in simulator mode so real hardware can be tested against
     // a simulated DE1. Only DE1 BLE (startScan without m_scanningForScales) is suppressed.
@@ -3207,6 +3253,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
+    if (m_firmwareUpdateActive) return;
     // --- BLE only past this point. Now the Bluetooth-availability gate applies:
     // everything below (the passive scan and the direct connectToDevice) needs a
     // powered BLE adapter, whereas the WiFi and USB paths above did not.

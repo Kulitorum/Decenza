@@ -319,7 +319,7 @@ Item {
             // which would otherwise fire this 110px accent-bordered card
             // every channel toggle and look like a red/pink flash.
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(110)
+            Layout.preferredHeight: firmwareProgressContent.implicitHeight + 2 * Theme.spacingMedium
             visible: firmwareTab.isFlashing
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -327,6 +327,7 @@ Item {
             border.width: 1
 
             ColumnLayout {
+                id: firmwareProgressContent
                 anchors.fill: parent
                 anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingSmall
@@ -344,6 +345,28 @@ Item {
                     from: 0
                     to: 1
                     value: firmwareTab.fw ? firmwareTab.fw.progress : 0
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.Wrap
+                    text: {
+                        if (!firmwareTab.fw) return ""
+                        const percent = Math.floor(firmwareTab.fw.progress * 100)
+                        if (firmwareTab.fw.state !== firmwareTab.stateUploading)
+                            return TranslationManager.translate("firmware.tab.progressPercent", "%1%").arg(percent)
+                        const seconds = firmwareTab.fw.estimatedUploadSecondsRemaining ?? -1
+                        if (seconds < 0)
+                            return TranslationManager.translate("firmware.tab.uploadEstimating", "%1% · Estimating upload time…").arg(percent)
+                        if (seconds === 0)
+                            return TranslationManager.translate("firmware.tab.uploadFinishing", "%1% · Finishing upload…").arg(percent)
+                        if (seconds < 60)
+                            return TranslationManager.translate("firmware.tab.uploadUnderMinute", "%1% · Less than 1 min of upload remaining").arg(percent)
+                        return TranslationManager.translate("firmware.tab.uploadMinutesRemaining", "%1% · About %2 min of upload remaining")
+                            .arg(percent).arg(Math.ceil(seconds / 60))
+                    }
                 }
 
                 Text {
@@ -512,10 +535,10 @@ Item {
             Layout.fillWidth: true
             Layout.topMargin: Theme.spacingMedium
             text: TranslationManager.translate(
-                      "firmware.tab.sourceNote",
+                      "firmware.tab.sourceNoteConnection",
                       "Firmware is bundled with Decenza. Auto-checks run weekly. " +
-                      "The upload usually takes less than 30 minutes over " +
-                      "Bluetooth — keep the app open and the DE1 connected " +
+                      "Upload time depends on the Bluetooth connection. " +
+                      "Keep the app open and the DE1 connected " +
                       "until the update completes.")
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(11)

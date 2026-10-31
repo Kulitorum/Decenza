@@ -3,6 +3,7 @@
 #include <QSignalBlocker>
 
 #include <algorithm>
+#include <utility>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QRegularExpression>
@@ -268,6 +269,17 @@ private slots:
             .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Uploading));
         QTRY_VERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
             .value(QStringLiteral("progress")).toDouble() > 0.0);
+        QCOMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("estimatedUploadSecondsRemaining")).toInt(), -1);
+        QTRY_VERIFY(firmwareChunkWriteCount(f.transport) > 0);
+        f.updater.m_uploadStartedMs = f.updater.m_updateTimer.elapsed() - 60000;
+        for (const auto& write : std::as_const(f.transport.writes)) {
+            if (!isFirmwareChunkWrite(write)) continue;
+            emit f.transport.writeComplete(write.first, write.second);
+            break;
+        }
+        QTRY_VERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("estimatedUploadSecondsRemaining")).toInt() > 0);
         service->setNode(nullptr);
         QVERIFY(!service->ready());
         QCOMPARE(f.updater.state(), FirmwareUpdater::State::Uploading); // Client departure is navigation only.
@@ -286,9 +298,136 @@ private slots:
             .value(QStringLiteral("retryAvailable")).toBool());
         QCOMPARE(f.transport.writes, writes);
         QCOMPARE(completed.size(), 1); // Reconnect refreshed state without replaying start.
+        QCOMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("estimatedUploadSecondsRemaining")).toInt(), -1);
+    }
+
+    void uploadEstimateUsesAcknowledgementsAndExcludesEraseTime()
+    {
+        Fixture f;
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
+        QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        const qsizetype chunks = blob.size() / 16;
+        QTRY_COMPARE(firmwareChunkWriteCount(f.transport), chunks);
+        // All packets queued without ACKs must still leave the estimate unknown.
+        QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
+
+        // Shift only the upload origin, without waiting or including erase.
+        // Half the image ACKed in one minute means about one minute remains.
+        f.updater.m_uploadStartedMs = f.updater.m_updateTimer.elapsed() - 60000;
+        qsizetype acked = 0;
+        for (const auto& write : std::as_const(f.transport.writes)) {
+            if (!isFirmwareChunkWrite(write)) continue;
+            emit f.transport.writeComplete(write.first, write.second);
+            if (++acked == chunks / 2) break;
+        }
+        const int remaining = f.updater.estimatedUploadSecondsRemaining();
+        QVERIFY(remaining >= 60 && remaining <= 61);
+
+        qsizetype seen = 0;
+        for (const auto& write : std::as_const(f.transport.writes)) {
+            if (!isFirmwareChunkWrite(write) || ++seen <= acked) continue;
+            emit f.transport.writeComplete(write.first, write.second);
+        }
+        QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), 0);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Verifying.*reason=\s*Verification failed at block)"));
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001123456"));
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        f.updater.retry();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        QCOMPARE(f.updater.estimatedUploadSecondsRemaining(), -1);
+        QVERIFY(f.updater.m_uploadStartedMs >= 0);
     }
 
     // ===== §4b: error paths =====
+
+    void verifyTimeoutStartsAtRequestAckAndLateSuccessRecovers()
+    {
+        Fixture f;
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
+        f.updater.setVerifyTimeoutMs(50);
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        simulateFullUpload(f.transport, blob);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        // Model a shared-queue backlog longer than the response budget.
+        QTest::qWait(100);
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        QVERIFY(!f.updater.m_verifyTimeoutTimer.isActive());
+
+        // An erase ACK on the same characteristic is not the verify request.
+        emit f.transport.writeComplete(DE1::Characteristic::FW_MAP_REQUEST,
+                                        DE1::Firmware::buildFWMapRequest(1, 1));
+        QVERIFY(!f.updater.m_verifyTimeoutTimer.isActive());
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Verifying.*reason=\s*No response from DE1 during verify)"));
+        emit f.transport.writeComplete(DE1::Characteristic::FW_MAP_REQUEST,
+            DE1::Firmware::buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF}));
+        QVERIFY(f.updater.m_verifyTimeoutTimer.isActive());
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+
+        // A late echo is still not a verdict; a real success corrects the UI.
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001FFFFFF"));
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001FFFFFD"));
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::AwaitingReboot);
+        QVERIFY(f.updater.needsManualReboot());
+        QVERIFY(f.updater.errorMessage().isEmpty());
+        QVERIFY(!f.updater.retryAvailable());
+        QVERIFY(f.device.firmwareFlashInProgress());
+    }
+
+    void lateVerifyCannotCompleteRetriedUpload()
+    {
+        Fixture f;
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        simulateFullUpload(f.transport, blob);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        emit f.transport.writeComplete(DE1::Characteristic::FW_MAP_REQUEST,
+            DE1::Firmware::buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF}));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Verifying.*reason=\s*No response from DE1 during verify)"));
+        f.updater.onVerifyTimeout();
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        f.updater.retry();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
+                                      QByteArray::fromHex("00000001FFFFFD"));
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        QVERIFY(!f.updater.needsManualReboot());
+    }
+
+    void abandonedVerifyRequestFailsWithoutWaitingForAnAck()
+    {
+        Fixture f;
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        simulateFullUpload(f.transport, blob);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Verifying);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Verifying.*reason=\s*Could not send firmware verification request)"));
+        emit f.transport.writeAbandoned(DE1::Characteristic::FW_MAP_REQUEST,
+            DE1::Firmware::buildFWMapRequest(0, 1, {0xFF, 0xFF, 0xFF}));
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        QVERIFY(f.updater.retryAvailable());
+        QVERIFY(!f.updater.m_verifyTimeoutTimer.isActive());
+    }
 
     void eraseTimeout_failsRetryable() {
         Fixture f;
