@@ -126,6 +126,7 @@ public:
         bool onsetChokeDetected = false;
         bool thermalDriftWarning = false;
         bool estimateReliable = false;
+        bool calibrationEligible = false;
         QStringList uncertaintyReasons;
         QString uncertaintySummary;
         QString uncertaintyNoteText;
@@ -194,6 +195,12 @@ public:
         QString activeModel = QStringLiteral("none"); // "proportional" | "affine" | "none"
         QString scope = QStringLiteral("none");       // "bag" | "bean" | "none"
         int shotCount = 0;
+        int excludedShotCount = 0;
+        QVariantList referenceShots;
+        double minMeanRawEc = 0.0;
+        double maxMeanRawEc = 0.0;
+        double minRatio = 0.0;
+        double maxRatio = 0.0;
 
         // Model 1: Proportional (TDS% = k * meanRawEcPerG)
         double proportionalK = 0.0;

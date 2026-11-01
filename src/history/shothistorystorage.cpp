@@ -3951,6 +3951,32 @@ void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
         QJsonDocument(phasesArray).toJson(QJsonDocument::Compact));
 }
 
+void ShotHistoryStorage::requestPortalCalibration(const QString& requestId, qint64 bagId,
+                                                  const QString& beanBrand, const QString& beanType,
+                                                  PortalTailAnalyzer::MountingMode mountingMode)
+{
+    if (!m_ready) {
+        emit portalCalibrationReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, requestId, bagId, beanBrand, beanType, mountingMode, destroyed] {
+        QVariantMap calibration;
+        const bool opened = withTempDb(dbPath, "shs_portal_calibration", [&](QSqlDatabase& db) {
+            calibration = PortalTailAnalyzer::fitCalibration(loadPortalCalibrationPointsStatic(db),
+                bagId, beanBrand, beanType, 0, mountingMode).toVariantMap();
+            calibration.insert(QStringLiteral("coffee"), (beanBrand + QLatin1Char(' ') + beanType).trimmed());
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, calibration, opened, destroyed] {
+            if (*destroyed) return;
+            emit portalCalibrationReady(requestId, calibration,
+                opened ? QString() : QStringLiteral("unavailable"));
+        }, Qt::QueuedConnection);
+    });
+}
+
 QVector<PortalTailAnalyzer::CalibrationPoint>
 ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
 {
@@ -4016,8 +4042,7 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
                enjoyment, taste_balance, taste_body, espresso_notes,
                portal_estimate_reliable, portal_mounting_mode, equipment_id, profile_name
         FROM shots
-        WHERE (COALESCE(portal_mean_ec, 0) > 0 AND COALESCE(drink_tds, 0) > 0)
-           OR COALESCE(enjoyment, 0) > 0
+        WHERE COALESCE(drink_tds, 0) > 0 OR COALESCE(enjoyment, 0) > 0
         ORDER BY CASE WHEN COALESCE(portal_mean_ec, 0) > 0 AND COALESCE(drink_tds, 0) > 0 THEN 0
                       WHEN COALESCE(portal_mean_ec, 0) > 0 THEN 1
                       ELSE 2 END,
@@ -4054,7 +4079,7 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
             : PortalTailAnalyzer::MountingMode::Unknown;
         pt.equipmentId = q.value(18).toLongLong();
         pt.profileName = q.value(19).toString();
-        if ((pt.meanRawEcPerG > 0.0 && pt.measuredTdsPct > 0.0) || pt.enjoyment > 0)
+        if (pt.measuredTdsPct > 0.0 || pt.enjoyment > 0)
             out.append(pt);
     }
     return out;

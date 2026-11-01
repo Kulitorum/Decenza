@@ -1,6 +1,7 @@
 #include "ai/portaltailanalyzer.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QRegularExpression>
 
 #include <algorithm>
@@ -439,6 +440,7 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     m["onsetChokeDetected"] = onsetChokeDetected;
     m["thermalDriftWarning"] = thermalDriftWarning;
     m["estimateReliable"] = estimateReliable;
+    m["calibrationEligible"] = calibrationEligible;
     m["uncertaintyReasons"] = uncertaintyReasons;
     m["uncertaintySummary"] = uncertaintySummary;
     m["uncertaintyNoteText"] = uncertaintyNoteText;
@@ -782,6 +784,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     if (out.mountingMode == MountingMode::Unknown)
         out.uncertaintyReasons.append(QStringLiteral("unknown_mounting"));
     out.estimateReliable = out.uncertaintyReasons.isEmpty();
+    out.calibrationEligible = out.estimateReliable;
 
     QStringList warnings;
     if (out.onsetChokeDetected)
@@ -934,6 +937,12 @@ QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
     m["activeModel"] = activeModel;
     m["scope"] = scope;
     m["shotCount"] = shotCount;
+    m["excludedShotCount"] = excludedShotCount;
+    m["referenceShots"] = referenceShots;
+    m["minMeanRawEc"] = minMeanRawEc;
+    m["maxMeanRawEc"] = maxMeanRawEc;
+    m["minRatio"] = minRatio;
+    m["maxRatio"] = maxRatio;
     m["proportionalK"] = proportionalK;
     m["proportionalMaeTdsPct"] = proportionalMaeTdsPct;
     m["proportionalRmseTdsPct"] = proportionalRmseTdsPct;
@@ -975,8 +984,6 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
             validAll.append(p);
         }
     }
-    if (validAll.isEmpty())
-        return fit;
 
     QVector<CalibrationPoint> pool;
     pool.reserve(validAll.size());
@@ -1009,8 +1016,47 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
             scope = QStringLiteral("bean");
     }
 
+    if (scope == QLatin1String("none"))
+        scope = targetBagId > 0 ? QStringLiteral("bag") : QStringLiteral("bean");
+    fit.scope = scope;
+    for (const auto& p : points) {
+        const bool sameCoffee = scope == QLatin1String("bag") ? p.bagId == targetBagId
+            : !targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()
+                && p.beanBrand.trimmed().compare(targetBeanBrand.trimmed(), Qt::CaseInsensitive) == 0
+                && p.beanType.trimmed().compare(targetBeanType.trimmed(), Qt::CaseInsensitive) == 0;
+        if (!sameCoffee || (excludeShotId > 0 && p.shotId == excludeShotId) || p.measuredTdsPct <= 0.0)
+            continue;
+        const bool included = std::any_of(selected.cbegin(), selected.cend(),
+            [&p](const CalibrationPoint& reference) { return reference.shotId == p.shotId; });
+        const QString reason = included ? QString()
+            : p.mountingMode != targetMountingMode || targetMountingMode == MountingMode::Unknown
+                ? QStringLiteral("mounting_mismatch") : QStringLiteral("measurement_warning");
+        if (!included) ++fit.excludedShotCount;
+        fit.referenceShots.append(QVariantMap{
+            {QStringLiteral("shotId"), p.shotId},
+            {QStringLiteral("dateTime"), QDateTime::fromSecsSinceEpoch(p.timestamp).toString(Qt::ISODate)},
+            {QStringLiteral("ratio"), p.doseWeightG > 0.0 ? p.finalWeightG / p.doseWeightG : 0.0},
+            {QStringLiteral("measuredTdsPct"), p.measuredTdsPct},
+            {QStringLiteral("meanRawEc"), p.meanRawEcPerG},
+            {QStringLiteral("individualK"), p.meanRawEcPerG > 0.0 ? p.measuredTdsPct / p.meanRawEcPerG : 0.0},
+            {QStringLiteral("included"), included},
+            {QStringLiteral("exclusionReason"), reason}});
+    }
     if (selected.isEmpty())
         return fit;
+
+    fit.minMeanRawEc = fit.maxMeanRawEc = selected.first().meanRawEcPerG;
+    fit.minRatio = fit.maxRatio = selected.first().doseWeightG > 0.0
+        ? selected.first().finalWeightG / selected.first().doseWeightG : 0.0;
+    for (const auto& p : selected) {
+        fit.minMeanRawEc = std::min(fit.minMeanRawEc, p.meanRawEcPerG);
+        fit.maxMeanRawEc = std::max(fit.maxMeanRawEc, p.meanRawEcPerG);
+        if (p.doseWeightG > 0.0) {
+            const double ratio = p.finalWeightG / p.doseWeightG;
+            fit.minRatio = std::min(fit.minRatio, ratio);
+            fit.maxRatio = std::max(fit.maxRatio, ratio);
+        }
+    }
 
     const int n = static_cast<int>(selected.size());
     fit.shotCount = n;
@@ -1199,6 +1245,16 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
         result->uncertaintyReasons.append(QStringLiteral("preliminary_calibration"));
         result->uncertaintySummary += QCoreApplication::translate("PortalTailAnalyzer",
             " Fewer than five independent refractometer shots: preliminary calibration.");
+    }
+
+    const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
+    if (fit.shotCount >= 2 && ((fit.minMeanRawEc > 0.0 && (result->meanRawEcPerG < fit.minMeanRawEc - 1e-6
+                                              || result->meanRawEcPerG > fit.maxMeanRawEc + 1e-6))
+        || (fit.minRatio > 0.0 && ratio > 0.0 && (ratio < fit.minRatio - 1e-6 || ratio > fit.maxRatio + 1e-6)))) {
+        result->estimateReliable = false;
+        result->uncertaintyReasons.append(QStringLiteral("outside_calibration_range"));
+        result->uncertaintySummary += QCoreApplication::translate("PortalTailAnalyzer",
+            " Outside the measured EC or ratio range: extrapolated estimate.");
     }
 
     result->calibrated = true;

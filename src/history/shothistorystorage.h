@@ -328,6 +328,9 @@ public:
     // Load paired (PORTAL mass-weighted EC, refractometer TDS%) calibration points
     // across stored shots where both portal_mean_ec > 0 and drink_tds > 0.
     static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db);
+    void requestPortalCalibration(const QString& requestId, qint64 bagId,
+                                  const QString& beanBrand, const QString& beanType,
+                                  PortalTailAnalyzer::MountingMode mountingMode);
 
     // Query observed grinder settings for one equipment package + beverage type.
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
@@ -718,6 +721,8 @@ public:
     [[nodiscard]] std::optional<QSet<qint64>> existingShotIds(const QSet<qint64>& ids) const;
 
 signals:
+    void portalCalibrationReady(const QString& requestId, const QVariantMap& calibration,
+                                const QString& reason);
     void readyChanged();
     void totalShotsChanged();
     void shotSaved(qint64 shotId);

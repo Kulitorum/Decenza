@@ -6,6 +6,7 @@
 #include "ble/scaledeviceproxy.h"
 #include "core/hdsfirmwareupdatecontroller.h"
 #include "core/settings.h"
+#include "history/shothistorystorage.h"
 #include "machine/machinestate.h"
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
@@ -17,6 +18,7 @@
 #include <QMetaType>
 #include <QRegularExpression>
 #include <QVariant>
+#include <QUuid>
 #include <limits>
 
 namespace {
@@ -85,7 +87,15 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
         if (m_settings->hardware()) {
             connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
                     this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
+            connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
+                    this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
         }
+        connect(m_settings->dye(), &SettingsDye::activeBagIdChanged,
+                this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(m_settings->dye(), &SettingsDye::dyeBeanBrandChanged,
+                this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(m_settings->dye(), &SettingsDye::dyeBeanTypeChanged,
+                this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
     }
 
     if (m_bleManager) {
@@ -209,6 +219,42 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
 void NativeSettingsConnectionsServiceSource::refresh()
 {
     refreshSnapshot();
+    refreshPortalCalibration();
+}
+
+void NativeSettingsConnectionsServiceSource::setShotHistory(ShotHistoryStorage* history)
+{
+    if (m_shotHistory) disconnect(m_shotHistory, nullptr, this, nullptr);
+    m_shotHistory = history;
+    if (history) {
+        connect(history, &ShotHistoryStorage::portalCalibrationReady, this,
+            [this](const QString& id, const QVariantMap& calibration, const QString& reason) {
+                if (id != m_portalCalibrationRequestId) return;
+                auto value = calibration;
+                value.insert(QStringLiteral("loading"), false);
+                value.insert(QStringLiteral("error"), reason);
+                setPortalCalibration(value);
+            });
+        connect(history, &ShotHistoryStorage::readyChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotSaved, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotDeleted, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::importedDatabaseChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotMetadataUpdated, this,
+                [this](qint64, bool success) { if (success) refreshPortalCalibration(); });
+    }
+    refreshPortalCalibration();
+}
+
+void NativeSettingsConnectionsServiceSource::refreshPortalCalibration()
+{
+    m_portalCalibrationRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    setPortalCalibration({{QStringLiteral("loading"), bool(m_shotHistory)}});
+    if (!m_shotHistory || !m_settings) return;
+    const auto dye = m_settings->dye();
+    const auto mode = m_settings->hardware()->portalMountingMode() == QLatin1String("independent")
+        ? PortalTailAnalyzer::MountingMode::Independent : PortalTailAnalyzer::MountingMode::OnScale;
+    m_shotHistory->requestPortalCalibration(m_portalCalibrationRequestId, dye->activeBagId(),
+        dye->dyeBeanBrand(), dye->dyeBeanType(), mode);
 }
 
 void NativeSettingsConnectionsServiceSource::refreshSnapshot()

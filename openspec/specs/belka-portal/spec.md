@@ -301,3 +301,25 @@ solids. Reading a shot SHALL NOT rewrite its tasting notes.
 
 - **WHEN** taste or refractometer metadata is saved
 - **THEN** the shared outcome response SHALL refresh PORTAL analysis without replacing unsaved editing fields
+
+### Requirement: Settings exposes the current empirical calibration
+
+The PORTAL settings panel SHALL show the current coffee and mounting mode's
+proportional k, active model, included/excluded reference shots, individual k,
+measured ratio range and leave-one-out error when at least two references exist.
+It SHALL distinguish measurement eligibility from prediction uncertainty, and
+SHALL NOT present extrapolations outside the measured EC/ratio envelope as reliable.
+The fit SHALL be derived from stored measurements rather than a hardcoded factor.
+
+#### Scenario: A saved TDS reading is corrected
+
+- **WHEN** a user saves or corrects refractometer TDS in shot metadata
+- **THEN** the Settings model SHALL refresh after the write succeeds
+- **AND** references with measurement warnings SHALL remain excluded
+- **AND** the database read SHALL run off the main thread
+
+#### Scenario: The selected coffee changes while a calibration read is pending
+
+- **WHEN** a prior coffee's read completes after another coffee is selected
+- **THEN** its result SHALL NOT replace the current calibration
+- **AND** calibration SHALL use the same shared service in native and Wasm clients

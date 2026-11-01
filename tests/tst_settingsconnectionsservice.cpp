@@ -99,6 +99,10 @@ private slots:
     void disconnectFailsPendingAndNeverReplays()
     {
         Fixture f;
+        const QVariantMap calibration{{QStringLiteral("proportionalK"), 1.25},
+                                      {QStringLiteral("shotCount"), 4}};
+        f.source.setPortalCalibration(calibration);
+        QTRY_COMPARE(f.service->portalCalibration(), calibration);
         QSignalSpy completed(f.service, &SettingsConnectionsService::operationCompleted);
         const QString id = f.service->execute(QStringLiteral("connectDe1"),
                                                {{QStringLiteral("address"), QStringLiteral("AA:BB")}});
@@ -112,6 +116,7 @@ private slots:
         QVERIFY(!completed.first().at(2).toBool());
         QCOMPARE(completed.first().at(4).toString(), QStringLiteral("disconnected"));
         QTRY_VERIFY(!f.service->ready());
+        QVERIFY(f.service->portalCalibration().isEmpty());
         QCOMPARE(f.source.requests.size(), 1);
         QVERIFY(!f.service->busy());
     }

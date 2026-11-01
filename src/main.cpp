@@ -2565,6 +2565,7 @@ int main(int argc, char *argv[])
         nullptr, nullptr,
 #endif
         &belkaPortal, mainController.hdsFirmwareUpdate());
+    settingsConnectionsSource.setShotHistory(mainController.shotHistory());
     settingsPreferencesSource.setScreensaverManager(&screensaverManager);
     settingsPreferencesSource.setBatteryManager(&batteryManager);
     settingsPreferencesSource.setShotReporter(mainController.shotReporter());

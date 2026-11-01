@@ -2628,6 +2628,8 @@ T.Page {
                 readonly property string calSummaryText: {
                     if (!pa.valid) return TranslationManager.translate(
                         "postshotreview.portal.unavailable", "PORTAL analysis needs a physical scale and complete EC/weight data.")
+                    if (!pa.calibrationEligible) return TranslationManager.translate(
+                        "postshotreview.portal.excludedCalibration", "Excluded from calibration: measurement warnings. Estimates, when available, are uncertain.")
                     if (isCalibrated) {
                         var affine = String(pa.calibrationMode || "").indexOf("affine") >= 0
                         var modelStr = affine

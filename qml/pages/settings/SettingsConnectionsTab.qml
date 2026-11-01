@@ -3243,7 +3243,8 @@ Item {
                     Loader {
                         id: portalDevicePanelLoader
                         Layout.fillWidth: true
-                        SettingsSearch.title: TranslationManager.translate("settings.search.portalDevice", "PORTAL device")
+                        SettingsSearch.title: TranslationManager.translate("settings.search.portalCalibration", "PORTAL device and TDS calibration")
+                        SettingsSearch.keywords: ["Belka", "EC", "TDS", "EY", "k"]
                         // Not just visible: false — a user who never discovers
                         // a PORTAL must not pay for constructing this panel's
                         // ~15 items and ~18 translated bindings either.

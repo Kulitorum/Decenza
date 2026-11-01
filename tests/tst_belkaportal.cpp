@@ -1345,6 +1345,14 @@ private slots:
         QVERIFY(std::abs(valRes.estimatedEyPct - expectedEstEy) < 1e-2);
         QVERIFY(valRes.hasValidationReading);
         QVERIFY(std::abs(valRes.validationResidualTdsPct - (expectedEstTds - 9.45)) < 1e-3);
+        QCOMPARE(fit.minRatio, 1.5);
+        QCOMPARE(fit.maxRatio, 2.5);
+        auto extrapolated = valRes;
+        extrapolated.meanRawEcPerG = 12.0;
+        PortalTailAnalyzer::applyCalibration(&extrapolated, fit, 20.0, 16.0);
+        QVERIFY(extrapolated.calibrated);
+        QVERIFY(!extrapolated.estimateReliable);
+        QVERIFY(extrapolated.uncertaintyReasons.contains(QStringLiteral("outside_calibration_range")));
 
         // 3. End-to-end ShotHistoryStorage persistence & calibration lookup
         QTemporaryDir tempDir;
@@ -1387,7 +1395,7 @@ private slots:
         const qint64 id4 = storage.importShotRecord(makePortalRecord(QStringLiteral("u-4"), 1700000400, 32.0, 7.6, 0.0), true);
         QVERIFY(id1 > 0 && id2 > 0 && id3 > 0 && id4 > 0);
 
-        auto hotRecord = makePortalRecord(QStringLiteral("u-hot"), 1700000500, 32.0, 7.0, 0.0);
+        auto hotRecord = makePortalRecord(QStringLiteral("u-hot"), 1700000500, 32.0, 7.0, 12.0);
         hotRecord.espressoNotes = QStringLiteral("My tasting notes");
         for (auto& reading : hotRecord.portalSamples) reading.temperatureC = 72.0;
         const qint64 hotId = storage.importShotRecord(hotRecord, true);
@@ -1412,11 +1420,42 @@ private slots:
             QCOMPARE(updatedPortal.value("calibrationShotCount").toInt(), 3);
             QVERIFY(std::abs(updatedPortal.value("estimatedTdsPct").toDouble() - 9.5) < 0.05);
         });
+        // The real metadata-save path must change the model returned to Settings.
+        // This target's deliberately wrong 20% TDS is corrected to 9.5%, giving
+        // four independent pairs on TDS = 1.25 * EC; the hot pair stays excluded.
+        QSignalSpy metadataSaved(&storage, &ShotHistoryStorage::shotMetadataUpdated);
+        QSignalSpy calibrationReady(&storage, &ShotHistoryStorage::portalCalibrationReady);
+        storage.requestUpdateShotMetadata(id4, {{QStringLiteral("drinkTds"), 9.5}});
+        QTRY_COMPARE(metadataSaved.size(), 1);
+        QVERIFY(metadataSaved.first().at(1).toBool());
+        storage.requestPortalCalibration(QStringLiteral("after-save"), -1,
+            QStringLiteral("La Cabra"), QStringLiteral("Cerro Azul"), PortalTailAnalyzer::MountingMode::OnScale);
+        QTRY_COMPARE(calibrationReady.size(), 1);
+        QCOMPARE(calibrationReady.first().at(0).toString(), QStringLiteral("after-save"));
+        QVERIFY(calibrationReady.first().at(2).toString().isEmpty());
+        const auto refreshed = calibrationReady.first().at(1).toMap();
+        QCOMPARE(refreshed.value("shotCount").toInt(), 4);
+        QCOMPARE(refreshed.value("excludedShotCount").toInt(), 1);
+        QVERIFY(std::abs(refreshed.value("proportionalK").toDouble() - 1.25) < 0.001);
+        const auto references = refreshed.value("referenceShots").toList();
+        QCOMPARE(references.size(), 5);
+        for (const auto& reference : references) {
+            const auto row = reference.toMap();
+            QCOMPARE(row.value("included").toBool(), row.value("shotId").toLongLong() != hotId);
+        }
+        storage.requestUpdateShotMetadata(id4, {{QStringLiteral("drinkTds"), 0.0}});
+        QTRY_COMPARE(metadataSaved.size(), 2);
+        QVERIFY(metadataSaved.last().at(1).toBool());
+        storage.requestPortalCalibration(QStringLiteral("after-clear"), -1,
+            QStringLiteral("La Cabra"), QStringLiteral("Cerro Azul"), PortalTailAnalyzer::MountingMode::OnScale);
+        QTRY_COMPARE(calibrationReady.size(), 2);
+        QCOMPARE(calibrationReady.last().at(0).toString(), QStringLiteral("after-clear"));
+        QCOMPARE(calibrationReady.last().at(1).toMap().value("shotCount").toInt(), 3);
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());
 
         QVERIFY(loaded4.portalMeanEc > 7.5);
-        QCOMPARE(loaded4.portalCalibrationPoints.size(), 4);
+        QCOMPARE(loaded4.portalCalibrationPoints.size(), 5);
         const ShotProjection proj4 = ShotHistoryStorage::convertShotRecord(loaded4);
         QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("valid")).toBool(), true);
         QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("mountingMode")).toString(), QStringLiteral("onScale"));
