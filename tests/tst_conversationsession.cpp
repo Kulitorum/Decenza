@@ -27,11 +27,12 @@ public:
         QString operation;
     };
     QList<Pending> pending;
+    QVariantMap stateReply{{QStringLiteral("marker"), QStringLiteral("ready")}};
 
 public slots:
     void requestState(QString clientId, QString requestId) override
     {
-        emit stateReady(clientId, requestId, {{QStringLiteral("marker"), QStringLiteral("ready")}});
+        emit stateReady(clientId, requestId, stateReply);
     }
     void loadMostRecent(QString clientId, QString requestId) override
     {
@@ -88,6 +89,42 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void unchangedStateDoesNotRepublishButStatusAndTranscriptDo()
+    {
+        FakeConversationSource source;
+        QRemoteObjectHost host{QUrl(uniqueLocalUrl())};
+        QVERIFY(host.enableRemoting<ConversationSessionStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        node.setProperty("decenzaClientId", clientId);
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ConversationSession::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* session = ConversationSessionForeign::create(&engine, &engine);
+        QTRY_VERIFY(session->ready());
+        QSignalSpy changes(session, &ConversationSession::stateChanged);
+
+        // A correlated refresh and subsequent identical signal publish once.
+        QVariantMap state{{QStringLiteral("transcript"), QStringLiteral("**Advice**")},
+                          {QStringLiteral("busy"), true}};
+        source.stateReply = state;
+        session->refresh();
+        QTRY_COMPARE(session->state(), state);
+        QCOMPARE(changes.size(), 1);
+        emit source.stateChanged(clientId, state);
+        state.insert(QStringLiteral("busy"), false);
+        emit source.stateChanged(clientId, state);
+        QTRY_COMPARE(session->busy(), false);
+        QCOMPARE(changes.size(), 2);
+        QCOMPARE(session->state().value(QStringLiteral("transcript")).toString(),
+                 QStringLiteral("**Advice**"));
+        emit source.stateChanged(clientId, state);
+        state.insert(QStringLiteral("transcript"), QStringLiteral("**Updated advice**"));
+        emit source.stateChanged(clientId, state);
+        QTRY_COMPARE(session->state(), state);
+        QCOMPARE(changes.size(), 3);
+    }
 
     void loadMostRecentUsesCorrelatedSessionOperation()
     {

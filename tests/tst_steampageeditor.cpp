@@ -50,6 +50,39 @@ private slots:
         store.sync();
     }
 
+    void revisionInvalidatesBeforeNotifying_data()
+    {
+        QTest::addColumn<int>("input");
+        const QStringList names{"pitcher-presets", "selected-pitcher", "temperature", "timeout",
+                                "flow", "milk-auto-capture", "seconds-per-gram"};
+        for (qsizetype i = 0; i < names.size(); ++i)
+            QTest::newRow(qPrintable(names[i])) << int(i);
+    }
+
+    void revisionInvalidatesBeforeNotifying()
+    {
+        QFETCH(int, input);
+        Fixture f;
+        auto* brew = f.settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Second pitcher"), 40, 160, 155);
+        const QString previous = f.revision();
+        QString observed;
+        connect(&f.editor, &SteamPageEditor::editorRevisionChanged, &f.editor,
+                [&] { observed = f.revision(); });
+        switch (input) {
+        case 0: brew->setSteamPitcherWeight(0, 200); break;
+        case 1: brew->setSelectedSteamCup(1); break;
+        case 2: brew->setSteamTemperature(brew->steamTemperature() + 1); break;
+        case 3: brew->setSteamTimeout(brew->steamTimeout() + 1); break;
+        case 4: brew->setSteamFlow(brew->steamFlow() + 1); break;
+        case 5: brew->setMilkAutoCaptureEnabled(!brew->milkAutoCaptureEnabled()); break;
+        case 6: brew->setSteamSecondsPerGram(brew->steamSecondsPerGram() + 0.01); break;
+        }
+        const QString current = f.revision();
+        QVERIFY(current != previous);
+        QCOMPARE(observed, current);
+    }
+
     void renameChangesOnlyNameAndChecksRevision()
     {
         Fixture f;

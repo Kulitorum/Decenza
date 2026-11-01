@@ -107,10 +107,12 @@ class RemoteSettingsHardware final : public RemoteMachineUiSource
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("RemoteSettingsHardware is owned by Settings")
-    Q_PROPERTY(bool steamTwoTapStop READ steamTwoTapStop NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(bool steamTwoTapStop READ steamTwoTapStop NOTIFY steamTwoTapStopChanged FINAL)
 public:
     explicit RemoteSettingsHardware(QObject* parent = nullptr) : RemoteMachineUiSource(parent) {}
     bool steamTwoTapStop() const { return machineUi().hardwareSteamTwoTapStop; }
+signals:
+    void steamTwoTapStopChanged();
 };
 
 class RemoteSettingsApp final : public RemoteMachineUiSource
@@ -119,12 +121,12 @@ class RemoteSettingsApp final : public RemoteMachineUiSource
     QML_ELEMENT
     QML_UNCREATABLE("RemoteSettingsApp is owned by Settings")
 
-    Q_PROPERTY(QString temperatureUnit READ temperatureUnit NOTIFY changed FINAL)
-    Q_PROPERTY(bool use12HourTime READ use12HourTime NOTIFY changed FINAL)
+    Q_PROPERTY(QString temperatureUnit READ temperatureUnit NOTIFY temperatureUnitChanged FINAL)
+    Q_PROPERTY(bool use12HourTime READ use12HourTime NOTIFY use12HourTimeChanged FINAL)
     Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT FINAL)
-    Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit NOTIFY changed FINAL)
-    Q_PROPERTY(int waterRefillPoint READ waterRefillPoint NOTIFY changed FINAL)
-    Q_PROPERTY(int refillKitOverride READ refillKitOverride NOTIFY changed FINAL)
+    Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged FINAL)
+    Q_PROPERTY(int waterRefillPoint READ waterRefillPoint NOTIFY waterRefillPointChanged FINAL)
+    Q_PROPERTY(int refillKitOverride READ refillKitOverride NOTIFY refillKitOverrideChanged FINAL)
 
 public:
     explicit RemoteSettingsApp(QObject* parent = nullptr);
@@ -137,6 +139,11 @@ public:
     void setAppearance(const QVariantMap& appearance);
 
 signals:
+    void temperatureUnitChanged();
+    void use12HourTimeChanged();
+    void waterLevelDisplayUnitChanged();
+    void waterRefillPointChanged();
+    void refillKitOverrideChanged();
     void changed();
 
 private:
@@ -151,9 +158,9 @@ class RemoteSettingsBrew final : public RemoteMachineUiSource
     QML_ELEMENT
     QML_UNCREATABLE("RemoteSettingsBrew is owned by Settings")
 
-    Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY changed FINAL)
-    Q_PROPERTY(double temperatureOverride READ temperatureOverride NOTIFY changed FINAL)
-    Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight NOTIFY changed FINAL)
+    Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY hasTemperatureOverrideChanged FINAL)
+    Q_PROPERTY(double temperatureOverride READ temperatureOverride NOTIFY temperatureOverrideChanged FINAL)
+    Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight NOTIFY doseCupTareWeightChanged FINAL)
 
 public:
     explicit RemoteSettingsBrew(QObject* parent = nullptr);
@@ -162,6 +169,9 @@ public:
     double doseCupTareWeight() const;
 
 signals:
+    void hasTemperatureOverrideChanged();
+    void temperatureOverrideChanged();
+    void doseCupTareWeightChanged();
     void changed();
 };
 
@@ -211,7 +221,7 @@ class RemoteSettings final : public RemoteMachineUiSource
     Q_PROPERTY(RemoteSettingsBrew* brew READ brew CONSTANT FINAL)
     Q_PROPERTY(RemoteSettingsGraph* graph READ graph CONSTANT FINAL)
     Q_PROPERTY(RemoteSettingsDye* dye READ dye CONSTANT FINAL)
-    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY primaryScaleAddressChanged FINAL)
 
 public:
     static RemoteSettings* create(QQmlEngine* engine, QJSEngine* jsEngine);
@@ -237,6 +247,9 @@ private:
     RemoteSettingsDye* m_dye = nullptr;
     QMetaObject::Connection m_appearanceConnection;
     QMetaObject::Connection m_destroyedConnection;
+signals:
+    void primaryScaleAddressChanged();
+
 };
 
 static_assert(!std::is_default_constructible_v<RemoteSettings>,

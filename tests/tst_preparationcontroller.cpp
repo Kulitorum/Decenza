@@ -287,6 +287,9 @@ private slots:
         // Wait for the machine's own elapsed-time signal, not a fixed wall-clock
         // sleep. PreparationController consumes the same signal before this observer.
         QTRY_VERIFY(observedSteamElapsed >= 1.0);
+        QSignalSpy preparationChanges(&f.preparation, &PreparationState::changed);
+        emit f.machine.shotTimeChanged();
+        QCOMPARE(preparationChanges.size(), 0);
         f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
         QTRY_COMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
         QVERIFY(!f.preparation.milkAttemptOpen());
@@ -440,6 +443,11 @@ private slots:
         }
         f.settings.brew()->setSteamTimeout(65);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
+        const auto* brew = f.settings.brew();
+        const auto cachedPitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+        QCOMPARE(f.preparation.plannedSteamDurationSec(cachedPitcher,
+            brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), brew->steamTimeout()),
+            expectedSeconds);
         QSignalSpy immediate(&f.preparation, &PreparationController::steamTimeoutImmediateRequested);
         QSignalSpy started(&f.machine, &MachineState::shotStarted);
         f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
@@ -458,6 +466,8 @@ private slots:
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
         f.settings.brew()->setSteamTimeout(70);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), 70);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(cachedPitcher,
+            brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), 70), 70);
     }
 
     // #2058, on both surfaces that weigh milk: the idle screen's Steam row and the

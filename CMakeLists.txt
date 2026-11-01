@@ -144,7 +144,7 @@ endif()
 option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" ${_tsnet_default})
 
 # Qt 6 modules - core required components
-find_package(Qt6 REQUIRED COMPONENTS
+find_package(Qt6 6.12.0 REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui
@@ -1155,6 +1155,8 @@ set(HEADERS
     src/core/basketaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
+    src/core/uiworkprobe.h
+    src/core/uiworkstats.h
     src/core/memorymonitor.h
     src/core/fddiagnostics.h
     src/core/logcollapse.h
@@ -1332,6 +1334,7 @@ endif()
 
 # Simulator engine headers - always included (see source section comment)
 list(APPEND HEADERS
+    src/simulator/firmwareflashsimulator.h
     src/simulator/de1simulator.h
     src/simulator/simulatedscale.h
     src/simulator/ghcsimulator.h
@@ -1757,6 +1760,7 @@ set(QML_FILES
     qml/components/SharedBottomBar.qml
     qml/components/SharedBottomBarStyle.qml
     qml/components/ThemeViewport.qml
+    qml/components/SharedMarkdownSource.qml
     qml/components/SharedSectionHeader.qml
     qml/components/NativeBottomBarStyle.qml
     qml/components/BottomBarSubtitle.qml

@@ -12,11 +12,14 @@ class RemoteUsbScaleManager final : public RemoteMachineUiSource
     QML_NAMED_ELEMENT(UsbScaleManager)
     QML_SINGLETON
 
-    Q_PROPERTY(bool scaleConnected READ scaleConnected NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(bool scaleConnected READ scaleConnected NOTIFY scaleConnectedChanged FINAL)
 
 public:
     static RemoteUsbScaleManager* create(QQmlEngine* engine, QJSEngine* jsEngine);
     bool scaleConnected() const { return machineUi().usbScaleConnected; }
+
+signals:
+    void scaleConnectedChanged();
 
 private:
     explicit RemoteUsbScaleManager(QObject* parent);

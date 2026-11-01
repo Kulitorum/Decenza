@@ -62,7 +62,9 @@ class SteamState
     PROP(bool activeSteamSession READONLY)
     PROP(QVariantMap warningSnapshot READONLY)
     PROP(QString editorRevision READONLY)
-    PROP(QVariantMap graphSnapshot READONLY)
+    PROP(QVariantMap graphUpdate READONLY)
+
+    SLOT(QVariantMap currentGraphSnapshot())
 
     SLOT(QVariantMap execute(QString operation, QVariantMap fields, QString expectedRevision))
 }

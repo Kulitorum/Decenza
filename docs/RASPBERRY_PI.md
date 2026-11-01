@@ -1,6 +1,6 @@
 # Building Decenza on Raspberry Pi 5
 
-This guide covers building and running Decenza on a Raspberry Pi 5.
+This guide covers building and running Decenza on a Raspberry Pi 5. Decenza requires **Qt 6.12.0 or newer**; the current project toolchain uses Qt 6.12.0.
 
 ## Prerequisites
 
@@ -29,21 +29,22 @@ sudo apt install -y \
     build-essential \
     cmake \
     git \
-    qt6-base-dev \
-    qt6-declarative-dev \
-    qt6-connectivity-dev \
-    qt6-webengine-dev \
-    qt6-quick3d-dev \
-    qt6-charts-dev \
-    qt6-svg-dev \
-    qt6-multimedia-dev \
-    qt6-speech-dev \
-    qt6-positioning-dev \
+    ninja-build \
+    python3 \
+    libssl-dev \
     libxkbcommon-dev \
     libgl1-mesa-dev
 ```
 
-This installs Qt 6.8.2 from Debian repositories (close to the project's target of 6.10.2).
+These are system dependencies, **not the Qt SDK**. The previously documented Debian Qt 6.8.2 packages are too old.
+
+Install a Qt 6.12.0 AArch64 development kit compatible with your Pi OS, including the add-on modules listed under profiles `app` and `desktop` in [`.github/qt-modules.txt`](../.github/qt-modules.txt). Include Qt's private development headers and EGLFS/KMS support for running on Raspberry Pi OS Lite. If building Qt yourself, follow Qt's [Linux source build instructions](https://doc.qt.io/qt-6.12/linux-building.html) and [embedded Linux configuration guide](https://doc.qt.io/qt-6.12/configure-linux-device.html); additional graphics and module dependencies depend on the kit configuration.
+
+Set the prefix to your actual AArch64 Qt installation:
+
+```bash
+export DECENZA_QT_PREFIX=/usr/local/Qt-6.12.0
+```
 
 ## 3. Clone and Build
 
@@ -56,15 +57,15 @@ cd Decenza
 mkdir -p logo
 # Copy logo/qrcode.png from another source if needed
 
-# Build
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j2
+# Build the native app without the optional bundled browser client
+"$DECENZA_QT_PREFIX/bin/qt-cmake" -S . -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DDECENZA_WEB_BUNDLE_MODE=OFF
+cmake --build build --parallel 2
 ```
 
-**Important:** Use `make -j2` (2 parallel jobs), not `make -j4`. Using all 4 cores simultaneously can cause power issues and crash the Pi if your power supply isn't robust enough.
+For a build with the bundled browser client, follow the [web client toolchain setup](../tools/webclient/README.md#one-time-toolchain-setup) and leave `DECENZA_WEB_BUNDLE_MODE=LOCAL`, or supply a matching prebuilt bundle as documented there.
 
-Build time: ~10 minutes with `-j2`
+**Important:** Start with 2 parallel jobs. Using all 4 cores simultaneously can cause power issues and crash the Pi if your power supply isn't robust enough.
 
 ## 4. Run
 
@@ -121,12 +122,12 @@ sudo systemctl start decenza
 
 The Pi 5 requires a good 5V/5A power supply. During heavy compilation, it draws significant power. If you see:
 - Red power LED
-- Random crashes during `make -j4`
+- Random crashes when building with 4 parallel jobs
 - System becoming unresponsive
 
 Solutions:
 - Use the official Raspberry Pi 5 27W power supply
-- Reduce parallel jobs: `make -j1` or `make -j2`
+- Reduce parallel jobs: from the checkout, use `cmake --build build --parallel 1` or `--parallel 2`
 - Use a high-quality USB-C cable (some cables can't handle high current)
 
 ### Display issues
@@ -168,7 +169,9 @@ mkdir -p ~/Decenza/logo
 
 ## Hardware Notes
 
-### Tested Configuration
+### Historical Tested Configuration
+
+The configuration below predates the current Qt requirement. Its Qt 6.8.2 installation cannot build current Decenza; a Qt 6.12 build and runtime check on the Pi is still needed.
 
 - Raspberry Pi 5 Model B (4GB RAM)
 - Raspberry Pi OS Lite (Debian Trixie, kernel 6.12)

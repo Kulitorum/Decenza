@@ -446,7 +446,7 @@ TYPE_CLASSES = {
     STRUCTURAL: {
         "Text", "Tr", "Rectangle", "Item", "Image", "RowLayout", "ColumnLayout", "GridLayout",
         "Row", "Column", "Flow", "Flickable", "ScrollView", "ScrollBar", "KeyboardAwareContainer",
-        "Connections", "Timer", "QtObject", "PreferenceWrite", "LayoutWrite", "ExternalUrlOpener", "LocalFileTransfer", "LocalFileDownload", "SystemLogDownload", "LanguageFileActions", "ProgressBar", "BusyIndicator", "Gradient",
+        "Connections", "Timer", "QtObject", "SharedMarkdownSource", "PreferenceWrite", "LayoutWrite", "ExternalUrlOpener", "LocalFileTransfer", "LocalFileDownload", "SystemLogDownload", "LanguageFileActions", "ProgressBar", "BusyIndicator", "Gradient",
         "GradientStop", "Behavior", "NumberAnimation", "SequentialAnimation", "PauseAnimation",
         "ListModel", "ListElement", "LayoutPreview", "DecentUploadStatus", "QrCode",
         "ShotMapScreensaver", "ScrollDownIndicator",

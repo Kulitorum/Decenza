@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QMetaProperty>
 #include <QPointer>
 #include <QHostAddress>
 #include <utility>
@@ -14,6 +15,9 @@
 #include "remote/qtrowebsocketdevice.h"
 #include "remotesessionprobe.h"
 #include "webclient/remoteobjectconnection.h"
+#include "webclient/remotede1device.h"
+#include "webclient/remotemachinestate.h"
+#include "webclient/remoteprofilemanager.h"
 
 namespace {
 class SocketFixture final : public QObject
@@ -78,6 +82,122 @@ class tst_RemoteSessionBackend final : public QObject
     Q_OBJECT
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void appearanceUpdatesWithoutAdvancingTelemetry()
+    {
+        HostSessionTest::Fixture server;
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        server.attach(&backend, &engine);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        const auto sequence = backend.sequence();
+        QSignalSpy appearances(&backend, &RemoteSessionBackend::appearanceChanged);
+        QSignalSpy snapshots(&backend, &RemoteSessionBackend::snapshotChanged);
+        server.setAppearance(HostSessionTest::appearance({}, true, 0));
+        QTRY_COMPARE(appearances.size(), 1);
+        QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
+        QCOMPARE(backend.sequence(), sequence);
+        QCOMPARE(snapshots.size(), 0);
+    }
+
+    void cachedAppearanceDoesNotAdmitMalformedUpdates_data()
+    {
+        QTest::addColumn<QVariantMap>("appearance");
+        auto appearance = HostSessionTest::appearance({}, false, 0);
+        appearance.insert(QStringLiteral("darkMode"), QStringLiteral("false"));
+        QTest::newRow("invalid-boolean") << appearance;
+        appearance = HostSessionTest::appearance({}, false, 0);
+        auto theme = appearance.value(QStringLiteral("themeInputs")).toMap();
+        auto colors = theme.value(QStringLiteral("customThemeColors")).toMap();
+        // Canonical validation discards unknown colors; the raw payload must still be bounded.
+        colors.insert(QStringLiteral("futureColor"), QByteArray(128 * 1024, 'x'));
+        theme.insert(QStringLiteral("customThemeColors"), colors);
+        appearance.insert(QStringLiteral("themeInputs"), theme);
+        QTest::newRow("oversized-appearance") << appearance;
+    }
+
+    void cachedAppearanceDoesNotAdmitMalformedUpdates()
+    {
+        QFETCH(QVariantMap, appearance);
+        HostSessionTest::Fixture server;
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        auto* service = server.attach(&backend, &engine);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        server.setAppearance(appearance);
+        QTRY_VERIFY(!backend.connected());
+        QVERIFY(!service->ready());
+        QVERIFY(backend.stale());
+        QVERIFY(backend.appearance().isEmpty());
+        QVERIFY(!backend.errorMessage().isEmpty());
+
+        server.setAppearance(HostSessionTest::appearance({}, true, 0));
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
+    }
+
+    void unchangedSnapshotsDoNotInvalidateReadoutProperties()
+    {
+        HostSessionTest::Fixture server;
+        server.machineUi.de1Connected = true;
+        server.machineUi.phase = MachinePhase::Ready;
+        server.machineUi.profileTargetTemperature = 93;
+        server.source.setSnapshot(HostSessionTest::snapshot(
+            HostSessionTest::appearance({}, false, 0), 0, server.machineUi));
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        server.attach(&backend, &engine);
+        auto* device = RemoteDE1Device::create(&engine, &engine);
+        auto* machine = RemoteMachineState::create(&engine, &engine);
+        auto* profile = RemoteProfileManager::create(&engine, &engine);
+        device->setSession(&backend);
+        machine->setSession(&backend);
+        profile->setSession(&backend);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        QVERIFY(device->connected());
+        const auto notify = [](QObject* object, const char* name) {
+            return object->metaObject()->property(object->metaObject()->indexOfProperty(name)).notifySignal();
+        };
+        QSignalSpy connected(device, notify(device, "connected"));
+        QSignalSpy pressure(device, notify(device, "pressure"));
+        QSignalSpy phase(machine, notify(machine, "phase"));
+        QSignalSpy weight(machine, notify(machine, "scaleWeight"));
+        QSignalSpy target(profile, notify(profile, "profileTargetTemperature"));
+        QSignalSpy snapshots(&backend, &RemoteSessionBackend::snapshotChanged);
+        auto values = server.source.snapshot();
+        for (int sequence = 1; sequence <= 20; ++sequence) {
+            values.insert(QStringLiteral("sequence"), sequence);
+            server.source.setSnapshot(values);
+            QTRY_COMPARE(backend.sequence(), qint64(sequence));
+        }
+        QCOMPARE(snapshots.size(), 20); // Transport sequence/connection monitoring still runs.
+        for (const auto* spy : {&connected, &pressure, &phase, &weight, &target})
+            QCOMPARE(spy->size(), 0);
+        values.insert(QStringLiteral("sequence"), 21);
+        values.insert(QStringLiteral("pressureBar"), 9.0);
+        server.source.setSnapshot(values);
+        QTRY_COMPARE(device->pressure(), 9.0);
+        QCOMPARE(pressure.size(), 1);
+        for (const auto* spy : {&connected, &phase, &weight, &target}) QCOMPARE(spy->size(), 0);
+        server.machineUi.scaleWeight = 12;
+        values.insert(QStringLiteral("sequence"), 22);
+        values.insert(QStringLiteral("machineUi"), server.machineUi.toJson().toVariantMap());
+        server.source.setSnapshot(values);
+        QTRY_COMPARE(machine->scaleWeight(), 12.0);
+        QCOMPARE(weight.size(), 1);
+        QCOMPARE(pressure.size(), 1);
+        QCOMPARE(connected.size(), 0);
+        backend.disconnectFromHost();
+        QVERIFY(!device->connected());
+        QCOMPARE(connected.size(), 1);
+        QCOMPARE(weight.size(), 2);
+        QCOMPARE(pressure.size(), 2);
+        QCOMPARE(phase.size(), 1);
+    }
 
     void bootstrapConnectsDirectlyToQtRoAndAuthorizesServicesAfterIdentity()
     {
@@ -215,6 +335,7 @@ private slots:
         values = valid; values.insert(QStringLiteral("machineUi"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("appearance"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("extractionAnnouncementInterval"), 1); malformed.append(values);
+        values = valid; values.insert(QStringLiteral("extra"), QByteArray(128 * 1024, 'x')); malformed.append(values);
         for (const auto& fields : malformed) {
             HostSessionTest::Fixture server;
             server.source.setSnapshot(fields);
