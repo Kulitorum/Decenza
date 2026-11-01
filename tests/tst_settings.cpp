@@ -1830,84 +1830,19 @@ private slots:
                      .value("name").toString(), QStringLiteral("M2"));
     }
 
-    // --- a recipe's pitcher is an OVERRIDE, not an overwrite -----------------
-    //
-    // Activating a latte used to write the standing selection outright, so one
-    // milk drink left a user whose resting state was "Heater off" with a warm
-    // boiler for the rest of the day. The park/unwind decision lives on
-    // SettingsBrew precisely so it can be asserted without a controller.
-
-    void aRecipePitcherParksTheStandingSelectionAndGivesItBack() {
+    void recipePitcherSelectionDoesNotRestoreAnEarlierSelection() {
         auto* brew = m_settings.brew();
-        brew->addSteamPitcherPreset(QStringLiteral("Standing"), 30, 150, 150.0);
         brew->addSteamPitcherPreset(QStringLiteral("RecipeOwn"), 45, 120, 135.0);
-        const int recipePitcher = brew->steamPitcherCount() - 1;
-        const int standing = SettingsBrew::HeaterOffPitcherIndex;
-        brew->setSelectedSteamCup(standing);
-
-        // Activate: the recipe's pitcher is what to select, and the user's own
-        // selection is parked.
-        QCOMPARE(brew->resolveRecipePitcherOverride(recipePitcher), recipePitcher);
-        QCOMPARE(brew->standingSteamPitcher(), standing);
-        brew->setSelectedSteamCup(recipePitcher);
-
-        // Deactivate: the parked selection comes back, and the park is cleared.
-        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher), standing);
-        QCOMPARE(brew->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
-    }
-
-    // A recipe carrying the heater-off marker selects the BUILT-IN, and the
-    // preset list does not grow. The marker is a reference to the one synthetic
-    // entry, so materialising it as a stored preset — the obvious way to make
-    // "the recipe's pitcher" uniform — would put a second unremovable "Heater
-    // off" row in every picker, one per recipe activated.
-    void aMarkerRecipeSelectsTheBuiltInWithoutCreatingAPreset() {
-        auto* brew = m_settings.brew();
-        brew->addSteamPitcherPreset(QStringLiteral("Mine"), 30, 150, 150.0);
-        const int mine = brew->steamPitcherCount() - 1;
-        brew->setSelectedSteamCup(mine);
-        const int presetsBefore = brew->steamPitcherCount();
-
-        // Activation passes the sentinel, as SteamHeaterPolicy's marker path does.
-        const int select = brew->resolveRecipePitcherOverride(SettingsBrew::HeaterOffPitcherIndex);
-        QCOMPARE(select, int(SettingsBrew::HeaterOffPitcherIndex));
-        brew->setSelectedSteamCup(select);
-
-        QCOMPARE(brew->steamPitcherCount(), presetsBefore);
-        QVERIFY(brew->getSteamPitcherPreset(brew->selectedSteamPitcher())
-                    .value("builtin").toBool());
-        // ...and the user's own pitcher is parked, so deactivating returns it.
-        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher), mine);
-    }
-
-    // Recipe-to-recipe switching must not re-park. Without the guard the second
-    // activation would store the FIRST recipe's pitcher as if the user had
-    // chosen it, and deactivating would restore a drink, not a setting.
-    void switchingRecipesDoesNotOverwriteTheParkedSelection() {
-        auto* brew = m_settings.brew();
-        brew->addSteamPitcherPreset(QStringLiteral("A"), 30, 150, 150.0);
-        brew->addSteamPitcherPreset(QStringLiteral("B"), 40, 150, 152.0);
-        const int b = brew->steamPitcherCount() - 1;
-        const int a = b - 1;
+        const int pitcher = brew->steamPitcherCount() - 1;
         brew->setSelectedSteamCup(SettingsBrew::HeaterOffPitcherIndex);
-
-        brew->resolveRecipePitcherOverride(a);
-        brew->setSelectedSteamCup(a);
-        brew->resolveRecipePitcherOverride(b);       // second recipe
-        brew->setSelectedSteamCup(b);
-
-        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::HeaterOffPitcherIndex));
-        QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher),
-                 int(SettingsBrew::HeaterOffPitcherIndex));
-    }
-
-    // Deactivating with no override in flight must do nothing at all — not
-    // select index 0, and not select the sentinel.
-    void unwindingWithNoOverrideIsANoOp() {
-        auto* brew = m_settings.brew();
-        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::NoStandingPitcher));
+        // A parked value from an older version must not be restored either.
+        brew->setStandingSteamPitcher(SettingsBrew::HeaterOffPitcherIndex);
+        QCOMPARE(brew->resolveRecipePitcherOverride(pitcher), pitcher);
+        brew->setSelectedSteamCup(pitcher);
         QCOMPARE(brew->resolveRecipePitcherOverride(SettingsBrew::NoStandingPitcher),
                  int(SettingsBrew::NoStandingPitcher));
+        QCOMPARE(brew->selectedSteamPitcher(), pitcher);
+        QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::NoStandingPitcher));
     }
 
     // --- the "Off" pitcher migration (steam-heater-policy) -------------------

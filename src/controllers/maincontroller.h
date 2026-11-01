@@ -1036,7 +1036,6 @@ private:
     // "the recipe's pitcher was deleted", which reach the selection watcher
     // identically. A heater-off recipe names the built-in, which cannot be
     // deleted, so it always counts as present.
-    bool recipeSteamPitcherStillExists(const QString& steamJson) const;
 
     // --- RecipeWiringController ports (two SideEffectPort methods are declared
     // above, marked as such).
@@ -1078,14 +1077,7 @@ private:
     // re-assert covers reconnect — but the log must not claim otherwise.
     bool pushShotSettings(double steamTempC, const QString& reason);
 
-    // Apply an active recipe's pitcher as an OVERRIDE of the user's standing
-    // selection, or (with SettingsBrew::NoStandingPitcher) unwind back to it.
-    //
-    // A recipe's pitcher is part of the drink, not a new preference: activating
-    // a latte used to overwrite the standing selection outright, so a user whose
-    // resting state was "Heater off" got a warm boiler for the rest of the day
-    // after one milk drink. Idempotent — re-activating while an override is
-    // already parked does not overwrite what was parked.
+    // Select the recipe's pitcher, if it names one.
     void setRecipeSteamPitcherOverride(int index);
     // Wire the deactivation watchers + write-through stamps (called once
     // from the constructor after storages exist).

@@ -77,8 +77,7 @@ public:
     // no recipe layer at all.
     // THE rule that turns a recipe row into an intent. Static, and taking the
     // recipe map rather than reading MainController state, so it can be asserted
-    // directly — the same move that put resolveRecipePitcherOverride on
-    // SettingsBrew. Marker dominance (an explicit "Heater off" outranks hasMilk)
+    // directly. Marker dominance (an explicit "Heater off" outranks hasMilk)
     // lived only inside a MainController lambda, where no test could reach it.
     static RecipeSteamIntent intentForRecipe(const QVariantMap& recipe);
 
