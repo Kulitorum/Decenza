@@ -995,12 +995,12 @@ private slots:
 
     void portalTailAnalyzerIntegratesMassAndTailFeaturesExactly() {
         // Piecewise linear EC(m) with known analytical integral:
-        //   m in [0, 10] g (t in [5, 15] s): EC = 10.0 raw-EC -> integral = 100.0
+        //   m in [0.2, 10] g (t in [5.2, 15] s): EC = 10.0 raw-EC -> integral = 98.0
         //   m in [10, 30] g (t in [15, 35] s): EC decays linearly from 10.0 to 2.0
         //     at slope -0.4 raw-EC/g -> integral = 0.5 * (10 + 2) * 20 = 120.0
-        // Total integral = 220.0 raw-EC * g over 30.0 g (mean = 220 / 30 = 7.333333).
+        // Observed integral = 218.0 over 29.8 g; the first 0.2 g is unobserved.
         // Over final 5 g [25, 30] g: EC goes from 4.0 to 2.0 -> M5 = 3.0, T5 = -0.4,
-        // R5 = 3.0 / 10.0 = 0.3, recentContributionShare5g = 15.0 / 220.0.
+        // R5 = 3.0 / 10.0 = 0.3, recentContributionShare5g = 15.0 / 218.0.
         // Over final 2 g [28, 30] g: EC goes from 2.8 to 2.0 -> M2 = 2.4.
         QVector<PortalSample> portal;
         for (int i = 0; i <= 350; ++i) {
@@ -1011,9 +1011,7 @@ private slots:
             portal.append(PortalSample{t, ec, 60.0, i == 0});
         }
 
-        // Include realistic scale traits from hardware commissioning:
-        //  1) First recorded weight starts at 0.2 g (at t = 5.2 s) because <0.1 g is gated.
-        //  3) Final SAW settling point at t = 35.04 s (+40 ms after the last PORTAL sample at 35.0 s).
+        // Positive first reading, plus a settling plateau 40 ms after the final EC packet.
         QVector<QPointF> weight;
         weight.append(QPointF(5.2, 0.2));
         for (int s = 6; s <= 34; ++s) {
@@ -1035,17 +1033,21 @@ private slots:
         QCOMPARE(res.calibrationMode, QStringLiteral("relative_proxy_only"));
         QCOMPARE(res.gapCount, 0);
         QVERIFY(std::abs(res.totalMassG - 30.0) < 1e-6);
-        QVERIFY(std::abs(res.coverageRatio - 1.0) < 1e-6);
-        QVERIFY(std::abs(res.integralRawEcG - 220.0) < 1e-4);
-        QVERIFY(std::abs(res.activeIntegralRawEcG - (220.0 - 4.8)) < 1e-4);
+        QVERIFY(std::abs(res.coveredMassG - 29.8) < 1e-6);
+        QVERIFY(std::abs(res.coverageRatio - (29.8 / 30.0)) < 1e-6);
+        QVERIFY(std::abs(res.integralRawEcG - 218.0) < 1e-4);
+        QVERIFY(std::abs(res.activeIntegralRawEcG - (218.0 - 4.8)) < 1e-4);
         QVERIFY(std::abs(res.settlingIntegralRawEcG - 4.8) < 1e-4);
-        QVERIFY(std::abs(res.meanRawEcPerG - (220.0 / 30.0)) < 1e-4);
-        QVERIFY(std::abs(res.doseNormalizedIntegral - (220.0 / 16.0)) < 1e-4);
+        QVERIFY(std::abs(res.meanRawEcPerG - (218.0 / 29.8)) < 1e-4);
+        QVERIFY(std::abs(res.doseNormalizedIntegral - (218.0 / 16.0)) < 1e-4);
         QVERIFY(std::abs(res.tailMean2g - 2.4) < 1e-4);
         QVERIFY(std::abs(res.tailMean5g - 3.0) < 1e-4);
         QVERIFY(std::abs(res.tailSlope5gPerG - (-0.4)) < 1e-4);
         QVERIFY(std::abs(res.tailRatio5g - 0.3) < 1e-4);
-        QVERIFY(std::abs(res.recentContributionShare5g - (15.0 / 220.0)) < 1e-4);
+        QVERIFY(std::abs(res.recentContributionShare5g - (15.0 / 218.0)) < 1e-4);
+        QVERIFY(!res.calibrationEligible);
+        QVERIFY(!res.estimateReliable);
+        QVERIFY(res.uncertaintyReasons.contains(QStringLiteral("incomplete_coverage")));
         QCOMPARE(res.instabilityDipCount, 0);
 
         const QVariantMap map = res.toVariantMap();
@@ -1377,8 +1379,7 @@ private slots:
             rec.flow = {{0.0, 2.0}, {10.0, 1.5}, {25.0, 1.5}};
             for (int s = 5; s <= 25; ++s) {
                 const double m = (s - 5) * (yieldG / 20.0);
-                if (m >= 0.2)
-                    rec.weight.append(QPointF(static_cast<double>(s), m));
+                rec.weight.append(QPointF(static_cast<double>(s), m));
             }
             for (int i = 0; i <= 250; ++i) {
                 const double t = i * 0.1;
