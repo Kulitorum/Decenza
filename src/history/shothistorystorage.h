@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 48;
+    static constexpr int kCurrentSchemaVersion = 49;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -327,7 +327,8 @@ public:
 
     // Load paired (PORTAL mass-weighted EC, refractometer TDS%) calibration points
     // across stored shots where both portal_mean_ec > 0 and drink_tds > 0.
-    static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db);
+    static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
+        const QString& beanBrand, const QString& beanType);
     void requestPortalCalibration(const QString& requestId, qint64 bagId,
                                   const QString& beanBrand, const QString& beanType,
                                   PortalTailAnalyzer::MountingMode mountingMode);

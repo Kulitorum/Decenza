@@ -158,6 +158,8 @@ QVariantMap ShotProjection::toVariantMap() const
     m["flow"] = flow;
     m["temperature"] = temperature;
     m["temperatureMix"] = temperatureMix;
+    m["weightSource"] = weightSource;
+    m["portalMountingMode"] = portalMountingMode;
     if (!portalSamples.isEmpty()) m["portalSamples"] = portalSamples;
     m["resistance"] = resistance;
     m["conductance"] = conductance;
@@ -280,6 +282,8 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.flow = m.value("flow").toList();
     p.temperature = m.value("temperature").toList();
     p.temperatureMix = m.value("temperatureMix").toList();
+    p.weightSource = m.value("weightSource").toString();
+    p.portalMountingMode = m.value("portalMountingMode").toString();
     p.portalSamples = PortalSamples::toVariant(PortalSamples::fromVariant(m.value("portalSamples").toList()));
     p.resistance = m.value("resistance").toList();
     p.conductance = m.value("conductance").toList();

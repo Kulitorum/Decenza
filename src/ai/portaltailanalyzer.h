@@ -119,17 +119,10 @@ public:
 
         // Safeguards & reliability diagnostics for EC -> TDS/EY estimation
         double maxTempC = 0.0;
-        double firstDropTimeSec = 0.0;
-        double timeTo2gSec = 0.0;
-        double onsetFlowRateGPerS = 0.0;
-        double ecWettingLagSec = 0.0;
-        bool onsetChokeDetected = false;
         bool thermalDriftWarning = false;
         bool estimateReliable = false;
         bool calibrationEligible = false;
         QStringList uncertaintyReasons;
-        QString uncertaintySummary;
-        QString uncertaintyNoteText;
 
         // Shot completion / cut-point & historical ratio advisor
         double massAt85PctIntegralG = 0.0;
@@ -141,8 +134,7 @@ public:
         double bestHistoricalWeightG = 0.0;
         double bestHistoricalRatio = 0.0;
         int bestHistoricalEnjoyment = 0;
-        QString completionSummary;
-        QString ratioAdviceText;
+        QString ratioAdvice = QStringLiteral("taste_first");
 
         // Empirical refractometer calibration (Atago PAL / drink_tds paired shots)
         bool calibrated = false;
@@ -283,9 +275,8 @@ public:
 
     static QVector<double> defaultLagOffsetsSec();
 
-    static WeightSource inferWeightSource(const QString& debugLog,
-                                          const QVector<QPointF>& cumulativeWeight);
-    static MountingMode inferMountingMode(const QString& debugLog);
+    static WeightSource weightSourceFromString(const QString& source);
+    static MountingMode mountingModeFromString(const QString& mode);
 
     static QString statusToString(Status status);
     static QString weightSourceToString(WeightSource source);

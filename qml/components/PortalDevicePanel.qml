@@ -114,7 +114,7 @@ ColumnLayout {
                 : panel.calibration.error
                   ? TranslationManager.translate("portal.calibration.error", "Calibration unavailable. Reopen Settings to retry.")
                   : panel.calibration.calibrated
-                    ? "k = " + Number(panel.calibration.proportionalK).toFixed(4)
+                    ? TranslationManager.translate("portal.calibration.factor", "k = %1").arg(Number(panel.calibration.proportionalK).toFixed(4))
                       + " · " + (panel.calibration.coffee || "")
                     : TranslationManager.translate("portal.calibration.noReferences", "No suitable paired EC / TDS measurements for this coffee and mounting mode.")
             color: Theme.textColor
@@ -126,9 +126,10 @@ ColumnLayout {
             visible: Boolean(panel.calibration.calibrated)
             text: TranslationManager.translate("portal.calibration.formula", "TDS% ≈ k × mass-weighted EC; EY% ≈ TDS% × beverage / dose.")
                   + (panel.calibration.activeModel === "affine"
-                     ? "\nTDS% ≈ " + Number(panel.calibration.affineSlopeA).toFixed(4) + " × EC "
-                       + (panel.calibration.affineInterceptB >= 0 ? "+ " : "− ")
-                       + Math.abs(panel.calibration.affineInterceptB).toFixed(2)
+                     ? "\n" + TranslationManager.translate("portal.calibration.affineFormula", "TDS% ≈ %1 × EC %2 %3")
+                         .arg(Number(panel.calibration.affineSlopeA).toFixed(4))
+                         .arg(panel.calibration.affineInterceptB >= 0 ? "+" : "−")
+                         .arg(Math.abs(panel.calibration.affineInterceptB).toFixed(2))
                        + " · " + TranslationManager.translate("portal.calibration.affine", "Active fit includes an offset; k above is the proportional comparison.") : "")
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
@@ -153,7 +154,7 @@ ColumnLayout {
         }
         Text {
             Layout.fillWidth: true
-            text: TranslationManager.translate("portal.calibration.help", "Save refractometer TDS on a shot in History or Shot Review. The fit updates automatically. Slow wetting, EC dips, missing data and high-temperature warnings exclude a shot. Use the same PORTAL, water and coffee; a new coffee needs its own references.")
+            text: TranslationManager.translate("portal.calibration.help", "Save refractometer TDS on a shot in History or Shot Review. The fit updates automatically. EC dips, missing data and high-temperature warnings exclude a shot. Use the same PORTAL, water and coffee; a new coffee needs its own references.")
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
         }
@@ -172,13 +173,15 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: String(modelData.dateTime).replace("T", " ").slice(0, 16)
                       + " · 1:" + Number(modelData.ratio).toFixed(2)
-                      + " · TDS " + Number(modelData.measuredTdsPct).toFixed(2) + "%"
+                      + " · " + TranslationManager.translate("portal.calibration.measuredTds", "TDS %1%").arg(Number(modelData.measuredTdsPct).toFixed(2))
                       + " · " + (modelData.meanRawEc > 0
-                          ? "k " + Number(modelData.individualK).toFixed(4)
+                          ? TranslationManager.translate("portal.calibration.factor", "k = %1").arg(Number(modelData.individualK).toFixed(4))
                           : TranslationManager.translate("portal.calibration.noEc", "EC unavailable"))
                       + " · " + (modelData.included
                           ? TranslationManager.translate("portal.calibration.included", "Included")
-                          : modelData.exclusionReason === "mounting_mismatch"
+                          : modelData.exclusionReason === "missing_ec"
+                           ? TranslationManager.translate("portal.calibration.missingEc", "missing EC")
+                           : modelData.exclusionReason === "mounting_mismatch"
                             ? TranslationManager.translate("portal.calibration.mountMismatch", "Excluded: different or unknown mounting")
                             : TranslationManager.translate("portal.calibration.excluded", "Excluded: measurement warnings / invalid data; see shot review"))
                 color: modelData.included ? Theme.textSecondaryColor : Theme.warningColor

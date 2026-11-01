@@ -9,7 +9,7 @@
   in the shared Settings panel. Refresh after stored TDS changes; never hardcode a
   user's measured k. Keep calibration separate from high-frequency live snapshots.
 - Distinguish a shot's training eligibility from preliminary/extrapolated predictions.
-- Retain conservative slow-wetting, thermal, gap and mounting gates. Do not infer
+- Retain conservative thermal, gap and mounting gates. Do not infer
   puck overcompression from pressure or grind setting alone.
 - Make calibration searchable and explain TDS entry/exclusions in the manual.
 

@@ -1049,69 +1049,6 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         lines.append(line);
     }
 
-    // Experimental slow-onset observation. Preinfusion can intentionally delay
-    // the first drops, so this does not establish a grind fault.
-    if (!pourTruncated && !grind.skipped
-        && !grind.chokedPuck && !grind.yieldOvershoot
-        && !(grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD)
-        && weight.size() >= 10) {
-        const double firstSampleW = weight.first().y();
-        const double lastSampleW = weight.last().y();
-        if (firstSampleW < 1.5 && lastSampleW >= 10.0) {
-            double firstDropT = -1.0;
-            double firstDropW = 0.0;
-            double t2g = -1.0;
-            for (qsizetype i = 0; i < weight.size(); ++i) {
-                const double t = weight[i].x();
-                const double w = weight[i].y();
-                if (firstDropT < 0.0 && t > 0.5 && w >= 0.2) {
-                    firstDropT = t;
-                    firstDropW = w;
-                }
-                if (t2g < 0.0 && w >= 2.0) {
-                    if (i > 0 && weight[i - 1].y() < 2.0) {
-                        const double w0 = weight[i - 1].y();
-                        const double t0 = weight[i - 1].x();
-                        const double dw = w - w0;
-                        const double frac = dw > 1e-9 ? (2.0 - w0) / dw : 1.0;
-                        t2g = t0 + std::clamp(frac, 0.0, 1.0) * (t - t0);
-                    } else {
-                        t2g = t;
-                    }
-                    break;
-                }
-            }
-            double peakPourBar = 0.0;
-            for (const auto& pt : pressure) {
-                if (pt.x() < pourStart) continue;
-                if (pt.x() > pourEnd) break;
-                if (pt.y() > peakPourBar) peakPourBar = pt.y();
-            }
-            if (firstDropT > 0.0 && t2g >= ONSET_CHOKE_MIN_TIME_TO_2G_SEC
-                && peakPourBar >= ONSET_CHOKE_MIN_PEAK_PRESSURE_BAR) {
-                const double dtEarly = t2g - firstDropT;
-                const double dmEarly = std::max(0.1, 2.0 - firstDropW);
-                const double earlyFlowGps = (dtEarly > 1e-6) ? (dmEarly / dtEarly) : 0.0;
-                if (earlyFlowGps > 0.0 && earlyFlowGps < ONSET_CHOKE_MAX_EARLY_FLOW_GPS) {
-                    d.onsetChokeDetected = true;
-                    d.onsetTimeTo2gSec = t2g;
-                    d.onsetFlowRateGPerS = earlyFlowGps;
-                    d.onsetPeakPressureBar = peakPourBar;
-                    QVariantMap line;
-                    line["text"] = QStringLiteral(
-                        "Slow onset (%1 g/s to 2g at %2s, peak %3 bar) — "
-                        "slow initial dripping; check this against the intended preinfusion")
-                        .arg(earlyFlowGps, 0, 'f', 2)
-                        .arg(t2g, 0, 'f', 1)
-                        .arg(peakPourBar, 0, 'f', 1);
-                    line["type"] = QStringLiteral("caution");
-                    line["kind"] = QStringLiteral("onset_choke");
-                    lines.append(line);
-                }
-            }
-        }
-    }
-
     // --- Pour truncated (puck failure) ---
     // Detection ran at the top of the function; this block emits the
     // user-facing warning line. The cause list spans the full population:

@@ -30,6 +30,7 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     connect(timing, &ShotTimingController::extractionClockStarted, this, [this, device, settings, model] {
         m_captureOpen = true;
         model->markPortalGap();
+        model->setPortalMountingMode(settings->portalMountingMode());
         device->setExtractionActive(true);
         if (device->active() && settings)
             PORTAL_INFO(QStringLiteral("Shot capture started (mountingMode=%1)").arg(settings->portalMountingMode()));

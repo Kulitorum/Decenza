@@ -115,6 +115,8 @@ struct ShotRecord {
     QString steamJson;
     QString hotWaterJson;
 
+    QString weightSource;
+    QString portalMountingMode;
     QVector<PortalSample> portalSamples;
     double portalMeanEc = 0.0;
     double portalIntegralEcG = 0.0;
@@ -436,6 +438,8 @@ struct ShotSaveData {
     double portalMeanEc = 0.0;
     double portalIntegralEcG = 0.0;
     double portalMeanTempC = 0.0;
+    QString weightSource;
+    bool portalPresent = false;
     bool portalEstimateReliable = false;
     QString portalMountingMode;
 

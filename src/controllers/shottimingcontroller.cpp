@@ -90,6 +90,12 @@ std::optional<double> ShotTimingController::sensorTime(qint64 receivedAtMs) cons
     return time >= 0 ? std::optional<double>(time) : std::nullopt;
 }
 
+QString ShotTimingController::servingWeightSource() const
+{
+    if (!m_scale || !m_scale->isConnected()) return QStringLiteral("unknown");
+    return m_scale->isFlowScale() ? QStringLiteral("flow_scale_virtual") : QStringLiteral("physical_scale");
+}
+
 void ShotTimingController::setScale(ScaleDevice* scale)
 {
     // Signal connections to scale are managed externally in main.cpp
@@ -140,6 +146,7 @@ void ShotTimingController::startShot()
 
     // Reset weight state
     m_weight = 0;
+    m_weightSource = QStringLiteral("unknown");
     m_flowRate = 0;
     m_smoothedFlowRate = 0.0;
     m_flowRateInitialized = false;
@@ -257,7 +264,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     // The LSLR smoother produces clean flow rates even during the Ending phase,
     // so we always emit the real value — it naturally decays to zero as dripping stops
     if (m_extractionStarted && m_weight >= 0.1) {
-        emit weightSampleReady(time, m_weight, m_flowRate);
+        emit weightSampleReady(time, m_weight, m_flowRate, m_weightSource);
     }
 }
 
@@ -311,6 +318,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             return;
         }
 
+        m_weightSource = servingWeightSource();
         m_weight = weight;
         m_flowRate = flowRate;
         emit weightChanged();
@@ -319,7 +327,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // since shotTime() is frozen at extraction end for the timer display)
         // LSLR produces clean flow rates even during settling — emit the real value
         double time = (QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0;
-        emit weightSampleReady(time, weight, flowRate);
+        emit weightSampleReady(time, weight, flowRate, m_weightSource);
 
         // Rolling average stability detection
         // Add sample to circular buffer
@@ -461,6 +469,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         return;
     }
 
+    m_weightSource = servingWeightSource();
     m_weight = weight;
     m_flowRateShort = flowRateShort;
 

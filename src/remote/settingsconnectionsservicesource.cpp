@@ -85,6 +85,8 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
             refreshSnapshot();
         });
         if (m_settings->hardware()) {
+            connect(m_settings->hardware(), &SettingsHardware::portalDeviceChanged,
+                    this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
             connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
                     this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
             connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
@@ -248,8 +250,12 @@ void NativeSettingsConnectionsServiceSource::setShotHistory(ShotHistoryStorage* 
 void NativeSettingsConnectionsServiceSource::refreshPortalCalibration()
 {
     m_portalCalibrationRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    setPortalCalibration({{QStringLiteral("loading"), bool(m_shotHistory)}});
-    if (!m_shotHistory || !m_settings) return;
+    if (!m_shotHistory || !m_settings || !m_portalDevice
+        || (!m_portalDevice->owned() && !m_portalDevice->active())) {
+        setPortalCalibration({});
+        return;
+    }
+    setPortalCalibration({{QStringLiteral("loading"), true}});
     const auto dye = m_settings->dye();
     const auto mode = m_settings->hardware()->portalMountingMode() == QLatin1String("independent")
         ? PortalTailAnalyzer::MountingMode::Independent : PortalTailAnalyzer::MountingMode::OnScale;

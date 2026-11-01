@@ -1,8 +1,6 @@
 #include "ai/portaltailanalyzer.h"
 
-#include <QCoreApplication>
 #include <QDateTime>
-#include <QRegularExpression>
 
 #include <algorithm>
 #include <cmath>
@@ -433,29 +431,21 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     m["instabilityDips"] = dipsList;
 
     m["maxTempC"] = maxTempC;
-    m["firstDropTimeSec"] = firstDropTimeSec;
-    m["timeTo2gSec"] = timeTo2gSec;
-    m["onsetFlowRateGPerS"] = onsetFlowRateGPerS;
-    m["ecWettingLagSec"] = ecWettingLagSec;
-    m["onsetChokeDetected"] = onsetChokeDetected;
     m["thermalDriftWarning"] = thermalDriftWarning;
     m["estimateReliable"] = estimateReliable;
     m["calibrationEligible"] = calibrationEligible;
     m["uncertaintyReasons"] = uncertaintyReasons;
-    m["uncertaintySummary"] = uncertaintySummary;
-    m["uncertaintyNoteText"] = uncertaintyNoteText;
 
     m["massAt85PctIntegralG"] = massAt85PctIntegralG;
     m["massAt90PctIntegralG"] = massAt90PctIntegralG;
     m["post1to2MassG"] = post1to2MassG;
     m["post1to2ContributionShare"] = post1to2ContributionShare;
+    m["ratioAdvice"] = ratioAdvice;
     m["lowTailConcentration"] = lowTailConcentration;
     m["possibleUnderExtraction"] = possibleUnderExtraction;
     m["bestHistoricalWeightG"] = bestHistoricalWeightG;
     m["bestHistoricalRatio"] = bestHistoricalRatio;
     m["bestHistoricalEnjoyment"] = bestHistoricalEnjoyment;
-    m["completionSummary"] = completionSummary;
-    m["ratioAdviceText"] = ratioAdviceText;
 
     m["calibrated"] = calibrated;
     if (calibrated) {
@@ -725,55 +715,11 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     }
 
     // Evaluate early-shot onset choke and thermal drift safeguards
-    const auto firstDrop = std::find_if(weightClean.cbegin(), weightClean.cend(),
-        [](const QPointF& point) { return point.y() >= 0.1; });
-    out.firstDropTimeSec = firstDrop->x();
-    if (out.totalMassG >= 2.0) {
-        for (qsizetype i = 1; i < uniqueKnots.size(); ++i) {
-            if (uniqueKnots[i].massG >= 2.0) {
-                const double m0 = uniqueKnots[i - 1].massG;
-                const double m1 = uniqueKnots[i].massG;
-                const double t0 = uniqueKnots[i - 1].timeSec;
-                const double t1 = uniqueKnots[i].timeSec;
-                const double dm = m1 - m0;
-                const double frac = dm > 1e-9 ? ((2.0 - m0) / dm) : 1.0;
-                out.timeTo2gSec = t0 + std::clamp(frac, 0.0, 1.0) * (t1 - t0);
-                break;
-            }
-        }
-        const double dtOnset = out.timeTo2gSec - out.firstDropTimeSec;
-        const double dmOnset = std::max(0.1, 2.0 - firstDrop->y());
-        if (dtOnset > 1e-6)
-            out.onsetFlowRateGPerS = dmOnset / dtOnset;
-    }
-
-    bool foundWetting = false;
-    for (const auto& seg : segments) {
-        for (const auto& s : seg.samples) {
-            if (s.time >= out.firstDropTimeSec - 0.5 && s.ecRaw >= 2.0) {
-                out.ecWettingLagSec = std::max(0.0, s.time - out.firstDropTimeSec);
-                foundWetting = true;
-                break;
-            }
-        }
-        if (foundWetting)
-            break;
-    }
-
-    if (out.totalMassG >= 10.0 && out.timeTo2gSec > out.firstDropTimeSec) {
-        const bool slowDrippingOnset = (out.onsetFlowRateGPerS > 0.0 && out.onsetFlowRateGPerS < 0.85)
-                                       && (out.timeTo2gSec >= 11.0 || out.ecWettingLagSec >= 1.2);
-        const bool delayedElectrodeWetting = (out.ecWettingLagSec >= 1.8 && out.firstDropTimeSec >= 8.0);
-        out.onsetChokeDetected = slowDrippingOnset || delayedElectrodeWetting;
-    }
-
     const double brewRatio = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG))
                              ? (out.totalMassG / options.doseWeightG)
                              : 0.0;
     out.thermalDriftWarning = (out.maxTempC >= 68.0) || (brewRatio > 2.55 && out.maxTempC >= 64.0);
 
-    if (out.onsetChokeDetected)
-        out.uncertaintyReasons.append(QStringLiteral("onset_choke"));
     if (out.instabilityDipCount > 0)
         out.uncertaintyReasons.append(QStringLiteral("mid_shot_dip"));
     if (out.thermalDriftWarning)
@@ -785,26 +731,6 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         out.uncertaintyReasons.append(QStringLiteral("unknown_mounting"));
     out.estimateReliable = out.uncertaintyReasons.isEmpty();
     out.calibrationEligible = out.estimateReliable;
-
-    QStringList warnings;
-    if (out.onsetChokeDetected)
-        warnings.append(QCoreApplication::translate("PortalTailAnalyzer",
-            "Slow initial dripping or delayed sensor wetting (%1 g/s to 2 g at %2 s); EC estimates are uncertain.")
-            .arg(out.onsetFlowRateGPerS, 0, 'f', 2).arg(out.timeTo2gSec, 0, 'f', 1));
-    if (out.instabilityDipCount > 0)
-        warnings.append(QCoreApplication::translate("PortalTailAnalyzer",
-            "EC dips detected (%1); this does not confirm channeling.").arg(out.instabilityDipCount));
-    if (out.thermalDriftWarning)
-        warnings.append(QCoreApplication::translate("PortalTailAnalyzer",
-            "High outlet temperature (%1 C); temperature effects on EC have not been validated.")
-            .arg(out.maxTempC, 0, 'f', 1));
-    if (out.uncertaintyReasons.contains(QStringLiteral("incomplete_coverage")))
-        warnings.append(QCoreApplication::translate("PortalTailAnalyzer", "Incomplete EC coverage."));
-    if (out.mountingMode == MountingMode::Unknown)
-        warnings.append(QCoreApplication::translate("PortalTailAnalyzer", "Mounting geometry was not recorded."));
-    out.uncertaintySummary = warnings.join(QLatin1Char(' '));
-    if (!warnings.isEmpty())
-        out.uncertaintyNoteText = QStringLiteral("[Belka Portal] ") + out.uncertaintySummary;
 
     // --- Shot completion / cut-point metrics ---
     if (iEnd > 0.0) {
@@ -822,16 +748,6 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
 
     out.lowTailConcentration = out.estimateReliable && out.instabilityDipCount == 0
         && out.tailRatio5g > 0.0 && out.tailRatio5g <= 0.16 && out.tailSlope5gPerG <= 0.0;
-    if (out.massAt90PctIntegralG > 0.0) {
-        out.completionSummary = QCoreApplication::translate("PortalTailAnalyzer",
-            "90% of the recorded EC integral was reached at %1 g; the last 5 g contributed %2%. "
-            "This is a relative EC proxy, not a measurement of coffee solids or taste.")
-            .arg(out.massAt90PctIntegralG, 0, 'f', 1)
-            .arg(out.recentContributionShare5g * 100.0, 0, 'f', 1);
-    }
-    out.ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
-        "Taste this cup before changing the ratio. EC alone cannot identify the best stopping point.");
-
     out.valid = true;
     out.status = Status::Valid;
     return out;
@@ -870,39 +786,17 @@ QVector<double> PortalTailAnalyzer::defaultLagOffsetsSec()
     return { -0.5, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.5 };
 }
 
-PortalTailAnalyzer::WeightSource PortalTailAnalyzer::inferWeightSource(
-    const QString& debugLog,
-    const QVector<QPointF>& cumulativeWeight)
+PortalTailAnalyzer::WeightSource PortalTailAnalyzer::weightSourceFromString(const QString& source)
 {
-    // Detect virtual FlowScale markers in the shot debug log. Note that
-    // "disabled FlowScale" and "FlowScale Compare:" appear when a physical
-    // scale IS active, so match only markers that indicate FlowScale served
-    // the shot or no physical scale was present.
-    if (debugLog.contains(QLatin1String("scale=flow"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("scale=none"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("No physical scale"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("switched to FlowScale"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("falling back to FlowScale"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("Scale: Flow Scale"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("using FlowScale"), Qt::CaseInsensitive)) {
-        return WeightSource::FlowScaleVirtual;
-    }
-
-    static const QRegularExpression scaleId(QStringLiteral(R"(\bscale=(?!flow\b|none\b|unknown\b)[a-z][a-z0-9_-]*)"),
-                                            QRegularExpression::CaseInsensitiveOption);
-    if (!cumulativeWeight.isEmpty() && (scaleId.match(debugLog).hasMatch()
-        || debugLog.contains(QLatin1String("disabled FlowScale"), Qt::CaseInsensitive)))
-        return WeightSource::PhysicalScale;
-
+    if (source == QLatin1String("physical_scale")) return WeightSource::PhysicalScale;
+    if (source == QLatin1String("flow_scale_virtual")) return WeightSource::FlowScaleVirtual;
     return WeightSource::Unknown;
 }
 
-PortalTailAnalyzer::MountingMode PortalTailAnalyzer::inferMountingMode(const QString& debugLog)
+PortalTailAnalyzer::MountingMode PortalTailAnalyzer::mountingModeFromString(const QString& mode)
 {
-    if (debugLog.contains(QLatin1String("mountingMode=independent"), Qt::CaseInsensitive))
-        return MountingMode::Independent;
-    if (debugLog.contains(QLatin1String("mountingMode=onScale"), Qt::CaseInsensitive))
-        return MountingMode::OnScale;
+    if (mode == QLatin1String("onScale")) return MountingMode::OnScale;
+    if (mode == QLatin1String("independent")) return MountingMode::Independent;
     return MountingMode::Unknown;
 }
 
@@ -1029,8 +923,10 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
         const bool included = std::any_of(selected.cbegin(), selected.cend(),
             [&p](const CalibrationPoint& reference) { return reference.shotId == p.shotId; });
         const QString reason = included ? QString()
-            : p.mountingMode != targetMountingMode || targetMountingMode == MountingMode::Unknown
-                ? QStringLiteral("mounting_mismatch") : QStringLiteral("measurement_warning");
+            : !std::isfinite(p.meanRawEcPerG) || p.meanRawEcPerG <= 0.1
+                ? QStringLiteral("missing_ec")
+                : p.mountingMode != targetMountingMode || targetMountingMode == MountingMode::Unknown
+                    ? QStringLiteral("mounting_mismatch") : QStringLiteral("measurement_warning");
         if (!included) ++fit.excludedShotCount;
         fit.referenceShots.append(QVariantMap{
             {QStringLiteral("shotId"), p.shotId},
@@ -1243,8 +1139,6 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
     if (fit.shotCount < 5) {
         result->estimateReliable = false;
         result->uncertaintyReasons.append(QStringLiteral("preliminary_calibration"));
-        result->uncertaintySummary += QCoreApplication::translate("PortalTailAnalyzer",
-            " Fewer than five independent refractometer shots: preliminary calibration.");
     }
 
     const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
@@ -1253,8 +1147,6 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
         || (fit.minRatio > 0.0 && ratio > 0.0 && (ratio < fit.minRatio - 1e-6 || ratio > fit.maxRatio + 1e-6)))) {
         result->estimateReliable = false;
         result->uncertaintyReasons.append(QStringLiteral("outside_calibration_range"));
-        result->uncertaintySummary += QCoreApplication::translate("PortalTailAnalyzer",
-            " Outside the measured EC or ratio range: extrapolated estimate.");
     }
 
     result->calibrated = true;
@@ -1314,9 +1206,7 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
         return;
 
     result->possibleUnderExtraction = false;
-    result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
-        "Taste this cup before changing the ratio. EC alone cannot identify the best stopping point.");
-    const bool hasDose = (std::isfinite(doseWeightG) && doseWeightG > 0.0);
+    result->ratioAdvice = QStringLiteral("taste_first");
 
     const CalibrationPoint* bestShot = nullptr;
     for (const auto& pt : historyPoints) {
@@ -1345,26 +1235,16 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
     const bool bitterOrThin = currentTasteBalance.compare(QLatin1String("bitter"), Qt::CaseInsensitive) == 0
         || currentTasteBody.compare(QLatin1String("thin"), Qt::CaseInsensitive) == 0;
     if (!result->estimateReliable) {
-        result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
-            "PORTAL data is uncertain. Use your taste and measured cup weight before changing the ratio.");
+        result->ratioAdvice = QStringLiteral("uncertain");
         return;
     }
     if (sour && result->tailRatio5g >= 0.22) {
         result->possibleUnderExtraction = true;
-        result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
-            "You marked this cup sour and its EC tail remains elevated. Try a slightly longer ratio "
-            "with the same setup and compare the taste; under-extraction is not confirmed by EC.");
+        result->ratioAdvice = QStringLiteral("try_longer");
     } else if (bitterOrThin && result->lowTailConcentration) {
-        result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
-            "You marked this cup bitter or thin and its EC tail is low. Try a slightly shorter ratio "
-            "with the same setup and compare the taste.");
+        result->ratioAdvice = QStringLiteral("try_shorter");
     }
-    if (bestShot && hasDose) {
-        result->ratioAdviceText += QCoreApplication::translate("PortalTailAnalyzer",
-            " A comparable cup rated %1/100 finished at %2 g (1:%3); this is a reference, not a predicted optimum.")
-            .arg(bestShot->enjoyment).arg(bestShot->finalWeightG, 0, 'f', 1)
-            .arg(result->bestHistoricalRatio, 0, 'f', 2);
-    }
+
 
 }
 

@@ -933,15 +933,16 @@ T.Page {
 
                     function portalText() {
                         var ec = model.portalMeanEc || 0
+                        if (ec <= 0) return ""
                         var ey = model.drinkEyPct || 0
                         var estEy = model.portalEstEyPct || 0
                         var parts = []
                         if (ec > 0)
-                            parts.push("EC " + ec.toFixed(2))
+                            parts.push(TranslationManager.translate("shothistory.portal.ec", "EC %1").arg(ec.toFixed(2)))
                         if (ey > 0)
-                            parts.push("EY " + ey.toFixed(1) + "%")
+                            parts.push(TranslationManager.translate("shothistory.portal.ey", "EY %1%").arg(ey.toFixed(1)))
                         else if (estEy > 0)
-                            parts.push("~EY " + estEy.toFixed(1) + "%"
+                            parts.push(TranslationManager.translate("shothistory.portal.estimatedEy", "~EY %1%").arg(estEy.toFixed(1))
                                 + (model.portalEstimateReliable ? "" : (" (" + TranslationManager.translate(
                                     "shothistory.portal.uncertain", "uncertain") + ")")))
                         return parts.join(" \u00b7 ")

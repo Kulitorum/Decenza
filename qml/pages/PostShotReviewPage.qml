@@ -2620,11 +2620,45 @@ T.Page {
                 readonly property double estEyPct: (estTdsPct > 0 && doseG > 0 && yieldG > 0)
                                                    ? (estTdsPct * yieldG) / doseG : 0
                 readonly property bool estimateReliable: Boolean(pa.estimateReliable)
-                readonly property string uncertaintySummary: pa.uncertaintySummary || ""
-                readonly property string completionSummary: pa.completionSummary || ""
+                readonly property string uncertaintySummary: {
+                    var warnings = []
+                    var reasons = pa.uncertaintyReasons || []
+                    if (reasons.indexOf("mid_shot_dip") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.dipWarning", "EC dips detected (%1); this does not confirm channeling.").arg(pa.instabilityDipCount || 0))
+                    if (reasons.indexOf("thermal_drift") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.thermalWarning", "High outlet temperature (%1 °C); temperature effects on EC have not been validated.").arg(Number(pa.maxTempC || 0).toFixed(1)))
+                    if (reasons.indexOf("incomplete_coverage") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.coverageWarning", "Incomplete EC coverage."))
+                    if (reasons.indexOf("unknown_mounting") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.mountingWarning", "Mounting geometry was not recorded."))
+                    if (reasons.indexOf("preliminary_calibration") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.preliminaryWarning", "Fewer than five independent refractometer shots: preliminary calibration."))
+                    if (reasons.indexOf("outside_calibration_range") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.rangeWarning", "Outside the measured EC or ratio range: extrapolated estimate."))
+                    return warnings.join(" ")
+                }
+                readonly property string completionSummary: (pa.massAt90PctIntegralG || 0) > 0
+                    ? TranslationManager.translate("postshotreview.portal.completion", "90% of the recorded EC integral was reached at %1 g; the last 5 g contributed %2%. This is a relative EC proxy, not a measurement of coffee solids or taste.")
+                        .arg(Number(pa.massAt90PctIntegralG).toFixed(1))
+                        .arg(Number((pa.recentContributionShare5g || 0) * 100).toFixed(1)) : ""
                 readonly property bool lowTailConcentration: Boolean(pa.lowTailConcentration)
                 readonly property bool possibleUnderExtraction: Boolean(pa.possibleUnderExtraction)
-                readonly property string ratioAdviceText: pa.ratioAdviceText || ""
+                readonly property string ratioAdviceText: {
+                    if (!pa.valid) return ""
+                    if (pa.ratioAdvice === "uncertain")
+                        return TranslationManager.translate("postshotreview.portal.ratioUncertain", "PORTAL data is uncertain. Use your taste and measured cup weight before changing the ratio.")
+                    var advice = TranslationManager.translate("postshotreview.portal.tasteFirst", "Taste this cup before changing the ratio. EC alone cannot identify the best stopping point.")
+                    if (pa.ratioAdvice === "try_longer")
+                        advice = TranslationManager.translate("postshotreview.portal.tryLonger", "You marked this cup sour and its EC tail remains elevated. Try a slightly longer ratio with the same setup and compare the taste; under-extraction is not confirmed by EC.")
+                    else if (pa.ratioAdvice === "try_shorter")
+                        advice = TranslationManager.translate("postshotreview.portal.tryShorter", "You marked this cup bitter or thin and its EC tail is low. Try a slightly shorter ratio with the same setup and compare the taste.")
+                    if ((pa.bestHistoricalWeightG || 0) > 0 && doseG > 0)
+                        advice += " " + TranslationManager.translate("postshotreview.portal.ratedReference", "A comparable cup rated %1/100 finished at %2 g (1:%3); this is a reference, not a predicted optimum.")
+                            .arg(pa.bestHistoricalEnjoyment || 0)
+                            .arg(Number(pa.bestHistoricalWeightG).toFixed(1))
+                            .arg(Number(pa.bestHistoricalRatio).toFixed(2))
+                    return advice
+                }
                 readonly property string calSummaryText: {
                     if (!pa.valid) return TranslationManager.translate(
                         "postshotreview.portal.unavailable", "PORTAL analysis needs a physical scale and complete EC/weight data.")
@@ -2633,18 +2667,25 @@ T.Page {
                     if (isCalibrated) {
                         var affine = String(pa.calibrationMode || "").indexOf("affine") >= 0
                         var modelStr = affine
-                            ? ("TDS = " + (pa.calibrationAffineA || 0).toFixed(3) + "\u00b7EC "
-                               + ((pa.calibrationAffineB || 0) >= 0 ? "+ " : "\u2212 ")
-                               + Math.abs(pa.calibrationAffineB || 0).toFixed(2))
-                            : ("TDS = " + (pa.calibrationSlopeK || 0).toFixed(3) + "\u00b7EC")
-                        var nStr = (pa.calibrationShotCount || 0) + " shots (" + (pa.calibrationScope || "") + ")"
+                            ? TranslationManager.translate("postshotreview.portal.affineFormula", "TDS = %1 × EC %2 %3")
+                                .arg(Number(pa.calibrationAffineA || 0).toFixed(3))
+                                .arg((pa.calibrationAffineB || 0) >= 0 ? "+" : "−")
+                                .arg(Math.abs(pa.calibrationAffineB || 0).toFixed(2))
+                            : TranslationManager.translate("postshotreview.portal.proportionalFormula", "TDS = %1 × EC")
+                                .arg(Number(pa.calibrationSlopeK || 0).toFixed(3))
+                        var scope = pa.calibrationScope === "bag"
+                            ? TranslationManager.translate("postshotreview.portal.scopeBag", "bag")
+                            : TranslationManager.translate("postshotreview.portal.scopeBean", "coffee")
+                        var nStr = TranslationManager.translate("postshotreview.portal.referenceCount", "%1 shots (%2)")
+                            .arg(pa.calibrationShotCount || 0).arg(scope)
                         var loocv = (pa.calibrationLoocvMaeTdsPct || 0) > 0
-                            ? (" \u00b7 LOOCV MAE " + (pa.calibrationLoocvMaeTdsPct || 0).toFixed(2) + "%")
-                            : ""
+                            ? " · " + TranslationManager.translate("postshotreview.portal.loocv", "LOOCV MAE %1%")
+                                .arg(Number(pa.calibrationLoocvMaeTdsPct).toFixed(2)) : ""
                         var resStr = ""
                         if (liveTds > 0) {
                             var diff = estTdsPct - liveTds
-                            resStr = " \u00b7 \u0394TDS vs refr. " + (diff >= 0 ? "+" : "") + diff.toFixed(2) + "%"
+                            resStr = " · " + TranslationManager.translate("postshotreview.portal.residual", "ΔTDS vs refr. %1%")
+                                .arg((diff >= 0 ? "+" : "") + diff.toFixed(2))
                         }
                         var warn = (pa.calibrationShotCount || 0) < 5
                             ? (" \u00b7 " + TranslationManager.translate("postshotreview.portal.fewShots", "<5 shots: preliminary"))
@@ -2652,7 +2693,7 @@ T.Page {
                         return modelStr + " \u00b7 " + nStr + loocv + resStr + warn
                     }
                     if (liveTds > 0 && meanEc > 0) {
-                        return "k = " + (liveTds / meanEc).toFixed(3) + " "
+                        return TranslationManager.translate("portal.calibration.factor", "k = %1").arg((liveTds / meanEc).toFixed(3)) + " "
                                + TranslationManager.translate("postshotreview.portal.selfAnchor",
                                      "(this shot only \u2014 collect independent refractometer shots to check prediction error)")
                     }
@@ -2672,9 +2713,9 @@ T.Page {
                 Accessible.focusable: true
                 Accessible.name: {
                     if (!hasPortal) return ""
-                    if (!pa.valid) return "Belka PORTAL. " + calSummaryText
+                    if (!pa.valid) return TranslationManager.translate("portal.device.title", "Belka PORTAL") + ". " + calSummaryText
                     var parts = [
-                        "Belka PORTAL",
+                        TranslationManager.translate("portal.device.title", "Belka PORTAL"),
                         TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
                             + " " + meanEc.toFixed(2),
                         TranslationManager.translate("postshotreview.portal.integralEc", "EC integral")
@@ -2682,7 +2723,8 @@ T.Page {
                     ]
                     if (isCalibrated && estEyPct > 0) {
                         parts.push(TranslationManager.translate("postshotreview.portal.estEy", "Approximated EY")
-                                   + " " + estEyPct.toFixed(1) + "% (~TDS " + estTdsPct.toFixed(2) + "%)")
+                                   + " " + TranslationManager.translate("postshotreview.portal.estimatePair", "%1% (~TDS %2%)")
+                                       .arg(estEyPct.toFixed(1)).arg(estTdsPct.toFixed(2)))
                     }
                     parts.push(calSummaryText)
                     if (uncertaintySummary) parts.push(uncertaintySummary)
@@ -2702,7 +2744,7 @@ T.Page {
                         spacing: Theme.scaled(8)
 
                         Text {
-                            text: "BELKA PORTAL"
+                            text: TranslationManager.translate("portal.device.title", "Belka PORTAL")
                             font.pixelSize: Theme.scaled(11)
                             font.bold: true
                             color: Theme.portalEcColor
@@ -2811,7 +2853,7 @@ T.Page {
                                 Accessible.ignored: true
                             }
                             Text {
-                                text: "M5 " + (portalMetricsCard.pa.M5 || 0).toFixed(2)
+                                text: TranslationManager.translate("postshotreview.portal.m5", "M5 %1").arg(Number(portalMetricsCard.pa.M5 || 0).toFixed(2))
                                       + " \u00b7 " + ((portalMetricsCard.pa.recentContributionShare5g || 0) * 100).toFixed(1) + "%"
                                 font.pixelSize: Theme.scaled(13)
                                 color: Theme.textColor

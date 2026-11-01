@@ -261,11 +261,6 @@ public:
     // See analyzeFlowVsGoal() for placement.
     static constexpr double YIELD_OVERSHOOT_RATIO_MIN = 1.20;
 
-    // Experimental slow-onset thresholds; not a diagnosis of choking or grind.
-    static constexpr double ONSET_CHOKE_MIN_TIME_TO_2G_SEC = 11.0;
-    static constexpr double ONSET_CHOKE_MAX_EARLY_FLOW_GPS = 0.75;
-    static constexpr double ONSET_CHOKE_MIN_PEAK_PRESSURE_BAR = 7.5;
-
     // Trim two boundary windows where flow naturally diverges from goal even
     // on well-extracted shots, otherwise the grind detector false-flags every
     // lever-style preinfusion:
@@ -598,12 +593,6 @@ public:
         //   ""              — pourTruncated cascade suppressed grind block,
         //                     OR pour window degenerate (pourEnd <= pourStart)
         QString grindCoverage;
-
-        // === Early / partial onset choke (cup-weight onset + peak pour pressure) ===
-        bool onsetChokeDetected = false;
-        double onsetTimeTo2gSec = 0.0;
-        double onsetFlowRateGPerS = 0.0;
-        double onsetPeakPressureBar = 0.0;
 
         // === Skip-first-frame ===
         bool skipFirstFrame = false;

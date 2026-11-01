@@ -284,6 +284,52 @@ private slots:
     // Fresh DB: full schema at v12
     // ==========================================
 
+    void portalMigrationBackfillsOnceWithoutTrustingDiagnosticLogs() {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("portal-migration.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+        ShotRecord legacy;
+        legacy.summary.uuid = QStringLiteral("legacy-portal");
+        legacy.summary.timestamp = 1700000000;
+        legacy.summary.profileName = QStringLiteral("Espresso");
+        legacy.summary.duration = 25.0;
+        legacy.debugLog = QStringLiteral("[SAW][Learning] scale=acaia; mountingMode=onScale");
+        legacy.portalSamples = {{1.0, 8.0, 60.0, true}, {2.0, 7.0, 60.0, false}};
+        const qint64 id = storage.importShotRecord(legacy, true);
+        QVERIFY(id > 0);
+        storage.close();
+        withRawDb(path, "portal_rewind", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("UPDATE schema_version SET version=48"));
+            QVERIFY(q.exec("UPDATE shots SET portal_present=0, portal_mean_ec=8, portal_estimate_reliable=1"));
+        });
+        QVERIFY(storage.initialize(path));
+        storage.close();
+        withRawDb(path, "portal_migrated", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT portal_present, portal_estimate_reliable, weight_source, portal_mounting_mode FROM shots"));
+            QVERIFY(q.next());
+            QVERIFY(q.value(0).toBool());
+            QVERIFY(!q.value(1).toBool());
+            QVERIFY(q.value(2).toString().isEmpty());
+            QVERIFY(q.value(3).toString().isEmpty());
+            q.finish();
+            q.prepare("UPDATE shot_samples SET data_blob=?");
+            q.addBindValue(qCompress(QByteArray("{}")));
+            QVERIFY(q.exec());
+        });
+        QVERIFY(storage.initialize(path));
+        storage.close();
+        withRawDb(path, "portal_no_repeat", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT portal_present FROM shots"));
+            QVERIFY(q.next());
+            QVERIFY(q.value(0).toBool());
+        });
+    }
+
     void freshDbCreatesSchema() {
         QString path = freshDbPath();
         ShotHistoryStorage storage;

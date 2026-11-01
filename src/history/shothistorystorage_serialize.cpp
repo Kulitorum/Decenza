@@ -112,6 +112,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.flow = pointsToVariant(record.flow);
     p.temperature = pointsToVariant(record.temperature);
     p.temperatureMix = pointsToVariant(record.temperatureMix);
+    p.weightSource = record.weightSource;
+    p.portalMountingMode = record.portalMountingMode;
     p.portalSamples = PortalSamples::toVariant(record.portalSamples);
     p.resistance = pointsToVariant(record.resistance);
     p.conductance = pointsToVariant(record.conductance);
@@ -128,8 +130,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 
     if (!record.portalSamples.isEmpty()) {
         PortalTailAnalyzer::Options portalOpts;
-        portalOpts.weightSource = PortalTailAnalyzer::inferWeightSource(record.debugLog, record.weight);
-        portalOpts.mountingMode = PortalTailAnalyzer::inferMountingMode(record.debugLog);
+        portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
+        portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
         portalOpts.doseWeightG = record.summary.doseWeight;
         portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
         auto portalRes = PortalTailAnalyzer::analyze(
@@ -277,12 +279,6 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         }
         detectorResults["grind"] = grind;
 
-        detectorResults["onsetChokeDetected"] = d.onsetChokeDetected;
-        if (d.onsetChokeDetected) {
-            detectorResults["onsetTimeTo2gSec"] = d.onsetTimeTo2gSec;
-            detectorResults["onsetFlowRateGPerS"] = d.onsetFlowRateGPerS;
-            detectorResults["onsetPeakPressureBar"] = d.onsetPeakPressureBar;
-        }
         detectorResults["pourTruncated"] = d.pourTruncated;
         if (d.pourTruncated) detectorResults["peakPressureBar"] = d.peakPressureBar;
         detectorResults["pourStartSec"] = d.pourStartSec;

@@ -3092,7 +3092,7 @@ private slots:
         QVERIFY(t.skipFirstFrameDetected);
     }
 
-    void slowOnsetEmitsCautionWithoutDiagnosingGrind()
+    void intentionalLongPreinfusionKeepsCleanVerdict()
     {
         // Slow initial dripping, then a flow-controlled pour. This can be an
         // intentional profile and must not establish a fine-grind diagnosis.
@@ -3119,20 +3119,9 @@ private slots:
             /*firstFrameConfiguredSeconds=*/-1.0,
             /*targetWeightG=*/32.0, /*finalWeightG=*/32.4);
 
-        QVERIFY(res.detectors.onsetChokeDetected);
-        QVERIFY(res.detectors.onsetTimeTo2gSec >= 11.0);
-        QVERIFY(res.detectors.onsetFlowRateGPerS < 0.75);
-        QVERIFY(res.detectors.onsetPeakPressureBar >= 7.5);
-        QCOMPARE(res.detectors.verdictCategory, QStringLiteral("minorIssues"));
-        bool hasSlowOnset = false;
-        for (const auto& value : res.lines) {
-            const auto line = value.toMap();
-            if (line.value("kind").toString() == QLatin1String("onset_choke")) {
-                hasSlowOnset = true;
-                QVERIFY(!line.value("text").toString().contains(QStringLiteral("too fine")));
-            }
-        }
-        QVERIFY(hasSlowOnset);
+        QCOMPARE(res.detectors.verdictCategory, QStringLiteral("clean"));
+        for (const auto& value : res.lines)
+            QVERIFY(value.toMap().value("type").toString() != QLatin1String("caution"));
     }
 };
 

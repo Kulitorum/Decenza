@@ -142,6 +142,8 @@ class ShotProjection {
     Q_PROPERTY(bool skipFirstFrameDetected MEMBER skipFirstFrameDetected)
     Q_PROPERTY(bool pourTruncatedDetected MEMBER pourTruncatedDetected)
 
+    Q_PROPERTY(QString weightSource MEMBER weightSource)
+    Q_PROPERTY(QString portalMountingMode MEMBER portalMountingMode)
     Q_PROPERTY(QVariantList portalSamples MEMBER portalSamples)
     Q_PROPERTY(QVariantList pressure MEMBER pressure)
     Q_PROPERTY(QVariantList flow MEMBER flow)
@@ -249,6 +251,8 @@ public:
     bool skipFirstFrameDetected = false;
     bool pourTruncatedDetected = false;
 
+    QString weightSource;
+    QString portalMountingMode;
     QVariantList portalSamples;
     QVariantList pressure;
     QVariantList flow;

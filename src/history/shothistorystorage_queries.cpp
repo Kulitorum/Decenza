@@ -628,7 +628,6 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
             QString queryError;
 
             const bool databaseOpened = withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
-                const auto portalCalPoints = loadPortalCalibrationPointsStatic(db);
                 // Data query
                 QSqlQuery query(db);
                 // Every failure below used to fall through silently, leaving results
@@ -701,6 +700,8 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             const bool portalReliable = query.value(30).toBool();
                             shot["portalEstimateReliable"] = portalReliable;
                             if (portalMeanEc > 0.0 && portalReliable) {
+                                const auto portalCalPoints = loadPortalCalibrationPointsStatic(db,
+                                    rowBagId, rowBeanBrand, rowBeanType);
                                 PortalTailAnalyzer::Result dummyRes;
                                 dummyRes.valid = true;
                                 dummyRes.estimateReliable = portalReliable;

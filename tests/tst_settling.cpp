@@ -126,6 +126,37 @@ private slots:
         QCOMPARE(learning.count(), 0);
     }
 
+    void recordedWeightKeepsItsServingSourceAcrossScaleChanges() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        MockScaleDevice scale;
+        scale.mockSetConnected(true);
+        scale.setIsFlowScale(true);
+        tc.setScale(&scale);
+        ShotDataModel model;
+        connect(&tc, &ShotTimingController::weightSampleReady, &model,
+            qOverload<double, double, double, const QString&>(&ShotDataModel::addWeightSample));
+        QSignalSpy samples(&tc, &ShotTimingController::weightSampleReady);
+        ShotSample sample;
+        tc.startShot();
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        tc.onWeightSample(2.0, 1.0, 1.0);
+        scale.setIsFlowScale(false);
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        QCOMPARE(samples.last().at(3).toString(), QStringLiteral("flow_scale_virtual"));
+        tc.onWeightSample(3.0, 1.0, 1.0);
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        QCOMPARE(samples.last().at(3).toString(), QStringLiteral("physical_scale"));
+        QCOMPARE(model.weightSource(), QStringLiteral("flow_scale_virtual"));
+        tc.endShot();
+        model.clear();
+        tc.startShot();
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        tc.onWeightSample(4.0, 1.0, 1.0);
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        QCOMPARE(model.weightSource(), QStringLiteral("physical_scale"));
+    }
+
     void sensorTimeUsesExtractionOriginAndIncludesSettlingOnly() {
         DE1Device device;
         ShotTimingController tc(&device);

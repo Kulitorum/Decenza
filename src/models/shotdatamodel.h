@@ -95,6 +95,9 @@ public:
     const QList<PhaseMarker>& phaseMarkersList() const { return m_phaseMarkers; }
 
 public slots:
+    const QString& weightSource() const { return m_weightSource; }
+    const QString& portalMountingMode() const { return m_portalMountingMode; }
+    void setPortalMountingMode(const QString& mode) { m_portalMountingMode = mode; }
     void clear();
     void clearWeightData();  // Clear only weight samples (call when tare completes)
     void addPortalSample(double time, double ecRaw, double temperatureC);
@@ -106,6 +109,7 @@ public slots:
                    double pressureGoal, double flowGoal, double temperatureGoal,
                    double temperatureMixGoal,
                    int frameNumber = -1, bool isFlowMode = false);
+    void addWeightSample(double time, double weight, double flowRate, const QString& source);
     void addWeightSample(double time, double weight, double flowRate);
     void addWeightSample(double time, double weight);  // Overload without flowRate (from ShotTimingController)
     void markExtractionStart(double time);
@@ -146,6 +150,8 @@ private slots:
 private:
     // Data storage - fast vector appends
     QVector<QPointF> m_pressurePoints;
+    QString m_weightSource;
+    QString m_portalMountingMode;
     QVector<PortalSample> m_portalSamples;
     bool m_portalGap = true;
     bool m_portalDirty = false;
