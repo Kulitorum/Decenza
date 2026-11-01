@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Governs the Steam page's stop controls. The page SHALL NOT offer a dedicated Purge button, so the firmware steam-wand purge runs only as a side effect of stopping steam, and keyboard and screen-reader focus stays coherent after removal.
+Governs the Steam page's stop and Back controls and their keyboard/screen-reader focus order. Post-steam and idle-page Purge actions are specified in `steam-purge`.
 
 ## Requirements
 
