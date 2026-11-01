@@ -7,6 +7,7 @@
 // the history TU set that already pulls in internal.cpp anyway.
 
 #include "shothistorystorage.h"
+#include "shotwaterresult.h"
 #include "shothistorystorage_internal.h"
 #include "shotprojection.h"
 #include "equipmentstorage.h"
@@ -106,6 +107,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.recipeId = record.recipeId;
     p.steamJson = record.steamJson;
     p.hotWaterJson = record.hotWaterJson;
+    p.hotWaterResult = ShotWaterResult::fromJson(record.hotWaterResultJson).toMap();
 
     p.pressure = pointsToVariant(record.pressure);
     p.flow = pointsToVariant(record.flow);

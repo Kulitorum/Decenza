@@ -4,6 +4,7 @@
 #include "core/diagnosticlogging.h"
 #include "core/recipeeditfields.h"
 #include "machine/machinestate.h"
+#include "history/shotwaterresult.h"
 
 namespace {
 QString stepName(DrinkSequenceController::Step step)
@@ -65,6 +66,15 @@ DrinkSequenceController::DrinkSequenceController(DE1Device* device, MachineState
     if (m_machineState) {
         connect(m_machineState, &MachineState::shotFlowStarted,
                 this, &DrinkSequenceController::onFlowStarted);
+        connect(m_machineState, &MachineState::hotWaterResultReady, this,
+                [this](quint64 cycle, const QVariantMap& result) {
+            for (auto it = m_waterCaptures.begin(); it != m_waterCaptures.end(); ++it) {
+                if (it->waterCycle != cycle) continue;
+                it->result = result;
+                publishWaterResult(it.key());
+                break;
+            }
+        });
     }
     if (m_device) {
         connect(m_device, &DE1Device::stateChanged,
@@ -81,6 +91,17 @@ DrinkSequenceController::DrinkSequenceController(DE1Device* device, MachineState
 void DrinkSequenceController::onFlowStarted(int phase)
 {
     const bool recipeWater = std::exchange(m_recipeWaterExpected, false);
+    const auto phaseValue = static_cast<MachineState::Phase>(phase);
+    const bool espresso = phaseValue == MachineState::Phase::Preinfusion
+                       || phaseValue == MachineState::Phase::Pouring;
+    if (m_activeCaptureId && (m_stage == Stage::AwaitingStart || m_stage == Stage::Running)) {
+        if (m_step == Step::Espresso && espresso)
+            associateEspresso(m_activeCaptureId);
+        else if (m_step == Step::HotWater && phaseValue == MachineState::Phase::HotWater) {
+            auto it = m_waterCaptures.find(m_activeCaptureId);
+            if (it != m_waterCaptures.end()) it->waterCycle = m_machineState->hotWaterCycleId();
+        }
+    }
     if (!m_device || !m_activeRecipe || m_skipped || m_stage != Stage::Idle)
         return;
     const QVariantMap recipe = m_activeRecipe();
@@ -99,6 +120,13 @@ void DrinkSequenceController::onFlowStarted(int phase)
         next = Step::Espresso;
     if (next == Step::None)
         return;
+
+    m_activeCaptureId = ++m_nextCaptureId;
+    m_waterCaptures.insert(m_activeCaptureId, {});
+    if (next == Step::HotWater)
+        associateEspresso(m_activeCaptureId);
+    else
+        m_waterCaptures[m_activeCaptureId].waterCycle = m_machineState->hotWaterCycleId();
 
     m_firstStepState = m_device->state();
     m_recipeName = recipe.value(QStringLiteral("name")).toString();
@@ -225,10 +253,52 @@ void DrinkSequenceController::setStage(Stage stage, Step step)
         return;
     const Step wasPending = pendingStep();
     const bool wasActive = isActive();
+    if (stage == Stage::Idle && m_activeCaptureId) {
+        const auto id = std::exchange(m_activeCaptureId, 0);
+        auto it = m_waterCaptures.find(id);
+        if (it != m_waterCaptures.end()) {
+            if (it->espressoOperation <= 0)
+                m_waterCaptures.erase(it);
+            else if (it->waterCycle == 0) {
+                it->result = ShotWaterResult::notDispensed().toMap();
+                publishWaterResult(id);
+            }
+        }
+    }
     m_stage = stage;
     m_step = step;
     if (pendingStep() != wasPending)
         emit pendingStepChanged();
     if (isActive() != wasActive)
         emit activeChanged();
+}
+
+void DrinkSequenceController::associateEspresso(quint64 captureId)
+{
+    auto it = m_waterCaptures.find(captureId);
+    if (it == m_waterCaptures.end() || it->espressoOperation > 0 || !m_espressoOperation) return;
+    it->espressoOperation = m_espressoOperation();
+    if (it->espressoOperation <= 0) return;
+    emit waterEspressoAssociated(it->espressoOperation);
+    publishWaterResult(captureId);
+}
+
+void DrinkSequenceController::publishWaterResult(quint64 captureId)
+{
+    const auto it = m_waterCaptures.find(captureId);
+    if (it == m_waterCaptures.end() || it->espressoOperation <= 0 || it->result.isEmpty()) return;
+    const auto capture = *it;
+    m_waterCaptures.erase(it);
+    emit waterResultReady(capture.espressoOperation, capture.result);
+}
+
+void DrinkSequenceController::discardWaterForOperation(qint64 operation)
+{
+    // Non-espresso completion uses operation 0. A long black's water is still
+    // awaiting its espresso identity then, so it must survive that cleanup.
+    if (operation <= 0) return;
+    for (auto it = m_waterCaptures.begin(); it != m_waterCaptures.end();) {
+        if (it->espressoOperation == operation) it = m_waterCaptures.erase(it);
+        else ++it;
+    }
 }

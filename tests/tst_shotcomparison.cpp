@@ -80,6 +80,7 @@ private slots:
     void pairChangesReadsFromTo();
     void summaryIgnoresNoise();
     void deltaMatchesShownValues();
+    void waterResultsKeepTheirMeaningAndRebase();
 };
 
 // Each row: base value, other value, the field it lands in, expected state.
@@ -356,4 +357,45 @@ void TstShotComparison::pairChangesReadsFromTo()
 }
 
 QTEST_GUILESS_MAIN(TstShotComparison)
+void TstShotComparison::waterResultsKeepTheirMeaningAndRebase()
+{
+    ShotProjection base = shot(1), other = shot(2), unknown = shot(3);
+    base.finalWeightG = other.finalWeightG = 36;
+    base.hotWaterResult = {{"status", "dispensed"}, {"amountSource", "scale"},
+                          {"weightG", 100.0}, {"temperatureC", 85.0}};
+    other.hotWaterResult = base.hotWaterResult;
+    other.hotWaterResult.insert("weightG", 120.0);
+    other.hotWaterResult.insert("temperatureC", 90.0);
+    auto result = compare({base, other}, 0);
+    auto amount = row(result["metrics"].toArray(), "waterWeightG");
+    QCOMPARE(amount["cells"].toArray()[1].toObject()["delta"].toDouble(), 20.0);
+    const auto temp = row(result["inputs"].toArray(), "waterTemperatureC");
+    QCOMPARE(temp["cells"].toArray()[1].toObject()["delta"].toDouble(), 5.0);
+    QCOMPARE(row(result["metrics"].toArray(), "yieldG")["cells"].toArray()[0].toObject()["value"].toDouble(), 36.0);
+    QCOMPARE(row(result["metrics"].toArray(), "ratio")["cells"].toArray()[0].toObject()["value"].toDouble(), 2.0);
+    auto rebased = compare({base, other}, 1);
+    QCOMPARE(row(rebased["metrics"].toArray(), "waterWeightG")["cells"].toArray()[1].toObject()["delta"].toDouble(), -20.0);
+    other.hotWaterResult.insert("status", "interrupted");
+    auto partial = compare({base, other}, 0);
+    auto partialCell = row(partial["metrics"].toArray(), "waterWeightG")["cells"].toArray()[1].toObject();
+    QVERIFY(partialCell["delta"].isNull());
+    QCOMPARE(partialCell["water"].toObject()["status"].toString(), QString("interrupted"));
+    QVERIFY(!pairChanges(base, other)["outcomes"].toObject().contains("waterWeightG"));
+    other.hotWaterResult = {{"status", "dispensed"}, {"amountSource", "flowEstimate"}, {"volumeMl", 120.0}};
+    result = compare({base, other}, 0);
+    auto volume = row(result["metrics"].toArray(), "waterVolumeMl");
+    QCOMPARE(volume["unit"].toString(), QString("ml"));
+    QVERIFY(volume["cells"].toArray()[1].toObject()["delta"].isNull());
+    QVERIFY(volume["cells"].toArray()[0].toObject()["value"].isNull());
+    unknown.hotWaterJson = R"({"hasWater":true,"volume":100,"temperatureC":85})";
+    result = compare({base, unknown}, 0);
+    auto missing = row(result["metrics"].toArray(), "waterWeightG")["cells"].toArray()[1].toObject();
+    QVERIFY(missing["value"].isNull());
+    QVERIFY(missing["delta"].isNull());
+    QVERIFY(row(result["inputs"].toArray(), "waterTemperatureC").isEmpty());
+    other.hotWaterResult = {{"status", "notDispensed"}, {"amountSource", "unavailable"}};
+    result = compare({base, other}, 0);
+    QCOMPARE(row(result["metrics"].toArray(), "waterWeightG")["cells"].toArray()[1].toObject()["water"].toObject()["status"].toString(), QString("notDispensed"));
+}
+
 #include "tst_shotcomparison.moc"

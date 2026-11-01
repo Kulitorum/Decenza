@@ -15,6 +15,7 @@
 
 #include "history/shothistorystorage.h"
 #include "network/visualizersync.h"
+#include "history/shotwaterresult.h"
 #include "history/coffeebagstorage.h"
 #include "history/equipmentstorage.h"
 #include "core/appsettings.h"
@@ -233,6 +234,98 @@ private:
 
 
 private slots:
+    void waterResultAsyncWriterIsNarrowAndReportsFailure() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+        ShotSaveData data;
+        data.uuid = "saved-water";
+        data.timestamp = 1000;
+        data.profileName = "P";
+        data.duration = 30;
+        data.espressoNotes = "keep";
+        data.espressoEnjoyment = 80;
+        data.compressedSamples = qCompress(QByteArray("{}"));
+        data.hotWaterJson = R"({"hasWater":true,"volume":100})";
+        const QVariantMap initial{{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 100.0}};
+        data.hotWaterResultJson = ShotWaterResult::fromMap(initial).toJson();
+        const qint64 id = ShotHistoryStorage::saveShotStatic(path, data);
+        QVERIFY(id > 0);
+        withRawDb(path, "water_initial", [&](QSqlDatabase& db) {
+            const auto shot = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(ShotHistoryStorage::convertShotRecord(shot).hotWaterResult, initial);
+        });
+        QSignalSpy changed(&storage, &ShotHistoryStorage::shotWaterResultUpdated);
+        QSignalSpy finished(&storage, &ShotHistoryStorage::shotWaterResultUpdateFinished);
+        QSignalSpy metadata(&storage, &ShotHistoryStorage::shotMetadataUpdated);
+        QSignalSpy errors(&storage, &ShotHistoryStorage::errorOccurred);
+        auto result = initial;
+        result.insert("weightG", 103.2);
+        storage.requestUpdateShotWaterResult(id, data.uuid, result);
+        QTRY_COMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.first().at(1).toMap(), result);
+        QCOMPARE(metadata.count(), 0);
+        withRawDb(path, "water_async", [&](QSqlDatabase& db) {
+            const auto shot = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(ShotHistoryStorage::convertShotRecord(shot).hotWaterResult, result);
+            QCOMPARE(shot.espressoNotes, data.espressoNotes);
+            QCOMPARE(shot.summary.enjoyment, 80);
+            QCOMPARE(shot.hotWaterJson, data.hotWaterJson);
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QString("DELETE FROM shots WHERE id = %1").arg(id)));
+        });
+        storage.requestUpdateShotWaterResult(id, data.uuid, result);
+        QTRY_COMPARE(finished.count(), 2);
+        QVERIFY(!finished.last().at(1).toBool());
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(metadata.count(), 0);
+        QCOMPARE(errors.count(), 1);
+        QTRY_VERIFY(storage.isDbWorkIdle());
+    }
+
+    void waterResultPersistenceAndImport_data() {
+        QTest::addColumn<bool>("legacy");
+        QTest::addColumn<bool>("merge");
+        for (bool legacy : {false, true})
+            for (bool merge : {false, true})
+                QTest::newRow(qPrintable(QString("legacy%1-merge%2").arg(legacy).arg(merge))) << legacy << merge;
+    }
+    void waterResultPersistenceAndImport() {
+        QFETCH(bool, legacy);
+        QFETCH(bool, merge);
+        const QString source = freshDbPath(), dest = freshDbPath();
+        { ShotHistoryStorage storage; initAndClose(source, storage); }
+        { ShotHistoryStorage storage; initAndClose(dest, storage); }
+        const QVariantMap result{{"status", "dispensed"}, {"amountSource", "scale"},
+                                 {"weightG", 103.2}, {"temperatureC", 85.0}};
+        withRawDb(source, "water_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(hasColumn(db, "shots", "hot_water_result_json"));
+            QVERIFY(q.exec("INSERT INTO shots (id,uuid,timestamp,profile_name,duration_seconds,espresso_notes,enjoyment,hot_water_json) "
+                           R"(VALUES (1,'water',1000,'P',30,'keep',80,'{"hasWater":true,"volume":100}'))"));
+            const auto before = ShotHistoryStorage::loadShotRecordStatic(db, 1);
+            QVERIFY(before.hotWaterResultJson.isEmpty());
+            QVERIFY(!ShotHistoryStorage::updateShotWaterResultStatic(db, 1, "wrong", result));
+            QVERIFY(ShotHistoryStorage::updateShotWaterResultStatic(db, 1, "water", result));
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, 1, {{"espressoNotes", "new note"}}));
+            const auto shot = ShotHistoryStorage::loadShotRecordStatic(db, 1);
+            QCOMPARE(ShotHistoryStorage::convertShotRecord(shot).hotWaterResult, result);
+            QCOMPARE(shot.espressoNotes, QString("new note"));
+            QCOMPARE(shot.summary.enjoyment, 80);
+            QCOMPARE(shot.hotWaterJson, before.hotWaterJson);
+            if (legacy) QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN hot_water_result_json"));
+        });
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(dest, source, merge));
+        withRawDb(dest, "water_import", [&](QSqlDatabase& db) {
+            const auto record = ShotHistoryStorage::loadShotRecordStatic(db, 1);
+            QCOMPARE(ShotHistoryStorage::convertShotRecord(record).hotWaterResult,
+                     legacy ? QVariantMap() : result);
+            QVERIFY(!ShotHistoryStorage::updateShotWaterResultStatic(db, 999, "water", result));
+        });
+    }
+
     void importRecipesWithoutShots_data() {
         QTest::addColumn<bool>("merge");
         QTest::newRow("merge") << true;

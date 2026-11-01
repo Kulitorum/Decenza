@@ -1,6 +1,7 @@
 #include "models/portalsample.h"
 #include "core/diagnosticlogging.h"
 #include "shotprojection.h"
+#include "shotwaterresult.h"
 
 #include <QMetaType>
 #include <QDebug>
@@ -122,6 +123,9 @@ QVariantMap ShotProjection::toVariantMap() const
         m["steamJson"] = steamJson;
     if (!hotWaterJson.isEmpty())
         m["hotWaterJson"] = hotWaterJson;
+    const auto waterResult = ShotWaterResult::fromMap(hotWaterResult).toMap();
+    if (!waterResult.isEmpty())
+        m["hotWaterResult"] = waterResult;
     // Recipe DISPLAY fields (history-recipe-identity) — resolved live by the
     // list queries that join `recipes`, not shot data. Sparse: absent on a
     // recipe-less shot and on every projection that did not join.
@@ -268,6 +272,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.equipmentName = m.value("equipmentName").toString();
     p.steamJson = m.value("steamJson").toString();
     p.hotWaterJson = m.value("hotWaterJson").toString();
+    p.hotWaterResult = ShotWaterResult::fromMap(m.value("hotWaterResult").toMap()).toMap();
 
     p.channelingDetected = m.value("channelingDetected").toBool();
     p.grindIssueDetected = m.value("grindIssueDetected").toBool();

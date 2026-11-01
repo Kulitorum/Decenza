@@ -8,6 +8,7 @@
 #include <QVector>
 
 #include "history/shotprojection.h"
+#include "history/shotwaterresult.h"
 
 // Guards ShotProjection::coerce() — the conversion that lets Q_INVOKABLE
 // uploaders take `const QVariant&` and accept BOTH shapes QML hands across the
@@ -33,6 +34,7 @@ private slots:
     void toVariantMap_roundTripsRpm();
     void toVariantMap_roundTripsRecipeDisplayAndDateTime();
     void everyQPropertySurvivesARoundTrip();
+    void waterResultKeepsUnitsAndMissingMeaning();
 };
 
 static ShotProjection makeSampleShot()
@@ -355,6 +357,32 @@ void TstShotProjection::everyQPropertySurvivesARoundTrip()
                                            "its key differently")
                                 .arg(QString::fromLatin1(name))));
     }
+}
+
+void TstShotProjection::waterResultKeepsUnitsAndMissingMeaning()
+{
+    ShotProjection p;
+    p.id = 1;
+    QVERIFY(!p.toVariantMap().contains("hotWaterResult"));
+    p.hotWaterResult = {{"status", "dispensed"}, {"amountSource", "scale"},
+                       {"weightG", 103.2}, {"temperatureC", 85.0}};
+    const auto back = ShotProjection::coerce(p.toVariantMap());
+    QCOMPARE(back.hotWaterResult, p.hotWaterResult);
+    auto invalid = p.hotWaterResult;
+    invalid.insert("volumeMl", 100.0);
+    const auto ambiguous = ShotWaterResult::fromMap(invalid).toMap();
+    QVERIFY(!ambiguous.contains("weightG"));
+    QVERIFY(!ambiguous.contains("volumeMl"));
+    QCOMPARE(ambiguous.value("amountSource").toString(), QString("unavailable"));
+    invalid = p.hotWaterResult;
+    invalid.insert("weightG", std::numeric_limits<double>::quiet_NaN());
+    QVERIFY(!ShotWaterResult::fromMap(invalid).toMap().contains("weightG"));
+    const auto skipped = ShotWaterResult::notDispensed().toMap();
+    QVERIFY(!skipped.contains("weightG"));
+    QVERIFY(!ShotWaterResult::setting(skipped, R"({"hasWater":true,"temperatureC":90})"));
+    QCOMPARE(*ShotWaterResult::setting({}, R"({"hasWater":true,"temperatureC":85})"), 85.0);
+    invalid.insert("status", "unknown");
+    QVERIFY(ShotWaterResult::fromMap(invalid).toMap().isEmpty());
 }
 
 QTEST_APPLESS_MAIN(TstShotProjection)

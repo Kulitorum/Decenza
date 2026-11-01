@@ -27,6 +27,14 @@ T.Page {
         target: shotComparisonPage.comparisonModel
         function onShotsChanged() { shotComparisonPage._summaryVersion++ }
     }
+    Connections {
+        target: HistoryService
+        function onShotWaterResultUpdated(shotId, result) {
+            if (ComparisonService.selectedShotIds.indexOf(shotId) < 0) return
+            ComparisonService.restoreSelection(ComparisonService.selectedShotIds,
+                ComparisonService.baseShotId, ComparisonService.windowStart)
+        }
+    }
     readonly property var navigationContext: ({selectedShotIds: ComparisonService.selectedShotIds,
                                                baseShotId: ComparisonService.baseShotId,
                                                windowStart: ComparisonService.windowStart})

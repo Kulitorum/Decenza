@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 46;
+    static constexpr int kCurrentSchemaVersion = 47;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -410,6 +410,9 @@ public:
 
     // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
+    void requestUpdateShotWaterResult(qint64 shotId, const QString& uuid, const QVariantMap& result);
+    static bool updateShotWaterResultStatic(QSqlDatabase& db, qint64 shotId, const QString& uuid,
+                                            const QVariantMap& result);
     void requestUpdateShotMetadataForRequest(const QString& requestId, qint64 shotId,
                                              const QVariantMap& metadata);
 
@@ -717,6 +720,7 @@ signals:
     void readyChanged();
     void totalShotsChanged();
     void shotSaved(qint64 shotId);
+    void shotSavedWithUuid(qint64 shotId, const QString& uuid);
     void shotDeleted(qint64 shotId);
     void shotsDeleted(const QVariantList& shotIds);
     void shotsDeleteRequestFinished(const QString& requestId, bool success,
@@ -769,6 +773,8 @@ signals:
     // Emitted on the owning thread after an imported database commits.
     void importedDatabaseChanged();
     void shotMetadataUpdated(qint64 shotId, bool success);
+    void shotWaterResultUpdated(qint64 shotId, const QVariantMap& result);
+    void shotWaterResultUpdateFinished(qint64 shotId, bool success);
     void shotMetadataUpdateRequestFinished(const QString& requestId, qint64 shotId,
                                            bool success, const QString& reason);
     // A Visualizer pull changed these metadata keys (from `previous` to `written`).
