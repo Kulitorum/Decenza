@@ -26,6 +26,7 @@ DecenzaDialog {
         readonly property var snapshot: DataMigrationService.snapshot
         readonly property bool isConnecting: snapshot.isConnecting === true
         readonly property bool isImporting: snapshot.isImporting === true
+        readonly property bool canCancelImport: snapshot.canCancelImport !== false
         readonly property bool isSearching: snapshot.isSearching === true
         readonly property real progress: snapshot.progress || 0
         readonly property string currentOperation: snapshot.currentOperation || ""
@@ -80,9 +81,11 @@ DecenzaDialog {
                 if ((result.mediaImported || 0) > 0) parts.push(result.mediaImported + " media")
                 if ((result.aiConversationsImported || 0) > 0) parts.push(result.aiConversationsImported + " conversations")
                 const note = result.aiConversationNote || migrationState.aiConversationNote || ""
-                const summary = parts.length > 0
+                const summary = result.replaced === true
+                    ? TranslationManager.translate("settings.data.replaceComplete", "Replacement complete.")
+                    : parts.length > 0
                     ? TranslationManager.translate("settings.data.importComplete", "Import complete:") + " " + parts.join(", ")
-                    : TranslationManager.translate("settings.data.importNothingNew", "Import complete — nothing new to import")
+                    : TranslationManager.translate("settings.data.importCompleteGeneric", "Import complete.")
                 migrationDialog.importResult = note ? summary + "\n" + note : summary
                 ProfileService.refresh()
             }
@@ -596,6 +599,15 @@ DecenzaDialog {
             spacing: Theme.scaled(8)
             visible: migrationState.manifest && migrationState.manifest.deviceName !== undefined
 
+            Text {
+                Layout.fillWidth: true
+                visible: migrationState.manifest.hasLanguageTranslations !== true
+                text: TranslationManager.translate("settings.data.oldSourceLanguageNote", "This device cannot transfer custom language strings. Update the source device, or export and import its language JSON separately.")
+                color: Theme.warningColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+            }
+
             // Import All button
             RowLayout {
                 Layout.fillWidth: true
@@ -611,9 +623,16 @@ DecenzaDialog {
                 }
 
                 AccessibleButton {
+                    text: TranslationManager.translate("settings.data.replaceAll", "Replace All...")
+                    accessibleName: TranslationManager.translate("settings.data.replaceAllAccessible", "Replace this device's data with the other device's data")
+                    visible: !migrationState.isImporting
+                    onClicked: replaceDeviceDialog.open()
+                }
+
+                AccessibleButton {
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("settings.data.cancelImport", "Cancel import operation")
-                    visible: migrationState.isImporting
+                    visible: migrationState.isImporting && migrationState.canCancelImport
                     onClicked: migrationDialog.submitMigration("cancel")
                 }
 
@@ -644,8 +663,11 @@ DecenzaDialog {
                 AccessibleButton {
                     text: TranslationManager.translate("settings.data.importshots", "Import Shots") +
                           " (" + (migrationState.manifest.shotCount || 0) + ")"
-                    accessibleName: TranslationManager.translate("settings.data.importShotsAccessible", "Import only shot history from remote device")
-                    enabled: (migrationState.manifest.shotCount || 0) > 0
+                    accessibleName: TranslationManager.translate("settings.data.importShotsWithRecipesAccessible", "Import shot history, recipes, coffee bags and equipment from remote device")
+                    enabled: (migrationState.manifest.shotCount || 0) > 0 ||
+                             (migrationState.manifest.recipeCount || 0) > 0 ||
+                             (migrationState.manifest.bagCount || 0) > 0 ||
+                             (migrationState.manifest.equipmentCount || 0) > 0
                     onClicked: migrationDialog.submitMigration("importOnlyShots")
                 }
 
@@ -678,6 +700,47 @@ DecenzaDialog {
                 onClicked: migrationDialog.close()
             }
         }
+        }
+    }
+
+    DecenzaDialog {
+        id: replaceDeviceDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.9, Theme.scaled(430))
+        modal: true
+        title: TranslationManager.translate("settings.data.replaceDeviceTitle", "Replace this device's data?")
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.warningColor
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.data.replaceDeviceWarningV2", "This replaces current shots, recipes, profiles, media and settings with data from the other device. The selected language's custom strings transfer if the source is up to date. This cannot be undone. The restore cannot be cancelled once it starts.")
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: text
+                    onClicked: replaceDeviceDialog.close()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.data.replaceAllConfirm", "Replace Data")
+                    accessibleName: text
+                    onClicked: {
+                        replaceDeviceDialog.close()
+                        migrationDialog.submitMigration("importAll", {replace: true})
+                    }
+                }
+            }
         }
     }
 }

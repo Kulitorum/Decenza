@@ -658,6 +658,23 @@ private slots:
         QCOMPARE(m_settings.upload()->autoUpdate(), true);
     }
 
+    void exportedSettingsRestoreChangedValues() {
+        m_settings.setScaleAddress(QStringLiteral("AA:BB:CC:DD:EE:FF"));
+        m_settings.brew()->setSteamTemperature(155.0);
+        m_settings.brew()->setDoseCaptureSoundEnabled(true);
+        const QJsonObject exported = SettingsSerializer::exportToJson(&m_settings, false);
+        m_settings.setScaleAddress(QStringLiteral("11:22:33:44:55:66"));
+        m_settings.brew()->setSteamTemperature(140.0);
+        m_settings.brew()->setDoseCaptureSoundEnabled(false);
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, QJsonObject{
+            {QStringLiteral("scale"), exported.value(QStringLiteral("scale"))},
+            {QStringLiteral("steam"), exported.value(QStringLiteral("steam"))},
+            {QStringLiteral("espresso"), exported.value(QStringLiteral("espresso"))}}));
+        QCOMPARE(m_settings.scaleAddress(), QStringLiteral("AA:BB:CC:DD:EE:FF"));
+        QCOMPARE(m_settings.brew()->steamTemperature(), 155.0);
+        QVERIFY(m_settings.brew()->doseCaptureSoundEnabled());
+    }
+
     void ignoreVolumeWithScaleRoundTrip() {
         bool original = m_settings.brew()->ignoreVolumeWithScale();
         m_settings.brew()->setIgnoreVolumeWithScale(!original);

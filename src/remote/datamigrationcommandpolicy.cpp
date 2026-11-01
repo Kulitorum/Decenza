@@ -13,12 +13,19 @@ bool DataMigrationCommandPolicy::validate(const QString& operation,
     };
     static const QStringList noArgumentOps{
         QStringLiteral("startDiscovery"), QStringLiteral("stopDiscovery"),
-        QStringLiteral("disconnect"), QStringLiteral("importAll"),
+        QStringLiteral("disconnect"),
         QStringLiteral("importOnlySettings"), QStringLiteral("importOnlyProfiles"),
         QStringLiteral("importOnlyShots"), QStringLiteral("importOnlyMedia"),
         QStringLiteral("importOnlyAIConversations"), QStringLiteral("cancel")};
     if (noArgumentOps.contains(operation))
         return arguments.isEmpty() || reject(QStringLiteral("unexpectedArguments"));
+    if (operation == QLatin1String("importAll")) {
+        if (arguments.isEmpty()) return true;
+        if (arguments.size() != 1 || !arguments.contains(QStringLiteral("replace"))
+            || arguments.value(QStringLiteral("replace")).typeId() != QMetaType::Bool)
+            return reject(QStringLiteral("unexpectedArguments"));
+        return true;
+    }
     if (operation == QLatin1String("connectToServer")) {
         const QString address = arguments.value(QStringLiteral("serverUrl")).toString().trimmed();
         if (address.isEmpty() || address.size() > 512)
@@ -55,6 +62,7 @@ QVariantMap DataMigrationCommandPolicy::safeManifest(const QVariantMap& source)
     for (const QString& key : integers)
         safe.insert(key, qBound(0, source.value(key).toInt(), 1000000));
     safe.insert(QStringLiteral("hasSettings"), source.value(QStringLiteral("hasSettings")).toBool());
+    safe.insert(QStringLiteral("hasLanguageTranslations"), source.value(QStringLiteral("hasLanguageTranslations")).toBool());
     return safe;
 }
 

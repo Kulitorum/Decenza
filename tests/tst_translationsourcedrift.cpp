@@ -72,6 +72,105 @@ private:
     QNetworkAccessManager m_nam;
 
 private slots:
+    void languageBackupReportsUnreadableSource()
+    {
+        Settings settings;
+        TranslationManager manager(&m_nam, &settings);
+        auto snapshot = manager.captureFileSnapshot();
+        snapshot.loadFailed = true;
+        QJsonObject backup;
+        TranslationManager::addLanguageToBackup(backup, snapshot);
+        QVERIFY(backup.value(QStringLiteral("languageTranslationError")).toBool());
+        QVERIFY(!backup.contains(QStringLiteral("languageTranslation")));
+    }
+
+    void languageImportCannotInterruptAiTranslation()
+    {
+        Settings settings;
+        TranslationManager manager(&m_nam, &settings);
+        manager.setCurrentLanguage(QStringLiteral("de"));
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("incoming.json"));
+        QFile input(path);
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        input.write("{\"language\":\"en-GB\",\"translations\":{\"fixture\":\"Jug\"}}");
+        input.close();
+        const auto prepared = TranslationManager::prepareTranslationImport(manager.captureFileSnapshot(), path, QStringLiteral("en-GB"));
+        QVERIFY(prepared.reason.isEmpty());
+        manager.m_autoTranslating = true;
+        const QVariantMap result = manager.commitTranslationImport(prepared);
+        QVERIFY(!result.value(QStringLiteral("success")).toBool());
+        QCOMPARE(result.value(QStringLiteral("reason")).toString(), QStringLiteral("busy"));
+        manager.setCurrentLanguage(QStringLiteral("en-GB"));
+        QCOMPARE(manager.currentLanguage(), QStringLiteral("de"));
+        manager.m_autoTranslating = false;
+    }
+
+    void languageBackupMergesOrReplacesCustomizations_data()
+    {
+        QTest::addColumn<bool>("replace");
+        QTest::newRow("merge") << false;
+        QTest::newRow("replace") << true;
+    }
+
+    void languageBackupMergesOrReplacesCustomizations()
+    {
+        QFETCH(bool, replace);
+        Settings settings;
+        TranslationManager manager(&m_nam, &settings);
+        manager.setCurrentLanguage(QStringLiteral("en-GB"));
+        manager.registerString(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk pitcher"));
+        manager.registerString(QStringLiteral("fixture.local"), QStringLiteral("Local"));
+        manager.setTranslation(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk jug"));
+        QJsonObject backup;
+        TranslationManager::addLanguageToBackup(backup, manager.captureFileSnapshot());
+        QVERIFY(!backup.value(QStringLiteral("languageTranslationError")).toBool());
+        manager.setTranslation(QStringLiteral("fixture.pitcher"), QStringLiteral("Old jug"));
+        manager.setTranslation(QStringLiteral("fixture.local"), QStringLiteral("Local edit"));
+        QTemporaryDir directory;
+        QFile file(directory.filePath(QStringLiteral("language.json")));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray payload = QJsonDocument(backup.value(QStringLiteral("languageTranslation")).toObject()).toJson();
+        QCOMPARE(file.write(payload), payload.size());
+        file.close();
+        const auto prepared = TranslationManager::prepareTranslationImport(manager.captureFileSnapshot(),
+            file.fileName(), QStringLiteral("en-GB"), replace);
+        QVERIFY2(prepared.reason.isEmpty(), qPrintable(prepared.reason));
+        QVERIFY(manager.commitTranslationImport(prepared).value(QStringLiteral("success")).toBool());
+        QStringList overrides;
+        for (const QJsonValue& value : backup.value(QStringLiteral("languageOverrides")).toArray())
+            overrides.append(value.toString());
+        QVERIFY(manager.applyTransferredOverrides(overrides, replace));
+        QCOMPARE(manager.translateString(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk pitcher")), QStringLiteral("Milk jug"));
+        QCOMPARE(manager.translateString(QStringLiteral("fixture.local"), QStringLiteral("Local")),
+                 replace ? QStringLiteral("Local") : QStringLiteral("Local edit"));
+        QVERIFY(manager.m_userOverrides.contains(QStringLiteral("fixture.pitcher")));
+        QCOMPARE(manager.m_userOverrides.contains(QStringLiteral("fixture.local")), !replace);
+        manager.m_userOverrides.clear();
+        manager.loadUserOverrides();
+        QVERIFY(manager.m_userOverrides.contains(QStringLiteral("fixture.pitcher")));
+        QCOMPARE(manager.m_userOverrides.contains(QStringLiteral("fixture.local")), !replace);
+    }
+
+    void ukPromptPreservesPlaceholdersAndUsesContext()
+    {
+        Settings settings;
+        TranslationManager manager(&m_nam, &settings);
+        manager.setCurrentLanguage(QStringLiteral("en-GB"));
+        const QString prompt = manager.buildTranslationPrompt({QVariantMap{
+            {QStringLiteral("key"), QStringLiteral("Milk pitcher")},
+            {QStringLiteral("fallback"), QStringLiteral("Milk pitcher")}}});
+        QVERIFY(prompt.contains(QStringLiteral("milk jug")));
+        QVERIFY(prompt.contains(QStringLiteral("%1, %2")));
+        QVERIFY(prompt.contains(QStringLiteral("\"Milk pitcher\":\"Milk pitcher\"")));
+        const QString tricky = QStringLiteral("A \"quoted\" line\nwith a backslash \\");
+        const QString escapedPrompt = manager.buildTranslationPrompt({QVariantMap{
+            {QStringLiteral("key"), tricky}, {QStringLiteral("fallback"), tricky}}});
+        const auto input = QJsonDocument::fromJson(escapedPrompt.mid(escapedPrompt.indexOf('{', escapedPrompt.indexOf("Strings to translate:"))).toUtf8());
+        QCOMPARE(input.object().value(tricky).toString(), tricky);
+    }
+
     void initTestCase()
     {
         QStandardPaths::setTestModeEnabled(true);
@@ -658,6 +757,23 @@ private slots:
             "{\"choices\":[{\"message\":{\"content\":\"{\\\"Hello\\\": \\\"Hallo\\\"}\"}}]}";
         QVERIFY2(tm.parseAutoTranslateResponse(good),
                  "a well-formed reply must still succeed");
+
+        const QVariantList requested{QVariantMap{{QStringLiteral("key"), QStringLiteral("Hello")}},
+                                     QVariantMap{{QStringLiteral("key"), QStringLiteral("World")}}};
+        QVERIFY2(!tm.parseAutoTranslateResponse(good, requested),
+                 "a reply omitting a requested string must fail instead of triggering an upload");
+
+        tm.registerString(QStringLiteral("retranslate.hello"), QStringLiteral("Hello"));
+        tm.m_translations[QStringLiteral("retranslate.hello")] = QStringLiteral("old manual");
+        tm.m_userOverrides.insert(QStringLiteral("retranslate.hello"));
+        const QVariantList hello{QVariantMap{{QStringLiteral("key"), QStringLiteral("Hello")}}};
+        tm.m_retranslatingAll = false;
+        QVERIFY(tm.parseAutoTranslateResponse(good, hello));
+        QCOMPARE(tm.m_translations.value(QStringLiteral("retranslate.hello")), QStringLiteral("old manual"));
+        tm.m_retranslatingAll = true;
+        QVERIFY(tm.parseAutoTranslateResponse(good, hello));
+        QCOMPARE(tm.m_translations.value(QStringLiteral("retranslate.hello")), QStringLiteral("Hallo"));
+        QVERIFY(!tm.m_userOverrides.contains(QStringLiteral("retranslate.hello")));
     }
 
     // The consequence, not the helper. Every previous round tested one frame below the bug and

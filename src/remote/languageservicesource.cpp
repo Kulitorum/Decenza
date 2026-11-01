@@ -90,6 +90,15 @@ NativeLanguageServiceSource::NativeLanguageServiceSource(TranslationManager* man
     connect(manager, &TranslationManager::untranslatedCountChanged, this, [this] {
         if (m_applyingPreparedFile) return;
         m_uniqueCountsCached = false;
+        const QString current = m_manager->currentLanguage();
+        for (QVariant& value : m_languageRows) {
+            QVariantMap row = value.toMap();
+            if (row.value(QStringLiteral("code")).toString() == current) {
+                row.insert(QStringLiteral("percent"), m_manager->getTranslationPercent(current));
+                value = row;
+                break;
+            }
+        }
         queueSnapshotPublication();
     });
     connect(manager, &TranslationManager::totalStringCountChanged, this, [this] {
@@ -246,6 +255,7 @@ void NativeLanguageServiceSource::rebuildLanguageRows(const QString& refreshPerc
             {QStringLiteral("displayName"), m_manager->getLanguageDisplayName(code)},
             {QStringLiteral("nativeName"), m_manager->getLanguageNativeName(code)},
             {QStringLiteral("isRemote"), m_manager->isRemoteLanguage(code)},
+            {QStringLiteral("communityAvailable"), m_manager->communityLanguageAvailable(code)},
             {QStringLiteral("percent"), refreshPercent
                  ? m_manager->getTranslationPercent(code) : cachedPercents.value(code)}});
     }
@@ -428,6 +438,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         || operation == QLatin1String("copyAiToFinal")
         || operation == QLatin1String("clearAllAiTranslations")
         || operation == QLatin1String("autoTranslate")
+        || operation == QLatin1String("retranslateAll")
         || operation == QLatin1String("importTranslation")
         || operation == QLatin1String("exportTranslation");
     if (contextOperation) {
@@ -436,6 +447,16 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
             finish(requestId, operation, false, {}, contextError);
             return;
         }
+    }
+    if (manager->isAutoTranslating()
+        && (operation == QLatin1String("setGroupTranslation")
+            || operation == QLatin1String("clearAiTranslation")
+            || operation == QLatin1String("copyAiToFinal")
+            || operation == QLatin1String("clearAllAiTranslations")
+            || operation == QLatin1String("importTranslation")
+            || operation == QLatin1String("downloadLanguage"))) {
+        finish(requestId, operation, false, {}, QStringLiteral("busy"));
+        return;
     }
     if ((operation == QLatin1String("importTranslation") || operation == QLatin1String("exportTranslation"))
         && (!m_fileOperationAllowed || !m_fileOperationAllowed())) {
@@ -474,11 +495,11 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
             || !manager->availableLanguages().contains(code)) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidLanguage")); return;
         }
-        if (manager->isDownloading()) {
+        if (manager->isDownloading() || manager->isAutoTranslating()) {
             finish(requestId, operation, false, {}, QStringLiteral("busy")); return;
         }
         manager->setCurrentLanguage(code);
-        if (manager->isRemoteLanguage(code)) {
+        if (manager->needsCommunityDownload(code)) {
             // Selecting a community-only language is immediately reflected in the
             // host, then the canonical download must finish before this request.
             if (!async(QStringLiteral("languageDownloaded"), code)) return;
@@ -490,7 +511,8 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("code")})
             || !boundedString(arguments, QStringLiteral("code"), 64, &code)
             || !TranslationManager::isValidLanguageCode(code) || code == QLatin1String("en")
-            || manager->isRemoteLanguage(code) || manager->isDownloading()) {
+            || manager->isRemoteLanguage(code) || !manager->communityLanguageAvailable(code)
+            || manager->isDownloading()) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidLanguageOrBusy")); return;
         }
         if (!async(QStringLiteral("languageDownloaded"), code)) return;
@@ -723,7 +745,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         }
         const bool saved = manager->clearAllAiTranslations();
         finish(requestId, operation, saved, {}, saved ? QString() : QStringLiteral("writeFailedOrUnavailable"));
-    } else if (operation == QLatin1String("autoTranslate")) {
+    } else if (operation == QLatin1String("autoTranslate") || operation == QLatin1String("retranslateAll")) {
         if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
@@ -731,7 +753,8 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
             finish(requestId, operation, false, {}, QStringLiteral("unavailableOrBusy")); return;
         }
         if (!async(QStringLiteral("autoTranslateFinished"))) return;
-        manager->autoTranslate();
+        if (operation == QLatin1String("retranslateAll")) manager->retranslateAll();
+        else manager->autoTranslate();
         publishSnapshot();
     } else if (operation == QLatin1String("cancelAutoTranslate")) {
         if (!arguments.isEmpty() || !manager->isAutoTranslating()) {

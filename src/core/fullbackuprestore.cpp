@@ -294,7 +294,37 @@ bool validateStagedPayloads(const std::shared_ptr<FullBackupRestore::PreparedArc
             return false;
         }
         if (file->name == QLatin1String("settings.json")) archive->settingsObject = document.object();
-        else if (file->name == QLatin1String("extra_settings.json")) archive->extraSettingsObject = document.object();
+        else if (file->name == QLatin1String("extra_settings.json")) {
+            archive->extraSettingsObject = document.object();
+            if (archive->extraSettingsObject.value(QStringLiteral("languageTranslationError")).toBool()) {
+                *error = QStringLiteral("The source could not read its language customizations");
+                return false;
+            }
+            if (archive->extraSettingsObject.contains(QStringLiteral("languageTranslation"))) {
+                const QJsonValue languageInput = archive->extraSettingsObject.value(QStringLiteral("languageTranslation"));
+                QStringList overrides;
+                const QString path = archive->directory->filePath(QStringLiteral("validate-language.json"));
+                QFile languageFile(path);
+                const QByteArray payload = QJsonDocument(languageInput.toObject()).toJson(QJsonDocument::Compact);
+                TranslationManager::FileSnapshot emptySnapshot;
+                emptySnapshot.directory = archive->directory->path();
+                if (!languageInput.isObject()
+                    || !TranslationManager::readBackupOverrides(languageInput.toObject(),
+                        archive->extraSettingsObject.value(QStringLiteral("languageOverrides")), &overrides)
+                    || !languageFile.open(QIODevice::WriteOnly)
+                    || languageFile.write(payload) != payload.size() || !languageFile.flush()) {
+                    *error = QStringLiteral("Backup contains invalid language customizations");
+                    return false;
+                }
+                languageFile.close();
+                const auto checked = TranslationManager::prepareTranslationImport(emptySnapshot, path,
+                    archive->extraSettingsObject.value(QStringLiteral("language")).toString(), true);
+                if (!checked.reason.isEmpty()) {
+                    *error = QStringLiteral("Backup contains invalid language customizations");
+                    return false;
+                }
+            }
+        }
         else if (expectedArray) {
             archive->conversationsArray = document.array();
             for (const QJsonValue& value : archive->conversationsArray) {
@@ -402,8 +432,9 @@ void FullBackupRestore::applySettingsData(const std::shared_ptr<PreparedArchive>
     if (options.settings && !archive->settings.path.isEmpty() && m_settings) {
         const QJsonObject settingsJson = archive->settingsObject;
         if (!settingsJson.isEmpty()) {
-            const bool imported = SettingsSerializer::importFromJson(
-                m_settings, settingsJson, SettingsSerializer::sensitiveKeys());
+            QStringList excluded = SettingsSerializer::sensitiveKeys();
+            if (options.preserveFlowCalibration) excluded.append(QStringLiteral("flowCalibration"));
+            const bool imported = SettingsSerializer::importFromJson(m_settings, settingsJson, excluded);
             if (!guard) return;
             if (m_active) {
                 m_active->settingsRestored = imported;
@@ -502,6 +533,12 @@ void FullBackupRestore::applyNonShotData(const std::shared_ptr<PreparedArchive>&
     for (const StagedFile& file : *stagedProfiles) cleanup->paths.append(file.temporary);
     for (const StagedFile& file : *stagedMedia) cleanup->paths.append(file.temporary);
     const QPointer<FullBackupRestore> guard(this);
+    const bool hasLanguage = options.settings
+        && archive->extraSettingsObject.contains(QStringLiteral("languageTranslation"));
+    const bool hasTranslationManager = !m_translations.isNull();
+    const auto languageSnapshot = m_translations ? m_translations->captureFileSnapshot()
+                                                 : TranslationManager::FileSnapshot{};
+    const QPointer<TranslationManager> translations = m_translations;
     QCoreApplication* const application = QCoreApplication::instance();
     if (!application) {
         if (completed) completed(false);
@@ -509,8 +546,28 @@ void FullBackupRestore::applyNonShotData(const std::shared_ptr<PreparedArchive>&
     }
     QThreadPool::globalInstance()->start(QRunnable::create(
         [guard, application, requestId, archive, options, stagedProfiles, stagedMedia, cleanup,
+         hasLanguage, hasTranslationManager, languageSnapshot, translations,
          profilePairs = *stagedProfiles, mediaPairs = *stagedMedia, completed]() mutable {
             bool success = true;
+            TranslationManager::PreparedImport language;
+            QStringList overrides;
+            if (hasLanguage) {
+                const QJsonValue input = archive->extraSettingsObject.value(QStringLiteral("languageTranslation"));
+                const QJsonValue overrideInput = archive->extraSettingsObject.value(QStringLiteral("languageOverrides"));
+                success = hasTranslationManager && input.isObject()
+                    && TranslationManager::readBackupOverrides(input.toObject(), overrideInput, &overrides);
+                const QString path = archive->directory->filePath(QStringLiteral("language-import.json"));
+                QFile file(path);
+                const QByteArray payload = QJsonDocument(input.toObject()).toJson(QJsonDocument::Compact);
+                if (success && file.open(QIODevice::WriteOnly) && file.write(payload) == payload.size() && file.flush()) {
+                    file.close();
+                    language = TranslationManager::prepareTranslationImport(languageSnapshot, path,
+                        archive->extraSettingsObject.value(QStringLiteral("language")).toString(), !options.merge);
+                    success = language.reason.isEmpty();
+                } else {
+                    success = false;
+                }
+            }
             for (const StagedFile& profile : profilePairs) {
                 if (!success) break;
                 QFile source(profile.source);
@@ -527,9 +584,23 @@ void FullBackupRestore::applyNonShotData(const std::shared_ptr<PreparedArchive>&
                 }
             }
             QMetaObject::invokeMethod(application, [guard, requestId, success, archive, options, cleanup,
-                                              stagedProfiles, stagedMedia, completed] {
-                if (guard) guard->nonShotDataStaged(requestId, success, archive, options,
-                                                     stagedProfiles, stagedMedia, completed);
+                                              stagedProfiles, stagedMedia, completed, hasLanguage, language, overrides, translations] {
+                if (!guard || !guard->m_active || guard->m_active->requestId != requestId) return;
+                bool ready = success && (!guard->m_restoreAllowed || guard->m_restoreAllowed());
+                if (ready && hasLanguage) {
+                    ready = translations && translations->commitTranslationImport(language)
+                        .value(QStringLiteral("success")).toBool();
+                    if (!guard) return;
+                    if (!translations) ready = false;
+                    if (ready) {
+                        translations->setCurrentLanguage(language.language);
+                        if (!guard) return;
+                        ready = translations && translations->currentLanguage() == language.language
+                            && translations->applyTransferredOverrides(overrides, !options.merge);
+                    }
+                }
+                if (guard) guard->nonShotDataStaged(requestId, ready, archive, options,
+                                                    stagedProfiles, stagedMedia, completed);
                 Q_UNUSED(cleanup)
             }, Qt::QueuedConnection);
         }));
@@ -739,7 +810,10 @@ void FullBackupRestore::importShots(const QString& requestId)
                 Q_UNUSED(archive)
                 if (!guard || !guard->m_active || guard->m_active->requestId != requestId) return;
                 auto* self = guard.data();
-                if (success && self->m_storage) self->m_storage->refreshTotalShots();
+                if (success && self->m_storage) {
+                    self->m_storage->refreshTotalShots();
+                    emit self->m_storage->importedDatabaseChanged();
+                }
                 if (!guard || !guard->m_active || guard->m_active->requestId != requestId) return;
                 self->m_active->shotsImported = success;
                 auto finishShotImport = [guard, requestId, success, shotImport] {

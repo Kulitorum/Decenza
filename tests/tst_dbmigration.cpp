@@ -233,6 +233,39 @@ private:
 
 
 private slots:
+    void importRecipesWithoutShots_data() {
+        QTest::addColumn<bool>("merge");
+        QTest::newRow("merge") << true;
+        QTest::newRow("replace") << false;
+    }
+
+    void importRecipesWithoutShots() {
+        QFETCH(bool, merge);
+        const QString source = freshDbPath();
+        const QString destination = freshDbPath();
+        ShotHistoryStorage sourceStorage, destinationStorage;
+        initAndClose(source, sourceStorage);
+        initAndClose(destination, destinationStorage);
+        withRawDb(source, "source_recipe_only", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, drink_type, archived) "
+                           "VALUES ('Source', 'P', 'espresso', 0)"));
+        });
+        withRawDb(destination, "destination_recipe_only", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, drink_type, archived) "
+                           "VALUES ('Destination', 'P', 'espresso', 0)"));
+        });
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destination, source, merge));
+        withRawDb(destination, "check_recipe_only", [merge](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT name FROM recipes ORDER BY name"));
+            QStringList names;
+            while (q.next()) names.append(q.value(0).toString());
+            QCOMPARE(names, merge ? (QStringList{QStringLiteral("Destination"), QStringLiteral("Source")})
+                                  : QStringList{QStringLiteral("Source")});
+        });
+    }
 
     void initTestCase() {
         QVERIFY(m_tempDir.isValid());

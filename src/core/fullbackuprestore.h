@@ -37,6 +37,7 @@ public:
         bool settings = true;
         bool profiles = true;
         bool media = true;
+        bool preserveFlowCalibration = false;
     };
 
     FullBackupRestore(Settings* settings, ShotHistoryStorage* storage,

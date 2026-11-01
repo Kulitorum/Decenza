@@ -3,6 +3,8 @@
 #include "appsettings.h"
 #include "settings.h"
 #include "settingsserializer.h"
+#include "fullbackuprestore.h"
+#include "translationmanager.h"
 #include "../network/localnetworkaccess.h"
 #include "profilestorage.h"
 #include "../profile/profile.h"
@@ -31,6 +33,13 @@
 #include <QCoreApplication>
 #include <QRunnable>
 #include <QThreadPool>
+#include <QUuid>
+
+struct DataMigrationClient::FullBackupDownload {
+    std::shared_ptr<QTemporaryDir> directory = std::make_shared<QTemporaryDir>();
+    bool writing = false;
+    bool failed = false;
+};
 
 DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, QObject* parent)
     : QObject(parent)
@@ -44,6 +53,11 @@ DataMigrationClient::~DataMigrationClient()
     stopDiscovery();
     cancel();
     delete m_tempDir;
+}
+
+void DataMigrationClient::setFullBackupRestore(FullBackupRestore* restore)
+{
+    m_fullRestore = restore;
 }
 
 void DataMigrationClient::setupSslHandling(QNetworkReply* reply)
@@ -301,6 +315,7 @@ void DataMigrationClient::finishProbe(bool reachable)
 
 void DataMigrationClient::disconnect()
 {
+    if (m_fullRestoreInFlight) return;
     cancel();
     m_serverUrl.clear();
     m_manifest.clear();
@@ -493,6 +508,7 @@ void DataMigrationClient::startImport(const QStringList& types)
     }
 
     ++m_importGeneration;
+    m_lastImportWasReplacement = false;
     m_importing = true;
     m_cancelled = false;
     m_settingsImported = 0;
@@ -505,9 +521,8 @@ void DataMigrationClient::startImport(const QStringList& types)
     // step can read the shots step's map, and a member that survives a run is
     // how a second import — importOnlyAIConversations(), or a reconnect to a
     // DIFFERENT source device — would remap this run's turns through the last
-    // run's map. That is the defect this whole change exists to fix, one layer
-    // up. importDatabaseStatic also has two early exits that never write
-    // outResult, so it cannot be relied on to overwrite this.
+    // run's map. importDatabaseStatic may return before writing outResult, so
+    // it cannot be relied on to overwrite this.
     m_shotImport = {};
     m_progress = 0.0;
     m_errorMessage.clear();
@@ -541,8 +556,39 @@ void DataMigrationClient::startImport(const QStringList& types)
     startNextImport();
 }
 
-void DataMigrationClient::importAll()
+void DataMigrationClient::importAll(bool replace)
 {
+    if (replace) {
+        if (isImporting() || m_serverUrl.isEmpty()) return;
+        m_fullBackupDownload = std::make_shared<FullBackupDownload>();
+        if (!m_fullBackupDownload->directory->isValid()) {
+            m_fullBackupDownload.reset();
+            setError(tr("The downloaded backup could not be saved."));
+            emit importFailed(m_errorMessage);
+            return;
+        }
+        ++m_importGeneration;
+        m_lastImportWasReplacement = true;
+        m_cancelled = false;
+        m_importing = true;
+        m_errorMessage.clear();
+        m_totalBytes = 0;
+        m_receivedBytes = 0;
+        setAiConversationNote(QString());
+        setProgress(0.0);
+        setCurrentOperation(tr("Downloading backup for replacement..."));
+        emit errorMessageChanged();
+        emit isImportingChanged();
+        QNetworkRequest request{QUrl(m_serverUrl + "/api/backup/full")};
+        addSessionCookie(request);
+        m_currentReply = m_networkManager->get(request);
+        m_currentReply->setReadBufferSize(64 * 1024);
+        setupSslHandling(m_currentReply);
+        connect(m_currentReply, &QNetworkReply::readyRead, this, &DataMigrationClient::pumpFullBackupDownload);
+        connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onFullBackupReply);
+        connect(m_currentReply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);
+        return;
+    }
     // Build list of all available data types
     QStringList types;
     if (m_manifest["hasSettings"].toBool()) {
@@ -551,7 +597,8 @@ void DataMigrationClient::importAll()
     if (m_manifest["profileCount"].toInt() > 0) {
         types << "profiles";
     }
-    if (m_manifest["shotCount"].toInt() > 0) {
+    if (m_manifest["shotCount"].toInt() > 0 || m_manifest["recipeCount"].toInt() > 0
+        || m_manifest["bagCount"].toInt() > 0 || m_manifest["equipmentCount"].toInt() > 0) {
         types << "shots";
     }
     if (m_manifest["mediaCount"].toInt() > 0) {
@@ -562,6 +609,98 @@ void DataMigrationClient::importAll()
     }
 
     startImport(types);
+}
+
+void DataMigrationClient::onFullBackupReply()
+{
+    auto* reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply || reply != m_currentReply || m_cancelled) return;
+    pumpFullBackupDownload();
+}
+
+void DataMigrationClient::pumpFullBackupDownload()
+{
+    const auto download = m_fullBackupDownload;
+    QNetworkReply* reply = m_currentReply;
+    if (!download || !reply || download->writing || m_cancelled) return;
+    const QString path = download->directory->filePath(QStringLiteral("transfer.dcbackup"));
+    const QByteArray chunk = download->failed ? QByteArray{} : reply->read(64 * 1024);
+    if (!chunk.isEmpty()) {
+        download->writing = true;
+        const quint64 generation = m_importGeneration;
+        const QPointer<DataMigrationClient> guard(this);
+        QCoreApplication* const application = QCoreApplication::instance();
+        if (!application) return;
+        QThreadPool::globalInstance()->start(QRunnable::create([guard, application, download, path, chunk, generation] {
+            QFile file(path);
+            const bool saved = file.open(QIODevice::WriteOnly | QIODevice::Append)
+                && file.write(chunk) == chunk.size() && file.flush();
+            file.close();
+            QMetaObject::invokeMethod(application, [guard, download, saved, generation] {
+                if (!guard || guard->m_cancelled || guard->m_importGeneration != generation
+                    || guard->m_fullBackupDownload != download) return;
+                download->writing = false;
+                download->failed = !saved;
+                guard->pumpFullBackupDownload();
+            }, Qt::QueuedConnection);
+        }));
+        return;
+    }
+    if (!reply->isFinished() && !download->failed) return;
+    const bool failed = download->failed || reply->error() != QNetworkReply::NoError || !m_fullRestore;
+    m_currentReply = nullptr;
+    reply->deleteLater();
+    m_fullBackupDownload.reset();
+    if (failed) {
+        m_importing = false;
+        setError(tr("The backup could not be fetched or restored. Your existing data was not changed."));
+        emit isImportingChanged();
+        emit importFailed(m_errorMessage);
+        return;
+    }
+    const auto directory = download->directory;
+    const QPointer<DataMigrationClient> guard(this);
+    const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_fullRestoreInFlight = true;
+    setCurrentOperation(tr("Restoring backup..."));
+    if (!guard || !m_fullRestore) return;
+    emit isImportingChanged();
+    if (!guard || !m_fullRestore) return;
+    const auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection = QObject::connect(m_fullRestore.data(), &FullBackupRestore::finished, this,
+        [guard, requestId, connection](const QString& id, bool success, const QVariantMap& result,
+                                       const QString& reason, int) {
+        if (id != requestId) return;
+        QObject::disconnect(*connection);
+        if (!guard) return;
+        auto* client = guard.data();
+        client->m_fullRestoreInFlight = false;
+        client->m_importing = false;
+        client->setAiConversationNote(result.value(QStringLiteral("aiConversationsNote")).toString());
+        if (!guard) return;
+        if (!success) client->setError(result.value(QStringLiteral("error"), reason).toString());
+        else client->setProgress(1.0);
+        if (!guard) return;
+        emit client->isImportingChanged();
+        if (!guard) return;
+        if (!success) emit client->importFailed(client->m_errorMessage);
+        else emit client->importComplete(result.value(QStringLiteral("settings")).toBool() ? 1 : 0,
+            result.value(QStringLiteral("profilesImported")).toInt(),
+            result.value(QStringLiteral("shotsImported")).toBool() ? 1 : 0,
+            result.value(QStringLiteral("mediaImported")).toInt(),
+            result.value(QStringLiteral("aiConversationsImported")).toInt());
+    });
+    FullBackupRestore::Options options;
+    options.merge = false;
+    options.preserveFlowCalibration = true;
+    if (!m_fullRestore->restoreFile(requestId, path, options, directory)) {
+        QObject::disconnect(*connection);
+        m_fullRestoreInFlight = false;
+        m_importing = false;
+        setError(tr("The backup could not be restored while another operation is active."));
+        emit isImportingChanged();
+        emit importFailed(m_errorMessage);
+    }
 }
 
 void DataMigrationClient::importOnlySettings()
@@ -580,7 +719,8 @@ void DataMigrationClient::importOnlyProfiles()
 
 void DataMigrationClient::importOnlyShots()
 {
-    if (m_manifest["shotCount"].toInt() > 0) {
+    if (m_manifest["shotCount"].toInt() > 0 || m_manifest["recipeCount"].toInt() > 0
+        || m_manifest["bagCount"].toInt() > 0 || m_manifest["equipmentCount"].toInt() > 0) {
         startImport(QStringList{"shots"});
     }
 }
@@ -827,45 +967,95 @@ void DataMigrationClient::onExtraSettingsReply()
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        // Older server without the endpoint (404) or a transient error — the
-        // extra settings simply don't transfer; continue with the import.
         DIAG_DEBUG(STORAGE, "DataMigrationClient") << "extra-settings not available:" << reply->errorString();
-    } else {
-        const QByteArray data = reply->readAll();
-        m_receivedBytes += data.size();
-        const QJsonObject extra = QJsonDocument::fromJson(data).object();
-        if (!extra.isEmpty()) {
-            // Apply to the LOCAL stores, mirroring handleBackupRestore's
-            // extra_settings.json path.
-            AppSettings settings;
-            if (extra.contains("shotMap")) {
-                const QJsonObject sm = extra["shotMap"].toObject();
-                settings.setValue("shotMap/manualCity", sm["manualCity"].toString());
-                settings.setValue("shotMap/manualLat", sm["manualLat"].toDouble());
-                settings.setValue("shotMap/manualLon", sm["manualLon"].toDouble());
-                settings.setValue("shotMap/manualCountryCode", sm["manualCountryCode"].toString());
-                settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
-            }
-            if (extra.contains("accessibility")) {
-                const QJsonObject a = extra["accessibility"].toObject();
-                if (a.contains("enabled")) settings.setValue("accessibility/enabled", a["enabled"].toBool());
-                if (a.contains("ttsEnabled")) settings.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
-                if (a.contains("tickEnabled")) settings.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
-                if (a.contains("tickSoundIndex")) settings.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
-                if (a.contains("tickVolume")) settings.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
-                if (a.contains("extractionAnnouncementsEnabled")) settings.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
-                if (a.contains("extractionAnnouncementInterval")) settings.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
-                if (a.contains("extractionAnnouncementMode")) settings.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
-            }
-            if (extra.contains("language"))
-                settings.setValue("localization/language", extra["language"].toString());
-            DIAG_DEBUG(STORAGE, "DataMigrationClient") << "extra settings imported (location, accessibility, language)";
-        }
+        reply->deleteLater();
+        m_currentReply = nullptr;
+        startNextImport();
+        return;
     }
-
+    const QByteArray data = reply->readAll();
+    m_receivedBytes += data.size();
     reply->deleteLater();
     m_currentReply = nullptr;
-    startNextImport();
+    const QPointer<TranslationManager> manager(m_translationManager);
+    const bool hasManager = !manager.isNull();
+    const auto snapshot = hasManager ? manager->captureFileSnapshot() : TranslationManager::FileSnapshot{};
+    const auto directory = std::make_shared<QTemporaryDir>();
+    const quint64 generation = m_importGeneration;
+    const QPointer<DataMigrationClient> guard(this);
+    QCoreApplication* const application = QCoreApplication::instance();
+    if (!directory->isValid() || !application) {
+        setErrorIfFirst(tr("The language customizations could not be prepared."));
+        startNextImport();
+        return;
+    }
+    QThreadPool::globalInstance()->start(QRunnable::create(
+        [guard, manager, hasManager, application, directory, data, snapshot, generation] {
+        const QJsonDocument document = data.size() <= 16 * 1024 * 1024
+            ? QJsonDocument::fromJson(data) : QJsonDocument();
+        const QJsonObject extra = document.object();
+        const bool hasLanguage = extra.contains(QStringLiteral("languageTranslation"));
+        bool valid = document.isObject() && !extra.value(QStringLiteral("languageTranslationError")).toBool();
+        QStringList overrides;
+        TranslationManager::PreparedImport prepared;
+        if (hasLanguage) {
+            const QJsonObject language = extra.value(QStringLiteral("languageTranslation")).toObject();
+            valid = valid && hasManager && !language.isEmpty()
+                && TranslationManager::readBackupOverrides(language, extra.value(QStringLiteral("languageOverrides")), &overrides);
+            const QByteArray payload = QJsonDocument(language).toJson(QJsonDocument::Compact);
+            const QString path = directory->filePath(QStringLiteral("language.json"));
+            QFile file(path);
+            if (valid && file.open(QIODevice::WriteOnly) && file.write(payload) == payload.size() && file.flush()) {
+                file.close();
+                prepared = TranslationManager::prepareTranslationImport(snapshot, path,
+                    extra.value(QStringLiteral("language")).toString());
+                valid = prepared.reason.isEmpty();
+            } else {
+                valid = false;
+            }
+        }
+        QMetaObject::invokeMethod(application, [guard, manager, directory, generation, extra, hasLanguage, valid, prepared, overrides] {
+            Q_UNUSED(directory)
+            if (!guard || guard->m_cancelled || guard->m_importGeneration != generation) return;
+            if (!valid) {
+                guard->setErrorIfFirst(guard->tr("The other device returned invalid language customizations."));
+            } else if (hasLanguage && manager && manager->isAutoTranslating()) {
+                guard->setErrorIfFirst(guard->tr("Language customizations cannot be imported while AI translation is running."));
+            } else {
+                AppSettings settings;
+                const QJsonObject sm = extra.value(QStringLiteral("shotMap")).toObject();
+                if (!sm.isEmpty()) {
+                    settings.setValue("shotMap/manualCity", sm["manualCity"].toString());
+                    settings.setValue("shotMap/manualLat", sm["manualLat"].toDouble());
+                    settings.setValue("shotMap/manualLon", sm["manualLon"].toDouble());
+                    settings.setValue("shotMap/manualCountryCode", sm["manualCountryCode"].toString());
+                    settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
+                }
+                const QJsonObject accessibility = extra.value(QStringLiteral("accessibility")).toObject();
+                const QStringList fields{QStringLiteral("enabled"), QStringLiteral("ttsEnabled"),
+                    QStringLiteral("tickEnabled"), QStringLiteral("tickSoundIndex"), QStringLiteral("tickVolume"),
+                    QStringLiteral("extractionAnnouncementsEnabled"), QStringLiteral("extractionAnnouncementInterval"),
+                    QStringLiteral("extractionAnnouncementMode")};
+                for (const QString& field : fields)
+                    if (accessibility.contains(field))
+                        settings.setValue(QStringLiteral("accessibility/") + field, accessibility.value(field).toVariant());
+                if (extra.contains(QStringLiteral("language")))
+                    settings.setValue(QStringLiteral("localization/language"), extra.value(QStringLiteral("language")).toString());
+                if (hasLanguage) {
+                    const bool imported = manager && manager->commitTranslationImport(prepared)
+                        .value(QStringLiteral("success")).toBool();
+                    if (!guard) return;
+                    if (imported && manager) manager->setCurrentLanguage(prepared.language);
+                    if (!guard) return;
+                    if (!imported || !manager || manager->currentLanguage() != prepared.language
+                        || !manager->applyTransferredOverrides(overrides))
+                        guard->setErrorIfFirst(guard->tr("The language customizations could not be imported."));
+                }
+            }
+            if (guard && !guard->m_cancelled && guard->m_importGeneration == generation)
+                guard->startNextImport();
+        }, Qt::QueuedConnection);
+    }));
 }
 
 void DataMigrationClient::doImportProfiles()
@@ -1166,7 +1356,10 @@ void DataMigrationClient::onShotsReply()
             self->m_shotImportCancelled.reset();
             // A started DB transaction cannot be undone by Cancel. Refresh what
             // actually landed, then suppress every retired workflow continuation.
-            if (success && self->m_shotHistory) self->m_shotHistory->refreshTotalShots();
+            if (success && self->m_shotHistory) {
+                self->m_shotHistory->refreshTotalShots();
+                emit self->m_shotHistory->importedDatabaseChanged();
+            }
             if (!guard) return;
             emit self->isImportingChanged();
             if (!guard || self->m_importGeneration != generation || self->m_cancelled) return;
@@ -1329,6 +1522,7 @@ void DataMigrationClient::onMediaFileReply()
 
 void DataMigrationClient::cancel()
 {
+    if (m_fullRestoreInFlight) return;
     ++m_importGeneration;
     m_cancelled = true;
     if (m_shotImportCancelled)
@@ -1353,6 +1547,7 @@ void DataMigrationClient::cancel()
         reply->abort();
         reply->deleteLater();
     }
+    m_fullBackupDownload.reset();
 
     if (m_connecting) {
         m_connecting = false;

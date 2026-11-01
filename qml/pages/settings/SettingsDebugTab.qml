@@ -118,6 +118,48 @@ Item {
     }
 
     DecenzaDialog {
+        id: retranslateConfirmation
+        property var offeredContext: ({})
+        title: TranslationManager.translate("debug.retranslate.title", "Retranslate this language?")
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(480), parent ? parent.width - Theme.scaled(32) : Theme.scaled(480))
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryColor
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("debug.retranslate.confirm", "Retranslate every string in the selected language, including manual edits? This uses your AI provider and may incur charges. Successfully translated strings replace existing text. Submit to Community separately when ready.")
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AccessibleButton {
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: text
+                    onClicked: retranslateConfirmation.close()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("debug.retranslate.action", "Retranslate")
+                    accessibleName: text
+                    primary: true
+                    onClicked: {
+                        LanguageService.execute("retranslateAll", retranslateConfirmation.offeredContext)
+                        retranslateConfirmation.close()
+                    }
+                }
+            }
+        }
+    }
+
+    DecenzaDialog {
         id: localApkConfirmation
         title: TranslationManager.translate("update.localApk.title", "Install APK on host?")
         modal: true
@@ -216,6 +258,12 @@ Item {
             if (operation === "batchTranslateUpload" && !success)
                 debugActionError.show(TranslationManager.translate(
                     "settings.debug.batchFailed", "Batch translation and upload could not be completed."))
+            if (operation === "retranslateAll") {
+                if (success)
+                    logDownloadResult.show(TranslationManager.translate("debug.retranslate.done", "Retranslation complete."))
+                else
+                    debugActionError.show(TranslationManager.translate("debug.retranslate.failed", "Retranslation did not complete. Review the language before submitting."))
+            }
         }
     }
 
@@ -883,7 +931,7 @@ Item {
                 availability: "debug"
                 title: TranslationManager.translate("settings.debug.translationTools", "Translation Developer Tools")
                 spacing: Theme.scaled(12)
-                Layout.preferredHeight: Theme.scaled(180)
+                Layout.preferredHeight: Theme.scaled(235)
 
                 Tr {
                     Layout.fillWidth: true
@@ -952,6 +1000,20 @@ Item {
                                 LanguageService.execute("batchTranslateUpload", {})
                             }
                         }
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("debug.retranslate.current", "Retranslate selected language...")
+                    SettingsSearch.title: TranslationManager.translate("debug.retranslate.current", "Retranslate selected language...")
+                    accessibleName: text
+                    enabled: LanguageService.ready && debugTab.languageSnapshot.canAutoTranslate === true
+                             && debugTab.languageSnapshot.batchTranslateUploadActive !== true
+                             && debugTab.languageSnapshot.uploading !== true
+                    onClicked: {
+                        retranslateConfirmation.offeredContext = LanguageService.currentContext()
+                        retranslateConfirmation.open()
                     }
                 }
             }

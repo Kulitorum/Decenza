@@ -220,8 +220,12 @@ Item {
                                     return langDelegate.langCode !== "en" && !LanguageService.isRemoteLanguage(langDelegate.langCode)
                                 }
                                 text: {
-                                    var version = TranslationManager.translationVersion
-                                    return LanguageService.getTranslationPercent(langDelegate.langCode) + "%"
+                                    var rows = LanguageService.snapshot.languages || []
+                                    for (var i = 0; i < rows.length; ++i) {
+                                        if (rows[i].code === langDelegate.langCode)
+                                            return rows[i].percent + "%"
+                                    }
+                                    return "0%"
                                 }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
@@ -275,22 +279,36 @@ Item {
                         accessibleName: TranslationManager.translate("language.accessible.delete", "Delete language")
                         accessibleDescription: TranslationManager.translate("language.accessible.delete.description", "Delete the selected language and its translations")
                         warning: true
-                        enabled: TranslationManager.currentLanguage !== "en"
+                        enabled: TranslationManager.currentLanguage !== "en" && TranslationManager.currentLanguage !== "en-GB"
                         onClicked: deleteConfirmPopup.open()
                     }
 
                     AccessibleButton {
+                        readonly property bool useAiTranslation: {
+                            const rows = LanguageService.snapshot.languages || []
+                            for (let i = 0; i < rows.length; ++i) {
+                                if (rows[i].code === TranslationManager.currentLanguage)
+                                    return TranslationManager.currentLanguage !== "en" && rows[i].communityAvailable === false
+                            }
+                            return false
+                        }
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
                         text: LanguageService.downloading
                             ? "..."
-                            : TranslationManager.translate("language.button.update", "Update")
+                            : useAiTranslation
+                                ? TranslationManager.translate("language.button.aiTranslate", "AI Translate...")
+                                : TranslationManager.translate("language.button.update", "Update")
                         SettingsSearch.title: TranslationManager.translate("settings.search.updateTranslations", "Update translations")
-                        accessibleName: LanguageService.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
-                        accessibleDescription: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
+                        accessibleName: LanguageService.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : useAiTranslation ? TranslationManager.translate("language.accessible.aiTranslate", "Translate missing strings with AI") : TranslationManager.translate("language.accessible.update", "Update community translations")
+                        accessibleDescription: useAiTranslation ? TranslationManager.translate("language.accessible.aiTranslate.description", "Generate translations using your configured AI provider") : TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
                         primary: true
                         enabled: !LanguageService.downloading && TranslationManager.currentLanguage !== "en" && !LanguageService.isRemoteLanguage(TranslationManager.currentLanguage)
-                        onClicked: LanguageService.downloadLanguage(TranslationManager.currentLanguage)
+                                 && (!useAiTranslation || (!LanguageService.autoTranslating && LanguageService.uniqueUntranslatedCount > 0))
+                        onClicked: {
+                            if (useAiTranslation) languageTab.showAiTranslationOffer()
+                            else LanguageService.downloadLanguage(TranslationManager.currentLanguage)
+                        }
                     }
                 }
 
@@ -1072,6 +1090,10 @@ Item {
         if (LanguageService.downloading) return
         if (LanguageService.uniqueUntranslatedCount <= 0) return
         languageTab._aiOfferedFor[lang] = true
+        languageTab.showAiTranslationOffer()
+    }
+
+    function showAiTranslationOffer(): void {
         // Read current property values immediately before opening the dialog. Bindings
         // would also update, but this popup snapshots its offer for this visit.
         aiTranslateOfferPopup.targetContext = LanguageService.currentContext()
