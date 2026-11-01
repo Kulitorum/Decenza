@@ -46,6 +46,11 @@ Item {
     ExternalUrlOpener { id: releasePageOpener }
     StatusToast { id: releasePageToast; error: true }
 
+    SharedMarkdownSource {
+        id: releaseNotesContent
+        markdown: updateTab.app.releaseNotes
+    }
+
     function requestUpdate(operation) {
         if (!UpdateService.ready || updateRequestId !== "") return false
         updateOperation = operation
@@ -745,7 +750,7 @@ Item {
                             // MarkdownNoHTML, so raw HTML in the notes cannot become markup.
                             textFormat: TextEdit.RichText
                             text: Theme.replaceEmojiWithImg(
-                                      MarkdownRenderer.toHtml(updateTab.app.releaseNotes),
+                                      releaseNotesContent.html,
                                       Theme.scaled(12), true)
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
@@ -952,7 +957,7 @@ Item {
                         // comment calls "the remaining exposure".
                         textFormat: TextEdit.RichText
                         text: Theme.replaceEmojiWithImg(
-                                  MarkdownRenderer.toHtml(updateTab.app.releaseNotes),
+                                  releaseNotesContent.html,
                                   Theme.scaled(13), true)
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(13)

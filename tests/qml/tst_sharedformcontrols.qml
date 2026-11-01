@@ -1925,4 +1925,41 @@ TestCase {
         compare(equipmentPackageSavedSpy.count, 0)
     }
 
+    Component {
+        id: markdownSnapshotComponent
+        Item {
+            id: snapshotView
+            property var snapshot: ({ app: {releaseNotes: "First notes"}, firmware: {progress: 0} })
+            SharedMarkdownSource {
+                id: parsedNotes
+                markdown: snapshotView.snapshot.app.releaseNotes
+            }
+            readonly property string inlineHtml: parsedNotes.html
+            readonly property string popupHtml: parsedNotes.html
+        }
+    }
+
+    function test_firmwareProgressDoesNotReparseReleaseNotes() {
+        const view = createTemporaryObject(markdownSnapshotComponent, testCase)
+        verify(view !== null)
+        compare(view.inlineHtml, "<p>First notes</p>")
+        compare(view.popupHtml, view.inlineHtml)
+        const before = MarkdownRenderer.calls()
+        // Replacing both nested maps reproduces the host's whole-state snapshots.
+        for (let i = 1; i <= 100; ++i) {
+            view.snapshot = { app: {releaseNotes: "First notes"}, firmware: {progress: i / 100} }
+            compare(view.inlineHtml, "<p>First notes</p>")
+            compare(view.popupHtml, view.inlineHtml)
+        }
+        compare(MarkdownRenderer.calls(), before)
+        view.snapshot = { app: {releaseNotes: "New notes"}, firmware: {progress: 1} }
+        compare(view.inlineHtml, "<p>New notes</p>")
+        compare(view.popupHtml, view.inlineHtml)
+        compare(MarkdownRenderer.calls(), before + 1)
+        view.snapshot = { app: {releaseNotes: ""}, firmware: {progress: 1} }
+        compare(view.inlineHtml, "<p></p>")
+        compare(view.popupHtml, view.inlineHtml)
+        compare(MarkdownRenderer.calls(), before + 2)
+    }
+
 }

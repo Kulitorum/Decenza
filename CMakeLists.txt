@@ -1757,6 +1757,7 @@ set(QML_FILES
     qml/components/SharedBottomBar.qml
     qml/components/SharedBottomBarStyle.qml
     qml/components/ThemeViewport.qml
+    qml/components/SharedMarkdownSource.qml
     qml/components/SharedSectionHeader.qml
     qml/components/NativeBottomBarStyle.qml
     qml/components/BottomBarSubtitle.qml
