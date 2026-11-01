@@ -105,7 +105,7 @@ private:
     void clearGraph(const QString& error = {});
     using Collections = std::array<QVariantList, 5>;
     Collections collectionState() const;
-    void publishGraphChanges(const Collections& before);
+    void publishGraphChanges();
     void requestSnapshotFor(const QString& requestId);
     void receiveSnapshot(const QString& requestId, qint64 epoch, qint64 sequence,
                          const QVariantMap& snapshot, const QString& reason);
@@ -125,6 +125,7 @@ private:
     QString m_hostId;
     QString m_errorMessage;
     QVariantMap m_graph;
+    Collections m_publishedCollections;
     QHash<QString, QVector<QPointF>> m_series;
     QVariantList m_portalSamples;
     QList<QVariantMap> m_bufferedDeltas;

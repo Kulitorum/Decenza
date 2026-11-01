@@ -284,7 +284,7 @@ void LiveShotGraphService::changed()
         if (!guard || requestedState != guard->m_state)
             return;
     }
-    emit guard->graphChanged();
+    guard->publishGraphChanges();
 }
 
 LiveShotGraphService::Collections LiveShotGraphService::collectionState() const
@@ -293,9 +293,11 @@ LiveShotGraphService::Collections LiveShotGraphService::collectionState() const
             temperatureGoalPoints(), temperatureMixGoalPoints()};
 }
 
-void LiveShotGraphService::publishGraphChanges(const Collections& before)
+void LiveShotGraphService::publishGraphChanges()
 {
     const auto after = collectionState();
+    // Compare with what QML was told, including across buffered snapshot replay.
+    const auto before = std::exchange(m_publishedCollections, after);
     const std::array<void (LiveShotGraphService::*)(), 5> notifiers{
         &LiveShotGraphService::phaseMarkersChanged,
         &LiveShotGraphService::pressureGoalPointsChanged,
@@ -312,7 +314,6 @@ void LiveShotGraphService::publishGraphChanges(const Collections& before)
 
 void LiveShotGraphService::clearGraph(const QString& error)
 {
-    const auto before = collectionState();
     m_ready = false;
     m_graph.clear();
     m_series.clear();
@@ -324,7 +325,7 @@ void LiveShotGraphService::clearGraph(const QString& error)
     m_sequence = -1;
     m_errorMessage = error;
     applyRenderers();
-    publishGraphChanges(before);
+    publishGraphChanges();
 }
 
 QString LiveShotGraphService::newRequestId() const
@@ -353,7 +354,7 @@ void LiveShotGraphService::requestSnapshotFor(const QString& requestId)
         m_bufferedDeltas.clear();
         m_bufferedBytes = 0;
         m_bufferOverflowed = false;
-        emit graphChanged();
+        publishGraphChanges();
     }
     if (!guard || guard->m_snapshotGeneration != generation
         || guard->m_pendingSnapshotId != requestId || !guard->m_snapshotRequested
@@ -436,7 +437,6 @@ void LiveShotGraphService::receiveSnapshot(const QString& requestId, qint64 epoc
                                            qint64 sequence, const QVariantMap& snapshot,
                                            const QString& reason)
 {
-    const auto before = collectionState();
     if (requestId != m_pendingSnapshotId || !connected())
         return;
     m_pendingSnapshotId.clear();
@@ -489,15 +489,14 @@ void LiveShotGraphService::receiveSnapshot(const QString& requestId, qint64 epoc
         m_bufferOverflowed = false;
         m_ready = false;
         requestSnapshot();
-        publishGraphChanges(before);
+        publishGraphChanges();
         return;
     }
-    publishGraphChanges(before);
+    publishGraphChanges();
 }
 
 void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
 {
-    const auto before = collectionState();
     if (!connected())
         return;
     if (!m_ready) {
@@ -544,7 +543,7 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         if (deltaEpoch <= m_epoch) {
             m_ready = false;
             m_errorMessage = QStringLiteral("A stale live graph reset was ignored; resynchronizing.");
-            emit graphChanged();
+            publishGraphChanges();
             requestSnapshot();
             return;
         }
@@ -575,19 +574,19 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         m_errorMessage.clear();
         applyRenderers();
         replacePortalSamples(portalSamples());
-        publishGraphChanges(before);
+        publishGraphChanges();
         return;
     }
     if (type != QLatin1String("append") || deltaEpoch != m_epoch
         || deltaSequence != m_sequence + 1 || !applyAppend(delta)) {
         m_ready = false;
         m_errorMessage = QStringLiteral("Live graph updates arrived out of order; resynchronizing.");
-        emit graphChanged();
+        publishGraphChanges();
         requestSnapshot();
         return;
     }
     m_sequence = deltaSequence;
-    publishGraphChanges(before);
+    publishGraphChanges();
 }
 
 bool LiveShotGraphService::applyAppend(const QVariantMap& delta)

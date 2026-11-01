@@ -120,6 +120,12 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
         // so a connect here would silently no-op and we'd never receive
         // ACK signals.
     }
+    // Physical and simulated devices both own their current build number.
+    // Keep this default here so application wiring and tests use the same readback.
+    setInstalledVersionProvider([this]() -> uint32_t {
+        const int build = m_device ? m_device->firmwareBuildNumber() : 0;
+        return build > 0 ? static_cast<uint32_t>(build) : 0;
+    });
 }
 
 void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
@@ -378,9 +384,6 @@ void FirmwareUpdater::setProgress(double p) {
 
 void FirmwareUpdater::checkForUpdate() {
     if (!m_cache) return;
-    // Simulator: allow the check so the page populates (installed/available
-    // versions, channel state). Only the actual flash is blocked — see
-    // startUpdate().
     if (m_state == State::Checking || m_state == State::Downloading) return;
     // Refuse while a flash is actually running. The periodic check schedule
     // (see MainController::MainController: 30 s after first launch, then

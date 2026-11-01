@@ -96,8 +96,9 @@ public:
     // Dependency injection / test hooks --------------------------------
 
     // Supplies the current DE1-installed firmware version (from MMR 0x800010
-    // typically). Called on every checkForUpdate() / startUpdate() to decide
-    // Newer-vs-Same and to race-guard before erase.
+    // typically). Defaults to the device's current build, including in simulation.
+    // Called on every checkForUpdate() / startUpdate() to decide Newer-vs-Same
+    // and to race-guard before erase.
     void setInstalledVersionProvider(std::function<uint32_t()> fn);
 
     // Supplies the "is it OK to start a firmware update right now?" gate.

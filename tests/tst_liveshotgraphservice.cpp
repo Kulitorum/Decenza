@@ -293,6 +293,50 @@ private slots:
         QCOMPARE(service->m_series.value(QStringLiteral("pressure")).first(), QPointF(0, 9));
     }
 
+    void snapshotCollectionsPublishEvenWhenBufferedDeltaNeedsAnotherSnapshot()
+    {
+        TestLiveShotGraphSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LiveShotGraphStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LiveShotGraphService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* service = LiveShotGraphServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy markers(service, &LiveShotGraphService::phaseMarkersChanged);
+        QSignalSpy goals(service, &LiveShotGraphService::temperatureGoalPointsChanged);
+
+        // Hold the host replies so we can deliver a snapshot with a gap in its
+        // buffered suffix, followed by the recovery snapshot with the same lists.
+        const QSignalBlocker holdReplies(&source);
+        service->requestSnapshot();
+        QVERIFY(!service->ready());
+        service->receiveDelta({
+            {QStringLiteral("type"), QStringLiteral("append")},
+            {QStringLiteral("epoch"), 2},
+            {QStringLiteral("sequence"), 7},
+            {QStringLiteral("rawTime"), 3.0}
+        });
+        QCOMPARE(service->m_bufferedDeltas.size(), 1);
+        QVariantMap snapshot = makeSnapshot();
+        const QVariantList updatedMarkers{QVariantMap{
+            {QStringLiteral("time"), 1.0}, {QStringLiteral("label"), QStringLiteral("Pour")}}};
+        snapshot.insert(QStringLiteral("phaseMarkers"), updatedMarkers);
+        snapshot.insert(QStringLiteral("temperatureGoalPoints"), points({QPointF(1, 93)}));
+        service->receiveSnapshot(service->m_pendingSnapshotId, 2, 5, snapshot, {});
+        QVERIFY(!service->ready()); // Sequence 6 is missing; another snapshot is pending.
+        QCOMPARE(service->phaseMarkers(), updatedMarkers);
+        QCOMPARE(markers.size(), 1);
+        QCOMPARE(goals.size(), 1);
+
+        service->receiveSnapshot(service->m_pendingSnapshotId, 2, 7, snapshot, {});
+        QVERIFY(service->ready());
+        QCOMPARE(markers.size(), 1);
+        QCOMPARE(goals.size(), 1);
+    }
+
     void reentrantSnapshotRequestSupersedesPreNotificationAdmission()
     {
         TestLiveShotGraphSource source;

@@ -134,7 +134,7 @@ private:
         DE1::Firmware::FirmwareAssetCache cache;
         FirmwareUpdater                  updater;
 
-        Fixture() : updater(&device, &cache) {
+        Fixture(bool useDeviceVersion = false) : updater(&device, &cache) {
             device.setTransport(&transport);
             cache.setCacheRoot(tmp.path());
 
@@ -147,7 +147,7 @@ private:
 
             // Pretend machine is idle and installed firmware is older.
             updater.setPreconditionProvider([]{ return true; });
-            updater.setInstalledVersionProvider([]{ return 1200u; });
+            if (!useDeviceVersion) updater.setInstalledVersionProvider([]{ return 1200u; });
         }
     };
 
@@ -831,9 +831,9 @@ private slots:
     }
 
     void simulatorFlashCompletesWithoutPhysicalTransportTraffic() {
-        Fixture f;
+        Fixture f(true); // Exercise the production device-version provider.
         f.device.setSimulationMode(true);
-        f.updater.setInstalledVersionProvider([&f] { return uint32_t(f.device.firmwareBuildNumber()); });
+        QCOMPARE(f.updater.installedVersion(), 1342);
         auto* simulator = static_cast<FirmwareFlashSimulator*>(f.updater.m_simulatedFlashTransport);
         QVERIFY(simulator);
         simulator->setAckDelayMs(0);
@@ -849,6 +849,11 @@ private slots:
         QVERIFY(!f.updater.needsManualReboot());
         QVERIFY(f.transport.writes.isEmpty());
         QVERIFY(f.transport.subscribes.isEmpty());
+        // A fresh check must classify the flashed image as the same version.
+        f.updater.checkForUpdate();
+        QCOMPARE(f.updater.installedVersion(), 1352);
+        QVERIFY(!f.updater.updateAvailable());
+        QVERIFY(f.updater.isReflash());
         f.device.setSimulationMode(false);
         QCOMPARE(f.device.firmwareBuildNumber(), 0); // Original physical identity restored.
     }
