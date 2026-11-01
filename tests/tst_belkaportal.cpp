@@ -1102,6 +1102,21 @@ private slots:
         QCOMPARE(gapRes.status, PortalTailAnalyzer::Status::InsufficientCoverage);
         QCOMPARE(gapRes.gapCount, 1);
         QVERIFY(gapRes.coverageRatio < PortalTailAnalyzer::kMinCoverageRatio);
+
+        shortOpts.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
+        const QVector<PortalSample> latePortal{{10.0, 8.0, 55.0, true}, {10.2, 8.0, 55.0, false}};
+        const auto lateRes = PortalTailAnalyzer::analyze(latePortal, {{10.0, 25.0}, {10.2, 25.0}}, shortOpts);
+        QVERIFY(!lateRes.valid);
+        QVERIFY(!lateRes.estimateReliable);
+        QCOMPARE(lateRes.status, PortalTailAnalyzer::Status::InsufficientCoverage);
+        QCOMPARE(lateRes.coveredMassG, 0.0);
+        QCOMPARE(lateRes.integralRawEcG, 0.0);
+
+        const auto partialRes = PortalTailAnalyzer::analyze(latePortal, {{10.0, 25.0}, {10.2, 30.0}}, shortOpts);
+        QVERIFY(!partialRes.valid);
+        QCOMPARE(partialRes.status, PortalTailAnalyzer::Status::InsufficientCoverage);
+        QCOMPARE(partialRes.coveredMassG, 5.0);
+        QCOMPARE(partialRes.integralRawEcG, 40.0);
     }
 
     void portalTailAnalyzerDetectsMidShotVDipAndComputesLagSensitivity() {
@@ -1310,6 +1325,31 @@ private slots:
         QVERIFY(extrapolated.calibrated);
         QVERIFY(!extrapolated.estimateReliable);
         QVERIFY(extrapolated.uncertaintyReasons.contains(QStringLiteral("outside_calibration_range")));
+
+        const QVector<QPointF> incompleteMeasurements{
+            {0.0, 32.0}, {16.0, 0.0},
+            {16.0, std::numeric_limits<double>::infinity()},
+            {16.0, std::numeric_limits<double>::quiet_NaN()}
+        };
+        for (const auto& measurement : incompleteMeasurements) {
+            auto references = calPoints;
+            auto incomplete = calPoints.first();
+            incomplete.shotId = 300;
+            incomplete.doseWeightG = measurement.x();
+            incomplete.finalWeightG = measurement.y();
+            references.prepend(incomplete);
+            const auto partialFit = PortalTailAnalyzer::fitCalibration(references, 7,
+                QStringLiteral("La Cabra"), QStringLiteral("Cerro Azul"), 299,
+                PortalTailAnalyzer::MountingMode::OnScale);
+            QVERIFY(partialFit.calibrated);
+            QCOMPARE(partialFit.shotCount, 6);
+            QCOMPARE(partialFit.minRatio, 1.5);
+            QCOMPARE(partialFit.maxRatio, 2.5);
+            auto ratioExtrapolated = valRes;
+            PortalTailAnalyzer::applyCalibration(&ratioExtrapolated, partialFit, 20.0, 16.0);
+            QVERIFY(!ratioExtrapolated.estimateReliable);
+            QVERIFY(ratioExtrapolated.uncertaintyReasons.contains(QStringLiteral("outside_calibration_range")));
+        }
 
         // 3. End-to-end ShotHistoryStorage persistence & calibration lookup
         QTemporaryDir tempDir;

@@ -7,6 +7,7 @@
 #include "controllers/shottimingcontroller.h"
 #include "ble/de1device.h"
 #include "mocks/MockScaleDevice.h"
+#include "simulator/simulatedscale.h"
 #include "profile/profile.h"
 #include "machine/scaleflow.h"
 
@@ -161,6 +162,16 @@ private slots:
         tc.onWeightSample(5.0, 1.0, 1.0);
         tc.endShot(); // No graph sample between the virtual packet and this manual stop.
         QCOMPARE(model.weightSource(), QStringLiteral("flow_scale_virtual"));
+
+        model.clear();
+        SimulatedScale simulatedScale;
+        simulatedScale.simulateConnection();
+        tc.setScale(&simulatedScale);
+        tc.startShot();
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        tc.onWeightSample(6.0, 1.0, 1.0);
+        tc.endShot();
+        QCOMPARE(model.weightSource(), QStringLiteral("unknown"));
     }
 
     void sensorTimeUsesExtractionOriginAndIncludesSettlingOnly() {

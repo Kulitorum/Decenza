@@ -4077,10 +4077,7 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
         pt.tasteBalance = q.value(13).toString();
         pt.tasteBody = q.value(14).toString();
         pt.estimateReliable = q.value(15).toBool();
-        const QString mode = q.value(16).toString();
-        pt.mountingMode = mode == QLatin1String("onScale") ? PortalTailAnalyzer::MountingMode::OnScale
-            : mode == QLatin1String("independent") ? PortalTailAnalyzer::MountingMode::Independent
-            : PortalTailAnalyzer::MountingMode::Unknown;
+        pt.mountingMode = PortalTailAnalyzer::mountingModeFromString(q.value(16).toString());
         pt.equipmentId = q.value(17).toLongLong();
         pt.profileName = q.value(18).toString();
         if (pt.measuredTdsPct > 0.0 || pt.enjoyment > 0)

@@ -92,7 +92,7 @@ std::optional<double> ShotTimingController::sensorTime(qint64 receivedAtMs) cons
 
 QString ShotTimingController::servingWeightSource() const
 {
-    if (!m_scale || !m_scale->isConnected()) return QStringLiteral("unknown");
+    if (!m_scale || !m_scale->isConnected() || m_scale->isSimulated()) return QStringLiteral("unknown");
     return m_scale->isFlowScale() ? QStringLiteral("flow_scale_virtual") : QStringLiteral("physical_scale");
 }
 

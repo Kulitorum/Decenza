@@ -22,3 +22,10 @@
 ## Workflow follow-up
 
 - Archive this change as the final PR commit before an explicitly requested merge.
+
+## 4. Review follow-up
+
+- [ ] 4.1 Reuse the mounting-mode decoder in both database readers; retain the existing independent performance-index creation after migration 50.
+- [ ] 4.2 Reject simulated serving scales, leave initial cup mass uncovered and derive the ratio envelope only from finite positive reference ratios; extend existing provenance, coverage and calibration tests and prove they catch each defect.
+- [ ] 4.3 Render both review-card warning icons through the shared emoji image helper.
+- [ ] 4.4 Run the full Linux suite, Android/Wasm builds, QML and text gates after these fixes.

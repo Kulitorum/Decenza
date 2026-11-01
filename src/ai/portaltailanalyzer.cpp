@@ -554,14 +554,8 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     }
 
     const double firstTime = weightClean.first().x();
-    const double firstMass = weightClean.first().y();
     QVector<MassKnot> knots;
-    knots.reserve(weightClean.size() + portalSamples.size() + 2);
-    if (firstMass > 0.0) {
-        MassKnot zero;
-        zero.timeSec = firstTime;
-        knots.append(zero);
-    }
+    knots.reserve(weightClean.size() + portalSamples.size() + 1);
     for (const auto& pt : weightClean) {
         MassKnot knot;
         knot.timeSec = pt.x();
@@ -942,16 +936,14 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
         return fit;
 
     fit.minMeanRawEc = fit.maxMeanRawEc = selected.first().meanRawEcPerG;
-    fit.minRatio = fit.maxRatio = selected.first().doseWeightG > 0.0
-        ? selected.first().finalWeightG / selected.first().doseWeightG : 0.0;
     for (const auto& p : selected) {
         fit.minMeanRawEc = std::min(fit.minMeanRawEc, p.meanRawEcPerG);
         fit.maxMeanRawEc = std::max(fit.maxMeanRawEc, p.meanRawEcPerG);
-        if (p.doseWeightG > 0.0) {
-            const double ratio = p.finalWeightG / p.doseWeightG;
-            fit.minRatio = std::min(fit.minRatio, ratio);
-            fit.maxRatio = std::max(fit.maxRatio, ratio);
-        }
+        const double ratio = p.doseWeightG > 0.0 ? p.finalWeightG / p.doseWeightG : 0.0;
+        if (!std::isfinite(ratio) || ratio <= 0.0)
+            continue;
+        fit.minRatio = fit.minRatio > 0.0 ? std::min(fit.minRatio, ratio) : ratio;
+        fit.maxRatio = std::max(fit.maxRatio, ratio);
     }
 
     const int n = static_cast<int>(selected.size());

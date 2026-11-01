@@ -2851,16 +2851,17 @@ T.Page {
                             }
                             Text {
                                 text: portalMetricsCard.isCalibrated
-                                      ? ((!portalMetricsCard.estimateReliable ? "\u26a0 " : "")
+                                      ? Theme.replaceEmojiWithImg((!portalMetricsCard.estimateReliable ? "\u26a0 " : "")
                                          + TranslationManager.translate("postshotreview.portal.estimateValues", "~%1% (~%2% TDS)")
                                              .arg(portalMetricsCard.estEyPct.toFixed(1))
-                                             .arg(portalMetricsCard.estTdsPct.toFixed(2)))
+                                             .arg(portalMetricsCard.estTdsPct.toFixed(2)), font.pixelSize)
                                       : "\u2014"
                                 font.pixelSize: Theme.scaled(14)
                                 font.bold: true
                                 color: !portalMetricsCard.isCalibrated
                                        ? Theme.textSecondaryColor
                                        : (!portalMetricsCard.estimateReliable ? Theme.warningColor : Theme.dyeEyColor)
+                                textFormat: Text.StyledText
                                 Accessible.ignored: true
                             }
                         }
@@ -2918,7 +2919,8 @@ T.Page {
                     Text {
                         Layout.fillWidth: true
                         visible: !portalMetricsCard.estimateReliable && portalMetricsCard.uncertaintySummary !== ""
-                        text: "\u26a0 " + portalMetricsCard.uncertaintySummary
+                        textFormat: Text.StyledText
+                        text: Theme.replaceEmojiWithImg("\u26a0 " + portalMetricsCard.uncertaintySummary, font.pixelSize)
                         font.pixelSize: Theme.scaled(10)
                         font.bold: true
                         color: Theme.warningColor

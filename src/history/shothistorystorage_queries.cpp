@@ -710,11 +710,7 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                                 dummyRes.meanTempC = portalMeanTempC;
                                 const auto fit = PortalTailAnalyzer::fitCalibration(
                                     portalCalPoints, rowBagId, rowBeanBrand, rowBeanType, rowShotId,
-                                    query.value(31).toString() == QLatin1String("onScale")
-                                        ? PortalTailAnalyzer::MountingMode::OnScale
-                                        : query.value(31).toString() == QLatin1String("independent")
-                                            ? PortalTailAnalyzer::MountingMode::Independent
-                                            : PortalTailAnalyzer::MountingMode::Unknown);
+                                    PortalTailAnalyzer::mountingModeFromString(query.value(31).toString()));
                                 PortalTailAnalyzer::applyCalibration(
                                     &dummyRes, fit, rowFinalWeight, rowDoseWeight, rowDrinkTds);
                                 if (dummyRes.calibrated) {
