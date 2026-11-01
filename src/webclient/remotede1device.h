@@ -12,22 +12,22 @@ class RemoteDE1Device final : public RemoteMachineUiSource
     QML_NAMED_ELEMENT(DE1Device)
     QML_SINGLETON
 
-    Q_PROPERTY(bool connected READ connected NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool guiEnabled READ guiEnabled NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool simulationMode READ simulationMode NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool isHeadless READ isHeadless NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(int state READ stateInt NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(int subState READ subStateInt NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(QString stateString READ stateString NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(QString subStateString READ subStateString NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double temperature READ temperature NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double pressure READ pressure NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double flow READ flow NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double waterLevel READ waterLevel NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double waterLevelMm READ waterLevelMm NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(int waterLevelMl READ waterLevelMl NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(int refillKitDetected READ refillKitDetected NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged FINAL)
+    Q_PROPERTY(bool guiEnabled READ guiEnabled NOTIFY guiEnabledChanged FINAL)
+    Q_PROPERTY(bool simulationMode READ simulationMode NOTIFY simulationModeChanged FINAL)
+    Q_PROPERTY(bool isHeadless READ isHeadless NOTIFY isHeadlessChanged FINAL)
+    Q_PROPERTY(int state READ stateInt NOTIFY stateChanged FINAL)
+    Q_PROPERTY(int subState READ subStateInt NOTIFY subStateChanged FINAL)
+    Q_PROPERTY(QString stateString READ stateString NOTIFY stateStringChanged FINAL)
+    Q_PROPERTY(QString subStateString READ subStateString NOTIFY subStateStringChanged FINAL)
+    Q_PROPERTY(double temperature READ temperature NOTIFY temperatureChanged FINAL)
+    Q_PROPERTY(double pressure READ pressure NOTIFY pressureChanged FINAL)
+    Q_PROPERTY(double flow READ flow NOTIFY flowChanged FINAL)
+    Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY steamTemperatureChanged FINAL)
+    Q_PROPERTY(double waterLevel READ waterLevel NOTIFY waterLevelChanged FINAL)
+    Q_PROPERTY(double waterLevelMm READ waterLevelMm NOTIFY waterLevelMmChanged FINAL)
+    Q_PROPERTY(int waterLevelMl READ waterLevelMl NOTIFY waterLevelMlChanged FINAL)
+    Q_PROPERTY(int refillKitDetected READ refillKitDetected NOTIFY refillKitDetectedChanged FINAL)
 
 public:
     static RemoteDE1Device* create(QQmlEngine* engine, QJSEngine* jsEngine);
@@ -47,6 +47,24 @@ public:
     double waterLevelMm() const { return machineUi().waterLevelMm; }
     int waterLevelMl() const { return machineUi().waterLevelMl; }
     int refillKitDetected() const { return machineUi().refillKitDetected; }
+
+signals:
+    void connectedChanged();
+    void guiEnabledChanged();
+    void simulationModeChanged();
+    void isHeadlessChanged();
+    void stateChanged();
+    void subStateChanged();
+    void stateStringChanged();
+    void subStateStringChanged();
+    void temperatureChanged();
+    void pressureChanged();
+    void flowChanged();
+    void steamTemperatureChanged();
+    void waterLevelChanged();
+    void waterLevelMmChanged();
+    void waterLevelMlChanged();
+    void refillKitDetectedChanged();
 
 private:
     explicit RemoteDE1Device(QObject* parent);

@@ -20,13 +20,13 @@ class RemoteMainController final : public RemoteMachineUiSource
     QML_SINGLETON
 
     Q_PROPERTY(EquipmentService* equipmentStorage READ equipmentStorage WRITE setEquipmentStorage NOTIFY equipmentStorageChanged FINAL)
-    Q_PROPERTY(bool steamHeaterOn READ steamHeaterOn NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool temperatureIsRealOverride READ temperatureIsRealOverride NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool yieldIsRealOverride READ yieldIsRealOverride NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double activeBaselineYieldG READ activeBaselineYieldG NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double activeRecipeTempOffsetC READ activeRecipeTempOffsetC NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(bool steamHeaterOn READ steamHeaterOn NOTIFY steamHeaterOnChanged FINAL)
+    Q_PROPERTY(bool temperatureIsRealOverride READ temperatureIsRealOverride NOTIFY temperatureIsRealOverrideChanged FINAL)
+    Q_PROPERTY(bool yieldIsRealOverride READ yieldIsRealOverride NOTIFY yieldIsRealOverrideChanged FINAL)
+    Q_PROPERTY(double activeBaselineYieldG READ activeBaselineYieldG NOTIFY activeBaselineYieldGChanged FINAL)
+    Q_PROPERTY(double activeRecipeTempOffsetC READ activeRecipeTempOffsetC NOTIFY activeRecipeTempOffsetCChanged FINAL)
+    Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY filteredGoalPressureChanged FINAL)
+    Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY filteredGoalFlowChanged FINAL)
 
 public:
     static RemoteMainController* create(QQmlEngine* engine, QJSEngine* jsEngine);
@@ -46,6 +46,13 @@ private:
     QPointer<EquipmentService> m_equipmentStorage;
 
 signals:
+    void steamHeaterOnChanged();
+    void temperatureIsRealOverrideChanged();
+    void yieldIsRealOverrideChanged();
+    void activeBaselineYieldGChanged();
+    void activeRecipeTempOffsetCChanged();
+    void filteredGoalPressureChanged();
+    void filteredGoalFlowChanged();
     void equipmentStorageChanged();
 };
 
