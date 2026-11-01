@@ -136,6 +136,7 @@ bool SteamDataModel::replaceSnapshot(qint64 revision, double rawTime,
         || !SteamGraphValidation::samples(rawTime, pressure, flow, temperature))
         return false;
 
+    const bool goalsChanged = m_flowGoalPoints != flowGoals;
     const double nextMaxTime = std::max(5.0, rawTime);
     const bool maxChanged = m_maxTime != nextMaxTime;
     m_pressurePoints = pressure;
@@ -164,7 +165,58 @@ bool SteamDataModel::replaceSnapshot(qint64 revision, double rawTime,
     if (!guard) return true;
     emit rawTimeChanged();
     if (!guard) return true;
-    emit flowGoalPointsChanged();
+    if (goalsChanged) emit flowGoalPointsChanged();
+    if (!guard) return true;
+    emit flushed();
+    return true;
+}
+
+bool SteamDataModel::appendSnapshot(qint64 baseRevision, qint64 revision, double rawTime,
+                                    const QVector<QPointF>& pressure, const QVector<QPointF>& flow,
+                                    const QVector<QPointF>& temperature,
+                                    const QVector<QPointF>* flowGoals)
+{
+    if (baseRevision != m_revision || revision <= baseRevision
+        || revision > SteamGraphValidation::MaximumExactJsonInteger
+        || rawTime < m_rawTime
+        || m_pressurePoints.size() + pressure.size() > SteamGraphValidation::MaximumSamples
+        || !SteamGraphValidation::curve(pressure, SteamGraphValidation::MaximumSamples, {})
+        || !SteamGraphValidation::curve(flow, SteamGraphValidation::MaximumSamples, {})
+        || !SteamGraphValidation::curve(temperature, SteamGraphValidation::MaximumSamples, {})
+        || !SteamGraphValidation::samples(rawTime, pressure, flow, temperature)
+        || (!pressure.isEmpty() && !m_pressurePoints.isEmpty()
+            && pressure.first().x() < m_pressurePoints.last().x())
+        || (flowGoals && !SteamGraphValidation::curve(*flowGoals,
+            SteamGraphValidation::MaximumGoalPoints, {}))) return false;
+    const bool goalsChanged = flowGoals && m_flowGoalPoints != *flowGoals;
+    const bool timeChanged = rawTime != m_rawTime || !pressure.isEmpty();
+    const double nextMax = std::max(5.0, rawTime);
+    const bool maxChanged = nextMax != m_maxTime;
+    m_pressurePoints += pressure;
+    m_flowPoints += flow;
+    m_temperaturePoints += temperature;
+    if (flowGoals) m_flowGoalPoints = *flowGoals;
+    m_revision = revision;
+    m_rawTime = rawTime;
+    m_maxTime = nextMax;
+    m_lastFlushedPressure = m_pressurePoints.size();
+    m_lastFlushedFlow = m_flowPoints.size();
+    m_lastFlushedTemp = m_temperaturePoints.size();
+    m_dirty = m_rawTimeDirty = m_flowGoalDirty = false;
+    const auto append = [](FastLineRenderer* renderer, const QVector<QPointF>& points) {
+        if (renderer) for (const auto& point : points) renderer->appendPoint(point.x(), point.y());
+    };
+    append(m_fastPressure, pressure);
+    append(m_fastFlow, flow);
+    append(m_fastTemperature, temperature);
+    const QPointer<SteamDataModel> guard(this);
+    emit revisionChanged();
+    if (!guard) return true;
+    if (maxChanged) emit maxTimeChanged();
+    if (!guard) return true;
+    if (timeChanged) emit rawTimeChanged();
+    if (!guard) return true;
+    if (goalsChanged) emit flowGoalPointsChanged();
     if (!guard) return true;
     emit flushed();
     return true;

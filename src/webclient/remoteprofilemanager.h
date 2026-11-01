@@ -17,12 +17,12 @@ class RemoteProfileManager final : public RemoteMachineUiSource
     QML_NAMED_ELEMENT(ProfileManager)
     QML_SINGLETON
 
-    Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double targetWeight READ targetWeight NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool brewByRatioActive READ brewByRatioActive NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double brewByRatio READ brewByRatio NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double brewByRatioDose READ brewByRatioDose NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY profileTargetTemperatureChanged FINAL)
+    Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY profileTargetWeightChanged FINAL)
+    Q_PROPERTY(double targetWeight READ targetWeight NOTIFY targetWeightChanged FINAL)
+    Q_PROPERTY(bool brewByRatioActive READ brewByRatioActive NOTIFY brewByRatioActiveChanged FINAL)
+    Q_PROPERTY(double brewByRatio READ brewByRatio NOTIFY brewByRatioChanged FINAL)
+    Q_PROPERTY(double brewByRatioDose READ brewByRatioDose NOTIFY brewByRatioDoseChanged FINAL)
     Q_PROPERTY(QVariantMap dialInLabels READ dialInLabels CONSTANT FINAL)
 
 public:
@@ -38,6 +38,14 @@ public:
                                                     double anchorTemp, bool hasOverride,
                                                     double overrideTemp,
                                                     double baselineShiftC = 0.0) const;
+
+signals:
+    void profileTargetTemperatureChanged();
+    void profileTargetWeightChanged();
+    void targetWeightChanged();
+    void brewByRatioActiveChanged();
+    void brewByRatioChanged();
+    void brewByRatioDoseChanged();
 
 private:
     explicit RemoteProfileManager(QObject* parent);

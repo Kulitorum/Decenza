@@ -288,6 +288,8 @@ qt_add_qml_module(decenza-web
         ../core/bundledfontregistration.h
         ../core/settingssearch.h
         ../core/settingssearch.cpp
+        ../core/uiworkprobe.h
+        ../core/uiworkstats.h
         ../core/markdownrenderer.h
         ../core/markdownrenderer.cpp
         ../core/comboboxselection.h

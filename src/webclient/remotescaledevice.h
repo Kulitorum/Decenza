@@ -12,11 +12,11 @@ class RemoteScaleDevice final : public RemoteMachineUiSource
     QML_NAMED_ELEMENT(ScaleDevice)
     QML_SINGLETON
 
-    Q_PROPERTY(bool connected READ connected NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool isFlowScale READ isFlowScale NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(QString name READ name NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool charging READ charging NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged FINAL)
+    Q_PROPERTY(bool isFlowScale READ isFlowScale NOTIFY isFlowScaleChanged FINAL)
+    Q_PROPERTY(QString name READ name NOTIFY nameChanged FINAL)
+    Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY batteryLevelChanged FINAL)
+    Q_PROPERTY(bool charging READ charging NOTIFY chargingChanged FINAL)
 
 public:
     static RemoteScaleDevice* create(QQmlEngine* engine, QJSEngine* jsEngine);
@@ -25,6 +25,13 @@ public:
     QString name() const { return machineUi().scaleName; }
     int batteryLevel() const { return machineUi().scaleBatteryLevel; }
     bool charging() const { return machineUi().scaleCharging; }
+
+signals:
+    void connectedChanged();
+    void isFlowScaleChanged();
+    void nameChanged();
+    void batteryLevelChanged();
+    void chargingChanged();
 
 private:
     explicit RemoteScaleDevice(QObject* parent);

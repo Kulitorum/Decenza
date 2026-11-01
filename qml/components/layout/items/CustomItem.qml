@@ -15,13 +15,7 @@ LayoutWidgetItem {
     // the measured temperature — a boiler switched off minutes ago still reads
     // hot on its way down.
     //
-    // Hoisted to a property so the read happens on steamHeaterStateChanged and
-    // nowhere else. Read inline it would run inside `resolvedText`, which
-    // re-evaluates on every DE1 sample (~10 Hz while the machine runs) for every
-    // Custom widget on the layout — and each read is a full policy resolve:
-    // QSettings, a JSON parse of the pitcher blob, and a second parse of the
-    // active recipe when Let the recipe decide is on. A widget with no
-    // %STEAM_TEMP% in it paid that too.
+    // Cache the policy result so formatting never resolves heater settings itself.
     readonly property bool _steamHeaterOff:
         typeof MainController !== "undefined" && MainController !== null && !MainController.steamHeaterOn
 
@@ -112,77 +106,16 @@ LayoutWidgetItem {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    UiWorkProbe { id: workProbe }
+
     // Trigger counter to force re-evaluation of resolvedText (only used for %TIME%/%DATE%)
     property int _refreshTick: 0
 
-    // Precomputed flags: which live data categories does this item's template use?
-    // These depend only on `content` so they evaluate once at layout load, not at 5 Hz.
-    readonly property bool _needsMachineData: content.indexOf("%TEMP%") >= 0
-        || content.indexOf("%STEAM_TEMP%") >= 0
-        || content.indexOf("%PRESSURE%") >= 0
-        || content.indexOf("%FLOW%") >= 0
-        || content.indexOf("%WATER%") >= 0
-        || content.indexOf("%STATE%") >= 0
-        || content.indexOf("%CONNECTED%") >= 0
-        || content.indexOf("%MACHINE_CONNECTED%") >= 0
-        || content.indexOf("%MACHINE_READY%") >= 0
-        || content.indexOf("%DEVICES%") >= 0
-
-    readonly property bool _needsScaleData: content.indexOf("%WEIGHT%") >= 0
-        || content.indexOf("%SHOT_TIME%") >= 0
-        || content.indexOf("%VOLUME%") >= 0
-        || content.indexOf("%POUR_VOLUME%") >= 0
-        || content.indexOf("%PREINFUSION_VOLUME%") >= 0
-        || content.indexOf("%DEVICES%") >= 0
-
-    readonly property bool _needsControllerData: content.indexOf("%TARGET_WEIGHT%") >= 0
-        || content.indexOf("%PROFILE%") >= 0
-        || content.indexOf("%TARGET_TEMP%") >= 0
-        || content.indexOf("%RATIO%") >= 0
-        || content.indexOf("%DOSE%") >= 0
-
-    readonly property bool _needsScaleDevice: content.indexOf("%SCALE%") >= 0
-        || content.indexOf("%SCALE_CONNECTED%") >= 0
-        || content.indexOf("%DEVICES%") >= 0
-
-    readonly property bool _needsSettingsData: content.indexOf("%GRIND%") >= 0
-        || content.indexOf("%GRINDER%") >= 0
-        || content.indexOf("%RPM%") >= 0
-
-    // Variable substitution - only tracks the live properties this item actually uses.
-    // Items showing static values (e.g. %PROFILE%) no longer re-evaluate at 5 Hz.
+    // Reads made by the selected token helpers establish the binding dependencies.
     readonly property string resolvedText: {
-        var _c = content  // direct dependency so content changes always trigger re-evaluation
         var _tick = _refreshTick
-        if (_needsMachineData && typeof DE1Device !== "undefined" && DE1Device !== null) {
-            void(DE1Device.temperature); void(DE1Device.steamTemperature)
-            void(DE1Device.pressure); void(DE1Device.flow)
-            void(DE1Device.waterLevel); void(DE1Device.waterLevelMl)
-            void(DE1Device.stateString); void(DE1Device.connected)
-        }
-        if (_needsScaleData && typeof MachineState !== "undefined" && MachineState !== null) {
-            void(MachineState.scaleWeight); void(MachineState.shotTime)
-            void(MachineState.cumulativeVolume)
-            void(MachineState.preinfusionVolume); void(MachineState.pourVolume)
-        }
-        if ((_needsMachineData || _needsScaleData) && typeof MachineState !== "undefined" && MachineState !== null) {
-            void(MachineState.phase)
-        }
-        if (_needsControllerData && typeof ProfileManager !== "undefined" && ProfileManager !== null) {
-            void(ProfileManager.targetWeight); void(ProfileService.currentProfileSummary)
-            void(ProfileManager.profileTargetTemperature)
-            void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
-            // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
-            if (typeof Settings !== "undefined" && Settings !== null) void(Settings.brew.temperatureOverride)
-        }
-        if (_needsScaleDevice) {
-            void(ScaleDevice.name); void(ScaleDevice.connected)
-        }
-        if (_needsSettingsData && typeof Settings !== "undefined" && Settings !== null) {
-            void(RecipeContext.preferences.dyeGrinderSetting); void(RecipeContext.preferences.dyeGrinderModel)
-            void(RecipeContext.preferences.dyeGrinderRpm)
-        }
-        return substituteVariables(_c)
+        workProbe.begin()
+        return workProbe.finish(substituteVariables(content))
     }
 
     // Timer to update time/date variables (and any other periodic refresh)

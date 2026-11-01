@@ -12,11 +12,14 @@ class RemoteBLEManager final : public RemoteMachineUiSource
     QML_NAMED_ELEMENT(BLEManager)
     QML_SINGLETON
 
-    Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged FINAL)
 
 public:
     static RemoteBLEManager* create(QQmlEngine* engine, QJSEngine* jsEngine);
     bool scaleConnectionFailed() const { return machineUi().bleScaleConnectionFailed; }
+
+signals:
+    void scaleConnectionFailedChanged();
 
 private:
     explicit RemoteBLEManager(QObject* parent);

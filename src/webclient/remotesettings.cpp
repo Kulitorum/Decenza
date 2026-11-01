@@ -205,7 +205,7 @@ void RemoteSettingsApp::setAppearance(const QVariantMap& appearance)
     if (m_appearance == appearance)
         return;
     m_appearance = appearance;
-    emit changed();
+    publishChanges();
 }
 
 RemoteSettingsBrew::RemoteSettingsBrew(QObject* parent)

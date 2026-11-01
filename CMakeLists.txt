@@ -1155,6 +1155,8 @@ set(HEADERS
     src/core/basketaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
+    src/core/uiworkprobe.h
+    src/core/uiworkstats.h
     src/core/memorymonitor.h
     src/core/fddiagnostics.h
     src/core/logcollapse.h
