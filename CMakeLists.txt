@@ -144,7 +144,7 @@ endif()
 option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" ${_tsnet_default})
 
 # Qt 6 modules - core required components
-find_package(Qt6 REQUIRED COMPONENTS
+find_package(Qt6 6.12.0 REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui
