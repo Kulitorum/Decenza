@@ -120,7 +120,9 @@ public:
     DE1::State state() const { return m_state; }
     Q_INVOKABLE bool isSteamPurgeActive() const {
         return m_state == DE1::State::SteamRinse
-            || (m_steamPurgeRequest == SteamPurgeRequest::Running && m_state == DE1::State::Steam);
+            || ((m_steamPurgeRequest == SteamPurgeRequest::Running
+                 || m_steamPurgeRequest == SteamPurgeRequest::Cancelling)
+                && m_state == DE1::State::Steam);
     }
     // Only true after STATE_INFO has been received on the current connection.
     bool hasCurrentStateInfo() const { return m_stateInfoReceived; }
@@ -549,6 +551,7 @@ private:
     // Parse methods (dispatch from onTransportDataReceived)
     void parseStateInfo(const QByteArray& data);
     void updateSteamPurgeRequest();
+    void trackSteamPurgeRequest(DE1::State requestedState);
     void parseShotSample(const QByteArray& data);
     void parseShotSettings(const QByteArray& data);
     qsizetype indexOfPendingShotSettings(const ShotSettingsValues& v) const;
@@ -618,7 +621,7 @@ private:
 
     DE1::State m_state = DE1::State::Sleep;
     bool m_stateInfoReceived = false;
-    enum class SteamPurgeRequest { None, Pending, Acknowledged, Running };
+    enum class SteamPurgeRequest { None, Pending, Acknowledged, Running, Cancelling };
     SteamPurgeRequest m_steamPurgeRequest = SteamPurgeRequest::None;
     bool m_gcAbortPending = false;
     DE1::SubState m_subState = DE1::SubState::Ready;

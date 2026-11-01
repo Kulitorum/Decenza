@@ -121,6 +121,14 @@ private slots:
         QTest::newRow("acknowledged-before-queue-clear") << "clear" << true << false << true;
         QTest::newRow("running-before-queue-clear") << "clear" << false << true << true;
         QTest::newRow("running-before-abandonment") << "abandoned" << false << true << true;
+        QTest::newRow("cancel-pending") << "cancel" << false << false << false;
+        QTest::newRow("cancel-acknowledged") << "cancel" << true << false << false;
+        QTest::newRow("cancel-running") << "cancel" << false << true << false;
+        QTest::newRow("urgent-cancel-pending") << "urgent" << false << false << false;
+        QTest::newRow("urgent-cancel-acknowledged") << "urgent" << true << false << false;
+        QTest::newRow("urgent-cancel-running") << "urgent" << false << true << false;
+        QTest::newRow("cancel-with-late-steam") << "cancel-transient" << false << false << false;
+        QTest::newRow("acknowledged-cancel-with-late-steam") << "cancel-transient" << true << false << false;
     }
 
     void discardedPurgeDoesNotCaptureLaterSteam() {
@@ -144,13 +152,22 @@ private slots:
                                            QByteArray(1, char(DE1::State::Idle)));
         else if (event == "other-characteristic")
             emit f.transport.writeAbandoned(DE1::Characteristic::HEADER_WRITE, purge);
+        else if (event == "cancel" || event == "cancel-transient")
+            f.device.requestIdle();
+        else if (event == "urgent")
+            f.device.stopOperationUrgent();
         else {
             f.transport.pendingQueueSize = event == "clear" ? 1 : 0;
             f.device.clearCommandQueue();
         }
 
         QVERIFY(f.device.isConnected());
-        if (!running)
+        const bool cancelled = event == "cancel" || event == "cancel-transient" || event == "urgent";
+        if (event == "cancel-transient") {
+            f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ending));
+            QVERIFY(f.device.isSteamPurgeActive());
+        }
+        if (!running || cancelled)
             f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
         f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Steaming));
         QCOMPARE(f.device.isSteamPurgeActive(), expectedPurge);

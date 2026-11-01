@@ -864,9 +864,21 @@ void DE1Device::updateSteamPurgeRequest()
     // request through its preliminary Idle reply, then clear it on exit.
     if (m_steamPurgeRequest == SteamPurgeRequest::None)
         return;
-    if (m_state == DE1::State::Steam || m_state == DE1::State::SteamRinse)
-        m_steamPurgeRequest = SteamPurgeRequest::Running;
-    else if (m_state != DE1::State::Idle || m_steamPurgeRequest == SteamPurgeRequest::Running)
+    if (m_state == DE1::State::Steam || m_state == DE1::State::SteamRinse) {
+        if (m_steamPurgeRequest != SteamPurgeRequest::Cancelling)
+            m_steamPurgeRequest = SteamPurgeRequest::Running;
+    } else if (m_state != DE1::State::Idle || m_steamPurgeRequest == SteamPurgeRequest::Running
+               || m_steamPurgeRequest == SteamPurgeRequest::Cancelling)
+        m_steamPurgeRequest = SteamPurgeRequest::None;
+}
+
+void DE1Device::trackSteamPurgeRequest(DE1::State requestedState)
+{
+    if (requestedState == DE1::State::SteamRinse)
+        m_steamPurgeRequest = SteamPurgeRequest::Pending;
+    else if (requestedState == DE1::State::Idle && m_steamPurgeRequest != SteamPurgeRequest::None)
+        m_steamPurgeRequest = SteamPurgeRequest::Cancelling;
+    else
         m_steamPurgeRequest = SteamPurgeRequest::None;
 }
 
@@ -1428,12 +1440,9 @@ void DE1Device::requestState(DE1::State state) {
         if (!m_transport) return;
         if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     }
-    if (state == DE1::State::SteamRinse)
-        m_steamPurgeRequest = SteamPurgeRequest::Pending;
-    else if (state != DE1::State::Idle)
-        m_steamPurgeRequest = SteamPurgeRequest::None;
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
+        trackSteamPurgeRequest(state);
         switch (state) {
         case DE1::State::Espresso:
             m_simulator->startEspresso();
@@ -1492,6 +1501,7 @@ void DE1Device::requestCurrentStateInfo() {
 }
 
 void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {
+    trackSteamPurgeRequest(state);
     // A wake that never reached the machine reads exactly like one the app never
     // sent, and the field log could not separate them: this was the only state
     // write with no line of its own (SM-X210, 2026-09-19).

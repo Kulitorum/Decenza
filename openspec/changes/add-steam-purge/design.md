@@ -27,6 +27,8 @@ The hand-written lists in `mcptools_control.cpp` (`operationRunning`), `profilem
 Hardware evidence (2026-11-01, build 3656, firmware v1359): a SteamRinse request reports Steam, then Idle. `DE1Device` retains the dispatched purge intent through the preliminary Idle reply and the ensuing Steam/SteamRinse state, clearing it on exit, transport replacement or disconnect. `MachineState` maps that requested Steam to SteamPurge; the native raw-state navigation handler also excludes it. Unrequested Steam remains a normal steam session.
 
 An abandoned SteamRinse write or a queue clear that discards an unacknowledged request clears its pending intent. A write acknowledgement preserves the intent across later queue clears until a machine-state reply resolves it; an already observed purge also survives transport-write cleanup.
+
+An explicit Idle request marks the purge as cancelling. A late Steam reply still belongs to that purge until Idle confirms cancellation, which clears the intent even when no Steam reply preceded it. The preliminary Idle sent before SteamRinse is issued before the new purge intent is recorded.
 *Alternative:* map SteamRinse to `Steaming`. Rejected: that phase drives steam-session finalisation, the health tracker and milk capture, and a purge is none of those. Mapping it to `Flushing` would show "Flush Complete".
 
 ### D2. One GHC-exempt start
