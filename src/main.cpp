@@ -1536,6 +1536,8 @@ int main(int argc, char *argv[])
                      &shotDataModel, qOverload<double, double, double>(&ShotDataModel::addWeightSample));
     QObject::connect(&timingController, &ShotTimingController::weightSourceUsed,
                      &shotDataModel, &ShotDataModel::recordWeightSource);
+    QObject::connect(&timingController, &ShotTimingController::weightBaselineReady,
+                     &shotDataModel, qOverload<double, double>(&ShotDataModel::addWeightSample));
 
     // Batch shotTimeChanged onto the 33ms flush timer (signal-to-signal connection)
     // This avoids expensive QML binding evaluation in the BLE signal handler

@@ -708,7 +708,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
             out.tailSlope5gPerG = (n * sumMEc - sumM * sumEc) / denom;
     }
 
-    // Evaluate early-shot onset choke and thermal drift safeguards
+    // Evaluate thermal drift safeguards.
     const double brewRatio = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG))
                              ? (out.totalMassG / options.doseWeightG)
                              : 0.0;

@@ -309,6 +309,9 @@ void ShotDataModel::addWeightSample(double time, double weight, double flowRate)
 void ShotDataModel::addWeightSample(double time, double weight) {
     // Ignore near-zero weights (scale noise / pre-drip)
     if (weight < 0.1) {
+        // PORTAL integration needs observed baselines, without changing the plotted curve.
+        if (weight >= 0.0 && !m_portalSamples.isEmpty() && m_weightPoints.isEmpty())
+            m_cumulativeWeightPoints.append(QPointF(time, weight));
         return;
     }
 

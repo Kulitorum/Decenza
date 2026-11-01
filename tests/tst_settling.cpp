@@ -4,6 +4,7 @@
 #include <QStringList>
 
 #include "models/shotdatamodel.h"
+#include "ai/portaltailanalyzer.h"
 #include "controllers/shottimingcontroller.h"
 #include "ble/de1device.h"
 #include "mocks/MockScaleDevice.h"
@@ -172,6 +173,50 @@ private slots:
         tc.onWeightSample(6.0, 1.0, 1.0);
         tc.endShot();
         QCOMPARE(model.weightSource(), QStringLiteral("unknown"));
+    }
+
+    void portalCaptureRetainsMeasuredBaselineWithoutChangingOrdinaryCurves() {
+        DE1Device device;
+        ShotTimingController tc(&device);
+        MockScaleDevice scale;
+        scale.mockSetConnected(true);
+        tc.setScale(&scale);
+        ShotDataModel model;
+        connect(&tc, &ShotTimingController::weightSampleReady, &model,
+            qOverload<double, double, double>(&ShotDataModel::addWeightSample));
+        connect(&tc, &ShotTimingController::weightBaselineReady, &model,
+            qOverload<double, double>(&ShotDataModel::addWeightSample));
+        connect(&tc, &ShotTimingController::weightSourceUsed, &model, &ShotDataModel::recordWeightSource);
+        ShotSample sample;
+        tc.startShot();
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        tc.onWeightSample(0.0, 0.0, 0.0);
+        QVERIFY(model.cumulativeWeightData().isEmpty());
+        QVERIFY(model.weightData().isEmpty());
+        QVERIFY(model.weightFlowRateData().isEmpty());
+
+        model.addPortalSample(0.0, 8.0, 55.0);
+        tc.onWeightSample(0.0, 0.0, 0.0);
+        QCOMPARE(model.cumulativeWeightData().size(), 1);
+        QCOMPARE(model.cumulativeWeightData().first().y(), 0.0);
+        QVERIFY(model.weightData().isEmpty());
+        for (int i = 1; i <= 12; ++i)
+            model.addPortalSample(i * 0.1, 8.0, 55.0);
+        tc.m_displayTimeBase -= 1000;
+        tc.onWeightSample(5.0, 5.0, 5.0);
+        tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
+        QCOMPARE(model.cumulativeWeightData().size(), 2);
+        QCOMPARE(model.cumulativeWeightData().last().y(), 5.0);
+        QVERIFY(model.cumulativeWeightData().first().x() < model.cumulativeWeightData().last().x());
+        QVERIFY(model.weightData().first().x() > model.cumulativeWeightData().first().x());
+        PortalTailAnalyzer::Options opts;
+        opts.weightSource = PortalTailAnalyzer::weightSourceFromString(model.weightSource());
+        opts.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
+        const auto result = PortalTailAnalyzer::analyze(model.portalSamples(), model.cumulativeWeightData(), opts);
+        QVERIFY(result.valid);
+        QVERIFY(result.calibrationEligible);
+        QCOMPARE(result.coveredMassG, 5.0);
+        tc.endShot();
     }
 
     void sensorTimeUsesExtractionOriginAndIncludesSettlingOnly() {

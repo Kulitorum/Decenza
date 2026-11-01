@@ -117,6 +117,7 @@ signals:
                      double pressureGoal, double flowGoal, double tempGoal,
                      int frameNumber, bool isFlowMode);
     void weightSampleReady(double time, double weight, double flowRate);
+    void weightBaselineReady(double time, double weight);
     void weightSourceUsed(const QString& source);
 
     // Stop conditions
