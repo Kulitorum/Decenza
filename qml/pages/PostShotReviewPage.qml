@@ -432,6 +432,7 @@ T.Page {
     // How the shot went and what changed since the previous shot on its profile:
     // ShotHistoryStorage::requestShotOutcome, re-read after each saved edit.
     property var shotOutcome: ({})
+    property string _outcomeRequestId: ""
 
     // The list the page was opened from, newest first (ShotHistoryPage.getNavigableShotIds);
     // empty when opened for one shot.
@@ -609,8 +610,6 @@ T.Page {
             if (!w.hasWater) return ""
             let parts = []
             if (w.vesselName) parts.push(w.vesselName)
-            if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
-            if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
             return parts.join(" · ")
         } catch (e) { WebDebugLogger.warn("Shot", "PostShotReviewPage", ["bad hotWaterJson on shot", editShotData.id, e].map(String).join(" ")); return "" }
     }
@@ -761,6 +760,16 @@ T.Page {
     }
 
     // Load shot data for editing (async)
+    function refreshShotOutcome(shotId) {
+        _outcomeRequestId = HistoryService.requestShotOutcome(shotId)
+    }
+
+    function completeShotOutcome(requestId, success, result) {
+        if (requestId !== _outcomeRequestId || Number(result.shotId) !== editShotId) return
+        _outcomeRequestId = ""
+        if (success) shotOutcome = result
+    }
+
     function loadShotForEditing() {
         if (editShotId <= 0) return
         _shotLoadRequestId = HistoryService.requestShot(editShotId)
@@ -796,7 +805,7 @@ T.Page {
         postShotReviewPage.editShotData = shot
         postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
         HistoryService.requestDecentUploadState(shotId)
-        HistoryService.requestShotOutcome(shotId)
+        refreshShotOutcome(shotId)
         if (postShotReviewPage._stepping) {
             postShotReviewPage._stepping = false
             Qt.callLater(function() {
@@ -900,6 +909,17 @@ T.Page {
         function onDecentUploadStateUpdated(shotId, success) {
             if (shotId === postShotReviewPage.editShotId) HistoryService.requestDecentUploadState(shotId)
         }
+        function onShotWaterResultUpdated(shotId, result) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            if (!postShotReviewPage._editLoaded) {
+                postShotReviewPage.loadShotForEditing()
+                return
+            }
+            const updated = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+            updated.hotWaterResult = result
+            postShotReviewPage.editShotData = updated
+            postShotReviewPage.refreshShotOutcome(shotId)
+        }
         function onShotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame, pourTruncated) {
             if (shotId !== postShotReviewPage.editShotId) return
             var updated = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
@@ -908,9 +928,6 @@ T.Page {
             updated.skipFirstFrameDetected = skipFirstFrame
             updated.pourTruncatedDetected = pourTruncated
             postShotReviewPage.editShotData = updated
-        }
-        function onShotOutcomeReady(shotId, outcome) {
-            if (shotId === postShotReviewPage.editShotId) postShotReviewPage.shotOutcome = outcome
         }
         function onShotDeleted(shotId) {
             if (shotId !== postShotReviewPage.editShotId) return
@@ -922,6 +939,10 @@ T.Page {
                 AppShell.backRequested()
         }
         function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (operation === "outcome") {
+                postShotReviewPage.completeShotOutcome(requestId, success, result)
+                return
+            }
             if (postShotReviewPage._carryLeaveIntent !== -1)
                 Qt.callLater(function() { postShotReviewPage._continueReviewLeave() })
             const pendingMetadata = postShotReviewPage._pendingMetadataWrites[requestId]
@@ -948,7 +969,7 @@ T.Page {
                             return Object.prototype.hasOwnProperty.call(retryMetadata, spec.meta)
                         })
                         if (fullRetry) postShotReviewPage._saveFailed = false
-                        HistoryService.requestShotOutcome(metadataShotId)
+                        postShotReviewPage.refreshShotOutcome(metadataShotId)
                         if (Object.keys(postShotReviewPage._pendingMetadataWrites).length === 0
                             && !postShotReviewPage._saveFailed)
                             postShotReviewPage._sendPendingGrindAnchor()
@@ -2909,12 +2930,61 @@ T.Page {
 
             ShotResultsCard {
                 Layout.fillWidth: true
+                includeWaterResults: false
                 comparison: postShotReviewPage.shotOutcome.comparison || ({})
                 previousWhen: postShotReviewPage.shotOutcome.previousDateTime || ""
                 onCompareRequested: {
                     ComparisonService.setShots([postShotReviewPage.shotOutcome.previousShotId,
                                                 postShotReviewPage.editShotId])
                     AppShell.shotComparisonRequested()
+                }
+            }
+
+            Rectangle {
+                id: addedWaterCard
+                readonly property var water: ComparisonText.waterForShot(postShotReviewPage.editShotData)
+                readonly property string amountText: ComparisonText.waterAmountText(water)
+                readonly property string temperatureText: ComparisonText.waterTemperatureText(water)
+                Layout.fillWidth: true
+                implicitHeight: waterColumn.implicitHeight + Theme.spacingMedium * 2
+                visible: water.visible === true
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+                Accessible.role: Accessible.StaticText
+                Accessible.name: ComparisonText.txt("water.title") + ". " + amountText + ". " + temperatureText
+                Accessible.focusable: true
+                ColumnLayout {
+                    id: waterColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+                    Text {
+                        Layout.fillWidth: true
+                        text: ComparisonText.txt("water.title")
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: addedWaterCard.amountText
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: text.length > 0
+                        text: addedWaterCard.temperatureText
+                        font: Theme.bodyFont
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
                 }
             }
 

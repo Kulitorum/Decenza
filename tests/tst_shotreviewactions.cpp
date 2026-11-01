@@ -88,6 +88,116 @@ private:
     }
 
 private slots:
+    void lateWaterResultPreservesDraftAndRejectsOldOutcome()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const auto source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        for (const auto& name : {"clonePersistedShot", "refreshShotOutcome", "completeShotOutcome", "onShotWaterResultUpdated"}) {
+            const auto loaded = engine.evaluate(sourceFunction(source, QLatin1String(name)));
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        const auto result = engine.evaluate(QStringLiteral(R"JS(
+            var postShotReviewPage=this;
+            var _editLoaded=true, editShotId=7, editNotes="unsaved draft", editEnjoyment=82;
+            var editShotData={id:7,espressoNotes:"saved note"}, shotOutcome={}, _outcomeRequestId="old";
+            var HistoryService={requestShotOutcome:function(){return "new";}};
+            onShotWaterResultUpdated(7,{status:"dispensed",amountSource:"scale",weightG:103.2});
+            completeShotOutcome("old",true,{shotId:7,version:1});
+            var ignoredOld=shotOutcome.version===undefined;
+            completeShotOutcome("new",true,{shotId:7,version:2});
+            var reloads=0; loadShotForEditing=function(){++reloads;};
+            _editLoaded=false;
+            onShotWaterResultUpdated(7,{status:"notDispensed"});
+            JSON.stringify([editNotes,editEnjoyment,editShotData.hotWaterResult.weightG,
+                            ignoredOld,shotOutcome.version,reloads]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[\"unsaved draft\",82,103.2,true,2,1]"));
+    }
+
+    void waterFormattingUsesSavedSettingAndConvertsTemperatureDeltas()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/ComparisonText.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const auto source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        for (const auto& name : {"txt", "inputLabel", "unitLabel", "signed", "inputDelta",
+                                 "waterForShot", "waterAmountText", "waterTemperatureText"}) {
+            const auto loaded = engine.evaluate(sourceFunction(source, QLatin1String(name)));
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        auto result = engine.evaluate(QStringLiteral(R"JS(
+            var texts={"input.waterTemperatureC":{key:"temp",label:"Water temp (set)"},
+                       "water.notRecorded":{key:"missing",label:"Amount not recorded"},
+                       "water.notDispensed":{key:"skipped",label:"Not dispensed"}};
+            var TranslationManager={translate:function(key,fallback){return fallback;}};
+            var Theme={formatTemperature:function(v,d){return (v*1.8+32).toFixed(d)+" °F";},
+                       cDeltaToDisplay:function(v){return v*1.8;}};
+            var water=waterForShot({hotWaterJson:"not parsed in QML",
+                                    hotWaterSetting:{hasWater:true,temperatureC:85}});
+            JSON.stringify([waterAmountText(water),waterTemperatureText(water),
+                            inputDelta({unit:"celsius"},5)]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[\"Amount not recorded\",\"Water temp (set): 185.0 °F\",\"+9\"]"));
+        result = engine.evaluate(QStringLiteral(R"JS(
+            var w=waterForShot({hotWaterSetting:{hasWater:true,temperatureC:85},
+                               hotWaterResult:{status:"notDispensed",amountSource:"unavailable"}});
+            JSON.stringify([waterAmountText(w),waterTemperatureText(w)]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[\"Not dispensed\",\"\"]"));
+    }
+
+    void legacyResultsKeepEspressoRowsWithoutUnformattedWater()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/src/network/shotserver_shots.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const auto source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        // Execute the actual page renderers with their surrounding browser state.
+        for (const auto& name : {"renderHappened", "renderComparison", "rowHtml"}) {
+            // Both pages define rowHtml; use the comparison page's version.
+            const auto pageSource = QLatin1String(name) == QLatin1String("rowHtml")
+                ? source.mid(source.lastIndexOf(QStringLiteral("function rowHtml("))) : source;
+            const auto function = sourceFunction(pageSource, QLatin1String(name));
+            QVERIFY2(!function.isEmpty(), name);
+            const auto loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        auto result = engine.evaluate(QStringLiteral(R"JS(
+            var rendered={style:{setProperty:function(){}}};
+            var document={getElementById:function(){return rendered;}};
+            var escapeHtml=function(s){return String(s);};
+            var txt=function(k){return k;}, unitLabel=function(u){return u;};
+            var metricText=function(r,v){return String(v);}, pill=function(){return "";};
+            var signed=function(v){return String(v);}, graphSwatch=function(){return "";};
+            var summaryFor=function(){return "";}, sinceHtml=function(){return "";};
+            var showMore=false, me=0, DASH="-", hiddenShots={}, icons={eye:"",eyeOff:""};
+            var shotData={shotId:1,id:1,date:"today",badges:[],rating0to100:null};
+            var shots=[shotData], cmpShots=shots;
+            var data={inputs:[],unchanged:[],comparisons:[],shots:shots,metrics:[
+                {key:"yieldG",unit:"g",decimals:1,cells:[{value:36}]},
+                {key:"waterWeightG",unit:"g",decimals:1,cells:[{value:100}]},
+                {key:"waterVolumeMl",unit:"ml",decimals:1,cells:[{value:120}]}]};
+            var cmp=data;
+            renderHappened();
+            var review=rendered.innerHTML;
+            cmp=function(){return data;};
+            var columns=function(){return [0];};
+            renderComparison();
+            JSON.stringify([review.indexOf("yieldG")>=0,review.indexOf("waterWeightG")<0,
+                            review.indexOf("waterVolumeMl")<0,
+                            rendered.innerHTML.indexOf("yieldG")>=0,
+                            rendered.innerHTML.indexOf("waterWeightG")<0,
+                            rendered.innerHTML.indexOf("waterVolumeMl")<0]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[true,true,true,true,true,true]"));
+    }
+
     void carryForwardSummaryRoundsWeights()
     {
         QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
@@ -829,6 +939,7 @@ private slots:
                                     QStringLiteral("_acceptSteppedShot"),
                                     QStringLiteral("_completeShotLoad"),
                                     QStringLiteral("_applyLoadedShot"),
+                                    QStringLiteral("refreshShotOutcome"),
                                     QStringLiteral("captureCarryForwardState"),
                                     QStringLiteral("onOperationCompleted")}) {
             const QString function = sourceFunction(source, name);

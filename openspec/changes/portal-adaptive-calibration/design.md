@@ -24,4 +24,4 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 
 ## Migration Plan
 
-Migration 49 adds provenance and a partial sensor-presence index; sample-derived backfill and schema stamping share a transaction. Restore a pre-update database backup when rolling back to code predating the new columns. No reset of user notes or general shot verdicts is needed.
+Migration 50 adds provenance and a partial sensor-presence index; sample-derived backfill and schema stamping share a transaction. Restore a pre-update database backup when rolling back to code predating the new columns. No reset of user notes or general shot verdicts is needed.

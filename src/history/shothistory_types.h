@@ -114,6 +114,7 @@ struct ShotRecord {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QString hotWaterResultJson;
 
     QString weightSource;
     QString portalMountingMode;
@@ -417,6 +418,7 @@ struct ShotSaveData {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QString hotWaterResultJson;
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;

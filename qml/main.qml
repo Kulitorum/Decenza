@@ -583,7 +583,7 @@ T.ApplicationWindow {
         target: DE1Device
         function onStateChanged() {
             // DE1::State::Steam = 5
-            if (DE1Device.state === 5) {
+            if (DE1Device.state === 5 && !DE1Device.isSteamPurgeActive()) {
                 // The DE1 enters Steam in firmware on a GHC press and the app
                 // cannot refuse it, so steam it: event permission outranks a
                 // "Heater off" selection. That entry carries no values of its

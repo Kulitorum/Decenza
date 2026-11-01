@@ -36,6 +36,7 @@ page). The web `/shot/<id>` page mirrors it, beside-the-graph from 1300 px.
   the comparison), then the comparison summary, changed inputs and profile
   settings, and each metric carries its Δ
   (`ShotHistoryStorage::requestShotOutcome`).
+- **Added water**, beside Shot results for Americano/long-black records: net scale-measured grams or estimated flow volume, plus **Water temp (set)** captured at water start. Interrupted amounts are partial; skipped/refused water says Not dispensed; old snapshots say Amount not recorded. A late result updates this read-only block without replacing an editing draft. The recipe card retains vessel identity; espresso yield, ratio and extraction analysis remain espresso-only. Comparison uses the same result/source fields, with amount differences only between complete results on the same scale of units.
 - Rating, taste, notes, measurements, bean / recipe / equipment cards.
 
 ### Advanced mode adds

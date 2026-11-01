@@ -380,6 +380,8 @@ by request), and the shared node through `ShotServerSettingsService`.
 | `shots_upload` | Upload a shot to every destination switched on and connected (Visualizer, the Decent account) through `ShotUploads`, as the Upload button does. A shot a destination already holds is updated there, never duplicated. Rejects upfront for a maintenance profile or a shot shorter than `uploadMinDurationSec`, or when no destination is active. Response: `{success, destinations, message}`; each destination records its result when its answer arrives. | control |
 | `shots_delete` | Delete a shot by ID. Permanent and cannot be undone. | settings |
 
+`shots_get_detail` and `shots_compare` also carry optional `hotWaterResult`: `status` (`dispensed`, `notDispensed`, `interrupted`), `amountSource` (`scale`, `flowEstimate`, `unavailable`), optional `weightG` or `volumeMl`, and `temperatureC` (the configured water setting at pour start, not a measured temperature). Missing result/amount means unrecorded; do not substitute the configured vessel amount. Interrupted amounts are partial. Comparison adds `waterWeightG`/`waterVolumeMl` outcomes and the `waterTemperatureC` setting, with no amount delta across missing, partial or mixed-unit results. Espresso yield and ratio exclude this water. Detail projections also expose optional `hotWaterSetting` (`hasWater`, optional validated `temperatureC`) from legacy recipe intent for shared presentation; it contains no configured amount and never overrides a recorded result.
+
 `shots_get_detail` also surfaces the shot's coffee bag snapshot (bean-bag-inventory): sparse-emitted `bagId`, `frozenDate`, `defrostDate`, `storageHint`, `openedDate` (ISO dates; pre-bag shots and unfrozen beans omit them).
 
 ### Coffee Bags (bean-bag-inventory)

@@ -69,6 +69,8 @@ void HistoryService::setNode(QRemoteObjectNode* node)
     }, Qt::QueuedConnection);
     connect(m_state, &HistoryStateReplica::historyDataChanged,
             this, &HistoryService::historyDataChanged, Qt::QueuedConnection);
+    connect(m_state, &HistoryStateReplica::shotWaterResultUpdated,
+            this, &HistoryService::shotWaterResultUpdated, Qt::QueuedConnection);
     connect(m_state, &HistoryStateReplica::shotBadgesUpdated,
             this, &HistoryService::shotBadgesUpdated, Qt::QueuedConnection);
     connect(m_state, &HistoryStateReplica::shotPulledFromVisualizer,

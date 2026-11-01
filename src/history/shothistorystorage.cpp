@@ -2,6 +2,7 @@
 #include <optional>
 #include "shothistorystorage.h"
 #include "shotcomparison.h"
+#include "shotwaterresult.h"
 #include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
 #include "ai/profileshapeindex.h"
@@ -318,6 +319,7 @@ bool ShotHistoryStorage::createTables()
             visualizer_url TEXT,
 
             debug_log TEXT,
+            hot_water_result_json TEXT,
 
             temperature_override REAL,
             yield_override REAL,
@@ -2414,26 +2416,34 @@ bool ShotHistoryStorage::runMigrations()
             "END")});
     }
 
-    // PORTAL summaries are backfilled once with provenance in migration 49.
     if (currentVersion >= 46 && currentVersion < 47) {
-        addColumns(47, "migration 47 portal summary columns", {
+        addColumns(47, "migration 47 water result", {
+            {QStringLiteral("shots"), QStringLiteral("hot_water_result_json"), QStringLiteral("TEXT")},
+        }, "Until it completes, added-water results are unavailable");
+    }
+
+    // PORTAL summaries are backfilled once with provenance in migration 50.
+    if (currentVersion >= 47 && currentVersion < 48) {
+        addColumns(48, "migration 48 portal summary columns", {
             {QStringLiteral("shots"), QStringLiteral("portal_mean_ec"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_integral_ec_g"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_mean_temp_c"), QStringLiteral("REAL")},
         }, "Until it completes, Belka PORTAL summary columns are unavailable");
     }
 
-    if (currentVersion >= 47 && currentVersion < 48) {
-        addColumns(48, "migration 48 portal reliability", {
+    if (currentVersion >= 48 && currentVersion < 49) {
+        addColumns(49, "migration 49 portal reliability", {
             {QStringLiteral("shots"), QStringLiteral("portal_estimate_reliable"), QStringLiteral("INTEGER")},
             {QStringLiteral("shots"), QStringLiteral("portal_mounting_mode"), QStringLiteral("TEXT")},
         }, "PORTAL estimates are unavailable until it completes");
     }
 
-    if (currentVersion >= 48 && currentVersion < 49) {
-        addColumns(49, "migration 49 shot measurement provenance", {
+    if (currentVersion >= 49 && currentVersion < 50) {
+        addColumns(50, "migration 50 shot measurement provenance", {
             {QStringLiteral("shots"), QStringLiteral("weight_source"), QStringLiteral("TEXT")},
             {QStringLiteral("shots"), QStringLiteral("portal_present"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+            // PORTAL previews used version 47 before main assigned it to added water.
+            {QStringLiteral("shots"), QStringLiteral("hot_water_result_json"), QStringLiteral("TEXT")},
         }, "PORTAL provenance is unavailable until it completes", {}, [&] {
             QSqlQuery samples(m_db);
             if (!samples.exec("SELECT shot_id, data_blob FROM shot_samples")) return false;
@@ -2459,7 +2469,7 @@ bool ShotHistoryStorage::runMigrations()
             }
             return true;
         });
-        if (currentVersion == 49 && !query.exec("CREATE INDEX IF NOT EXISTS idx_shots_portal ON shots(portal_present) WHERE portal_present=1"))
+        if (currentVersion == 50 && !query.exec("CREATE INDEX IF NOT EXISTS idx_shots_portal ON shots(portal_present) WHERE portal_present=1"))
             DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL index unavailable:" << query.lastError().text();
     }
 
@@ -2663,6 +2673,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 {
     if (!m_ready || m_backupInProgress || !shotData) {
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Cannot save shot - not ready, backup in progress, or no data";
+        emit shotSavedWithUuid(-1, {});
         emit shotSaved(-1);
         return -1;
     }
@@ -2709,6 +2720,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.recipeId = metadata.recipeId;
     data.steamJson = metadata.steamJson;
     data.hotWaterJson = metadata.hotWaterJson;
+    data.hotWaterResultJson = metadata.hotWaterResultJson;
     data.yieldMode = metadata.yieldMode;
     data.yieldAnchorValue = metadata.yieldAnchorValue;
     data.flowCalibration = metadata.flowCalibration;
@@ -2822,6 +2834,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         qint64 shotId = saveShotStatic(dbPath, ownedData);
 
         // Capture only the fields needed for logging (avoid copying the large compressedSamples blob)
+        const QString shotUuid = ownedData.uuid;
         QString profileName = ownedData.profileName;
         double shotDuration = ownedData.duration;
         int sampleCount = ownedData.sampleCount;
@@ -2829,7 +2842,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, destroyed,
-                                         profileName, shotDuration, sampleCount, compressedSize]() {
+                                         profileName, shotDuration, sampleCount, compressedSize, shotUuid]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "saveShot callback dropped (object destroyed)";
                 return;
@@ -2848,6 +2861,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                 emit errorOccurred("Failed to save shot to database");
             }
 
+            emit shotSavedWithUuid(shotId, shotUuid);
             emit shotSaved(shotId);
         }, Qt::QueuedConnection);
     });
@@ -2904,7 +2918,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     stopped_by, beanbase_json, beanbase_id,
                     bag_id, frozen_date, defrost_date, storage_hint, opened_date,
                     recipe_id, steam_json, hot_water_json,
-                    flow_calibration,
+                    flow_calibration, hot_water_result_json,
                     portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c,
                     portal_estimate_reliable, portal_mounting_mode, weight_source, portal_present
                 ) VALUES (
@@ -2922,7 +2936,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :stopped_by, :beanbase_json, :beanbase_id,
                     :bag_id, :frozen_date, :defrost_date, :storage_hint, :opened_date,
                     :recipe_id, :steam_json, :hot_water_json,
-                    :flow_calibration,
+                    :flow_calibration, :hot_water_result_json,
                     :portal_mean_ec, :portal_integral_ec_g, :portal_mean_temp_c,
                     :portal_estimate_reliable, :portal_mounting_mode, :weight_source, :portal_present
                 )
@@ -2988,6 +3002,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":recipe_id", data.recipeId > 0 ? QVariant(data.recipeId) : QVariant());
             query.bindValue(":steam_json", data.steamJson.isEmpty() ? QVariant() : data.steamJson);
             query.bindValue(":hot_water_json", data.hotWaterJson.isEmpty() ? QVariant() : data.hotWaterJson);
+            query.bindValue(":hot_water_result_json", data.hotWaterResultJson.isEmpty() ? QVariant() : data.hotWaterResultJson);
             query.bindValue(":portal_mean_ec", data.portalMeanEc > 0 ? QVariant(data.portalMeanEc) : QVariant());
             query.bindValue(":portal_integral_ec_g", data.portalIntegralEcG > 0 ? QVariant(data.portalIntegralEcG) : QVariant());
             query.bindValue(":portal_mean_temp_c", data.portalMeanTempC > 0 ? QVariant(data.portalMeanTempC) : QVariant());
@@ -4110,7 +4125,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.taste_balance, s.taste_body,
                s.yield_mode, s.yield_anchor_value,
                s.flow_calibration,
-               s.portal_mean_ec, s.portal_integral_ec_g, s.portal_mean_temp_c, s.weight_source, s.portal_mounting_mode
+               s.portal_mean_ec, s.portal_integral_ec_g, s.portal_mean_temp_c, s.weight_source, s.portal_mounting_mode, s.hot_water_result_json
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         LEFT JOIN equipment_items eb ON eb.package_id = s.equipment_id AND eb.kind = 'basket'
@@ -4227,12 +4242,13 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // positional read keeps its index, the same rule the taste-axis and
     // yield-anchor columns followed. NULL reads as 0.0 = not recorded.
     record.flowCalibration = query.value(56).toDouble();
-    // Belka PORTAL summary metrics (cols 57/58/59, migration 47).
+    // Belka PORTAL summary metrics (cols 57/58/59, migration 48).
     record.portalMeanEc = query.value(57).toDouble();
     record.portalIntegralEcG = query.value(58).toDouble();
     record.portalMeanTempC = query.value(59).toDouble();
     record.weightSource = query.value(60).toString();
     record.portalMountingMode = query.value(61).toString();
+    record.hotWaterResultJson = query.value(62).toString();
     if (query.value(54).isNull() && record.targetWeight > 0) {
         record.yieldMode = YieldSpec::modeAbsolute();
         record.yieldAnchorValue = record.targetWeight;
@@ -5009,6 +5025,50 @@ bool ShotHistoryStorage::shotIdsForVisualizerIdsStatic(QSqlDatabase& db, const Q
     return true;
 }
 
+bool ShotHistoryStorage::updateShotWaterResultStatic(QSqlDatabase& db, qint64 shotId,
+                                                    const QString& uuid, const QVariantMap& result)
+{
+    const QString json = ShotWaterResult::fromMap(result).toJson();
+    if (shotId <= 0 || uuid.isEmpty() || json.isEmpty()) return false;
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral("UPDATE shots SET hot_water_result_json = ?, "
+                                 "updated_at = strftime('%s', 'now') WHERE id = ? AND uuid = ?"));
+    query.addBindValue(json);
+    query.addBindValue(shotId);
+    query.addBindValue(uuid);
+    return query.exec() && query.numRowsAffected() == 1;
+}
+
+void ShotHistoryStorage::requestUpdateShotWaterResult(qint64 shotId, const QString& uuid,
+                                                     const QVariantMap& result)
+{
+    const QVariantMap normalized = ShotWaterResult::fromMap(result).toMap();
+    if (!m_ready || normalized.isEmpty()) {
+        emit shotWaterResultUpdateFinished(shotId, false);
+        emit errorOccurred(QStringLiteral("Couldn't save the added water result."));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, shotId, uuid, normalized, destroyed] {
+        bool success = false;
+        withTempDb(dbPath, "shs_water", [&](QSqlDatabase& db) {
+            success = updateShotWaterResultStatic(db, shotId, uuid, normalized);
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, shotId, normalized, success, destroyed] {
+            if (*destroyed) return;
+            if (success) {
+                emit shotWaterResultUpdated(shotId, normalized);
+                emit historyDataChanged();
+            } else {
+                emit errorOccurred(QStringLiteral("Couldn't save the added water result."));
+            }
+            emit shotWaterResultUpdateFinished(shotId, success);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata)
 {
     requestUpdateShotMetadataForRequest({}, shotId, metadata);
@@ -5620,6 +5680,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             const int idxRecipeId = srcRecord.indexOf("recipe_id");
             const int idxSteamJson = srcRecord.indexOf("steam_json");
             const int idxHotWaterJson = srcRecord.indexOf("hot_water_json");
+            const int idxHotWaterResultJson = srcRecord.indexOf("hot_water_result_json");
             // Yield anchor provenance (add-yield-ratio-anchor): carried
             // verbatim from post-migration-34 sources. A pre-34 source has
             // neither column — those rows convert on import by the same
@@ -5692,13 +5753,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         bag_id, frozen_date, defrost_date, storage_hint, opened_date,
                         taste_balance, taste_body,
                         recipe_id, steam_json, hot_water_json,
-                        flow_calibration,
+                        flow_calibration, hot_water_result_json,
                         decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending,
                         decent_rejected_status, decent_rejected_at,
                         visualizer_dirty, visualizer_dirty_seq,
                         decent_failed_at, visualizer_failed_at, visualizer_rejected_status, visualizer_rejected_at,
                         portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c, portal_estimate_reliable, portal_mounting_mode, weight_source, portal_present)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 // KEEP THE SHOT'S OWN ID wherever it is free.
@@ -5818,6 +5879,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcValueOrNull(idxSteamJson));
                 insert.addBindValue(srcValueOrNull(idxHotWaterJson));
                 insert.addBindValue(srcValueOrNull(idxFlowCalibration));
+                insert.addBindValue(srcValueOrNull(idxHotWaterResultJson));
                 insert.addBindValue(srcValueOrNull(idxDecentUploadedAt));
                 insert.addBindValue(srcValueOrNull(idxDecentShotId));
                 insert.addBindValue(srcValueOrNull(idxDecentSerial));
@@ -6352,7 +6414,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
             profile_kb_id,
             channeling_detected, grind_issue_detected,
             skip_first_frame_detected, pour_truncated_detected,
-            flow_calibration,
+            flow_calibration, hot_water_result_json,
             portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c,
             portal_estimate_reliable, portal_mounting_mode, weight_source, portal_present
         ) VALUES (
@@ -6368,12 +6430,13 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
             :profile_kb_id,
             :channeling_detected, :grind_issue_detected,
             :skip_first_frame_detected, :pour_truncated_detected,
-            :flow_calibration,
+            :flow_calibration, :hot_water_result_json,
             :portal_mean_ec, :portal_integral_ec_g, :portal_mean_temp_c,
             :portal_estimate_reliable, :portal_mounting_mode, :weight_source, :portal_present
         )
     )");
 
+    query.bindValue(":hot_water_result_json", record.hotWaterResultJson.isEmpty() ? QVariant() : record.hotWaterResultJson);
     query.bindValue(":uuid", record.summary.uuid);
     query.bindValue(":timestamp", record.summary.timestamp);
     query.bindValue(":profile_name", record.summary.profileName);

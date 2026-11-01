@@ -205,6 +205,7 @@ private slots:
     void hotWaterCarriesVerbatimNeverFallsBack() {
         ShotRecord record = sampleShotRecord();
         record.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Kettle\"}";
+        record.hotWaterResultJson = R"({"status":"dispensed","amountSource":"scale","weightG":103.2})";
         const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
             record, "n", std::nullopt, "{\"hasWater\":false}");
         QCOMPARE(fields.value("hotWaterJson").toString(), record.hotWaterJson);

@@ -50,6 +50,7 @@ QtObject {
         switch (unit) {
         case "s":            return TranslationManager.translate("common.unit.seconds", "s")
         case "g":            return TranslationManager.translate("common.unit.grams", "g")
+        case "ml":           return TranslationManager.translate("common.unit.milliliters", "mL")
         case "bar":          return TranslationManager.translate("espresso.unit.bar", "bar")
         case "mlPerSec":     return TranslationManager.translate("espresso.unit.flowRate", "mL/s")
         case "gPerSec":      return txt("unit.gPerSec")
@@ -76,6 +77,42 @@ QtObject {
         if (d === null || d === undefined) return ""
         const shown = row.unit === "celsius" || row.unit === "celsiusDelta" ? Theme.cDeltaToDisplay(d) : d
         return signed(shown, row.decimals)
+    }
+
+    function waterForShot(shot) {
+        const result = shot.hotWaterResult || ({})
+        if (result.status) return Object.assign({ visible: true }, result)
+        const setting = shot.hotWaterSetting || ({})
+        return setting.hasWater ? Object.assign({ visible: true }, setting) : ({ visible: false })
+    }
+
+    function waterAmountText(water) {
+        if (water.status === "notDispensed") return txt("water.notDispensed")
+        let text = txt("water.notRecorded")
+        if (water.weightG !== undefined)
+            text = water.weightG.toFixed(1) + " " + unitLabel("g") + " · " + txt("water.scale")
+        else if (water.volumeMl !== undefined)
+            text = water.volumeMl.toFixed(1) + " " + unitLabel("ml") + " · " + txt("water.flowEstimate")
+        if (water.status === "interrupted") text += " · " + txt("water.interrupted")
+        return text
+    }
+
+    function waterTemperatureText(water) {
+        if (water.status === "notDispensed") return ""
+        return water.temperatureC === undefined ? txt("water.tempUnavailable")
+            : inputLabel("waterTemperatureC") + ": " + Theme.formatTemperature(water.temperatureC, 1)
+    }
+
+    function metricCellText(row, cell) {
+        if (row.key !== "waterWeightG" && row.key !== "waterVolumeMl")
+            return metricText(row, cell.value)
+        const water = cell.water || ({})
+        if (water.status === "notDispensed") return txt("water.notDispensed")
+        let text = metricText(row, cell.value)
+        if (cell.value !== null && cell.value !== undefined)
+            text += " · " + txt("water." + water.amountSource)
+        if (water.status === "interrupted") text += " · " + txt("water.interrupted")
+        return text
     }
 
     function ratingText(s) {
@@ -130,7 +167,7 @@ QtObject {
 
     function _plain(key, v) {
         if (typeof v === "number")
-            return key === "rpm" ? String(Math.round(v)) : key === "temperatureOverrideC"
+            return key === "rpm" ? String(Math.round(v)) : (key === "temperatureOverrideC" || key === "waterTemperatureC")
                 ? Theme.formatTemperature(v, 1) : v.toFixed(1)
         return String(v)
     }
