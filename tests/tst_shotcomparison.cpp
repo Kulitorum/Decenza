@@ -375,6 +375,14 @@ void TstShotComparison::waterResultsKeepTheirMeaningAndRebase()
     QCOMPARE(row(result["metrics"].toArray(), "ratio")["cells"].toArray()[0].toObject()["value"].toDouble(), 2.0);
     auto rebased = compare({base, other}, 1);
     QCOMPARE(row(rebased["metrics"].toArray(), "waterWeightG")["cells"].toArray()[1].toObject()["delta"].toDouble(), -20.0);
+    auto adjusted = other;
+    adjusted.doseWeightG = 19;
+    adjusted.grinderSetting = "9";
+    const auto summary = compare({base, adjusted}, 0)["comparisons"].toArray()[0].toObject()["summary"].toArray();
+    QCOMPARE(summary[0].toObject()["key"].toString(), QString("doseG"));
+    QCOMPARE(summary[1].toObject()["key"].toString(), QString("grinderSetting"));
+    QVERIFY(!pairChanges(base, adjusted, PairInputs::DialIn)["inputs"].toObject().contains("waterTemperatureC"));
+    QVERIFY(pairChanges(base, adjusted)["inputs"].toObject().contains("waterTemperatureC"));
     other.hotWaterResult.insert("status", "interrupted");
     auto partial = compare({base, other}, 0);
     auto partialCell = row(partial["metrics"].toArray(), "waterWeightG")["cells"].toArray()[1].toObject();

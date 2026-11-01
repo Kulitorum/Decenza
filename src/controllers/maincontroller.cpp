@@ -5326,7 +5326,7 @@ void MainController::onShotEnded() {
             // Capture timestamp now (before async save) so it reflects shot end time
             QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
-            // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
+            // Connect to shotSavedWithUuid for completion (single-shot, auto-disconnects)
             connect(m_shotHistory, &ShotHistoryStorage::shotSavedWithUuid, this,
                     [this, finalWeight, shotDateTime, showPostShot, duration,
                      completedOperationId, reviewSetup,

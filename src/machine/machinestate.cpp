@@ -428,7 +428,7 @@ void MachineState::updatePhase() {
     // apply against a later raw DE1 state/substate or connection.
     updateControlContextId();
     if (!m_device || !m_device->isConnected()) {
-        if (m_waterCapturing) finishWaterCapture(true);
+        if (m_waterCapturing) finishWaterCapture(!m_waterSettle.isActive());
         // A BLE drop mid-steam must disarm the steam flow-stop event WITHOUT
         // emitting it: a dropped connection is not a completion (no "Steam
         // done"), and a stale armed flag would otherwise leak across the
@@ -1154,7 +1154,10 @@ void MachineState::captureWaterWeight(double weight)
         m_waterScaleValid = false;
         return;
     }
-    if (m_waterTareAwaitingZero && qAbs(weight) < 1.0) {
+    const double previousRaw = m_waterLastWeight.value_or(m_waterWeightOffset)
+        - m_waterWeightOffset + m_waterWeightReference;
+    if (m_waterTareAwaitingZero && qAbs(weight) < 1.0 && weight < previousRaw) {
+        // Observe the reset, not an unchanged zero from an already tared cup.
         // Preserve water added before a late tare; the next readings have a new zero.
         m_waterWeightOffset = m_waterLastWeight.value_or(0);
         m_waterWeightReference = weight;
@@ -1200,7 +1203,6 @@ void MachineState::finishWaterCapture(bool interrupted, bool allowLearning)
         }
     }
     m_hotWaterSawTriggerWeight = -1;
-    m_hotWaterFrozenWeight = -1;
     emit hotWaterResultReady(m_waterCycleId, m_waterResult.toMap());
 }
 

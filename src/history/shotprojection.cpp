@@ -123,6 +123,9 @@ QVariantMap ShotProjection::toVariantMap() const
         m["steamJson"] = steamJson;
     if (!hotWaterJson.isEmpty())
         m["hotWaterJson"] = hotWaterJson;
+    const auto waterSetting = ShotWaterResult::legacySetting(hotWaterJson);
+    if (!waterSetting.isEmpty())
+        m["hotWaterSetting"] = waterSetting;
     const auto waterResult = ShotWaterResult::fromMap(hotWaterResult).toMap();
     if (!waterResult.isEmpty())
         m["hotWaterResult"] = waterResult;

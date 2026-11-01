@@ -381,6 +381,17 @@ void TstShotProjection::waterResultKeepsUnitsAndMissingMeaning()
     QVERIFY(!skipped.contains("weightG"));
     QVERIFY(!ShotWaterResult::setting(skipped, R"({"hasWater":true,"temperatureC":90})"));
     QCOMPARE(*ShotWaterResult::setting({}, R"({"hasWater":true,"temperatureC":85})"), 85.0);
+    p.hotWaterJson = R"({"hasWater":true,"volume":100,"temperatureC":85})";
+    const auto setting = p.toVariantMap().value("hotWaterSetting").toMap();
+    QCOMPARE(setting.value("temperatureC").toDouble(), 85.0);
+    QVERIFY(setting.value("hasWater").toBool());
+    QVERIFY(!setting.contains("volume"));
+    p.hotWaterJson = R"({"hasWater":true,"temperatureC":101})";
+    QVERIFY(!p.toVariantMap().value("hotWaterSetting").toMap().contains("temperatureC"));
+    p.hotWaterJson = R"({"hasWater":false,"temperatureC":85})";
+    QVERIFY(!p.toVariantMap().contains("hotWaterSetting"));
+    p.hotWaterJson = "malformed";
+    QVERIFY(!p.toVariantMap().contains("hotWaterSetting"));
     invalid.insert("status", "unknown");
     QVERIFY(ShotWaterResult::fromMap(invalid).toMap().isEmpty());
 }

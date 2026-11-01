@@ -31,6 +31,13 @@
 - [x] 5.1 Build and run relevant checks through Qt Creator, including its QML lint gate and native/Wasm source/resource closure checks, then run the full local suite through Qt Creator before a PR. Record build/test ids and outcomes; for each added regression assertion, demonstrate that a targeted behavior break makes it fail. Do not use shell build/test fallbacks.
 - [x] 5.2 With the user starting/restarting the matching Mac app, verify an Americano and long black in the simulator, an early-stopped water pour, and a no-physical-scale flow estimate; reopen history, compare, and transfer/reload the saved shots. Verify water amount/source/set temperature, espresso-only yield/ratio, and native/Wasm agreement. Record simulator evidence; physical measurement edge cases are covered by the machine-state fixtures. Per the user, this feature requires no separate tablet or hardware acceptance.
 
+## 6. PR review follow-up
+
+- [x] 6.1 Retain and attach a manually started expected second step while the drink is pending, for both orders; extend the sequence fixture to prove no duplicate automatic start.
+- [x] 6.2 Preserve the completion display freeze independently of result capture, keep a normally completed pour complete on a settling-window disconnect, and cover the delayed-tare observation with focused machine-state regressions.
+- [x] 6.3 Centralize legacy water setting validation in the host projection/codec, order water after espresso inputs, keep new outcome rows out of legacy HTML, and correct the save-signal comment; extend the existing projection, formatting and comparison fixtures.
+- [x] 6.4 Run relevant regression checks and the full Qt Creator suite, update validation evidence, prepare the completed change for its required pre-merge archive.
+
 ## Validation evidence
 
 - Qt Creator native/matching-Wasm packaging build `1793494460791`: passed. QML lint and source/resource closure passed. Full Qt Creator run `1793494461141`: **207 passed, 0 failed, 0 skipped** (42.81 s).
@@ -41,3 +48,5 @@
 - Simulator acceptance found and fixed long-black operation-0 cleanup and missing simulated hot-water telemetry. The initial browser TLS failure resolved after restart. No separate tablet/hardware acceptance is required, per the user; original sequence hardware acceptance remains outside this change.
 - Wiki Manual additions published in wiki commit `81ff034`. Simulated Scale restored on, Americano Test selected, machine idle. Routine screenshots remain temporary local artifacts.
 - PR preparation: rebased cleanly onto `063464fba` (current main, including the steam-purge fix). Qt Creator build `1793494460793` passed; full run `1793494461142`: 207 passed, 0 failed, 0 skipped (40.59 s). Text checks and strict OpenSpec validation passed.
+
+- PR review follow-up: Qt Creator negative run `1793558066235` reproduced the manual-step association, delayed-tare (10 g, 1.5 g and 0.5 g), display-freeze, completed-status and summary-priority defects. Targeted negative run `1793558066237` separately failed the dial-in exclusion and both actual legacy page renderers. Fixes restored; focused run `1793558066236` passed all four targets. Final full run `1793558066238`: **207 passed, 0 failed, 0 skipped** (40.43 s), no test warnings. Native/matching-Wasm build `1793558065713` passed with resource closure; QML lint passed clean 357/357. The linker reported the existing Homebrew OpenSSL deployment-target warnings and large unwind-table warning. All eight review notes are addressed.

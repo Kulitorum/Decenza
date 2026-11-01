@@ -94,7 +94,8 @@ void DrinkSequenceController::onFlowStarted(int phase)
     const auto phaseValue = static_cast<MachineState::Phase>(phase);
     const bool espresso = phaseValue == MachineState::Phase::Preinfusion
                        || phaseValue == MachineState::Phase::Pouring;
-    if (m_activeCaptureId && (m_stage == Stage::AwaitingStart || m_stage == Stage::Running)) {
+    if (m_activeCaptureId && (m_stage == Stage::Pending || m_stage == Stage::AwaitingStart
+                              || m_stage == Stage::Running)) {
         if (m_step == Step::Espresso && espresso)
             associateEspresso(m_activeCaptureId);
         else if (m_step == Step::HotWater && phaseValue == MachineState::Phase::HotWater) {
@@ -169,6 +170,11 @@ void DrinkSequenceController::onDeviceStateChanged()
         }
         return;
     case Stage::Pending:
+        if (state == stateFor(m_step)) {
+            // A GHC/manual start can arrive before the automatic request.
+            setStage(Stage::Running, m_step);
+            return;
+        }
         break;
     }
 

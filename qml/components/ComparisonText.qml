@@ -82,16 +82,8 @@ QtObject {
     function waterForShot(shot) {
         const result = shot.hotWaterResult || ({})
         if (result.status) return Object.assign({ visible: true }, result)
-        if (!shot.hotWaterJson) return ({ visible: false })
-        try {
-            const spec = JSON.parse(shot.hotWaterJson)
-            if (!spec.hasWater) return ({ visible: false })
-            const water = { visible: true }
-            if (typeof spec.temperatureC === "number" && isFinite(spec.temperatureC)
-                    && spec.temperatureC >= 0 && spec.temperatureC <= 100)
-                water.temperatureC = spec.temperatureC
-            return water
-        } catch (e) { return ({ visible: false }) }
+        const setting = shot.hotWaterSetting || ({})
+        return setting.hasWater ? Object.assign({ visible: true }, setting) : ({ visible: false })
     }
 
     function waterAmountText(water) {

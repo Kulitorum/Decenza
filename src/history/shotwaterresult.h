@@ -64,6 +64,16 @@ struct ShotWaterResult {
         result.status = QStringLiteral("notDispensed");
         return result;
     }
+    // Normalize legacy intent once on the host; never expose its target as an outcome.
+    static QVariantMap legacySetting(const QString& spec) {
+        const auto water = QJsonDocument::fromJson(spec.toUtf8()).object();
+        if (!water.value(QStringLiteral("hasWater")).toBool()) return {};
+        QVariantMap setting{{QStringLiteral("hasWater"), true}};
+        const auto temp = water.value(QStringLiteral("temperatureC"));
+        if (temp.isDouble() && std::isfinite(temp.toDouble()) && temp.toDouble() >= 0 && temp.toDouble() <= 100)
+            setting.insert(QStringLiteral("temperatureC"), temp.toDouble());
+        return setting;
+    }
     // Legacy spec temperature is intent; its amount is never a measured result.
     static std::optional<double> setting(const QVariantMap& result, const QString& spec) {
         const auto normalized = fromMap(result).toMap();
@@ -72,11 +82,9 @@ struct ShotWaterResult {
                 return normalized.value(QStringLiteral("temperatureC")).toDouble();
             return std::nullopt;
         }
-        const auto water = QJsonDocument::fromJson(spec.toUtf8()).object();
-        const auto temp = water.value(QStringLiteral("temperatureC"));
-        if (water.value(QStringLiteral("hasWater")).toBool() && temp.isDouble()
-            && std::isfinite(temp.toDouble()) && temp.toDouble() >= 0 && temp.toDouble() <= 100)
-            return temp.toDouble();
+        const auto water = legacySetting(spec);
+        if (water.contains(QStringLiteral("temperatureC")))
+            return water.value(QStringLiteral("temperatureC")).toDouble();
         return std::nullopt;
     }
 };

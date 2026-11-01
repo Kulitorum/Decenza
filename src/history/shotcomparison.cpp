@@ -174,15 +174,6 @@ double shownDelta(double base, double shot, int decimals)
 InputDiff diffInputs(const ShotProjection& base, const ShotProjection& shot)
 {
     InputDiff d;
-    const auto waterA = ShotWaterResult::setting(base.hotWaterResult, base.hotWaterJson);
-    const auto waterB = ShotWaterResult::setting(shot.hotWaterResult, shot.hotWaterJson);
-    auto waterTemp = numericField(QStringLiteral("waterTemperatureC"), QStringLiteral("celsius"),
-                                 waterA.value_or(-1), waterB.value_or(-1), kTemperatureToleranceC);
-    waterTemp.state = waterA.has_value() != waterB.has_value() ? FieldState::OneSided
-        : waterA && std::abs(*waterA - *waterB) > kTemperatureToleranceC ? FieldState::Changed : FieldState::Same;
-    waterTemp.delta = waterTemp.state == FieldState::Changed ? std::optional<double>(*waterB - *waterA) : std::nullopt;
-    d.fields << waterTemp;
-
     InputField profile;
     profile.key = QStringLiteral("profile");
     profile.baseText = base.profileName;
@@ -224,6 +215,16 @@ InputDiff diffInputs(const ShotProjection& base, const ShotProjection& shot)
     }
 
     d.fields << groupField(QStringLiteral("barista"), { &ShotProjection::barista }, base, shot);
+
+    const auto waterA = ShotWaterResult::setting(base.hotWaterResult, base.hotWaterJson);
+    const auto waterB = ShotWaterResult::setting(shot.hotWaterResult, shot.hotWaterJson);
+    auto waterTemp = numericField(QStringLiteral("waterTemperatureC"), QStringLiteral("celsius"),
+                                 waterA.value_or(-1), waterB.value_or(-1), kTemperatureToleranceC);
+    waterTemp.state = waterA.has_value() != waterB.has_value() ? FieldState::OneSided
+        : waterA && std::abs(*waterA - *waterB) > kTemperatureToleranceC ? FieldState::Changed : FieldState::Same;
+    waterTemp.delta = waterTemp.state == FieldState::Changed ? std::optional<double>(*waterB - *waterA) : std::nullopt;
+    waterTemp.dialIn = false;
+    d.fields << waterTemp;
 
     // A grind Δ needs one dial: the same grinder and burrs on both shots.
     InputField* g = nullptr;
