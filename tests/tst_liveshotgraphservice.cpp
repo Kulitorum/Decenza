@@ -9,11 +9,18 @@
 #include "remote/liveshotgraphservice_qml.h"
 #include "remote/liveshotgraphservicesource.h"
 #include "models/shotdatamodel.h"
+#include "rendering/fastlinerenderer.h"
 
 #include <cmath>
 #include <limits>
 
 namespace {
+class PaintableLine final : public FastLineRenderer
+{
+public:
+    using FastLineRenderer::updatePaintNode;
+};
+
 QVariantList points(std::initializer_list<QPointF> values)
 {
     QVariantList result;
@@ -124,6 +131,28 @@ class tst_LiveShotGraphService : public QObject
 private slots:
     void init() { QTest::failOnWarning(); LiveShotGraphService::setPublishedNode(nullptr); }
     void cleanup() { LiveShotGraphService::setPublishedNode(nullptr); }
+
+    void rendererDrawCountTracksGrowthAndClear()
+    {
+        PaintableLine line;
+        line.setSize(QSizeF(200, 100));
+        std::unique_ptr<QSGNode> node;
+        const auto drawCount = [&] {
+            node.reset(line.updatePaintNode(node.release(), nullptr));
+            return static_cast<QSGGeometryNode*>(node.get())->geometry()->vertexCount();
+        };
+        QCOMPARE(drawCount(), 0);
+        line.appendPoint(0.2, 0.3);
+        QCOMPARE(drawCount(), 3);
+        line.appendPoint(0.7, 0.8);
+        QCOMPARE(drawCount(), 4);
+        line.clear();
+        QCOMPARE(drawCount(), 0);
+        line.setPoints({{0.1, 0.1}, {0.5, 0.5}, {0.9, 0.1}});
+        QCOMPARE(drawCount(), 6);
+        line.setMaxX(line.minX());
+        QCOMPARE(drawCount(), 0);
+    }
 
     void midShotJoinAndAppendDelta()
     {

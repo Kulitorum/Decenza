@@ -435,7 +435,6 @@ void PreparationController::onShotTimeChanged()
         if (std::isfinite(shotTime) && shotTime >= 0.0)
             m_steamElapsedTracker = shotTime;
     }
-    refresh();
 }
 
 void PreparationController::onTareCompleted()
