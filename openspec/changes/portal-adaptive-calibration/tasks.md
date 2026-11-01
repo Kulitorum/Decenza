@@ -15,9 +15,9 @@
 
 ## 3. Integration validation
 
-- [ ] 3.1 Run full Linux tests plus Android/Wasm builds and QML gate through manually dispatched CI; inspect failures and record final run IDs.
-- [ ] 3.2 Prove regression tests fail under relevant mutations and pass after restoring the fixes.
-- [ ] 3.3 Inspect affected native and host-served browser screens when a paired host is available; record any held acceptance explicitly.
+- [x] 3.1 Source b1dae020 passed [CI 41342483399](https://github.com/janhcla/Decenza/actions/runs/41342483399): Linux 205/205, no retries, QML gate 357/357, Android and Wasm builds passed.
+- [x] 3.2 [Regression controls 41342881887](https://github.com/janhcla/Decenza/actions/runs/41342881887) passed: six deliberate regressions failed at the intended assertions, with all four owner suites green before and after restoration.
+- [ ] 3.3 Native/browser interaction and physical-sensor acceptance remain unverified. No current build was started on a paired host or installed on the live tablet; perform this manual acceptance before release.
 
 ## Workflow follow-up
 
