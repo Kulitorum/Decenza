@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <QBluetoothUuid>
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -12,6 +14,7 @@
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class DE1Device;
+class DE1Transport;
 
 // Orchestrates the three-phase DE1 firmware update (erase → upload → verify)
 // over BLE, using DE1Device for the wire writes and FirmwareAssetCache for
@@ -193,11 +196,17 @@ private:
     void failWith(const QString& reason, bool retryable);
     void beginErasePhase();
     void sendEraseRequest();
+    DE1Transport* flashTransport() const;
+    void writeFlashMap(uint8_t erase, std::array<uint8_t, 3> firstError = {0, 0, 0});
+    void subscribeFlashNotifications();
     void beginUploadPhase();
     void beginVerifyPhase();
     void completeSuccess();
     void loadCachedPayload();
 
+    DE1Transport* m_simulatedFlashTransport = nullptr;
+    DE1Transport* m_activeFlashTransport = nullptr;
+    bool m_simulatedFlash = false;
     DE1Device* m_device = nullptr;
     DE1::Firmware::FirmwareAssetCache* m_cache = nullptr;
 

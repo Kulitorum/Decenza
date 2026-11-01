@@ -14,6 +14,7 @@
 #include <QScopeGuard>
 
 #include "controllers/firmwareupdater.h"
+#include "simulator/firmwareflashsimulator.h"
 #include "core/firmwareassetcache.h"
 #include "core/firmwareheader.h"
 #include "ble/de1device.h"
@@ -167,7 +168,7 @@ private slots:
         QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
     }
 
-    void sharedSourceProjectsCanonicalVersionAndRejectsSimulatedRetry()
+    void sharedSourceProjectsCanonicalVersionAndAllowsSimulatedFlash()
     {
         Fixture f;
         NativeUpdateServiceSource source(nullptr, &f.updater, nullptr, &f.device, {});
@@ -189,13 +190,16 @@ private slots:
         QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
         QVERIFY(f.updater.retryAvailable());
         f.device.setSimulationMode(true);
+        f.updater.setPreconditionProvider([] { return true; });
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        static_cast<FirmwareFlashSimulator*>(f.updater.m_simulatedFlashTransport)->setAckDelayMs(0);
+        f.updater.setPostEraseWaitMs(5000);
         source.execute(QStringLiteral("retry-firmware"), QStringLiteral("retryFirmware"), {});
         QCOMPARE(completed.size(), 2);
-        QVERIFY(!completed.last().at(2).toBool());
-        QCOMPARE(completed.last().at(4).toString(), QStringLiteral("simulatedDevice"));
-        QVERIFY(f.updater.retryAvailable()); // Refusal did not mutate the controller.
+        QVERIFY(completed.last().at(2).toBool());
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Succeeded, 5000);
         QCOMPARE(source.snapshot().value(QStringLiteral("firmware")).toMap()
-            .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Failed));
+            .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Succeeded));
         const auto writes = f.transport.writes;
         source.refresh();
         source.refresh();
@@ -826,21 +830,63 @@ private slots:
         QVERIFY(f.transport.writes.size() > baselineWrites);
     }
 
-    void startUpdate_isNoOpOnSimulator() {
+    void simulatorFlashCompletesWithoutPhysicalTransportTraffic() {
         Fixture f;
         f.device.setSimulationMode(true);
-        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
-
+        f.updater.setInstalledVersionProvider([&f] { return uint32_t(f.device.firmwareBuildNumber()); });
+        auto* simulator = static_cast<FirmwareFlashSimulator*>(f.updater.m_simulatedFlashTransport);
+        QVERIFY(simulator);
+        simulator->setAckDelayMs(0);
+        f.updater.setPostEraseWaitMs(5000);
+        const QByteArray blob = makeFirmwareBlob(1352);
+        writeCachedBlob(&f.updater, &f.cache, blob);
         f.updater.startUpdate();
-
-        // Sim-mode gate in startUpdate() means we never leave Idle and no
-        // BLE traffic is issued.
-        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Idle);
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Succeeded, 5000);
+        QCOMPARE(simulator->receivedBytes(), blob.size());
+        QCOMPARE(f.device.firmwareBuildNumber(), 1352);
+        QCOMPARE(f.updater.installedVersion(), 1352);
         QVERIFY(!f.device.firmwareFlashInProgress());
-        for (const auto& w : f.transport.writes) {
-            QVERIFY2(w.first != DE1::Characteristic::FW_MAP_REQUEST,
-                     "simulator must not have issued any FWMapRequest");
-        }
+        QVERIFY(!f.updater.needsManualReboot());
+        QVERIFY(f.transport.writes.isEmpty());
+        QVERIFY(f.transport.subscribes.isEmpty());
+        f.device.setSimulationMode(false);
+        QCOMPARE(f.device.firmwareBuildNumber(), 0); // Original physical identity restored.
+    }
+
+    void simulatorModeCannotChangeWhileFlashing() {
+        Fixture f;
+        f.device.setSimulationMode(true);
+        static_cast<FirmwareFlashSimulator*>(f.updater.m_simulatedFlashTransport)->setAckDelayMs(0);
+        f.updater.setPostEraseWaitMs(5000);
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        f.updater.startUpdate();
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[DE1\]\[Device\].*Simulation mode change blocked during firmware flash)"));
+        f.device.setSimulationMode(false);
+        QVERIFY(f.device.simulationMode());
+        // Physical transport/map traffic must not complete the simulated erase.
+        emit f.device.fwMapResponse(0, 0, 1, QByteArray::fromHex("000000"));
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Erasing);
+        QTRY_COMPARE_WITH_TIMEOUT(f.updater.state(), FirmwareUpdater::State::Succeeded, 5000);
+        QVERIFY(f.transport.writes.isEmpty());
+    }
+
+    void simulatorRejectsNoncontiguousFirmwareChunks() {
+        FirmwareFlashSimulator simulator;
+        simulator.setAckDelayMs(0);
+        QSignalSpy replies(&simulator, &DE1Transport::dataReceived);
+        simulator.write(DE1::Characteristic::FW_MAP_REQUEST, DE1::Firmware::buildFWMapRequest(1, 1));
+        QTRY_COMPARE(replies.size(), 1);
+        simulator.write(DE1::Characteristic::WRITE_TO_MMR,
+            DE1::Firmware::buildChunk(16, QByteArray(16, 'x')));
+        simulator.write(DE1::Characteristic::FW_MAP_REQUEST,
+            DE1::Firmware::buildFWMapRequest(0, 1, {0xFF,0xFF,0xFF}));
+        QTRY_COMPARE(replies.size(), 2);
+        const auto reply = DE1::Firmware::parseFWMapNotification(replies.last().at(1).toByteArray());
+        QVERIFY(reply);
+        QVERIFY(reply->firstError != DE1::Firmware::VERIFY_SUCCESS);
+        QCOMPARE(simulator.receivedBytes(), 0);
     }
 
     // ===== §4c: retry, dismiss, verify-disconnect retroactive success =====

@@ -424,6 +424,7 @@ public slots:
     // Firmware owner's prelude: queue Sleep without clearing commands or
     // dropping the flash guard that blocks all ordinary state writes.
     void requestFirmwareSleep();
+    void setSimulatedFirmwareBuild(int build);
 
     // Write the 7-byte FWMapRequest to A009 (firmware-update control).
     // `fwToErase=1, fwToMap=1` starts Phase 1 (erase). A second call with
@@ -796,6 +797,8 @@ private:
     static constexpr double WATER_LEVEL_LOG_HYSTERESIS_MM = 2.0;
     QString m_firmwareVersion;
     int m_firmwareBuildNumber = 0;
+    int m_firmwareBuildBeforeSimulation = 0;
+    QString m_firmwareVersionBeforeSimulation;
     int m_machineModel = 0;
     int m_heaterVoltage = 0;  // 0=unknown, read from MMR HEATER_VOLTAGE
     uint32_t m_serialNumber = 0;  // 0=unknown, read from MMR SERIAL_NUMBER

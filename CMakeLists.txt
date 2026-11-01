@@ -1332,6 +1332,7 @@ endif()
 
 # Simulator engine headers - always included (see source section comment)
 list(APPEND HEADERS
+    src/simulator/firmwareflashsimulator.h
     src/simulator/de1simulator.h
     src/simulator/simulatedscale.h
     src/simulator/ghcsimulator.h

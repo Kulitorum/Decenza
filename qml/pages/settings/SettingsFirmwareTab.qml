@@ -32,9 +32,7 @@ Item {
             firmwareTab.pendingRequest = ""
             firmwareTab.pendingOperation = ""
             if (!success) {
-                const message = reason === "simulatedDevice"
-                    ? TranslationManager.translate("firmware.tab.simulatedRefused", "Firmware installation is unavailable in simulation mode.")
-                    : TranslationManager.translate("firmware.tab.commandFailed", "The firmware request could not start. Check the machine connection and firmware status, then try again.")
+                const message = TranslationManager.translate("firmware.tab.commandFailed", "The firmware request could not start. Check the machine connection and firmware status, then try again.")
                 firmwareRequestError.show(message)
                 AccessibilityManager.announce(message, true)
             }
@@ -166,7 +164,7 @@ Item {
                     // that verified but did not take. The requirement is a
                     // known bundled version (i.e. a check has succeeded), not a
                     // newer one.
-                    enabled: UpdateService.ready && firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated && firmwareTab.pendingRequest === ""
+                    enabled: UpdateService.ready && firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && firmwareTab.pendingRequest === ""
                     onClicked: firmwareTab.requestFirmware("startFirmware")
                 }
             }
@@ -285,8 +283,7 @@ Item {
 
         // ----- Simulator notice ------------------------------------
         // Shown whenever the app is wired to the DE1 simulator. The page
-        // is still functional (check, channel toggle, version surfaces)
-        // but flashing is disabled — no real DE1 to write to.
+        // runs the same firmware workflow against an isolated protocol peer.
 
         Rectangle {
             Layout.fillWidth: true
@@ -301,9 +298,9 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.spacingMedium
                 text: TranslationManager.translate(
-                          "firmware.tab.simulatorNote",
-                          "Simulator connected — flashing is disabled. " +
-                          "Check and channel selection still work for testing.")
+                          "firmware.tab.simulatedFlashNote",
+                          "Simulator connected — firmware transfer and reboot are simulated. " +
+                          "No physical machine firmware is changed.")
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(12)
                 wrapMode: Text.Wrap
@@ -429,7 +426,7 @@ Item {
                               "firmware.tab.retry", "Retry")
                     accessibleName: text
                     enabled: UpdateService.ready && firmwareTab.fw && firmwareTab.fw.retryAvailable
-                        && !firmwareTab.fw.isSimulated && firmwareTab.pendingRequest === ""
+                        && firmwareTab.pendingRequest === ""
                     onClicked: firmwareTab.requestFirmware("retryFirmware")
                 }
             }
