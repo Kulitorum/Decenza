@@ -287,6 +287,9 @@ private slots:
         // Wait for the machine's own elapsed-time signal, not a fixed wall-clock
         // sleep. PreparationController consumes the same signal before this observer.
         QTRY_VERIFY(observedSteamElapsed >= 1.0);
+        QSignalSpy preparationChanges(&f.preparation, &PreparationState::changed);
+        emit f.machine.shotTimeChanged();
+        QCOMPARE(preparationChanges.size(), 0);
         f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
         QTRY_COMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
         QVERIFY(!f.preparation.milkAttemptOpen());
