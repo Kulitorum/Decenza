@@ -1446,7 +1446,7 @@ private slots:
         QVERIFY(metadataSaved.last().at(1).toBool());
         auto virtualRecord = warmRecord;
         virtualRecord.summary.uuid = QStringLiteral("virtual-saw-physical-key");
-        virtualRecord.summary.timestamp += 1;
+        virtualRecord.summary.timestamp += 60;
         virtualRecord.weightSource = QStringLiteral("flow_scale_virtual");
         const qint64 virtualId = storage.importShotRecord(virtualRecord, true);
         QVERIFY(virtualId > 0);

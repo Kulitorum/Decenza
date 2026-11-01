@@ -32,7 +32,7 @@ warnings. Fewer than five independent references SHALL be marked preliminary.
 Ratio advice SHALL use explicit feedback on the current cup and SHALL describe
 experiments rather than a proven optimum. Rated references SHALL match coffee,
 equipment, profile and a close dose. EC SHALL NOT be reported as remaining coffee
-solids. Reading a shot SHALL NOT rewrite its tasting notes.
+solids. The app SHALL NOT append warnings to the user's tasting notes when saving or reading a shot.
 
 #### Scenario: Another cup was marked sour
 

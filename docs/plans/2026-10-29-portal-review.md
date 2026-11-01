@@ -6,7 +6,7 @@ Source: the 21 owner messages in Antigravity conversation
 ## Required behavior
 
 Keep mounting selection, mass-weighted EC, history/review access, paired
-refractometer calibration, uncertainty notes and taste-informed ratio advice.
+refractometer calibration, uncertainty warnings and taste-informed ratio advice.
 PORTAL remains advisory and never changes machine control or stop-at-weight.
 
 ## Corrections
@@ -23,7 +23,7 @@ PORTAL remains advisory and never changes machine control or stop-at-weight.
   or proof that a cup is finished. Keep advice conditional and experimental.
 - Make history and review agree on estimates and uncertainty. Remove duplicated
   advice in QML, expose warnings accessibly and keep translatable presentation.
-- Do not overwrite user notes while reading a shot. Save warnings with new shots.
+- Keep application warnings on the review card; never append them to user notes.
 - Repair the database-import INSERT: Antigravity added three PORTAL columns but
   only two placeholders. Existing import, conversation-remapping and migration
   tests reproduce the resulting parameter-count failure.
