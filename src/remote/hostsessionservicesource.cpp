@@ -1,6 +1,7 @@
 #include "hostsessionservicesource.h"
 #include "core/packageidentity.h"
-#include "servicepayload.h"
+#include "hostsessionpayload.h"
+#include "core/uiworkstats.h"
 #include "network/sessionappearance.h"
 #include "ble/de1device.h"
 #include "ble/scaledeviceproxy.h"
@@ -52,6 +53,8 @@ void NativeHostSessionServiceSource::setAppearance(const QVariantMap& appearance
     if (m_appearance == validated)
         return;
     m_appearance = validated;
+    m_appearanceBytes = HostSessionPayload::appearanceSize(validated);
+    setAppearanceSnapshot(validated);
     publish();
 }
 
@@ -62,12 +65,12 @@ void NativeHostSessionServiceSource::publish()
         setReady(false);
         return;
     }
+    UiWorkStats::Span work(UiWorkStats::Kind::HostPublish);
     const QVariantMap snapshot{
         {QStringLiteral("packageId"), m_packageId},
         {QStringLiteral("hostId"), m_hostId},
         {QStringLiteral("sequence"), QVariant::fromValue(++m_sequence)},
         {QStringLiteral("machineUi"), machineUiSnapshot().toJson().toVariantMap()},
-        {QStringLiteral("appearance"), m_appearance},
         {QStringLiteral("pressureBar"), m_device ? m_device->pressure() : 0.0},
         {QStringLiteral("flowMlPerSecond"), m_device ? m_device->flow() : 0.0},
         {QStringLiteral("accessibilityEnabled"), m_accessibility && m_accessibility->enabled()},
@@ -75,10 +78,11 @@ void NativeHostSessionServiceSource::publish()
         {QStringLiteral("extractionAnnouncementInterval"), m_accessibility ? m_accessibility->extractionAnnouncementInterval() : 5},
         {QStringLiteral("extractionAnnouncementMode"), m_accessibility ? m_accessibility->extractionAnnouncementMode() : QStringLiteral("both")}
     };
-    if (!ServicePayload::fits(snapshot, 128 * 1024)) {
+    if (!HostSessionPayload::fitsTelemetry(snapshot, m_appearanceBytes)) {
         setReady(false);
         return;
     }
+    work.items = snapshot.size();
     setSnapshot(snapshot);
     setReady(true);
 }

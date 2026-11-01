@@ -7,7 +7,8 @@
 // GUI-thread counters: one bounded summary per active path, at most every 10 seconds.
 namespace UiWorkStats {
 enum class Kind {
-    SteamPublish, SteamApply, BrowserBindings, WidgetFormat, SteamRefresh, SteamEditorRevision, Count
+    SteamPublish, SteamApply, BrowserBindings, WidgetFormat, SteamRefresh, SteamEditorRevision,
+    HostPublish, HostReceive, HostAppearanceValidation, Count
 };
 struct Counter {
     explicit Counter(const char* label) : name(label) {}
@@ -42,7 +43,8 @@ struct Counter {
 inline Counter& counter(Kind kind) {
     static std::array<Counter, static_cast<size_t>(Kind::Count)> counters{
         Counter("steam-publish"), Counter("steam-apply"), Counter("browser-bindings"),
-        Counter("widget-format"), Counter("steam-refresh"), Counter("steam-editor-revision")};
+        Counter("widget-format"), Counter("steam-refresh"), Counter("steam-editor-revision"),
+        Counter("host-publish"), Counter("host-receive"), Counter("host-appearance-validation")};
     return counters[static_cast<size_t>(kind)];
 }
 struct Span {
