@@ -17,6 +17,7 @@ class PendingConnectionsSource final : public ConnectionsStateSimpleSource
 public:
     using ConnectionsStateSimpleSource::setReady;
     using ConnectionsStateSimpleSource::setSnapshot;
+    using ConnectionsStateSimpleSource::setPortalCalibration;
 
     struct Request { QString id; QString operation; QVariantMap arguments; };
     QList<Request> requests;
