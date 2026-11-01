@@ -537,10 +537,16 @@ void DE1Device::setSimulationMode(bool enabled) {
     if (m_simulationMode == enabled) {
         return;
     }
+    if (m_firmwareFlashInProgress) {
+        DEVICE_WARN(QStringLiteral("Simulation mode change blocked during firmware flash"));
+        return;
+    }
     m_stateInfoReceived = false;
     m_simulationMode = enabled;
 
     if (enabled) {
+        m_firmwareBuildBeforeSimulation = m_firmwareBuildNumber;
+        m_firmwareVersionBeforeSimulation = m_firmwareVersion;
         m_state = DE1::State::Idle;
         m_subState = DE1::SubState::Ready;
         m_pressure = 0.0;
@@ -553,6 +559,7 @@ void DE1Device::setSimulationMode(bool enabled) {
         m_waterLevel = 75.0;
         m_waterLevelMm = 31.25;
         m_waterLevelMl = 872;
+        m_firmwareBuildNumber = 1342;
         m_firmwareVersion = QStringLiteral("BLE v4.0.0, API v4\nFW v10.5.0, API v250\npcb=1.3, model=DE1PRO, firmware=v1342");
         // A simulated machine reports a nominal heater voltage, like a real one.
         // Without it the Heater Calibration popup shows "your machine has not
@@ -565,6 +572,10 @@ void DE1Device::setSimulationMode(bool enabled) {
         emit stateChanged();
         emit subStateChanged();
         emit waterLevelChanged();
+        emit firmwareVersionChanged();
+    } else {
+        m_firmwareBuildNumber = m_firmwareBuildBeforeSimulation;
+        m_firmwareVersion = m_firmwareVersionBeforeSimulation;
         emit firmwareVersionChanged();
     }
 
@@ -2323,7 +2334,21 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 
 // ----- Firmware update (A009 / A006) -------------------------------------
 
+void DE1Device::setSimulatedFirmwareBuild(int build) {
+    if (!m_simulationMode) return;
+    m_firmwareBuildNumber = build;
+    m_firmwareVersion = QStringLiteral("BLE v4.0.0, API v4\nFW v10.5.0, API v250\npcb=1.3, model=DE1PRO, firmware=v%1").arg(build);
+    emit firmwareVersionChanged();
+}
+
 void DE1Device::requestFirmwareSleep() {
+#ifdef DECENZA_SIMULATOR
+    if (m_simulationMode) {
+        if (m_simulator) m_simulator->goToSleep();
+        setSimulatedState(DE1::State::Sleep, DE1::SubState::Ready);
+        return;
+    }
+#endif
     if (!m_transport) return;
     writeRequestedState(DE1::State::Sleep, StateWrite::Normal);
 }

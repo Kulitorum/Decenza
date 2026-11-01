@@ -1,6 +1,10 @@
 #include <QtTest>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
+#include <QQmlComponent>
+#include <QFileInfo>
+#include <QMetaProperty>
+#include <memory>
 
 #include "remote/liveshotgraphservice_qml.h"
 #include "remote/liveshotgraphservicesource.h"
@@ -146,6 +150,121 @@ private slots:
         QCOMPARE(source.snapshotRequests, 1);
     }
 
+    void weightDeltasDoNotInvalidateMarkersOrGoalCurves()
+    {
+        TestLiveShotGraphSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LiveShotGraphStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LiveShotGraphService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* service = LiveShotGraphServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy markers(service, &LiveShotGraphService::phaseMarkersChanged);
+        QSignalSpy pressure(service, &LiveShotGraphService::pressureGoalPointsChanged);
+        QSignalSpy flow(service, &LiveShotGraphService::flowGoalPointsChanged);
+        QSignalSpy temperature(service, &LiveShotGraphService::temperatureGoalPointsChanged);
+        QSignalSpy mix(service, &LiveShotGraphService::temperatureMixGoalPointsChanged);
+        // Load the shipping typed graph input and bind it to the real facade.
+        // This catches QML sequence invalidation in addition to C++ signal counts.
+        const QString graphDataPath = QFINDTESTDATA("../qml/components/ShotGraphData.qml");
+        QVERIFY(!graphDataPath.isEmpty());
+        QQmlComponent adapter(&engine);
+        adapter.setData(R"(
+            import QtQml
+            ShotGraphData {
+                required property QtObject graph
+                rawTime: graph.rawTime
+                phaseMarkers: graph.phaseMarkers
+                pressureGoalPoints: graph.pressureGoalPoints
+                flowGoalPoints: graph.flowGoalPoints
+                temperatureGoalPoints: graph.temperatureGoalPoints
+                temperatureMixGoalPoints: graph.temperatureMixGoalPoints
+                finalWeight: graph.finalWeight
+            }
+        )", QUrl::fromLocalFile(QFileInfo(graphDataPath).absolutePath()
+                               + QStringLiteral("/LiveGraphBindingProbe.qml")));
+        std::unique_ptr<QObject> binding(adapter.createWithInitialProperties({
+            {QStringLiteral("graph"), QVariant::fromValue(service)}}));
+        QVERIFY2(binding, qPrintable(adapter.errorString()));
+        const auto signalFor = [&](const char* property) {
+            return binding->metaObject()->property(binding->metaObject()->indexOfProperty(property)).notifySignal();
+        };
+        QSignalSpy qmlMarkers(binding.get(), signalFor("phaseMarkers"));
+        QSignalSpy qmlPressure(binding.get(), signalFor("pressureGoalPoints"));
+        QSignalSpy qmlFlow(binding.get(), signalFor("flowGoalPoints"));
+        QSignalSpy qmlTemperature(binding.get(), signalFor("temperatureGoalPoints"));
+        QSignalSpy qmlMix(binding.get(), signalFor("temperatureMixGoalPoints"));
+        const QList<QSignalSpy*> collections{&markers, &pressure, &flow, &temperature, &mix,
+            &qmlMarkers, &qmlPressure, &qmlFlow, &qmlTemperature, &qmlMix};
+
+        QVariantMap curves{
+            {QStringLiteral("phaseMarkers"), QVariantList{QVariantMap{
+                {QStringLiteral("time"), 1.0}, {QStringLiteral("label"), QStringLiteral("Pour")}}}},
+            {QStringLiteral("pressureGoalPoints"), QVariantList{
+                QVariant::fromValue(points({QPointF(1, 4), QPointF(2, 5)}))}},
+            {QStringLiteral("flowGoalPoints"), QVariantList{
+                QVariant::fromValue(points({QPointF(1, 2), QPointF(2, 3)}))}},
+            {QStringLiteral("temperatureGoalPoints"), points({QPointF(1, 93)})},
+            {QStringLiteral("temperatureMixGoalPoints"), points({QPointF(1, 92)})}
+        };
+        QVariantMap delta = curves;
+        delta.insert(QStringLiteral("type"), QStringLiteral("append"));
+        delta.insert(QStringLiteral("epoch"), source.epoch());
+        delta.insert(QStringLiteral("sequence"), 5);
+        source.setSequence(5);
+        emit source.graphDelta(delta);
+        QTRY_COMPARE(service->sequence(), qint64(5));
+        for (const auto* spy : collections) QCOMPARE(spy->size(), 1);
+        QCOMPARE(service->phaseMarkers(), curves.value("phaseMarkers").toList());
+
+        // Resending identical curves must also preserve the QML arrays.
+        delta.insert(QStringLiteral("sequence"), 6);
+        source.setSequence(6);
+        emit source.graphDelta(delta);
+        for (int i = 0; i < 100; ++i) {
+            source.setSequence(7 + i);
+            emit source.graphDelta({
+                {QStringLiteral("type"), QStringLiteral("append")},
+                {QStringLiteral("epoch"), source.epoch()},
+                {QStringLiteral("sequence"), 7 + i},
+                {QStringLiteral("append"), QVariantMap{
+                    {QStringLiteral("weight"), points({QPointF(3 + i, i)})}}},
+                {QStringLiteral("finalWeight"), double(i)}
+            });
+        }
+        QTRY_COMPARE(service->sequence(), qint64(106));
+        QCOMPARE(service->finalWeight(), 99.0);
+        QCOMPARE(binding->property("finalWeight").toDouble(), 99.0);
+        QCOMPARE(service->m_series.value(QStringLiteral("weight")).size(), 100);
+        for (const auto* spy : collections) QCOMPARE(spy->size(), 1);
+
+        // A real marker change invalidates that collection alone.
+        const QVariantList changedMarkers{QVariantMap{
+            {QStringLiteral("time"), 2.0}, {QStringLiteral("label"), QStringLiteral("Finish")}}};
+        source.setSequence(107);
+        emit source.graphDelta({
+            {QStringLiteral("type"), QStringLiteral("append")},
+            {QStringLiteral("epoch"), source.epoch()},
+            {QStringLiteral("sequence"), 107},
+            {QStringLiteral("phaseMarkers"), changedMarkers}
+        });
+        QTRY_COMPARE(service->phaseMarkers(), changedMarkers);
+        QCOMPARE(markers.size(), 2);
+        QCOMPARE(qmlMarkers.size(), 2);
+        for (const auto* spy : {&pressure, &flow, &temperature, &mix,
+                               &qmlPressure, &qmlFlow, &qmlTemperature, &qmlMix}) QCOMPARE(spy->size(), 1);
+
+        source.reset(makeSnapshot());
+        QTRY_VERIFY(service->phaseMarkers().isEmpty());
+        QCOMPARE(markers.size(), 3);
+        QCOMPARE(qmlMarkers.size(), 3);
+        for (const auto* spy : {&pressure, &flow, &temperature, &mix,
+                               &qmlPressure, &qmlFlow, &qmlTemperature, &qmlMix}) QCOMPARE(spy->size(), 2);
+    }
+
     void sequenceGapRequestsFreshSnapshotAndResetReplacesCurves()
     {
         TestLiveShotGraphSource source;
@@ -172,6 +291,50 @@ private slots:
         QCOMPARE(service->sequence(), qint64(1));
         QCOMPARE(service->m_series.value(QStringLiteral("pressure")).size(), qsizetype(1));
         QCOMPARE(service->m_series.value(QStringLiteral("pressure")).first(), QPointF(0, 9));
+    }
+
+    void snapshotCollectionsPublishEvenWhenBufferedDeltaNeedsAnotherSnapshot()
+    {
+        TestLiveShotGraphSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LiveShotGraphStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LiveShotGraphService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* service = LiveShotGraphServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy markers(service, &LiveShotGraphService::phaseMarkersChanged);
+        QSignalSpy goals(service, &LiveShotGraphService::temperatureGoalPointsChanged);
+
+        // Hold the host replies so we can deliver a snapshot with a gap in its
+        // buffered suffix, followed by the recovery snapshot with the same lists.
+        const QSignalBlocker holdReplies(&source);
+        service->requestSnapshot();
+        QVERIFY(!service->ready());
+        service->receiveDelta({
+            {QStringLiteral("type"), QStringLiteral("append")},
+            {QStringLiteral("epoch"), 2},
+            {QStringLiteral("sequence"), 7},
+            {QStringLiteral("rawTime"), 3.0}
+        });
+        QCOMPARE(service->m_bufferedDeltas.size(), 1);
+        QVariantMap snapshot = makeSnapshot();
+        const QVariantList updatedMarkers{QVariantMap{
+            {QStringLiteral("time"), 1.0}, {QStringLiteral("label"), QStringLiteral("Pour")}}};
+        snapshot.insert(QStringLiteral("phaseMarkers"), updatedMarkers);
+        snapshot.insert(QStringLiteral("temperatureGoalPoints"), points({QPointF(1, 93)}));
+        service->receiveSnapshot(service->m_pendingSnapshotId, 2, 5, snapshot, {});
+        QVERIFY(!service->ready()); // Sequence 6 is missing; another snapshot is pending.
+        QCOMPARE(service->phaseMarkers(), updatedMarkers);
+        QCOMPARE(markers.size(), 1);
+        QCOMPARE(goals.size(), 1);
+
+        service->receiveSnapshot(service->m_pendingSnapshotId, 2, 7, snapshot, {});
+        QVERIFY(service->ready());
+        QCOMPARE(markers.size(), 1);
+        QCOMPARE(goals.size(), 1);
     }
 
     void reentrantSnapshotRequestSupersedesPreNotificationAdmission()

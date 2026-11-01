@@ -262,7 +262,6 @@ void NativeUpdateServiceSource::execute(QString id, QString operation, QVariantM
         m_firmwareUpdater->checkForUpdate();
     } else if (operation == QLatin1String("startFirmware")) {
         if (!m_firmwareUpdater) { finish(id, operation, false, {}, QStringLiteral("unavailable")); return; }
-        if (m_firmwareUpdater->isSimulated()) { finish(id, operation, false, {}, QStringLiteral("simulatedDevice")); return; }
         const auto state = m_firmwareUpdater->state();
         if (m_firmwareUpdater->availableVersion() <= 0) {
             finish(id, operation, false, {}, QStringLiteral("unavailable")); return;
@@ -276,7 +275,6 @@ void NativeUpdateServiceSource::execute(QString id, QString operation, QVariantM
         if (!m_firmwareUpdater || !m_firmwareUpdater->retryAvailable()) {
             finish(id, operation, false, {}, QStringLiteral("unavailable")); return;
         }
-        if (m_firmwareUpdater->isSimulated()) { finish(id, operation, false, {}, QStringLiteral("simulatedDevice")); return; }
         m_firmwareUpdater->retry();
     } else if (operation == QLatin1String("dismissFirmwareAvailability")) {
         if (!m_firmwareUpdater) { finish(id, operation, false, {}, QStringLiteral("unavailable")); return; }

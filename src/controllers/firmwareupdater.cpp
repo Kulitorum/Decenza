@@ -1,3 +1,4 @@
+#include "simulator/firmwareflashsimulator.h"
 #include "core/diagnosticlogging.h"
 #include "controllers/firmwareupdater.h"
 
@@ -86,9 +87,21 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
                 this, &FirmwareUpdater::onDownloadFailed);
     }
 
+#ifdef DECENZA_SIMULATOR
+    m_simulatedFlashTransport = new FirmwareFlashSimulator(this);
+    connect(m_simulatedFlashTransport, &DE1Transport::dataReceived, this,
+        [this](const QBluetoothUuid& uuid, const QByteArray& data) {
+            if (!m_simulatedFlash || uuid != DE1::Characteristic::FW_MAP_REQUEST) return;
+            const auto map = parseFWMapNotification(data);
+            if (map) onFwMapResponse(map->windowIncrement, map->fwToErase, map->fwToMap,
+                QByteArray(reinterpret_cast<const char*>(map->firstError.data()), 3));
+        });
+#endif
     if (m_device) {
-        connect(m_device, &DE1Device::fwMapResponse,
-                this, &FirmwareUpdater::onFwMapResponse);
+        connect(m_device, &DE1Device::fwMapResponse, this,
+            [this](uint16_t window, uint8_t erase, uint8_t map, const QByteArray& error) {
+                if (!m_simulatedFlash) onFwMapResponse(window, erase, map, error);
+            });
         connect(m_device, &DE1Device::connectedChanged,
                 this, &FirmwareUpdater::onDeviceConnectionChanged);
         // Re-pull installedVersion when the DE1 reports a new firmware
@@ -107,6 +120,12 @@ FirmwareUpdater::FirmwareUpdater(DE1Device* device, FirmwareAssetCache* cache,
         // so a connect here would silently no-op and we'd never receive
         // ACK signals.
     }
+    // Physical and simulated devices both own their current build number.
+    // Keep this default here so application wiring and tests use the same readback.
+    setInstalledVersionProvider([this]() -> uint32_t {
+        const int build = m_device ? m_device->firmwareBuildNumber() : 0;
+        return build > 0 ? static_cast<uint32_t>(build) : 0;
+    });
 }
 
 void FirmwareUpdater::onDeviceFirmwareVersionChanged() {
@@ -365,9 +384,6 @@ void FirmwareUpdater::setProgress(double p) {
 
 void FirmwareUpdater::checkForUpdate() {
     if (!m_cache) return;
-    // Simulator: allow the check so the page populates (installed/available
-    // versions, channel state). Only the actual flash is blocked — see
-    // startUpdate().
     if (m_state == State::Checking || m_state == State::Downloading) return;
     // Refuse while a flash is actually running. The periodic check schedule
     // (see MainController::MainController: 30 s after first launch, then
@@ -428,16 +444,6 @@ void FirmwareUpdater::startUpdate() {
     if (m_needsManualReboot) {
         m_needsManualReboot = false;
         emit needsManualRebootChanged();
-    }
-
-    // Simulator: refuse any flash so we don't stream fake bytes onto a
-    // pretend BLE channel and confuse the state machine. The QML gates
-    // the Update button on `isSimulated` so this path is normally
-    // unreachable via the UI — but keep the guard as a hard safety net
-    // against direct invocation (MCP, tests, remote control).
-    if (m_device->simulationMode()) {
-        DIAG_CDEBUG(DE1, "Firmware", firmwareLog) << "startUpdate refused (simulator)";
-        return;
     }
 
     // Precondition: delegate to the caller-supplied predicate. If unset,
@@ -512,8 +518,7 @@ void FirmwareUpdater::onCheckFinished(FirmwareAssetCache::CheckResult result) {
         : result.versionLabel;
     m_availableChannelLabel = result.channelLabel;
     m_availableReleaseNotes = result.releaseNotes;
-    // updateAvailable reflects the pure version comparison: the simulator
-    // gate lives in startUpdate() and in the QML (`isSimulated`) so users
+    // updateAvailable reflects the pure version comparison, so users
     // can still see what *would* be flashable against a real DE1.
     const bool offersFlash =
         (result.kind == FirmwareAssetCache::CheckResult::Newer ||
@@ -601,7 +606,10 @@ void FirmwareUpdater::onDownloadFailed(QString reason) {
 // ---- Phase 1: Erase ----------------------------------------------------
 
 void FirmwareUpdater::beginErasePhase() {
-    if (!m_device || !m_device->transport()) {
+    m_simulatedFlash = isSimulated();
+    m_activeFlashTransport = m_simulatedFlash ? m_simulatedFlashTransport
+                                             : (m_device ? m_device->transport() : nullptr);
+    if (!m_device || !m_activeFlashTransport) {
         failWith(QStringLiteral("No DE1 transport configured"), false);
         return;
     }
@@ -613,7 +621,7 @@ void FirmwareUpdater::beginErasePhase() {
     // was late enough that the erase phase had no way to tell a notification
     // caused by this erase from one left over from a previous phase.
     // Qt::UniqueConnection so retries don't stack handlers.
-    if (auto* t = m_device->transport()) {
+    if (auto* t = flashTransport()) {
         connect(t, &DE1Transport::writeComplete,
                 this, &FirmwareUpdater::onFirmwareWriteAcked,
                 Qt::UniqueConnection);
@@ -634,12 +642,29 @@ void FirmwareUpdater::beginErasePhase() {
     // DE1app's firmware-mode reconnect and Decaid's firmware prelude both
     // request Sleep before erasing. Use the normal serialized write path and
     // its ACK/abandonment, keeping the flash guard engaged throughout.
+    if (m_simulatedFlash) m_activeFlashTransport->clearQueue();
     m_device->requestFirmwareSleep();
+    if (m_simulatedFlash)
+        m_activeFlashTransport->write(DE1::Characteristic::REQUESTED_STATE,
+            QByteArray(1, static_cast<char>(DE1::State::Sleep)));
+}
+
+DE1Transport* FirmwareUpdater::flashTransport() const { return m_activeFlashTransport; }
+
+void FirmwareUpdater::subscribeFlashNotifications() {
+    if (m_simulatedFlash) flashTransport()->subscribe(DE1::Characteristic::FW_MAP_REQUEST);
+    else m_device->subscribeFirmwareNotifications();
+}
+
+void FirmwareUpdater::writeFlashMap(uint8_t erase, std::array<uint8_t, 3> firstError) {
+    if (m_simulatedFlash)
+        flashTransport()->write(DE1::Characteristic::FW_MAP_REQUEST, buildFWMapRequest(erase, 1, firstError));
+    else m_device->writeFWMapRequest(erase, 1, firstError);
 }
 
 void FirmwareUpdater::sendEraseRequest() {
-    m_device->subscribeFirmwareNotifications();
-    m_device->writeFWMapRequest(/*erase*/ 1, /*map*/ 1);
+    subscribeFlashNotifications();
+    writeFlashMap(1);
 
     // The DE1 tells us when the erase is done; prefer that over the clock.
     // The erase-complete notification (fwToErase=0, fwToMap=1) starts the
@@ -692,7 +717,7 @@ void FirmwareUpdater::beginUploadPhase() {
     // (we just completed the erase handshake through it). Use a
     // Qt::UniqueConnection so repeated updates (retry, second firmware
     // cycle) don't stack handlers.
-    if (auto* t = m_device ? m_device->transport() : nullptr) {
+    if (auto* t = flashTransport()) {
         connect(t, &DE1Transport::writeComplete,
                 this, &FirmwareUpdater::onFirmwareWriteAcked,
                 Qt::UniqueConnection);
@@ -758,12 +783,17 @@ void FirmwareUpdater::onChunkPumpTick() {
     if (payload.size() < 16) {
         payload.append(QByteArray(16 - payload.size(), char(0xFF)));  // pad tail
     }
-    m_device->writeFirmwareChunk(static_cast<uint32_t>(byteOffset), payload);
+    if (m_simulatedFlash)
+        flashTransport()->write(DE1::Characteristic::WRITE_TO_MMR,
+            buildChunk(static_cast<uint32_t>(byteOffset), payload));
+    else
+        m_device->writeFirmwareChunk(static_cast<uint32_t>(byteOffset), payload);
     m_chunksQueued++;
 }
 
 void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
                                            const QByteArray& data) {
+    if (sender() && sender() != m_activeFlashTransport) return;
     if (m_state == State::Erasing && m_waitingForSleepAck &&
         uuid == DE1::Characteristic::REQUESTED_STATE &&
         data == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
@@ -835,6 +865,7 @@ void FirmwareUpdater::onFirmwareWriteAcked(const QBluetoothUuid& uuid,
 
 void FirmwareUpdater::onFirmwareWriteAbandoned(const QBluetoothUuid& uuid,
                                                const QByteArray& data) {
+    if (sender() && sender() != m_activeFlashTransport) return;
     if (m_state == State::Erasing && m_waitingForSleepAck &&
         uuid == DE1::Characteristic::REQUESTED_STATE &&
         data == QByteArray(1, static_cast<char>(DE1::State::Sleep))) {
@@ -864,8 +895,8 @@ void FirmwareUpdater::beginVerifyPhase() {
     // erase-phase subscription disabled (line 903 commented out) — but
     // we keep ours active for diagnostic visibility into the erase-done
     // notification, which has no protocol cost.
-    m_device->subscribeFirmwareNotifications();
-    m_device->writeFWMapRequest(/*erase*/ 0, /*map*/ 1, {0xFF, 0xFF, 0xFF});
+    subscribeFlashNotifications();
+    writeFlashMap(0, {0xFF, 0xFF, 0xFF});
 }
 
 void FirmwareUpdater::onVerifyTimeout() {
@@ -956,6 +987,13 @@ void FirmwareUpdater::onFwMapResponse(uint16_t windowIncrement, uint8_t fwToEras
         m_verifyTimeoutTimer.stop();
         const QByteArray expected = QByteArray::fromHex("FFFFFD");
         if (firstError == expected) {
+            if (m_simulatedFlash) {
+                // A simulated reboot applies the version locally; never ask the
+                // user to power-cycle physical hardware for a simulated flash.
+                m_device->setSimulatedFirmwareBuild(m_availableVersion);
+                completeSuccess();
+                return;
+            }
             if (lateVerify) {
                 m_errorMessage.clear();
                 m_retryAvailable = false;
@@ -1028,6 +1066,7 @@ void FirmwareUpdater::failWith(const QString& reason, bool retryable) {
         << " total=" << m_chunksTotal
         << " retry=" << (retryable ? "yes" : "no")
         << " reason=" << reason;
+    if (m_simulatedFlash && m_activeFlashTransport) m_activeFlashTransport->clearQueue();
     if (m_device) m_device->setFirmwareFlashInProgress(false);
     m_waitingForSleepAck = false;
     m_eraseTimeoutTimer.stop();

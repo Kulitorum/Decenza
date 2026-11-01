@@ -74,7 +74,7 @@ set(shared_qml_files
     LiveCoachingBanner.qml MilkCapture.qml HomePresetActions.qml SharedPresetDraft.qml BrewDialog.qml SteamLabels.qml StyledSwitch.qml ThemedIcon.qml
     Tr.qml ValueInput.qml OnDemandLoader.qml RepeaterDelegateItem.qml
     SharedAppNavigation.qml OperationNavigationPolicy.js BrowserRouteHistory.js EspressoCompletionPolicy.js EspressoCompletionCoordinator.qml OperationCompletionOverlay.qml OperationCompletionState.qml
-    BottomBar.qml NativeBottomBarStyle.qml SharedBottomBar.qml SharedBottomBarStyle.qml SharedSectionHeader.qml ThemeViewport.qml
+    BottomBar.qml NativeBottomBarStyle.qml SharedBottomBar.qml SharedBottomBarStyle.qml SharedSectionHeader.qml SharedMarkdownSource.qml ThemeViewport.qml
     SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml
     SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml SharedSuggestionFieldChrome.qml
     SharedSwitchStyle.qml SharedStyledSwitch.qml
