@@ -84,6 +84,29 @@ private slots:
         QVERIFY(!backup.contains(QStringLiteral("languageTranslation")));
     }
 
+    void languageImportCannotInterruptAiTranslation()
+    {
+        Settings settings;
+        TranslationManager manager(&m_nam, &settings);
+        manager.setCurrentLanguage(QStringLiteral("de"));
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("incoming.json"));
+        QFile input(path);
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        input.write("{\"language\":\"en-GB\",\"translations\":{\"fixture\":\"Jug\"}}");
+        input.close();
+        const auto prepared = TranslationManager::prepareTranslationImport(manager.captureFileSnapshot(), path, QStringLiteral("en-GB"));
+        QVERIFY(prepared.reason.isEmpty());
+        manager.m_autoTranslating = true;
+        const QVariantMap result = manager.commitTranslationImport(prepared);
+        QVERIFY(!result.value(QStringLiteral("success")).toBool());
+        QCOMPARE(result.value(QStringLiteral("reason")).toString(), QStringLiteral("busy"));
+        manager.setCurrentLanguage(QStringLiteral("en-GB"));
+        QCOMPARE(manager.currentLanguage(), QStringLiteral("de"));
+        manager.m_autoTranslating = false;
+    }
+
     void languageBackupMergesOrReplacesCustomizations_data()
     {
         QTest::addColumn<bool>("replace");

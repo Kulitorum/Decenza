@@ -432,8 +432,9 @@ void FullBackupRestore::applySettingsData(const std::shared_ptr<PreparedArchive>
     if (options.settings && !archive->settings.path.isEmpty() && m_settings) {
         const QJsonObject settingsJson = archive->settingsObject;
         if (!settingsJson.isEmpty()) {
-            const bool imported = SettingsSerializer::importFromJson(
-                m_settings, settingsJson, SettingsSerializer::sensitiveKeys());
+            QStringList excluded = SettingsSerializer::sensitiveKeys();
+            if (options.preserveFlowCalibration) excluded.append(QStringLiteral("flowCalibration"));
+            const bool imported = SettingsSerializer::importFromJson(m_settings, settingsJson, excluded);
             if (!guard) return;
             if (m_active) {
                 m_active->settingsRestored = imported;
@@ -594,7 +595,8 @@ void FullBackupRestore::applyNonShotData(const std::shared_ptr<PreparedArchive>&
                     if (ready) {
                         translations->setCurrentLanguage(language.language);
                         if (!guard) return;
-                        ready = translations && translations->applyTransferredOverrides(overrides, !options.merge);
+                        ready = translations && translations->currentLanguage() == language.language
+                            && translations->applyTransferredOverrides(overrides, !options.merge);
                     }
                 }
                 if (guard) guard->nonShotDataStaged(requestId, ready, archive, options,

@@ -217,6 +217,8 @@ private slots:
     void onAuthReply();
 
 private:
+    struct FullBackupDownload;
+    void pumpFullBackupDownload();
     // Helper structs for tracking downloads
     struct ProfileDownload {
         QString category;
@@ -271,6 +273,7 @@ private:
 
     QNetworkAccessManager* m_networkManager;
     QPointer<QNetworkReply> m_currentReply;
+    std::shared_ptr<FullBackupDownload> m_fullBackupDownload;
     QTemporaryDir* m_tempDir = nullptr;
 
     Settings* m_settings = nullptr;

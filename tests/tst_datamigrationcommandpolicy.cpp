@@ -4,6 +4,7 @@
 #include "core/appsettings.h"
 #include "core/fullbackuprestore.h"
 #include "core/settings.h"
+#include "core/settings_calibration.h"
 #include "core/translationmanager.h"
 #include "ai/conversationkey.h"
 #include <QJsonArray>
@@ -150,7 +151,8 @@ private slots:
         char number[8];
         qToLittleEndian<quint32>(1, reinterpret_cast<uchar*>(number));
         archive.append(number, 4); // version
-        archive.append(number, 4); // one entry
+        qToLittleEndian<quint32>(2, reinterpret_cast<uchar*>(number));
+        archive.append(number, 4); // two entries
         const QByteArray name("shots.db");
         qToLittleEndian<quint32>(static_cast<quint32>(name.size()), reinterpret_cast<uchar*>(number));
         archive.append(number, 4);
@@ -158,13 +160,24 @@ private slots:
         qToLittleEndian<quint64>(static_cast<quint64>(bytes.size()), reinterpret_cast<uchar*>(number));
         archive.append(number, 8);
         archive.append(bytes);
+        const QByteArray settingsName("settings.json");
+        const QByteArray settingsBytes("{\"machineTuning\":{\"flowCalibrationMultiplier\":0.8,\"autoFlowCalibration\":false}}");
+        qToLittleEndian<quint32>(static_cast<quint32>(settingsName.size()), reinterpret_cast<uchar*>(number));
+        archive.append(number, 4);
+        archive.append(settingsName);
+        qToLittleEndian<quint64>(static_cast<quint64>(settingsBytes.size()), reinterpret_cast<uchar*>(number));
+        archive.append(number, 8);
+        archive.append(settingsBytes);
 
         MigrationHttpFixture peer;
         QVERIFY(peer.listen());
         peer.setManifest();
         peer.responses["/api/backup/full"] = {archive, 200, false};
         MigrationServiceFixture fixture;
-        FullBackupRestore restore(nullptr, &destination, nullptr, nullptr, nullptr, nullptr);
+        Settings settings;
+        settings.calibration()->setFlowCalibrationMultiplier(1.2);
+        settings.calibration()->setAutoFlowCalibration(true);
+        FullBackupRestore restore(&settings, &destination, nullptr, nullptr, nullptr, nullptr);
         fixture.client.setFullBackupRestore(&restore);
         bool cancellationBlocked = false;
         connect(&restore, &FullBackupRestore::busyChanged, &fixture.client, [&] {
@@ -185,6 +198,8 @@ private slots:
         QVERIFY2(completed.last().at(2).toBool(), qPrintable(completed.last().at(4).toString()));
         QVERIFY(completed.last().at(3).toMap().value(QStringLiteral("replaced")).toBool());
         QVERIFY(cancellationBlocked);
+        QCOMPARE(settings.calibration()->flowCalibrationMultiplier(), 1.2);
+        QVERIFY(settings.calibration()->autoFlowCalibration());
         QCOMPARE(peer.count("/api/backup/full"), 1);
         ShotRowFixtures::withRawDb(destinationPath, QStringLiteral("replace_verify"), [](QSqlDatabase& db) {
             QSqlQuery query(db);

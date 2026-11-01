@@ -216,6 +216,7 @@ QString TranslationManager::currentLanguage() const
 
 void TranslationManager::setCurrentLanguage(const QString& lang)
 {
+    if (m_autoTranslating && m_currentLanguage != lang) return;
     if (m_currentLanguage != lang) {
         m_currentLanguage = lang;
         m_settings->setValue("localization/language", lang);
@@ -1523,6 +1524,7 @@ TranslationManager::FileSnapshot TranslationManager::captureFileSnapshot() const
 
 bool TranslationManager::applyTransferredOverrides(const QStringList& keys, bool replace)
 {
+    if (m_autoTranslating) return false;
     if (m_currentLanguage == QLatin1String("en")) return true;
     const QSet<QString> previous = m_userOverrides;
     const QSet<QString> previousGenerated = m_aiGenerated;
@@ -1710,6 +1712,8 @@ QVariantMap TranslationManager::commitTranslationImport(const PreparedImport& pr
         {QStringLiteral("language"), prepared.language}, {QStringLiteral("translationsSaved"), false},
         {QStringLiteral("metadataSaved"), false}, {QStringLiteral("importedEntries"), 0}};
     QString error = prepared.reason;
+    if (m_autoTranslating)
+        error = QStringLiteral("busy");
     if (prepared.baseLanguage != m_currentLanguage || prepared.baseRevision != m_catalogRevision)
         error = QStringLiteral("staleContext");
     // Discrete guarded commit only; parsing/merging/serialization run off-thread.

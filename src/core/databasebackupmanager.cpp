@@ -1123,7 +1123,8 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                         translations->setCurrentLanguage(languageImport.language);
                         if (!selfGuard) return;
                     }
-                    if (!imported || !translations || !translations->applyTransferredOverrides(languageOverrides, !merge))
+                    if (!imported || !translations || translations->currentLanguage() != languageImport.language
+                        || !translations->applyTransferredOverrides(languageOverrides, !merge))
                         restoreErrors << qMakePair(QStringLiteral("backup.error.languageImport"),
                                                    QStringLiteral("The language customizations could not be restored"));
                 }

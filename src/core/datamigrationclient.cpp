@@ -35,6 +35,12 @@
 #include <QThreadPool>
 #include <QUuid>
 
+struct DataMigrationClient::FullBackupDownload {
+    std::shared_ptr<QTemporaryDir> directory = std::make_shared<QTemporaryDir>();
+    bool writing = false;
+    bool failed = false;
+};
+
 DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, QObject* parent)
     : QObject(parent)
     , m_networkManager(networkManager)
@@ -554,6 +560,13 @@ void DataMigrationClient::importAll(bool replace)
 {
     if (replace) {
         if (isImporting() || m_serverUrl.isEmpty()) return;
+        m_fullBackupDownload = std::make_shared<FullBackupDownload>();
+        if (!m_fullBackupDownload->directory->isValid()) {
+            m_fullBackupDownload.reset();
+            setError(tr("The downloaded backup could not be saved."));
+            emit importFailed(m_errorMessage);
+            return;
+        }
         ++m_importGeneration;
         m_lastImportWasReplacement = true;
         m_cancelled = false;
@@ -569,7 +582,9 @@ void DataMigrationClient::importAll(bool replace)
         QNetworkRequest request{QUrl(m_serverUrl + "/api/backup/full")};
         addSessionCookie(request);
         m_currentReply = m_networkManager->get(request);
+        m_currentReply->setReadBufferSize(64 * 1024);
         setupSslHandling(m_currentReply);
+        connect(m_currentReply, &QNetworkReply::readyRead, this, &DataMigrationClient::pumpFullBackupDownload);
         connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onFullBackupReply);
         connect(m_currentReply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);
         return;
@@ -598,92 +613,94 @@ void DataMigrationClient::importAll(bool replace)
 
 void DataMigrationClient::onFullBackupReply()
 {
-    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
-    if (!reply) return;
-    if (m_cancelled || reply != m_currentReply) { reply->deleteLater(); return; }
+    auto* reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply || reply != m_currentReply || m_cancelled) return;
+    pumpFullBackupDownload();
+}
+
+void DataMigrationClient::pumpFullBackupDownload()
+{
+    const auto download = m_fullBackupDownload;
+    QNetworkReply* reply = m_currentReply;
+    if (!download || !reply || download->writing || m_cancelled) return;
+    const QString path = download->directory->filePath(QStringLiteral("transfer.dcbackup"));
+    const QByteArray chunk = download->failed ? QByteArray{} : reply->read(64 * 1024);
+    if (!chunk.isEmpty()) {
+        download->writing = true;
+        const quint64 generation = m_importGeneration;
+        const QPointer<DataMigrationClient> guard(this);
+        QCoreApplication* const application = QCoreApplication::instance();
+        if (!application) return;
+        QThreadPool::globalInstance()->start(QRunnable::create([guard, application, download, path, chunk, generation] {
+            QFile file(path);
+            const bool saved = file.open(QIODevice::WriteOnly | QIODevice::Append)
+                && file.write(chunk) == chunk.size() && file.flush();
+            file.close();
+            QMetaObject::invokeMethod(application, [guard, download, saved, generation] {
+                if (!guard || guard->m_cancelled || guard->m_importGeneration != generation
+                    || guard->m_fullBackupDownload != download) return;
+                download->writing = false;
+                download->failed = !saved;
+                guard->pumpFullBackupDownload();
+            }, Qt::QueuedConnection);
+        }));
+        return;
+    }
+    if (!reply->isFinished() && !download->failed) return;
+    const bool failed = download->failed || reply->error() != QNetworkReply::NoError || !m_fullRestore;
     m_currentReply = nullptr;
-    if (reply->error() != QNetworkReply::NoError || !m_fullRestore) {
-        reply->deleteLater();
+    reply->deleteLater();
+    m_fullBackupDownload.reset();
+    if (failed) {
         m_importing = false;
         setError(tr("The backup could not be fetched or restored. Your existing data was not changed."));
         emit isImportingChanged();
         emit importFailed(m_errorMessage);
         return;
     }
-    const QByteArray data = reply->readAll();
-    reply->deleteLater();
-    const auto directory = std::make_shared<QTemporaryDir>();
-    const QString path = directory->filePath(QStringLiteral("transfer.dcbackup"));
-    const quint64 generation = m_importGeneration;
-    QCoreApplication* const application = QCoreApplication::instance();
+    const auto directory = download->directory;
     const QPointer<DataMigrationClient> guard(this);
-    if (!directory->isValid() || !application) {
+    const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_fullRestoreInFlight = true;
+    setCurrentOperation(tr("Restoring backup..."));
+    if (!guard || !m_fullRestore) return;
+    emit isImportingChanged();
+    if (!guard || !m_fullRestore) return;
+    const auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection = QObject::connect(m_fullRestore.data(), &FullBackupRestore::finished, this,
+        [guard, requestId, connection](const QString& id, bool success, const QVariantMap& result,
+                                       const QString& reason, int) {
+        if (id != requestId) return;
+        QObject::disconnect(*connection);
+        if (!guard) return;
+        auto* client = guard.data();
+        client->m_fullRestoreInFlight = false;
+        client->m_importing = false;
+        client->setAiConversationNote(result.value(QStringLiteral("aiConversationsNote")).toString());
+        if (!guard) return;
+        if (!success) client->setError(result.value(QStringLiteral("error"), reason).toString());
+        else client->setProgress(1.0);
+        if (!guard) return;
+        emit client->isImportingChanged();
+        if (!guard) return;
+        if (!success) emit client->importFailed(client->m_errorMessage);
+        else emit client->importComplete(result.value(QStringLiteral("settings")).toBool() ? 1 : 0,
+            result.value(QStringLiteral("profilesImported")).toInt(),
+            result.value(QStringLiteral("shotsImported")).toBool() ? 1 : 0,
+            result.value(QStringLiteral("mediaImported")).toInt(),
+            result.value(QStringLiteral("aiConversationsImported")).toInt());
+    });
+    FullBackupRestore::Options options;
+    options.merge = false;
+    options.preserveFlowCalibration = true;
+    if (!m_fullRestore->restoreFile(requestId, path, options, directory)) {
+        QObject::disconnect(*connection);
+        m_fullRestoreInFlight = false;
         m_importing = false;
-        setError(tr("The downloaded backup could not be saved."));
+        setError(tr("The backup could not be restored while another operation is active."));
         emit isImportingChanged();
         emit importFailed(m_errorMessage);
-        return;
     }
-    QThreadPool::globalInstance()->start(QRunnable::create([guard, application, directory, path, data, generation] {
-        QFile file(path);
-        const bool saved = file.open(QIODevice::WriteOnly | QIODevice::NewOnly)
-            && file.write(data) == data.size() && file.flush();
-        file.close();
-        QMetaObject::invokeMethod(application, [guard, directory, path, saved, generation] {
-            if (!guard || guard->m_cancelled || guard->m_importGeneration != generation) return;
-            auto* self = guard.data();
-            if (!saved || !self->m_fullRestore) {
-                self->m_importing = false;
-                self->setError(self->tr("The downloaded backup could not be saved or restored."));
-                emit self->isImportingChanged();
-                emit self->importFailed(self->m_errorMessage);
-                return;
-            }
-            const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            self->m_fullRestoreInFlight = true;
-            self->setCurrentOperation(self->tr("Restoring backup..."));
-            if (!guard || !self->m_fullRestore) return;
-            emit self->isImportingChanged();
-            if (!guard || !self->m_fullRestore) return;
-            const auto connection = std::make_shared<QMetaObject::Connection>();
-            *connection = QObject::connect(self->m_fullRestore.data(), &FullBackupRestore::finished, self,
-                [guard, requestId, connection](const QString& id, bool success, const QVariantMap& result,
-                                               const QString& reason, int) {
-                if (id != requestId) return;
-                QObject::disconnect(*connection);
-                if (!guard) return;
-                auto* client = guard.data();
-                client->m_fullRestoreInFlight = false;
-                client->m_importing = false;
-                client->setAiConversationNote(result.value(QStringLiteral("aiConversationsNote")).toString());
-                if (!guard) return;
-                if (!success) {
-                    client->setError(result.value(QStringLiteral("error"), reason).toString());
-                } else {
-                    client->setProgress(1.0);
-                }
-                if (!guard) return;
-                emit client->isImportingChanged();
-                if (!guard) return;
-                if (!success) emit client->importFailed(client->m_errorMessage);
-                else emit client->importComplete(result.value(QStringLiteral("settings")).toBool() ? 1 : 0,
-                    result.value(QStringLiteral("profilesImported")).toInt(),
-                    result.value(QStringLiteral("shotsImported")).toBool() ? 1 : 0,
-                    result.value(QStringLiteral("mediaImported")).toInt(),
-                    result.value(QStringLiteral("aiConversationsImported")).toInt());
-            });
-            FullBackupRestore::Options options;
-            options.merge = false;
-            if (!self->m_fullRestore->restoreFile(requestId, path, options, directory)) {
-                QObject::disconnect(*connection);
-                self->m_fullRestoreInFlight = false;
-                self->m_importing = false;
-                self->setError(self->tr("The backup could not be restored while another operation is active."));
-                emit self->isImportingChanged();
-                emit self->importFailed(self->m_errorMessage);
-            }
-        }, Qt::QueuedConnection);
-    }));
 }
 
 void DataMigrationClient::importOnlySettings()
@@ -1002,6 +1019,8 @@ void DataMigrationClient::onExtraSettingsReply()
             if (!guard || guard->m_cancelled || guard->m_importGeneration != generation) return;
             if (!valid) {
                 guard->setErrorIfFirst(guard->tr("The other device returned invalid language customizations."));
+            } else if (hasLanguage && manager && manager->isAutoTranslating()) {
+                guard->setErrorIfFirst(guard->tr("Language customizations cannot be imported while AI translation is running."));
             } else {
                 AppSettings settings;
                 const QJsonObject sm = extra.value(QStringLiteral("shotMap")).toObject();
@@ -1028,7 +1047,8 @@ void DataMigrationClient::onExtraSettingsReply()
                     if (!guard) return;
                     if (imported && manager) manager->setCurrentLanguage(prepared.language);
                     if (!guard) return;
-                    if (!imported || !manager || !manager->applyTransferredOverrides(overrides))
+                    if (!imported || !manager || manager->currentLanguage() != prepared.language
+                        || !manager->applyTransferredOverrides(overrides))
                         guard->setErrorIfFirst(guard->tr("The language customizations could not be imported."));
                 }
             }
@@ -1527,6 +1547,7 @@ void DataMigrationClient::cancel()
         reply->abort();
         reply->deleteLater();
     }
+    m_fullBackupDownload.reset();
 
     if (m_connecting) {
         m_connecting = false;
