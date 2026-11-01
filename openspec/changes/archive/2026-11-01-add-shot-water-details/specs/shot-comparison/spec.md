@@ -4,11 +4,7 @@
 
 ### Requirement: "What you changed" lists only inputs that differ from the base
 
-The comparison SHALL show a "What you changed" section whose rows are the inputs that differ
-between the base and at least one visible shot: profile, brew temperature, dose, target yield,
-grind setting, RPM, every equipment and bean field the advisor treats as shot identity (grinder,
-burrs, basket, puck prep, bean, roast and storage dates), barista, and the saved added-water temperature setting when available. Differing cells SHALL be
-marked; numeric inputs SHALL show their Δ. Water temperature SHALL be labeled Water temp (set).
+"What you changed" SHALL list inputs differing between the base and any visible shot: profile, brew temperature, dose, target yield, grind, RPM, advisor shot-identity fields (grinder, burrs, basket, puck prep, bean, roast and storage dates), barista and available saved added-water temperature. Differing cells SHALL be marked; numeric inputs SHALL show Δ. Water temperature SHALL be labeled Water temp (set).
 
 #### Scenario: Only the grind moved
 
