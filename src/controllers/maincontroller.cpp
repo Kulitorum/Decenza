@@ -2,6 +2,8 @@
 #include "core/settings_app.h"
 #include "core/appsettings.h"
 #include "maincontroller.h"
+#include "history/shotwaterresult.h"
+#include <QScopeGuard>
 #include "steamautoflushcontroller.h"
 #include "drinksequencecontroller.h"
 #include "core/recipeeditfields.h"
@@ -234,6 +236,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                                                     m_device, m_machineState, this);
     m_drinkSequence = new DrinkSequenceController(m_device, m_machineState,
                                                   [this] { return activeRecipe(); }, this);
+    m_drinkSequence->setEspressoOperationProvider([this] { return m_espressoOperationId; });
+    connect(m_drinkSequence, &DrinkSequenceController::waterEspressoAssociated, this,
+            [this](qint64 operation) { m_waterResultJoin.expect(operation); });
+    connect(m_drinkSequence, &DrinkSequenceController::waterResultReady, this,
+            [this](qint64 operation, const QVariantMap& result) {
+        persistWaterResult(m_waterResultJoin.result(operation, result));
+    });
     connect(m_drinkSequence, &DrinkSequenceController::pendingStepChanged,
             this, &MainController::pendingDrinkStepChanged);
     connect(m_drinkSequence, &DrinkSequenceController::activeChanged,
@@ -5039,6 +5048,12 @@ void MainController::onShotEnded() {
     const qint64 completedOperationId = m_processingEspressoOperations.isEmpty()
         ? 0 : m_processingEspressoOperations.dequeue().operationId;
     const auto reviewSetup = m_shotReviewBaselines.take(completedOperationId);
+    bool waterSaveDispatched = false;
+    const auto discardUnsavedWater = qScopeGuard([this, completedOperationId, &waterSaveDispatched] {
+        if (waterSaveDispatched) return;
+        m_waterResultJoin.discard(completedOperationId);
+        m_drinkSequence->discardWaterForOperation(completedOperationId);
+    });
     // Clear any mid-shot adjustment applied via bumpTargetWeight() so MachineState::targetWeight
     // matches the profile again before the next shot. Doing this at shot end (rather
     // than at next-shot start) avoids depending on signal-handler connection order.
@@ -5209,6 +5224,7 @@ void MainController::onShotEnded() {
     // Build metadata for history. The sticky DYE fields come from the shared
     // helper; what follows is what only THIS shot can supply.
     ShotMetadata metadata = buildShotMetadataFromSettings();
+    metadata.hotWaterResultJson = ShotWaterResult::fromMap(m_waterResultJoin.result(completedOperationId)).toJson();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
     // The yield is NOT set here: saveShot() takes it as the finalWeight
     // argument — see ShotMetadata in visualizeruploader.h for why the struct
@@ -5310,10 +5326,14 @@ void MainController::onShotEnded() {
             // Capture timestamp now (before async save) so it reflects shot end time
             QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
-            // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
-            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
+            // Connect to shotSavedWithUuid for completion (single-shot, auto-disconnects)
+            connect(m_shotHistory, &ShotHistoryStorage::shotSavedWithUuid, this,
                     [this, finalWeight, shotDateTime, showPostShot, duration,
-                     completedOperationId, reviewSetup](qint64 shotId) {
+                     completedOperationId, reviewSetup,
+                     waterResultIncluded = !metadata.hotWaterResultJson.isEmpty()](qint64 shotId, const QString& uuid) {
+                const auto waterWrite = m_waterResultJoin.saved(completedOperationId, shotId, uuid);
+                if (!waterResultIncluded) persistWaterResult(waterWrite);
+                if (shotId <= 0) m_drinkSequence->discardWaterForOperation(completedOperationId);
                 m_savingShot = false;
 
                 if (shotId > 0) {  // ShotHistoryStorage logs "Saved shot <id>"
@@ -5382,6 +5402,7 @@ void MainController::onShotEnded() {
             if (!openedNow.isEmpty())
                 metadata.openedDate = openedNow;
 
+            waterSaveDispatched = true;
             m_shotHistory->saveShot(
                 m_shotDataModel, m_profileManager->currentProfilePtr(),
                 duration, finalWeight, doseWeight,
@@ -6243,4 +6264,10 @@ void MainController::processVisualizerReconciliation()
     DIAG_DEBUG(VISUALIZER, "MainController") << "starting one-time Visualizer reconciliation (window"
              << kReconcileWindowDays << "days)";
     m_visualizer->fetchShotListSince(windowStartEpoch);
+}
+
+void MainController::persistWaterResult(const std::optional<ShotWaterJoin::Write>& write)
+{
+    if (write && m_shotHistory)
+        m_shotHistory->requestUpdateShotWaterResult(write->shotId, write->uuid, write->result);
 }

@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include "../ble/protocol/de1characteristics.h"
 #include "machinephase.h"
+#include "history/shotwaterresult.h"
 
 class DE1Device;
 class ScaleDevice;
@@ -123,6 +124,7 @@ public:
     // at the limit is a no-op.
     bool adjustHotWaterTarget(double deltaG);
     double cumulativeVolume() const { return m_cumulativeVolume; }
+    quint64 hotWaterCycleId() const { return m_waterCycleId; }
     double preinfusionVolume() const { return m_preinfusionVolume; }
     double pourVolume() const { return m_pourVolume; }
     bool standbySwitchOpen() const { return m_standbySwitchOpen; }
@@ -192,6 +194,7 @@ signals:
     // shotEnded is posted to the event loop. The bool identifies espresso flow
     // so async consumers can latch its operation token before another cycle.
     void shotFlowEnded(bool espressoFlow);
+    void hotWaterResultReady(quint64 cycleId, const QVariantMap& result);
     void shotEnded();
     void targetWeightReached();
     void targetVolumeReached();
@@ -334,6 +337,25 @@ private:
     double m_hotWaterFrozenWeight = -1.0;       // Effective weight at SAW trigger (-1 = not frozen). Reset on every new flow cycle start.
     double m_hotWaterSawTriggerWeight = -1.0;  // Raw scale weight at SAW trigger for learning overshoot (-1 = no trigger)
     double m_hotWaterTargetAdjustG = 0.0;      // This pour's -/+ on the saved water volume. Reset on every new flow cycle start and on a vessel change.
+
+    void beginWaterCapture();
+    void captureWaterWeight(double weight);
+    void finishWaterCapture(bool interrupted = false, bool allowLearning = false);
+    double hotWaterNetWeight(double raw) const { return raw - m_hotWaterTareBaseline; }
+    QTimer m_waterSettle;
+    quint64 m_waterCycleId = 0;
+    bool m_waterCapturing = false;
+    bool m_waterScaleValid = false;
+    bool m_waterWeightClosed = false;
+    bool m_waterTareAwaitingZero = false;
+    bool m_waterSawLearningEligible = false;
+    double m_waterWeightReference = 0;
+    double m_waterWeightOffset = 0;
+    std::optional<double> m_waterLastWeight;
+    std::optional<double> m_waterTriggerWeight;
+    ShotWaterResult m_waterResult;
+    double m_waterVolume = 0;
+
 
     // Throttle scaleWeightChanged / scaleFlowRateChanged to QML (10Hz cap).
     // Trailing-edge timers ensure the last update is never dropped.

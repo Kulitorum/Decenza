@@ -185,6 +185,13 @@ private slots:
         QCOMPARE(service->lastSavedShotId(), qint64(77));
         QCOMPARE(service->historyRevision(), quint64(4));
 
+        QSignalSpy waterChanged(service, &HistoryService::shotWaterResultUpdated);
+        const QVariantMap water{{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 103.2}};
+        emit source.shotWaterResultUpdated(73, water);
+        QTRY_COMPARE(waterChanged.count(), 1);
+        QCOMPARE(waterChanged.first().at(0).toLongLong(), qint64(73));
+        QCOMPARE(waterChanged.first().at(1).toMap(), water);
+
         QSignalSpy completed(service, &HistoryService::operationCompleted);
         QSignalSpy outcomeReady(service, &HistoryService::shotOutcomeReady);
         const QString requestId = service->requestShotOutcome(73);

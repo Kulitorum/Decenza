@@ -29,6 +29,9 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     , m_device(device)
     , m_controlContextId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
+    m_waterSettle.setSingleShot(true);
+    m_waterSettle.setInterval(1500);
+    connect(&m_waterSettle, &QTimer::timeout, this, [this] { finishWaterCapture(false, true); });
     m_weightEmitTimer.start();
     m_flowRateEmitTimer.start();
 
@@ -178,6 +181,10 @@ void MachineState::setScale(ScaleDevice* scale) {
         return;
     }
 
+    if (m_waterCapturing) {
+        if (m_waterSettle.isActive()) finishWaterCapture();
+        else m_waterScaleValid = false;
+    }
     if (m_scale) {
         disconnect(m_scale, nullptr, this, nullptr);
         m_weightTrailingTimer->stop();
@@ -219,6 +226,13 @@ void MachineState::setScale(ScaleDevice* scale) {
         // above (disconnected wholesale on the next swap).
         connect(m_scale, &ScaleDevice::connectedChanged,
                 this, &MachineState::activeScaleTypeChanged);
+        connect(m_scale, &ScaleDevice::connectedChanged, this, [this] {
+            if (m_waterCapturing && !m_scale->isConnected()) {
+                if (m_waterSettle.isActive()) m_waterWeightClosed = true;
+                else m_waterScaleValid = false;
+                m_waterSawLearningEligible = false;
+            }
+        });
         // Emit immediately so QML picks up current weight
         emit scaleWeightChanged();
         emit scaleFlowRateChanged();
@@ -414,6 +428,7 @@ void MachineState::updatePhase() {
     // apply against a later raw DE1 state/substate or connection.
     updateControlContextId();
     if (!m_device || !m_device->isConnected()) {
+        if (m_waterCapturing) finishWaterCapture(!m_waterSettle.isActive());
         // A BLE drop mid-steam must disarm the steam flow-stop event WITHOUT
         // emitting it: a dropped connection is not a completion (no "Steam
         // done"), and a stale armed flag would otherwise leak across the
@@ -680,6 +695,19 @@ void MachineState::updatePhase() {
         const bool flowStarted = isFlowing() && !wasFlowing;
         const bool flowEnded = !isFlowing() && wasFlowing;
 
+        // Close the previous water measurement before any operation resets its scale.
+        if (m_waterCapturing && oldPhase != Phase::HotWater
+            && (isInEspresso || flowStarted || m_phase == Phase::Disconnected))
+            finishWaterCapture(m_phase == Phase::Disconnected);
+
+        if (oldPhase == Phase::HotWater && m_waterCapturing) {
+            m_waterVolume = m_cumulativeVolume;
+            if (m_phase == Phase::Idle || m_phase == Phase::Ready || m_phase == Phase::Heating)
+                m_waterSettle.start();
+            else
+                finishWaterCapture(true);
+        }
+
         if (flowStarted) {
             // Always clear hot water frozen weight when any new flow starts.
             // This is outside the !wasInEspresso guard because the frozen weight
@@ -742,6 +770,9 @@ void MachineState::updatePhase() {
                     m_scale->startTimer();
                     DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Reset + Started (flow began)";
                 }
+
+                if (m_phase == Phase::HotWater)
+                    beginWaterCapture();
 
                 // Auto-tare for Hot Water (espresso tares at cycle start via MainController)
                 // Delay 200ms after resetTimer/startTimer to avoid BLE command contention —
@@ -820,63 +851,6 @@ void MachineState::updatePhase() {
                 }
             }
 
-            // Hot water SAW learning
-            if (oldPhase == Phase::HotWater) {
-                // Learn from this pour: measure settled weight after a short delay
-                // to let final drops land, then compute overshoot vs trigger weight.
-                if (m_hotWaterSawTriggerWeight >= 0.0 && m_scale && m_settings) {
-                    double triggerWeight = m_hotWaterSawTriggerWeight;
-                    QTimer::singleShot(1500, this, [this, triggerWeight]() {
-                        if (!m_scale || !m_settings) return;
-                        // Skip if a new operation started (scale weight no longer reflects the pour)
-                        if (isFlowing()) return;
-                        double settledWeight = m_scale->weight();
-                        double overshoot = settledWeight - triggerWeight;
-
-                        // Clear the frozen display weight now that the post-pour
-                        // settling window is over. The freeze is held this long so the
-                        // hot-water completion overlay has a stable trigger value to
-                        // show; once the overlay's settling window closes, scaleWeight()
-                        // should return the live reading. Without this, the freeze
-                        // persists into the next operation cycle (e.g. EspressoPreheating)
-                        // and poisons UI surfaces that read scaleWeight pre-flow, like
-                        // the cup-fill view.
-                        m_hotWaterFrozenWeight = -1.0;
-
-                        // Sanity: ignore if overshoot is wildly negative (cup removed)
-                        // or extremely large (scale glitch)
-                        if (overshoot < -2.0 || overshoot > 20.0) {
-                            SAW_LOG_STDERR("HotWaterLearn",
-                                QStringLiteral("Ignoring outlier: overshoot=%1 g settled=%2 g trigger=%3 g")
-                                    .arg(overshoot, 0, 'f', 2).arg(settledWeight, 0, 'f', 2)
-                                    .arg(triggerWeight, 0, 'f', 2));
-                            return;
-                        }
-
-                        // Exponential moving average, heavier weight on early samples
-                        int n = m_settings->brew()->hotWaterSawSampleCount();
-                        double oldOffset = m_settings->brew()->hotWaterSawOffset();
-                        double alpha = (n < 3) ? 0.5 : 0.3;  // Learn faster initially
-                        double newOffset = (1.0 - alpha) * oldOffset + alpha * qMax(0.0, overshoot);
-
-                        // Clamp to reasonable range
-                        newOffset = qBound(0.0, newOffset, 10.0);
-
-                        m_settings->brew()->setHotWaterSawOffset(newOffset);
-                        m_settings->brew()->setHotWaterSawSampleCount(n + 1);
-                        SAW_LOG_STDERR("HotWaterLearn",
-                            QStringLiteral("overshoot=%1 g settled=%2 g trigger=%3 g "
-                                           "offset %4 -> %5 g samples=%6")
-                                .arg(overshoot, 0, 'f', 2).arg(settledWeight, 0, 'f', 2)
-                                .arg(triggerWeight, 0, 'f', 2).arg(oldOffset, 0, 'f', 2)
-                                .arg(newOffset, 0, 'f', 2).arg(n + 1));
-                    });
-                }
-                m_hotWaterSawTriggerWeight = -1.0;
-                // m_hotWaterFrozenWeight is cleared inside the 1500ms SAW-learn
-                // callback above (or by the flow-start path at the top of this
-                // function on the next pour, whichever happens first).
-            }
             // Consumers that correlate the deferred completion must capture
             // the operation token now: a later machine update may start a new
             // cycle before the queued shotEnded notification is delivered.
@@ -1004,6 +978,7 @@ void MachineState::resetAutoTareWindow() {
 // onScaleWeightChanged is deduped on value and cannot see a perfectly still cup;
 // the settle window below needs those repeats, so it lives here instead.
 void MachineState::onScaleWeightSample(double weight) {
+    captureWaterWeight(weight);
     // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
     // Handles forgotten-cup scenario for both Espresso and HotWater
     constexpr double AUTO_TARE_THRESHOLD = 2.0;  // grams (de1app uses 0.04g, 2g avoids noise)
@@ -1152,6 +1127,85 @@ void MachineState::onScaleWeightChanged(double weight) {
     }
 }
 
+void MachineState::beginWaterCapture()
+{
+    if (m_waterCapturing) finishWaterCapture(true);
+    ++m_waterCycleId;
+    m_waterCapturing = true;
+    m_waterWeightClosed = false;
+    m_waterTareAwaitingZero = false;
+    m_waterScaleValid = m_scale && m_scale->isConnected() && !m_scale->isFlowScale()
+        && std::isfinite(m_scale->weight());
+    m_waterWeightReference = m_waterScaleValid ? m_scale->weight() : 0;
+    m_waterWeightOffset = 0;
+    m_waterLastWeight.reset();
+    m_waterTriggerWeight.reset();
+    m_waterSawLearningEligible = true;
+    m_waterVolume = 0;
+    m_waterResult = ShotWaterResult();
+    m_waterResult.status = QStringLiteral("dispensed");
+    if (m_settings) m_waterResult.temperatureC = m_settings->brew()->waterTemperature();
+}
+
+void MachineState::captureWaterWeight(double weight)
+{
+    if (!m_waterCapturing || !m_waterScaleValid || m_waterWeightClosed) return;
+    if (!m_scale || !m_scale->isConnected() || m_scale->isFlowScale() || !std::isfinite(weight)) {
+        m_waterScaleValid = false;
+        return;
+    }
+    const double previousRaw = m_waterLastWeight.value_or(m_waterWeightOffset)
+        - m_waterWeightOffset + m_waterWeightReference;
+    if (m_waterTareAwaitingZero && qAbs(weight) < 1.0 && weight < previousRaw) {
+        // Observe the reset, not an unchanged zero from an already tared cup.
+        // Preserve water added before a late tare; the next readings have a new zero.
+        m_waterWeightOffset = m_waterLastWeight.value_or(0);
+        m_waterWeightReference = weight;
+        m_waterTareAwaitingZero = false;
+    }
+    const double net = weight - m_waterWeightReference + m_waterWeightOffset;
+    if (net < -2.0 || (m_waterLastWeight && net < *m_waterLastWeight - 2.0)) {
+        m_waterSawLearningEligible = false;
+        if (m_waterSettle.isActive()) m_waterWeightClosed = true;
+        else m_waterScaleValid = false;
+        return;
+    }
+    m_waterLastWeight = qMax(0.0, net);
+}
+
+void MachineState::finishWaterCapture(bool interrupted, bool allowLearning)
+{
+    if (!m_waterCapturing) return;
+    const bool settled = m_waterSettle.isActive();
+    m_waterSettle.stop();
+    m_waterCapturing = false;
+    if (!settled && m_phase == Phase::HotWater) m_waterVolume = m_cumulativeVolume;
+    m_waterResult.status = interrupted ? QStringLiteral("interrupted") : QStringLiteral("dispensed");
+    if (m_waterScaleValid && m_waterLastWeight) {
+        m_waterResult.weightG = m_waterLastWeight;
+        m_waterResult.amountSource = QStringLiteral("scale");
+    } else if (std::isfinite(m_waterVolume) && m_waterVolume > 0) {
+        m_waterResult.volumeMl = m_waterVolume;
+        m_waterResult.amountSource = QStringLiteral("flowEstimate");
+    }
+    if (allowLearning && !interrupted && m_waterSawLearningEligible && m_waterResult.weightG
+        && m_waterTriggerWeight && m_settings) {
+        const double overshoot = *m_waterResult.weightG - *m_waterTriggerWeight;
+        if (overshoot >= -2.0 && overshoot <= 20.0) {
+            const int n = m_settings->brew()->hotWaterSawSampleCount();
+            const double alpha = n < 3 ? 0.5 : 0.3;
+            const double oldOffset = m_settings->brew()->hotWaterSawOffset();
+            m_settings->brew()->setHotWaterSawOffset(qBound(0.0,
+                (1 - alpha) * oldOffset + alpha * qMax(0.0, overshoot), 10.0));
+            m_settings->brew()->setHotWaterSawSampleCount(n + 1);
+            SAW_LOG_STDERR("HotWaterLearn", QStringLiteral("overshoot=%1 g samples=%2")
+                .arg(overshoot, 0, 'f', 2).arg(n + 1));
+        }
+    }
+    m_hotWaterSawTriggerWeight = -1;
+    emit hotWaterResultReady(m_waterCycleId, m_waterResult.toMap());
+}
+
 void MachineState::checkStopAtWeightHotWater(double weight) {
     if (m_stopAtWeightTriggered) return;
     if (!m_tareCompleted) {
@@ -1187,7 +1241,7 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
     // If the BLE tare command succeeded, baseline was cleared to 0 (absolute weight).
     // If the BLE tare was lost/ignored, baseline holds the pre-tare weight so we
     // measure only the water added since the tare was requested.
-    double effectiveWeight = weight - m_hotWaterTareBaseline;
+    double effectiveWeight = hotWaterNetWeight(weight);
 
     // Learned offset: starts at 2g default, adapts from measured overshoot after each pour.
     // After stopping, the app measures how much weight landed after the stop command and
@@ -1198,6 +1252,7 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
     if (effectiveWeight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
         m_hotWaterFrozenWeight = effectiveWeight;      // Freeze UI display at trigger weight
+        m_waterTriggerWeight = qMax(0.0, weight - m_waterWeightReference + m_waterWeightOffset);
         m_hotWaterSawTriggerWeight = weight;            // Raw scale weight for learning overshoot
         // INFO: the stop itself is the user-facing answer to "why did my hot
         // water stop there". Once per dispense.
@@ -1428,12 +1483,9 @@ double MachineState::scaleWeight() const {
     // weight. Applied to the OFFSET, not by routing this through the corrected series:
     // that series is spike-filtered and de-jittered, so a rejected sample would freeze
     // the readout mid-pour.
+    if (m_phase == Phase::HotWater)
+        return qMax(0.0, hotWaterNetWeight(m_scale->weight()));
     double raw = m_scale->weight() - m_preShotZeroOffset;
-
-    // During hot water, return effective weight (accounting for fire-and-forget baseline).
-    // This ensures the UI shows water added, not cup+water, on slow-tare scales.
-    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0)
-        return qMax(0.0, raw - m_hotWaterTareBaseline);
 
     return raw;
 }
@@ -1468,6 +1520,7 @@ void MachineState::updateCachedFlowRates(double flowRate, double flowRateShort) 
 }
 
 void MachineState::tareScale() {
+    if (m_waterSettle.isActive()) finishWaterCapture();
     // Delegate to timing controller if available (new centralized timing)
     if (m_timingController && m_phase != Phase::HotWater) {
         m_timingController->tare();
@@ -1481,6 +1534,7 @@ void MachineState::tareScale() {
     // the baseline so SAW switches to using absolute weight.
     if (m_phase == Phase::HotWater && m_scale && m_scale->isConnected()) {
         m_hotWaterTareBaseline = m_scale->weight();
+        if (m_waterCapturing) m_waterTareAwaitingZero = true;
         m_hotWaterTareTimeMs = QDateTime::currentMSecsSinceEpoch();
         m_scale->tare();
         m_scale->resetFlowCalculation();

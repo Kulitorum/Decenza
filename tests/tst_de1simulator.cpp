@@ -109,7 +109,14 @@ private slots:
         QVERIFY(sim.acceptsUnattendedStart(DE1::State::HotWater));
         QVERIFY(!sim.acceptsUnattendedStart(DE1::State::Espresso));
 
+        QList<ShotSample> waterSamples;
+        connect(&sim, &DE1Simulator::shotSampleReceived, this,
+                [&waterSamples](const ShotSample& sample) { waterSamples.append(sample); });
         sim.startHotWater();
+        // The host integrates these samples when no physical scale is present.
+        QTRY_VERIFY(waterSamples.size() >= 2);
+        QVERIFY(waterSamples.first().groupFlow > 0);
+        QVERIFY(waterSamples.last().timer > waterSamples.first().timer);
         sim.stop();
         QVERIFY(!sim.acceptsUnattendedStart(DE1::State::HotWater));
     }

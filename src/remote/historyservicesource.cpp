@@ -68,6 +68,8 @@ NativeHistoryServiceSource::NativeHistoryServiceSource(ShotHistoryStorage* histo
             updateHistoryState();
             emit historyDataChanged();
         });
+        connect(m_history, &ShotHistoryStorage::shotWaterResultUpdated,
+                this, &NativeHistoryServiceSource::shotWaterResultUpdated);
         connect(m_history, &ShotHistoryStorage::shotBadgesUpdated,
                 this, &NativeHistoryServiceSource::shotBadgesUpdated);
         connect(m_history, &ShotHistoryStorage::shotPulledFromVisualizer,

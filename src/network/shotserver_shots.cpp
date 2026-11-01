@@ -1524,6 +1524,8 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         function renderHappened() {
             var h = "<div class='section'>Shot results</div>" + sinceHtml() + "<div style='height:0.6rem'></div>", hidden = 0;
             (cmp.metrics || []).forEach(function(r) {
+                // Added-water outcomes are presented by the shared native/Wasm UI.
+                if (r.key === "waterWeightG" || r.key === "waterVolumeMl") return;
                 if (r.more) hidden++;
                 if (r.more && !showMore) return;
                 var cell = r.cells[me] || {}, unit = unitLabel(r.unit);
@@ -2135,6 +2137,8 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
             h += "<div class='section'>" + escapeHtml(txt("ui.happened")) + "</div>";
             var hidden = 0;
             (c.metrics || []).forEach(function(r) {
+                // Added-water outcomes are presented by the shared native/Wasm UI.
+                if (r.key === "waterWeightG" || r.key === "waterVolumeMl") return;
                 if (r.more) hidden++;
                 if (r.more && !showMore) return;
                 h += rowHtml(txt("metric." + r.key, r.key), unitLabel(r.unit), r.cells.map(function(cell) {

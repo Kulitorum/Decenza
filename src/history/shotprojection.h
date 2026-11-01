@@ -128,6 +128,7 @@ class ShotProjection {
     Q_PROPERTY(qint64 recipeId MEMBER recipeId)
     Q_PROPERTY(QString steamJson MEMBER steamJson)
     Q_PROPERTY(QString hotWaterJson MEMBER hotWaterJson)
+    Q_PROPERTY(QVariantMap hotWaterResult MEMBER hotWaterResult)
     // Recipe DISPLAY fields (history-recipe-identity). Unlike the snapshots
     // above, these are resolved live from the `recipes` row by recipeId at
     // list-query time, so a rename relabels history. Populated only by the
@@ -234,6 +235,7 @@ public:
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QVariantMap hotWaterResult;
     QString recipeName;
     QString recipeDrinkType;
     bool recipeArchived = false;
