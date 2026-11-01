@@ -35,6 +35,11 @@ KeyboardAwareContainer {
     readonly property bool browserHasUnsavedChanges: conversationInput.text.length > 0
         || conversationInput.preeditText.length > 0 || pendingConversationSendRequestId.length > 0
 
+    SharedMarkdownSource {
+        id: transcriptContent
+        markdown: ConversationSession.state.transcript || ""
+    }
+
     function requestLeave() {
         Keyboard.commit()
         if (browserHasUnsavedChanges)
@@ -2325,7 +2330,7 @@ KeyboardAwareContainer {
                         // colour renderer (the macOS render-thread crash), and injecting <img>
                         // before the parse would truncate the reply. See markdownrenderer.h.
                         text: Theme.replaceEmojiWithImg(
-                                  MarkdownRenderer.toHtml(ConversationSession.state.transcript || ""),
+                                  transcriptContent.html,
                                   Theme.bodyFont.pixelSize, true)
                         // RichText: the binding above produces HTML, not markdown. See
                         // markdownrenderer.h — MarkdownText here would truncate at the first emoji.
@@ -2473,7 +2478,6 @@ KeyboardAwareContainer {
                 if (!conversationOverlay._waitingForResponse)
                     conversationOverlay._preResponseHeight = conversationText.contentHeight
                 conversationOverlay._waitingForResponse = true
-                conversationText.text = Theme.replaceEmojiWithImg(MarkdownRenderer.toHtml(transcript), Theme.bodyFont.pixelSize, true)
                 Qt.callLater(function() {
                     conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
                     conversationText.update()

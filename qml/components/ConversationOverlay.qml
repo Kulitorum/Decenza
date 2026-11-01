@@ -29,6 +29,10 @@ DecenzaDialog {
     property string overlayTitle: TranslationManager.translate("conversation.title", "AI Conversation")
     property bool isMistakeShot: false
     readonly property var sessionState: ConversationSession.state
+    SharedMarkdownSource {
+        id: transcriptContent
+        markdown: overlay.sessionState.transcript || ""
+    }
     readonly property bool contextLoading: Boolean(sessionState.contextLoading)
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
@@ -436,7 +440,7 @@ DecenzaDialog {
                         // first emoji. Converting first means the parser never sees an <img>.
                         property string _observedTranscript: ""
                         text: Theme.replaceEmojiWithImg(
-                                  MarkdownRenderer.toHtml(overlay.sessionState.transcript || ""),
+                                  transcriptContent.html,
                                   Theme.bodyFont.pixelSize, true)
                         // RichText: the binding above now produces HTML. Left as MarkdownText
                         // this feeds <img> tags to the Markdown parser — the exact truncation

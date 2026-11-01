@@ -184,10 +184,13 @@ QVariantMap ConversationSessionSource::stateFor(const Session& session) const
 
 void ConversationSessionSource::publishState(const QString& clientId)
 {
-    const auto it = m_sessions.constFind(clientId);
-    if (it == m_sessions.cend())
-        return;
-    emit stateChanged(clientId, stateFor(it.value()));
+    auto it = m_sessions.find(clientId);
+    if (it == m_sessions.end()) return;
+    const QVariantMap state = stateFor(it.value());
+    if (it->hasPublishedState && it->publishedState == state) return;
+    it->publishedState = state;
+    it->hasPublishedState = true;
+    emit stateChanged(clientId, state);
 }
 
 void ConversationSessionSource::finish(const QString& clientId, const QString& requestId,

@@ -287,8 +287,32 @@ void LiveShotGraphService::changed()
     emit guard->graphChanged();
 }
 
+LiveShotGraphService::Collections LiveShotGraphService::collectionState() const
+{
+    return {phaseMarkers(), pressureGoalPoints(), flowGoalPoints(),
+            temperatureGoalPoints(), temperatureMixGoalPoints()};
+}
+
+void LiveShotGraphService::publishGraphChanges(const Collections& before)
+{
+    const auto after = collectionState();
+    const std::array<void (LiveShotGraphService::*)(), 5> notifiers{
+        &LiveShotGraphService::phaseMarkersChanged,
+        &LiveShotGraphService::pressureGoalPointsChanged,
+        &LiveShotGraphService::flowGoalPointsChanged,
+        &LiveShotGraphService::temperatureGoalPointsChanged,
+        &LiveShotGraphService::temperatureMixGoalPointsChanged};
+    const QPointer<LiveShotGraphService> guard(this);
+    for (size_t i = 0; i < before.size(); ++i) {
+        if (before[i] != after[i]) (this->*notifiers[i])();
+        if (!guard) return;
+    }
+    emit graphChanged();
+}
+
 void LiveShotGraphService::clearGraph(const QString& error)
 {
+    const auto before = collectionState();
     m_ready = false;
     m_graph.clear();
     m_series.clear();
@@ -300,7 +324,7 @@ void LiveShotGraphService::clearGraph(const QString& error)
     m_sequence = -1;
     m_errorMessage = error;
     applyRenderers();
-    emit graphChanged();
+    publishGraphChanges(before);
 }
 
 QString LiveShotGraphService::newRequestId() const
@@ -412,6 +436,7 @@ void LiveShotGraphService::receiveSnapshot(const QString& requestId, qint64 epoc
                                            qint64 sequence, const QVariantMap& snapshot,
                                            const QString& reason)
 {
+    const auto before = collectionState();
     if (requestId != m_pendingSnapshotId || !connected())
         return;
     m_pendingSnapshotId.clear();
@@ -464,14 +489,15 @@ void LiveShotGraphService::receiveSnapshot(const QString& requestId, qint64 epoc
         m_bufferOverflowed = false;
         m_ready = false;
         requestSnapshot();
-        emit graphChanged();
+        publishGraphChanges(before);
         return;
     }
-    emit graphChanged();
+    publishGraphChanges(before);
 }
 
 void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
 {
+    const auto before = collectionState();
     if (!connected())
         return;
     if (!m_ready) {
@@ -549,7 +575,7 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         m_errorMessage.clear();
         applyRenderers();
         replacePortalSamples(portalSamples());
-        emit graphChanged();
+        publishGraphChanges(before);
         return;
     }
     if (type != QLatin1String("append") || deltaEpoch != m_epoch
@@ -561,7 +587,7 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         return;
     }
     m_sequence = deltaSequence;
-    emit graphChanged();
+    publishGraphChanges(before);
 }
 
 bool LiveShotGraphService::applyAppend(const QVariantMap& delta)

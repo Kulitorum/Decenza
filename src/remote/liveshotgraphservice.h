@@ -3,6 +3,7 @@
 #include "remoteservice.h"
 #include "rep_liveshotgraphservice_replica.h"
 
+#include <array>
 #include <QMetaObject>
 #include <QHash>
 #include <QList>
@@ -33,11 +34,11 @@ class LiveShotGraphService final : public RemoteService
     Q_PROPERTY(double stopTime READ stopTime NOTIFY graphChanged FINAL)
     Q_PROPERTY(double weightAtStop READ weightAtStop NOTIFY graphChanged FINAL)
     Q_PROPERTY(double finalWeight READ finalWeight NOTIFY graphChanged FINAL)
-    Q_PROPERTY(QVariantList phaseMarkers READ phaseMarkers NOTIFY graphChanged FINAL)
-    Q_PROPERTY(QVariantList pressureGoalPoints READ pressureGoalPoints NOTIFY graphChanged FINAL)
-    Q_PROPERTY(QVariantList flowGoalPoints READ flowGoalPoints NOTIFY graphChanged FINAL)
-    Q_PROPERTY(QVariantList temperatureGoalPoints READ temperatureGoalPoints NOTIFY graphChanged FINAL)
-    Q_PROPERTY(QVariantList temperatureMixGoalPoints READ temperatureMixGoalPoints NOTIFY graphChanged FINAL)
+    Q_PROPERTY(QVariantList phaseMarkers READ phaseMarkers NOTIFY phaseMarkersChanged FINAL)
+    Q_PROPERTY(QVariantList pressureGoalPoints READ pressureGoalPoints NOTIFY pressureGoalPointsChanged FINAL)
+    Q_PROPERTY(QVariantList flowGoalPoints READ flowGoalPoints NOTIFY flowGoalPointsChanged FINAL)
+    Q_PROPERTY(QVariantList temperatureGoalPoints READ temperatureGoalPoints NOTIFY temperatureGoalPointsChanged FINAL)
+    Q_PROPERTY(QVariantList temperatureMixGoalPoints READ temperatureMixGoalPoints NOTIFY temperatureMixGoalPointsChanged FINAL)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY graphChanged FINAL)
     Q_PROPERTY(double machineTargetWeight READ machineTargetWeight NOTIFY graphChanged FINAL)
     Q_PROPERTY(QVariantList portalSamples READ portalSamples NOTIFY graphChanged FINAL)
@@ -85,6 +86,11 @@ public:
 
 signals:
     void graphChanged();
+    void phaseMarkersChanged();
+    void pressureGoalPointsChanged();
+    void flowGoalPointsChanged();
+    void temperatureGoalPointsChanged();
+    void temperatureMixGoalPointsChanged();
     void portalSampleAdded(double time, double ecRaw, double temperatureC, bool breakBefore);
     void cleared();
 
@@ -97,6 +103,9 @@ private:
     bool connected() const;
     void changed();
     void clearGraph(const QString& error = {});
+    using Collections = std::array<QVariantList, 5>;
+    Collections collectionState() const;
+    void publishGraphChanges(const Collections& before);
     void requestSnapshotFor(const QString& requestId);
     void receiveSnapshot(const QString& requestId, qint64 epoch, qint64 sequence,
                          const QVariantMap& snapshot, const QString& reason);

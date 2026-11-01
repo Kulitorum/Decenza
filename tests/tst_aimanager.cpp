@@ -210,6 +210,42 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void conversationSourceSuppressesDuplicatePublications()
+    {
+        QNetworkAccessManager network;
+        Settings settings;
+        AIManager manager(&network, &settings);
+        ConversationSessionSource source(&manager, nullptr);
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(clientId);
+        auto* session = source.ensureSession(clientId);
+        QVERIFY(session && session->conversation);
+        session->conversation->m_messages.append(QJsonObject{
+            {QStringLiteral("role"), QStringLiteral("assistant")},
+            {QStringLiteral("content"), QStringLiteral("**Saved advice**: try a finer grind.")}});
+        QSignalSpy changes(&source, &ConversationSessionStateSource::stateChanged);
+        source.publishState(clientId);
+        QCOMPARE(changes.size(), 1);
+        const QString originalTranscript = changes.last().at(1).toMap().value("transcript").toString();
+        QVERIFY(originalTranscript.contains(QStringLiteral("Saved advice")));
+        emit session->conversation->busyChanged();
+        emit session->conversation->historyChanged();
+        emit session->conversation->savedConversationChanged();
+        QCOMPARE(changes.size(), 1);
+        session->conversation->setContextLabel(QStringLiteral("Updated context"));
+        QCOMPARE(changes.size(), 2);
+        QCOMPARE(changes.last().at(1).toMap().value("contextLabel").toString(),
+                 QStringLiteral("Updated context"));
+        QCOMPARE(changes.last().at(1).toMap().value("transcript").toString(), originalTranscript);
+
+        QSignalSpy replies(&source, &ConversationSessionStateSource::stateReady);
+        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.requestState(clientId, requestId);
+        QCOMPARE(replies.size(), 1);
+        QCOMPARE(replies.first().at(1).toString(), requestId);
+        QCOMPARE(changes.size(), 2);
+    }
+
     void archiveReadsAndExportsStoredThreadsWithoutChangingTheActiveChat()
     {
         AppSettings stored;

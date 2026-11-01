@@ -1939,6 +1939,49 @@ TestCase {
         }
     }
 
+    Component {
+        id: conversationSnapshotComponent
+        Item {
+            id: conversationView
+            property var state: ({ transcript: "Saved advice", busy: false })
+            SharedMarkdownSource {
+                id: overlayTranscript
+                markdown: conversationView.state.transcript || ""
+            }
+            SharedMarkdownSource {
+                id: settingsTranscript
+                markdown: conversationView.state.transcript || ""
+            }
+            TextArea { id: overlayText; text: overlayTranscript.html; textFormat: Text.RichText }
+            TextArea { id: settingsText; text: settingsTranscript.html; textFormat: Text.RichText }
+            readonly property string overlayContent: overlayText.text ? overlayText.getText(0, overlayText.length) : ""
+            readonly property string settingsContent: settingsText.text ? settingsText.getText(0, settingsText.length) : ""
+        }
+    }
+
+    function test_conversationStatusChangesDoNotReparseTranscripts() {
+        const view = createTemporaryObject(conversationSnapshotComponent, testCase)
+        verify(view !== null)
+        compare(view.overlayContent, "Saved advice")
+        compare(view.settingsContent, view.overlayContent)
+        const before = MarkdownRenderer.calls()
+        for (let i = 0; i < 100; ++i) {
+            view.state = { transcript: "Saved advice", busy: i % 2 === 0,
+                           hasSavedConversation: i % 3 === 0, messageCount: i }
+            compare(view.overlayContent, "Saved advice")
+            compare(view.settingsContent, view.overlayContent)
+        }
+        compare(MarkdownRenderer.calls(), before)
+        view.state = { transcript: "Fresh advice", busy: false }
+        compare(view.overlayContent, "Fresh advice")
+        compare(view.settingsContent, view.overlayContent)
+        compare(MarkdownRenderer.calls(), before + 2)
+        view.state = { transcript: "", busy: false }
+        compare(view.overlayContent, "")
+        compare(view.settingsContent, view.overlayContent)
+        compare(MarkdownRenderer.calls(), before + 4)
+    }
+
     function test_firmwareProgressDoesNotReparseReleaseNotes() {
         const view = createTemporaryObject(markdownSnapshotComponent, testCase)
         verify(view !== null)
