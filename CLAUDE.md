@@ -74,6 +74,8 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 **For live-app checks, ask the user to start or restart Decenza.** Do not launch it or bring it to the foreground automatically: an unexpected window can capture keyboard shortcuts. Verify the exact checkout and process/port ownership so testing never starts a second copy.
 
+**Qt Creator is a shared resource. Ask before every change to its active/startup project or session.** Approval for one switch does not authorize later switches.
+
 The `cmake`/`ctest` invocations in `docs/CLAUDE_MD/TESTING.md` and `docs/CLAUDE_MD/PLATFORM_BUILD.md` are **reference for humans and CI**, not instructions for an assistant. Run their equivalent through the MCP.
 
 **No CI job builds or tests a pull request *automatically* — run the full suite locally before opening one.** That is the default gate, via `mcp__qtcreator__run_tests` (scope `all`). Nothing on GitHub fires on its own to catch a compile error or a failing test before merge.

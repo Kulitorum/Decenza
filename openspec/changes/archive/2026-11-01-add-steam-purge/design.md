@@ -49,7 +49,7 @@ Widget label tables (`ios/widget/MachineStatusSnapshot.swift`, `MachineStatusWid
 
 ## Risks / Trade-offs
 
-- [The purge's real duration and wand behaviour are untimed.] → The 10 s window only has to cover the tap; the page waits for the phase, not a clock. Time a real purge during validation and correct the simulator constant.
+- [Firmware purge duration varies.] → The 10 s window only has to cover the tap; completion waits for machine-state events. The simulator's three-second duration is illustrative, not a firmware timing claim. Protocol/state tests cover the host fix without requiring a hardware retest.
 - [A new phase reaches platform widget code that CI builds only on tag push.] → Platform test builds for iOS and Android before release, as the widget tables are platform-guarded.
 - [Collapsing the operation lists changes `machine_stop` and the auto-load guard for any phase they missed.] → Diff each list against `isOperating()` before replacing it. A phase in one and not the other is either a bug fixed or a deliberate exception, which keeps its own check.
 
