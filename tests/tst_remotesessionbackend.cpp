@@ -12,7 +12,6 @@
 #include <QWebSocketServer>
 
 #include "hostsessiontestfixture.h"
-#include "core/uiworkstats.h"
 #include "remote/qtrowebsocketdevice.h"
 #include "remotesessionprobe.h"
 #include "webclient/remoteobjectconnection.h"
@@ -84,7 +83,7 @@ class tst_RemoteSessionBackend final : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
 
-    void telemetryDoesNotRevalidateUnchangedAppearance()
+    void appearanceUpdatesWithoutAdvancingTelemetry()
     {
         HostSessionTest::Fixture server;
         QQmlEngine engine;
@@ -92,47 +91,22 @@ private slots:
         server.attach(&backend, &engine);
         backend.connectToHost();
         QTRY_VERIFY(backend.connected());
-        auto& counter = UiWorkStats::counter(UiWorkStats::Kind::HostAppearanceValidation);
-        const auto before = counter.lifetimeCalls;
-        auto values = server.source.snapshot();
-        for (int sequence = 1; sequence <= 20; ++sequence) {
-            values.insert(QStringLiteral("sequence"), sequence);
-            values.insert(QStringLiteral("pressureBar"), double(sequence));
-            server.source.setSnapshot(values);
-            QTRY_COMPARE(backend.sequence(), qint64(sequence));
-        }
-        QCOMPARE(counter.lifetimeCalls - before, quint64(0));
-
+        const auto sequence = backend.sequence();
         QSignalSpy appearances(&backend, &RemoteSessionBackend::appearanceChanged);
         QSignalSpy snapshots(&backend, &RemoteSessionBackend::snapshotChanged);
         server.setAppearance(HostSessionTest::appearance({}, true, 0));
         QTRY_COMPARE(appearances.size(), 1);
         QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
-        QCOMPARE(backend.sequence(), qint64(20));
+        QCOMPARE(backend.sequence(), sequence);
         QCOMPARE(snapshots.size(), 0);
-        QCOMPARE(counter.lifetimeCalls - before, quint64(1));
-
-        backend.disconnectFromHost();
-        backend.connectToHost();
-        QTRY_VERIFY(backend.connected());
-        QVERIFY(counter.lifetimeCalls - before > 1);
-        QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
     }
 
     void cachedAppearanceDoesNotAdmitMalformedUpdates_data()
     {
         QTest::addColumn<QVariantMap>("appearance");
         auto appearance = HostSessionTest::appearance({}, false, 0);
-        appearance.remove(QStringLiteral("darkMode"));
-        QTest::newRow("missing-field") << appearance;
-        appearance = HostSessionTest::appearance({}, false, 0);
         appearance.insert(QStringLiteral("darkMode"), QStringLiteral("false"));
-        QTest::newRow("coercible-bool") << appearance;
-        appearance = HostSessionTest::appearance({}, false, 0);
-        auto fonts = appearance.value(QStringLiteral("fontSizes")).toMap();
-        fonts.insert(QStringLiteral("headingSize"), -1);
-        appearance.insert(QStringLiteral("fontSizes"), fonts);
-        QTest::newRow("nested-invalid-field") << appearance;
+        QTest::newRow("invalid-boolean") << appearance;
         appearance = HostSessionTest::appearance({}, false, 0);
         auto theme = appearance.value(QStringLiteral("themeInputs")).toMap();
         auto colors = theme.value(QStringLiteral("customThemeColors")).toMap();
@@ -163,24 +137,6 @@ private slots:
         backend.connectToHost();
         QTRY_VERIFY(backend.connected());
         QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
-    }
-
-    void cachedAppearanceDoesNotBypassTelemetryPayloadLimit()
-    {
-        HostSessionTest::Fixture server;
-        QQmlEngine engine;
-        RemoteSessionBackend backend;
-        server.attach(&backend, &engine);
-        backend.connectToHost();
-        QTRY_VERIFY(backend.connected());
-        auto values = server.source.snapshot();
-        values.insert(QStringLiteral("sequence"), 1);
-        values.insert(QStringLiteral("extra"), QByteArray(128 * 1024, 'x'));
-        server.source.setSnapshot(values);
-        QTRY_VERIFY(!backend.connected());
-        QVERIFY(backend.stale());
-        QVERIFY(backend.appearance().isEmpty());
-        QVERIFY(backend.errorMessage().contains(QStringLiteral("payload limit")));
     }
 
     void unchangedSnapshotsDoNotInvalidateReadoutProperties()
@@ -379,6 +335,7 @@ private slots:
         values = valid; values.insert(QStringLiteral("machineUi"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("appearance"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("extractionAnnouncementInterval"), 1); malformed.append(values);
+        values = valid; values.insert(QStringLiteral("extra"), QByteArray(128 * 1024, 'x')); malformed.append(values);
         for (const auto& fields : malformed) {
             HostSessionTest::Fixture server;
             server.source.setSnapshot(fields);

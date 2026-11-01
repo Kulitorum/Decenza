@@ -7,7 +7,6 @@
 #include "controllers/steampageeditor.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
-#include "core/uiworkstats.h"
 #include "machine/machinestate.h"
 #include "mocks/MockScaleDevice.h"
 
@@ -51,16 +50,6 @@ private slots:
         store.sync();
     }
 
-    void unchangedEditorReadoutsComputeRevisionOnce()
-    {
-        Fixture f;
-        auto& counter = UiWorkStats::counter(UiWorkStats::Kind::SteamEditorRevision);
-        const auto before = counter.lifetimeCalls;
-        const QString revision = f.revision();
-        for (int i = 0; i < 100; ++i) QCOMPARE(f.revision(), revision);
-        QCOMPARE(counter.lifetimeCalls - before, quint64(1));
-    }
-
     void revisionInvalidatesBeforeNotifying_data()
     {
         QTest::addColumn<int>("input");
@@ -92,10 +81,6 @@ private slots:
         const QString current = f.revision();
         QVERIFY(current != previous);
         QCOMPARE(observed, current);
-        auto& counter = UiWorkStats::counter(UiWorkStats::Kind::SteamEditorRevision);
-        const auto afterChange = counter.lifetimeCalls;
-        for (int i = 0; i < 100; ++i) QCOMPARE(f.revision(), current);
-        QCOMPARE(counter.lifetimeCalls, afterChange);
     }
 
     void renameChangesOnlyNameAndChecksRevision()

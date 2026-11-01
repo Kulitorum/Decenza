@@ -1,7 +1,6 @@
 #include "hostsessionservicesource.h"
 #include "core/packageidentity.h"
 #include "hostsessionpayload.h"
-#include "core/uiworkstats.h"
 #include "network/sessionappearance.h"
 #include "ble/de1device.h"
 #include "ble/scaledeviceproxy.h"
@@ -65,7 +64,6 @@ void NativeHostSessionServiceSource::publish()
         setReady(false);
         return;
     }
-    UiWorkStats::Span work(UiWorkStats::Kind::HostPublish);
     const QVariantMap snapshot{
         {QStringLiteral("packageId"), m_packageId},
         {QStringLiteral("hostId"), m_hostId},
@@ -82,7 +80,6 @@ void NativeHostSessionServiceSource::publish()
         setReady(false);
         return;
     }
-    work.items = snapshot.size();
     setSnapshot(snapshot);
     setReady(true);
 }

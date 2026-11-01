@@ -216,15 +216,12 @@ void NativeSteamServiceSource::refreshSnapshot()
         || !m_preparation || !m_health || !m_editor)
         return;
 
-    UiWorkStats::Span work(UiWorkStats::Kind::SteamRefresh);
     if (std::exchange(m_settingsDirty, false)) {
-        ++work.changes;
         const auto* brew = m_settings->brew();
         const auto* app = m_settings->app();
         const auto* graph = m_settings->graph();
         const QVariantList presets = brew->steamPitcherPresets();
         const int selected = brew->selectedSteamPitcher();
-        work.items = presets.size();
         setSteamPitcherPresets(presets);
         setSelectedSteamPitcher(selected);
         setSelectedSteamPitcherDisplayIndex(SteamPitcherSelection::displayIndex(presets, selected));
@@ -247,7 +244,6 @@ void NativeSteamServiceSource::refreshSnapshot()
         setEditorRevision(m_editor->editorRevision());
     }
     if (std::exchange(m_warningsDirty, false)) {
-        ++work.changes;
         setActiveWarningKinds(m_health->activeWarningKinds());
         setActiveWarningSessionId(m_health->activeWarningSessionId());
         setActiveSteamSession(m_health->activeSession());

@@ -19,7 +19,6 @@ class Source final : public HostSessionStateSimpleSource
 {
 public:
     using HostSessionStateSimpleSource::setReady;
-    using HostSessionStateSimpleSource::setAppearanceSnapshot;
     void setSnapshot(QVariantMap values) override
     {
         if (values.contains(QStringLiteral("appearance")))

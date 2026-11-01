@@ -495,10 +495,9 @@ int PreparationController::scaledSteamDurationAtStart(QString* source) const
 int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher,
     bool milkAutoCaptureEnabled, double secondsPerGram, QString* source) const
 {
-    const char* blocker = steamTimeBlocker(pitcher, milkAutoCaptureEnabled, secondsPerGram);
     if (!m_snapshot.milkTimeLocked) {
         if (source)
-            *source = QStringLiteral("not scaled: %1").arg(QLatin1String(blocker));
+            *source = QStringLiteral("not scaled: time unlocked");
         return 0;
     }
 
@@ -521,6 +520,8 @@ int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher
     const int seconds = SteamCalculations::scaledSteamTime(
         pitcher, milkAutoCaptureEnabled, secondsPerGram, milk);
     if (source) {
+        const char* blocker = SteamCalculations::steamScalingBlocker(
+            pitcher, milkAutoCaptureEnabled, secondsPerGram);
         if (seconds > 0) {
             *source = QStringLiteral("%1 g from %2").arg(formatGrams(milk), QLatin1String(from));
         } else if (blocker) {
@@ -657,16 +658,11 @@ const char* PreparationController::steamTimeBlocker() const
 {
     if (!m_brew)
         return "settings missing";
-    return steamTimeBlocker(m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher()),
-        m_brew->milkAutoCaptureEnabled(), m_brew->steamSecondsPerGram());
-}
-
-const char* PreparationController::steamTimeBlocker(const QVariantMap& pitcher,
-    bool milkAutoCaptureEnabled, double secondsPerGram) const
-{
     if (!m_snapshot.milkTimeLocked)
         return "time unlocked";
-    return SteamCalculations::steamScalingBlocker(pitcher, milkAutoCaptureEnabled, secondsPerGram);
+    return SteamCalculations::steamScalingBlocker(
+        m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher()),
+        m_brew->milkAutoCaptureEnabled(), m_brew->steamSecondsPerGram());
 }
 
 const char* PreparationController::scaleCaptureBlocker() const

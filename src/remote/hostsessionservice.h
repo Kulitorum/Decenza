@@ -54,7 +54,6 @@ private:
     QVariantMap m_cachedAppearance;
     QString m_appearanceHostId;
     qint64 m_appearanceBytes = -1;
-    bool m_appearanceDirty = true;
     MachineUiSnapshot m_machineUi;
     QString m_error;
     bool m_valid = false;

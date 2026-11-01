@@ -2,7 +2,6 @@
 #include "hostsessionpayload.h"
 #include "servicevalue.h"
 #include "core/packageidentity.h"
-#include "core/uiworkstats.h"
 #include "network/sessionappearance.h"
 
 #include <QJSEngine>
@@ -13,17 +12,6 @@
 namespace {
 QPointer<QRemoteObjectNode> s_node;
 std::function<void(const QVariantMap&)> s_appearancePublisher;
-
-bool validateAppearance(const QVariantMap& values, QVariantMap* appearance, QString* error)
-{
-    UiWorkStats::Span work(UiWorkStats::Kind::HostAppearanceValidation);
-    work.items = values.size();
-    if (!ServicePayload::fits(values, HostSessionPayload::MaximumBytes)) {
-        *error = QStringLiteral("Host appearance exceeds its payload limit");
-        return false;
-    }
-    return SessionAppearance::validate(values, appearance, error);
-}
 
 bool validate(const QVariantMap& values, qint64 appearanceBytes,
               MachineUiSnapshot* machineUi, QString* error)
@@ -98,7 +86,7 @@ void HostSessionService::setNode(QRemoteObjectNode* node)
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &HostSessionService::update);
     connect(m_state, &QRemoteObjectReplica::notified, this, &HostSessionService::update);
     connect(m_state, &HostSessionStateReplica::appearanceSnapshotChanged, this, [this] {
-        m_appearanceDirty = true;
+        invalidateAppearance();
         update();
     });
     connect(m_state, &HostSessionStateReplica::snapshotChanged, this, &HostSessionService::update);
@@ -111,28 +99,25 @@ void HostSessionService::invalidateAppearance()
     m_cachedAppearance.clear();
     m_appearanceHostId.clear();
     m_appearanceBytes = -1;
-    m_appearanceDirty = true;
 }
 
 void HostSessionService::update()
 {
-    UiWorkStats::Span work(UiWorkStats::Kind::HostReceive);
     m_error.clear();
     const QVariantMap values = m_state ? m_state->snapshot() : QVariantMap();
-    work.items = values.size();
     const bool published = RemoteServiceReplica::isReady(m_node, m_state, s_node) && m_state->ready();
     const QString host = values.value(QStringLiteral("hostId")).toString();
-    if (published && (m_appearanceDirty || host != m_appearanceHostId)) {
+    if (published && (m_appearanceBytes < 0 || host != m_appearanceHostId)) {
         const auto appearance = m_state->appearanceSnapshot();
-        QVariantMap validated;
-        if (validateAppearance(appearance, &validated, &m_error)) {
-            m_cachedAppearance = validated;
-            m_appearanceBytes = HostSessionPayload::appearanceSize(appearance);
+        const auto bytes = HostSessionPayload::appearanceSize(appearance);
+        if (bytes < 0) {
+            m_error = QStringLiteral("Host appearance exceeds its payload limit");
+        } else if (SessionAppearance::validate(appearance, &m_cachedAppearance, &m_error)) {
+            m_appearanceBytes = bytes;
             m_appearanceHostId = host;
-            m_appearanceDirty = false;
         }
     }
-    m_valid = published && m_error.isEmpty() && !m_appearanceDirty
+    m_valid = published && m_error.isEmpty()
         && validate(values, m_appearanceBytes, &m_machineUi, &m_error);
     m_snapshot = m_valid ? values : QVariantMap();
     if (m_valid) {
