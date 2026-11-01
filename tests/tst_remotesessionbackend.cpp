@@ -83,6 +83,62 @@ class tst_RemoteSessionBackend final : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void appearanceUpdatesWithoutAdvancingTelemetry()
+    {
+        HostSessionTest::Fixture server;
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        server.attach(&backend, &engine);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        const auto sequence = backend.sequence();
+        QSignalSpy appearances(&backend, &RemoteSessionBackend::appearanceChanged);
+        QSignalSpy snapshots(&backend, &RemoteSessionBackend::snapshotChanged);
+        server.setAppearance(HostSessionTest::appearance({}, true, 0));
+        QTRY_COMPARE(appearances.size(), 1);
+        QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
+        QCOMPARE(backend.sequence(), sequence);
+        QCOMPARE(snapshots.size(), 0);
+    }
+
+    void cachedAppearanceDoesNotAdmitMalformedUpdates_data()
+    {
+        QTest::addColumn<QVariantMap>("appearance");
+        auto appearance = HostSessionTest::appearance({}, false, 0);
+        appearance.insert(QStringLiteral("darkMode"), QStringLiteral("false"));
+        QTest::newRow("invalid-boolean") << appearance;
+        appearance = HostSessionTest::appearance({}, false, 0);
+        auto theme = appearance.value(QStringLiteral("themeInputs")).toMap();
+        auto colors = theme.value(QStringLiteral("customThemeColors")).toMap();
+        // Canonical validation discards unknown colors; the raw payload must still be bounded.
+        colors.insert(QStringLiteral("futureColor"), QByteArray(128 * 1024, 'x'));
+        theme.insert(QStringLiteral("customThemeColors"), colors);
+        appearance.insert(QStringLiteral("themeInputs"), theme);
+        QTest::newRow("oversized-appearance") << appearance;
+    }
+
+    void cachedAppearanceDoesNotAdmitMalformedUpdates()
+    {
+        QFETCH(QVariantMap, appearance);
+        HostSessionTest::Fixture server;
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        auto* service = server.attach(&backend, &engine);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        server.setAppearance(appearance);
+        QTRY_VERIFY(!backend.connected());
+        QVERIFY(!service->ready());
+        QVERIFY(backend.stale());
+        QVERIFY(backend.appearance().isEmpty());
+        QVERIFY(!backend.errorMessage().isEmpty());
+
+        server.setAppearance(HostSessionTest::appearance({}, true, 0));
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        QVERIFY(backend.appearance().value(QStringLiteral("fahrenheit")).toBool());
+    }
+
     void unchangedSnapshotsDoNotInvalidateReadoutProperties()
     {
         HostSessionTest::Fixture server;
@@ -279,6 +335,7 @@ private slots:
         values = valid; values.insert(QStringLiteral("machineUi"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("appearance"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("extractionAnnouncementInterval"), 1); malformed.append(values);
+        values = valid; values.insert(QStringLiteral("extra"), QByteArray(128 * 1024, 'x')); malformed.append(values);
         for (const auto& fields : malformed) {
             HostSessionTest::Fixture server;
             server.source.setSnapshot(fields);

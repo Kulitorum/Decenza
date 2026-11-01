@@ -34,6 +34,8 @@ public:
 
 private:
     void scheduleRefresh();
+    void scheduleSettingsRefresh();
+    void scheduleWarningRefresh();
     void scheduleGraphRefresh();
     QVariantMap failure(const QString& message) const;
     QVariantMap editorOperation(const QVariantMap& fields,
@@ -50,6 +52,8 @@ private:
     QPointer<SteamPageEditor> m_editor;
     QPointer<PreparationController> m_preparation;
     bool m_refreshQueued = false;
+    bool m_settingsDirty = true;
+    bool m_warningsDirty = true;
     bool m_graphSnapshotDirty = true;
     SteamGraphUpdate::Publisher m_graphPublisher;
 };

@@ -19,7 +19,12 @@ class Source final : public HostSessionStateSimpleSource
 {
 public:
     using HostSessionStateSimpleSource::setReady;
-    using HostSessionStateSimpleSource::setSnapshot;
+    void setSnapshot(QVariantMap values) override
+    {
+        if (values.contains(QStringLiteral("appearance")))
+            setAppearanceSnapshot(values.take(QStringLiteral("appearance")).toMap());
+        HostSessionStateSimpleSource::setSnapshot(values);
+    }
 };
 
 inline QString hostId() { return QStringLiteral("7a54d42f-93de-48a7-ae78-38925bd0c3e1"); }

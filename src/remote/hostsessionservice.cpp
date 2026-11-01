@@ -1,5 +1,5 @@
 #include "hostsessionservice.h"
-#include "servicepayload.h"
+#include "hostsessionpayload.h"
 #include "servicevalue.h"
 #include "core/packageidentity.h"
 #include "network/sessionappearance.h"
@@ -13,9 +13,10 @@ namespace {
 QPointer<QRemoteObjectNode> s_node;
 std::function<void(const QVariantMap&)> s_appearancePublisher;
 
-bool validate(const QVariantMap& values, MachineUiSnapshot* machineUi, QString* error)
+bool validate(const QVariantMap& values, qint64 appearanceBytes,
+              MachineUiSnapshot* machineUi, QString* error)
 {
-    if (!ServicePayload::fits(values, 128 * 1024)) {
+    if (!HostSessionPayload::fitsTelemetry(values, appearanceBytes)) {
         *error = QStringLiteral("Host session exceeds its payload limit");
         return false;
     }
@@ -29,11 +30,7 @@ bool validate(const QVariantMap& values, MachineUiSnapshot* machineUi, QString* 
         *error = QStringLiteral("Host session identity is invalid; reload the packaged interface");
         return false;
     }
-    QVariantMap appearance;
-    if (values.value(QStringLiteral("appearance")).metaType().id() != QMetaType::QVariantMap
-        || !SessionAppearance::validate(values.value(QStringLiteral("appearance")).toMap(),
-                                         &appearance, error)
-        || values.value(QStringLiteral("machineUi")).metaType().id() != QMetaType::QVariantMap
+    if (values.value(QStringLiteral("machineUi")).metaType().id() != QMetaType::QVariantMap
         || !MachineUiSnapshot::parse(QJsonObject::fromVariantMap(
                 values.value(QStringLiteral("machineUi")).toMap()), machineUi, error)) {
         if (error->isEmpty()) *error = QStringLiteral("Host session fields are invalid");
@@ -84,24 +81,50 @@ void HostSessionService::publishAppearance(const QVariantMap& appearance)
 void HostSessionService::setNode(QRemoteObjectNode* node)
 {
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
-            [] {}))
+            [this] { invalidateAppearance(); }))
         return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &HostSessionService::update);
     connect(m_state, &QRemoteObjectReplica::notified, this, &HostSessionService::update);
+    connect(m_state, &HostSessionStateReplica::appearanceSnapshotChanged, this, [this] {
+        invalidateAppearance();
+        update();
+    });
     connect(m_state, &HostSessionStateReplica::snapshotChanged, this, &HostSessionService::update);
     connect(m_state, &HostSessionStateReplica::readyChanged, this, &HostSessionService::update);
     update();
+}
+
+void HostSessionService::invalidateAppearance()
+{
+    m_cachedAppearance.clear();
+    m_appearanceHostId.clear();
+    m_appearanceBytes = -1;
 }
 
 void HostSessionService::update()
 {
     m_error.clear();
     const QVariantMap values = m_state ? m_state->snapshot() : QVariantMap();
-    m_valid = RemoteServiceReplica::isReady(m_node, m_state, s_node) && m_state->ready()
-        && validate(values, &m_machineUi, &m_error);
+    const bool published = RemoteServiceReplica::isReady(m_node, m_state, s_node) && m_state->ready();
+    const QString host = values.value(QStringLiteral("hostId")).toString();
+    if (published && (m_appearanceBytes < 0 || host != m_appearanceHostId)) {
+        const auto appearance = m_state->appearanceSnapshot();
+        const auto bytes = HostSessionPayload::appearanceSize(appearance);
+        if (bytes < 0) {
+            m_error = QStringLiteral("Host appearance exceeds its payload limit");
+        } else if (SessionAppearance::validate(appearance, &m_cachedAppearance, &m_error)) {
+            m_appearanceBytes = bytes;
+            m_appearanceHostId = host;
+        }
+    }
+    m_valid = published && m_error.isEmpty()
+        && validate(values, m_appearanceBytes, &m_machineUi, &m_error);
     m_snapshot = m_valid ? values : QVariantMap();
-    if (!m_valid) {
+    if (m_valid) {
+        m_snapshot.insert(QStringLiteral("appearance"), m_cachedAppearance);
+    } else {
         m_machineUi = {};
+        invalidateAppearance();
     }
     emit stateChanged();
 }

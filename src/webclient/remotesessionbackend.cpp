@@ -213,8 +213,8 @@ void RemoteSessionBackend::refresh()
         return;
     }
     const qint64 sequence = static_cast<qint64>(m_service->sequence());
-    if (sequence == m_sequence) return;
-    if (m_sequence >= 0 && sequence != m_sequence + 1) {
+    const bool telemetryChanged = sequence != m_sequence;
+    if (telemetryChanged && m_sequence >= 0 && sequence != m_sequence + 1) {
         transportFailed(QStringLiteral("The host session sequence changed. Reconnect to refresh its state."));
         return;
     }
@@ -227,7 +227,7 @@ void RemoteSessionBackend::refresh()
     if (m_lastAppearance != appearance) { m_lastAppearance = appearance; emit appearanceChanged(); }
     if (!current()) return;
     setStatus(QStringLiteral("connected"));
-    if (current()) emit snapshotChanged();
+    if (current() && telemetryChanged) emit snapshotChanged();
 }
 
 void RemoteSessionBackend::invalidate()

@@ -1,5 +1,7 @@
 class HostSessionState
 {
     PROP(QVariantMap snapshot READONLY)
+    // Theme inputs change independently of the periodic telemetry snapshot.
+    PROP(QVariantMap appearanceSnapshot READONLY)
     PROP(bool ready = false READONLY)
 }
