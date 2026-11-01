@@ -66,6 +66,12 @@
 #include <utility>
 
 namespace {
+bool isSteamPurgeWrite(const QBluetoothUuid& uuid, const QByteArray& data)
+{
+    return uuid == DE1::Characteristic::REQUESTED_STATE && data.size() == 1
+        && static_cast<uint8_t>(data[0]) == static_cast<uint8_t>(DE1::State::SteamRinse);
+}
+
 qint64 monotonicMsNow()
 {
     using namespace std::chrono;
@@ -460,6 +466,9 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
 }
 
 void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (m_steamPurgeRequest == SteamPurgeRequest::Pending && isSteamPurgeWrite(uuid, data))
+        m_steamPurgeRequest = SteamPurgeRequest::Acknowledged;
+
     // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack).
     // Carries [SAW], not [DE1]: it measures stop-at-weight, which is shot logic
     // rather than the machine. SAW is now a registered subsystem — the open
@@ -1882,6 +1891,10 @@ void DE1Device::clearCommandQueue() {
     if (m_transport) {
         const qsizetype dropped = m_transport->clearQueue();
         if (dropped > 0) {
+            // An acknowledged purge has left the queue; clearing unrelated
+            // work must not erase its intent while its state reply is pending.
+            if (m_steamPurgeRequest == SteamPurgeRequest::Pending)
+                m_steamPurgeRequest = SteamPurgeRequest::None;
             m_lastMMRValues.clear();
             // Same reason, one characteristic over: a discarded read-back is an
             // answer that will never come, and a write left unconfirmed here can
@@ -1943,6 +1956,9 @@ void DE1Device::writeTankPreheatForProfile(const Profile& profile) {
 // and on completion verify the two lists match exactly.
 
 void DE1Device::onWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (m_steamPurgeRequest == SteamPurgeRequest::Pending && isSteamPurgeWrite(uuid, data))
+        m_steamPurgeRequest = SteamPurgeRequest::None;
+
     if (uuid != DE1::Characteristic::WRITE_TO_MMR || data.size() < 4) return;
 
     // m_lastMMRValues is recorded at DISPATCH (writeMMR, below), so it says

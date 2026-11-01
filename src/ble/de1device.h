@@ -618,7 +618,7 @@ private:
 
     DE1::State m_state = DE1::State::Sleep;
     bool m_stateInfoReceived = false;
-    enum class SteamPurgeRequest { None, Pending, Running };
+    enum class SteamPurgeRequest { None, Pending, Acknowledged, Running };
     SteamPurgeRequest m_steamPurgeRequest = SteamPurgeRequest::None;
     bool m_gcAbortPending = false;
     DE1::SubState m_subState = DE1::SubState::Ready;
