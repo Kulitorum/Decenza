@@ -17,6 +17,7 @@
 #include "machine/machinestate.h"
 #include "mcp/mcptools_shots_helpers.h"
 #include "models/shotdatamodel.h"
+#include "network/visualizeruploader.h"
 #include <QScopeGuard>
 #include <QJSEngine>
 #include <QDirIterator>
@@ -1359,6 +1360,18 @@ private slots:
         const qint64 hotId = storage.importShotRecord(hotRecord, true);
         QVERIFY(hotId > 0);
 
+        // Newer measurements from other coffees cannot evict this coffee's references.
+        withTempDb(dbPath, "portal_other_coffee", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec(R"(
+                WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<201)
+                INSERT INTO shots(uuid,timestamp,profile_name,duration_seconds,bean_brand,bean_type,
+                                  dose_weight,final_weight,drink_tds,portal_mean_ec,portal_estimate_reliable,
+                                  portal_mounting_mode,weight_source,portal_present)
+                SELECT 'other-'||i,1800000000+i,'Espresso',25,'Other','Coffee',16,32,10,8,1,
+                       'onScale','physical_scale',1 FROM n
+            )"));
+        });
         ShotRecord loaded4;
         withTempDb(dbPath, "portal_cal_reload", [&](QSqlDatabase& db) {
             QSqlQuery measurement(db);
@@ -1433,6 +1446,7 @@ private slots:
         QVERIFY(metadataSaved.last().at(1).toBool());
         auto virtualRecord = warmRecord;
         virtualRecord.summary.uuid = QStringLiteral("virtual-saw-physical-key");
+        virtualRecord.summary.timestamp += 1;
         virtualRecord.weightSource = QStringLiteral("flow_scale_virtual");
         const qint64 virtualId = storage.importShotRecord(virtualRecord, true);
         QVERIFY(virtualId > 0);
@@ -1446,6 +1460,28 @@ private slots:
             QCOMPARE(loaded.weightSource, QStringLiteral("flow_scale_virtual"));
             QCOMPARE(ShotHistoryStorage::convertShotRecord(loaded).portalAnalysis.value("status").toString(),
                      QStringLiteral("requires_physical_scale"));
+        });
+        ShotDataModel captured;
+        captured.setPortalMountingMode(QStringLiteral("onScale"));
+        for (int i = 0; i <= 250; ++i) {
+            const double time = i * 0.1;
+            captured.addSample(time, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0, 94.0);
+            captured.addWeightSample(time, time * 1.28, 1.28, QStringLiteral("physical_scale"));
+            captured.addPortalSample(time, 7.0, 72.0);
+        }
+        ShotMetadata metadata;
+        metadata.espressoNotes = QStringLiteral("My own tasting notes");
+        QSignalSpy shotSaved(&storage, &ShotHistoryStorage::shotSaved);
+        QCOMPARE(storage.saveShot(&captured, nullptr, 25.0, 32.0, 16.0, metadata,
+            QStringLiteral("scale=acaia"), 0.0, 32.0), 0);
+        QTRY_COMPARE(shotSaved.size(), 1);
+        const qint64 capturedId = shotSaved.first().at(0).toLongLong();
+        QVERIFY(capturedId > 0);
+        withTempDb(dbPath, "portal_saved_notes", [&](QSqlDatabase& db) {
+            const auto saved = ShotHistoryStorage::loadShotRecordStatic(db, capturedId);
+            QCOMPARE(saved.espressoNotes, QStringLiteral("My own tasting notes"));
+            QCOMPARE(saved.weightSource, QStringLiteral("physical_scale"));
+            QCOMPARE(saved.portalMountingMode, QStringLiteral("onScale"));
         });
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());

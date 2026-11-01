@@ -2756,7 +2756,7 @@ T.Page {
                                   ? TranslationManager.translate("postshotreview.portal.mountIndependent", "Independent stand")
                                   : (pa.mountingMode === "onScale")
                                     ? TranslationManager.translate("postshotreview.portal.mountOnScale", "On cup / scale")
-                                    : TranslationManager.translate("postshotreview.portal.mountUnknown", "Mounting not logged")
+                                    : TranslationManager.translate("postshotreview.portal.mountUnknown", "Mounting not recorded")
                             font.pixelSize: Theme.scaled(10)
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
@@ -2831,8 +2831,9 @@ T.Page {
                             Text {
                                 text: portalMetricsCard.isCalibrated
                                       ? ((!portalMetricsCard.estimateReliable ? "\u26a0 " : "")
-                                         + "~" + portalMetricsCard.estEyPct.toFixed(1) + "%  (~"
-                                         + portalMetricsCard.estTdsPct.toFixed(2) + "% TDS)")
+                                         + TranslationManager.translate("postshotreview.portal.estimateValues", "~%1% (~%2% TDS)")
+                                             .arg(portalMetricsCard.estEyPct.toFixed(1))
+                                             .arg(portalMetricsCard.estTdsPct.toFixed(2)))
                                       : "\u2014"
                                 font.pixelSize: Theme.scaled(14)
                                 font.bold: true

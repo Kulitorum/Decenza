@@ -604,6 +604,11 @@ QJsonObject ShotSummarizer::buildPortalBlock(const QVariantMap& pa)
     portal["mountingMode"] = pa.value(QStringLiteral("mountingMode")).toString();
     portal["uncertaintyReasons"] = QJsonArray::fromVariantList(pa.value(QStringLiteral("uncertaintyReasons")).toList());
     portal["ratioAdvice"] = pa.value(QStringLiteral("ratioAdvice")).toString();
+    if (pa.value(QStringLiteral("bestHistoricalWeightG")).toDouble() > 0.0) {
+        portal["bestHistoricalWeightG"] = round2(pa.value(QStringLiteral("bestHistoricalWeightG")).toDouble());
+        portal["bestHistoricalRatio"] = round2(pa.value(QStringLiteral("bestHistoricalRatio")).toDouble());
+        portal["bestHistoricalEnjoyment0to100"] = pa.value(QStringLiteral("bestHistoricalEnjoyment")).toInt();
+    }
     portal["R5"] = round3(pa.value(QStringLiteral("R5")).toDouble());
     portal["recentContributionShare5g"] = round4(pa.value(QStringLiteral("recentContributionShare5g")).toDouble());
     portal["coverageRatio"] = round3(pa.value(QStringLiteral("coverageRatio")).toDouble());

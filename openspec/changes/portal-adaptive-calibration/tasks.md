@@ -5,13 +5,13 @@
 - [x] 1.1 Implement mass integration, gap and scale safeguards; retain existing analyzer tests.
 - [x] 1.2 Record serving-source and mounting provenance; remove log inference, slow-onset detectors and note injection; extend storage/capture regressions.
 - [x] 1.3 Move backfill to one migration, scope read-only calibration and refresh eligibility on dose edits; extend migration/storage coverage.
-- [ ] 1.4 Measure realistic and multiplied database costs and record them at the query call site.
+- [x] 1.4 Measure realistic and multiplied database costs and record them at the query call site.
 
 ## 2. Shared presentation
 
 - [x] 2.1 Gate history labels on PORTAL data, translate all new text through TranslationManager and remove generic settings keywords; verify text invariants and QML compilation.
 - [x] 2.2 Keep only the shared structured AI block and remove the optional assertion-free real-shot diagnostic branch; retain executable payload assertions.
-- [ ] 2.3 Apply the concise calibration entry in the separate wiki repository and remove the patch from this repository.
+- [ ] 2.3 Publish the prepared calibration entry in the separate wiki repository. The patch is removed here; wiki commit 89bc054 is prepared locally, but GitHub denied janhcla write access (403). Maintainer publication is required.
 
 ## 3. Integration validation
 
