@@ -49,6 +49,8 @@ whether the user tapped a widget or the machine changed phase (group head, GHC, 
 one is a pop back to wherever the user was: Stop and Back emit `AppShell.dismissRequested()`;
 completion, disconnect, the shot-end timer and Space call `leaveOperationPage()`.
 
+Which page a phase gets is `OperationNavigationPolicy.machineOperationPage(phase, phases, AppShell.drinkInCupView)`: an americano or long black with the cup view keeps HotWater on the Espresso page. Pass the third argument at every call site.
+
 An operation started from another takes its place, the post-shot review replaces the shot page
 and any review it was started from, and an operation the machine starts while the screensaver is
 up replaces it rather than returning to it. The screensaver itself is pushed over the home screen,

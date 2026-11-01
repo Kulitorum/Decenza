@@ -105,6 +105,20 @@ QtObject {
         trackControl(MachineControlService.selectSteamPitcher(index, SteamService.getSteamPitcherPreset(index)))
     }
 
+    // A tap anywhere in the steam row: a pitcher, or the purge entry after them.
+    function tapSteamRowEntry(index: int): void {
+        if (index >= (SteamService.state.steamPitcherPresets || []).length)
+            startSteamPurge()
+        else
+            tapSteamPitcher(index)
+    }
+
+    function startSteamPurge(): void {
+        if (MachineState.phase === MachineState.Phase.SteamPurge)
+            return
+        trackControl(MachineControlService.startSteamPurge(SteamService.state.controlContextId))
+    }
+
     function tapSteamPitcher(index: int): void {
         const preset = SteamService.getSteamPitcherPreset(index)
         if (!preset.disabled && index === SteamService.state.selectedSteamPitcherDisplayIndex)

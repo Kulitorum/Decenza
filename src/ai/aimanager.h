@@ -112,6 +112,8 @@ public:
     // TranslationManager keeps the old translation under an unchanged key.
     Q_INVOKABLE QString modelHintKey(const QString& providerId) const
     {
+        if (providerId == QLatin1String("openai"))
+            return QStringLiteral("settings.ai.modelHint.v5.openai");
         return QStringLiteral("settings.ai.modelHint.v3.") + providerId;
     }
     // Running-cost estimate (see AIProvider::costHintFor). Pass a modelId to

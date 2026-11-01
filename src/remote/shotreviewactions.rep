@@ -29,6 +29,7 @@ class ShotReviewActionState
 
     SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
     SIGNAL(actionCompleted(QString requestId, QString operation, bool success, QVariantMap result, QString reason))
+    SIGNAL(carryForwardInvalidated(QString reviewId))
     SIGNAL(visualizerUploadSucceeded(qint64 shotId, QString visualizerId, QString url))
     SIGNAL(savedShotFinished(qint64 shotId, QString error, QString skipReason))
     SIGNAL(decentUploadFinished(qint64 shotId, int result))

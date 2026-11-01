@@ -43,6 +43,8 @@ private:
 #endif
     struct Session {
         QPointer<AIConversation> conversation;
+        QVariantMap publishedState;
+        bool hasPublishedState = false;
         AIConversation* conversationIdentity = nullptr;
         QVariantMap shot;
         qint64 shotId = 0;

@@ -4594,6 +4594,7 @@ void ShotHistoryStorage::requestDeleteShotImpl(const QString& requestId, qint64 
             }
             if (success) {
                 refreshTotalShots();
+                emit importedDatabaseChanged();
                 emit shotDeleted(shotId);
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async deleted shot" << shotId;
             } else if (requestId.isEmpty()) {
@@ -5374,12 +5375,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             }
             srcCheck.next();
             sourceCount = srcCheck.value(0).toInt();
-        }
-
-        if (sourceCount == 0) {
-            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Source has no shots (empty backup)";
-            result = true;
-            goto cleanup;
         }
 
         DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Source has" << sourceCount << "shots";

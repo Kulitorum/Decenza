@@ -139,6 +139,20 @@
       }
     }).then(instance => {
       installQtDialogAccessibility(screen);
+      // Qt 6.12 disables touch gestures on its shadow-root divs
+      // (qtbase/src/plugins/platforms/wasm/qwasmcssstyle.cpp:30-32).
+      // Keep single-finger drags with Qt while allowing browser pinch zoom.
+      const qtShadow = screen.querySelector("#qt-shadow-container")?.shadowRoot;
+      if (qtShadow) {
+        const style = document.createElement("style");
+        // Qt's browser inputs are separate from the rendered QML controls. A
+        // small default font on those inputs makes iPhone Safari zoom on focus.
+        style.textContent = `@media (any-pointer: coarse) {
+          .qt-screen div { touch-action: pinch-zoom !important; }
+          .qt-screen input, .qt-screen textarea { font-size: 16px !important; }
+        }`;
+        qtShadow.appendChild(style);
+      }
       // iOS can settle its container size after Qt's synchronous resize callback.
       // Re-read it after layout through Qt's public API; no polling or Qt patches.
       let resizeFrame = 0;

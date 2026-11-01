@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <QBluetoothUuid>
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -12,6 +14,7 @@
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class DE1Device;
+class DE1Transport;
 
 // Orchestrates the three-phase DE1 firmware update (erase → upload → verify)
 // over BLE, using DE1Device for the wire writes and FirmwareAssetCache for
@@ -93,8 +96,9 @@ public:
     // Dependency injection / test hooks --------------------------------
 
     // Supplies the current DE1-installed firmware version (from MMR 0x800010
-    // typically). Called on every checkForUpdate() / startUpdate() to decide
-    // Newer-vs-Same and to race-guard before erase.
+    // typically). Defaults to the device's current build, including in simulation.
+    // Called on every checkForUpdate() / startUpdate() to decide Newer-vs-Same
+    // and to race-guard before erase.
     void setInstalledVersionProvider(std::function<uint32_t()> fn);
 
     // Supplies the "is it OK to start a firmware update right now?" gate.
@@ -140,7 +144,12 @@ public:
     QString availableChannelLabel() const { return m_availableChannelLabel; }
     QString availableReleaseNotes() const { return m_availableReleaseNotes; }
     int installedVersion() const;  // logs [firmware] getter call so we can verify QML reads it
+    // Fraction of firmware packets acknowledged, 0..1. Preparation and verify
+    // have separate UI states and do not consume a share of this percentage.
     double progress() const { return m_progress; }
+    // Upload only: -1 until ACKs establish a rate, or outside Uploading.
+    // Projected through UpdateService alongside progress on each ACK.
+    int estimatedUploadSecondsRemaining() const;
     QString errorMessage() const { return m_errorMessage; }
     bool retryAvailable() const { return m_retryAvailable; }
 
@@ -170,7 +179,6 @@ private slots:
     void onCheckFinished(DE1::Firmware::FirmwareAssetCache::CheckResult result);
     void onDownloadFinished(QString path, DE1::Firmware::Header header);
     void onDownloadFailed(QString reason);
-    void onDownloadProgress(qint64 received, qint64 total);
     void onFwMapResponse(uint16_t windowIncrement, uint8_t fwToErase,
                          uint8_t fwToMap, QByteArray firstError);
     void onDeviceConnectionChanged();
@@ -178,6 +186,7 @@ private slots:
     void onPostEraseWaitComplete();
     void onChunkPumpTick();
     void onFirmwareWriteAcked(const QBluetoothUuid& uuid, const QByteArray& data);
+    void onFirmwareWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& data);
     void onEraseTimeout();
     void onVerifyTimeout();
     void onVerifyDisconnectGrace();
@@ -187,11 +196,18 @@ private:
     void setProgress(double p);
     void failWith(const QString& reason, bool retryable);
     void beginErasePhase();
+    void sendEraseRequest();
+    DE1Transport* flashTransport() const;
+    void writeFlashMap(uint8_t erase, std::array<uint8_t, 3> firstError = {0, 0, 0});
+    void subscribeFlashNotifications();
     void beginUploadPhase();
     void beginVerifyPhase();
     void completeSuccess();
     void loadCachedPayload();
 
+    DE1Transport* m_simulatedFlashTransport = nullptr;
+    DE1Transport* m_activeFlashTransport = nullptr;
+    bool m_simulatedFlash = false;
     DE1Device* m_device = nullptr;
     DE1::Firmware::FirmwareAssetCache* m_cache = nullptr;
 
@@ -204,6 +220,9 @@ private:
     // — a terminal verify notification is byte-identical, and the retry path
     // can deliver one late.
     bool        m_eraseRequestAcked = false;
+    bool        m_waitingForSleepAck = false;
+    bool        m_verifyRequestAcked = false;
+    bool        m_verifyTimedOut = false;
     uint32_t    m_availableVersion = 0;
     QString     m_availableVersionLabel;
     QString     m_availableChannelLabel;
@@ -279,6 +298,7 @@ private:
     // log lines with "[+MM:SS.ms]" so a later review of logcat can tell
     // at a glance how long each phase took.
     QElapsedTimer m_updateTimer;
+    qint64 m_uploadStartedMs = 0;  // relative to m_updateTimer; excludes erase
 
     // NB: these inline initializers are the actual defaults. The
     // constexpr DEFAULT_*_MS values in firmwareupdater.cpp are advisory

@@ -30,3 +30,20 @@ public:
         QCoreApplication::sendEvent(target, &event);
     }
 };
+
+// Counts conversion calls without adding a reactive property dependency to
+// the binding under test. Actual Markdown safety/formatting has its own suite.
+class MarkdownRendererProbe : public QObject
+{
+    Q_OBJECT
+    QML_NAMED_ELEMENT(MarkdownRenderer)
+    QML_SINGLETON
+public:
+    Q_INVOKABLE QString toHtml(const QString& text) {
+        ++m_calls;
+        return QStringLiteral("<p>%1</p>").arg(text.toHtmlEscaped());
+    }
+    Q_INVOKABLE int calls() const { return m_calls; }
+private:
+    int m_calls = 0;
+};

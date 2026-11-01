@@ -67,6 +67,10 @@ void MachineControlService::setNode(QRemoteObjectNode* node)
                 this, &MachineControlService::stateChanged);
         connect(m_state, &MachineControlStateReplica::currentFrameNameChanged,
                 this, &MachineControlService::stateChanged);
+        connect(m_state, &MachineControlStateReplica::pendingDrinkStepChanged,
+                this, &MachineControlService::stateChanged);
+        connect(m_state, &MachineControlStateReplica::drinkSequenceActiveChanged,
+                this, &MachineControlService::stateChanged);
         connect(m_state, &MachineControlStateReplica::operationCompleted,
                 this, &MachineControlService::onOperationCompleted, Qt::QueuedConnection);
         connect(m_state, &MachineControlStateReplica::presentationEvent,
@@ -104,6 +108,16 @@ int MachineControlService::currentFrameIndex() const
 QString MachineControlService::currentFrameName() const
 {
     return ready() ? m_state->currentFrameName() : QString();
+}
+
+int MachineControlService::pendingDrinkStep() const
+{
+    return ready() ? m_state->pendingDrinkStep() : static_cast<int>(DrinkStep::None);
+}
+
+bool MachineControlService::drinkSequenceActive() const
+{
+    return ready() && m_state->drinkSequenceActive();
 }
 
 void MachineControlService::updatePresentationReadiness()
@@ -325,6 +339,16 @@ QString MachineControlService::bumpHotWaterTarget(const QString& context, double
 QString MachineControlService::skipFrame(const QString& context)
 {
     return send(QStringLiteral("skip-frame"), {}, context);
+}
+
+QString MachineControlService::skipDrinkStep(const QString& context)
+{
+    return send(QStringLiteral("skip-drink-step"), {}, context);
+}
+
+QString MachineControlService::startSteamPurge(const QString& context)
+{
+    return send(QStringLiteral("start-steam-purge"), {}, context);
 }
 
 QString MachineControlService::applyHotWaterSettings(const QString& expectedContextId)

@@ -52,6 +52,7 @@ NativeDataMigrationServiceSource::NativeDataMigrationServiceSource(
                 {QStringLiteral("shotsImported"), shots},
                 {QStringLiteral("mediaImported"), media},
                 {QStringLiteral("aiConversationsImported"), conversations},
+                {QStringLiteral("replaced"), m_client && m_client->lastImportWasReplacement()},
                 {QStringLiteral("aiConversationNote"), m_client ? m_client->aiConversationNote() : QString()}};
             refreshSnapshot();
             if (m_activeOperation.startsWith(QLatin1String("import")))
@@ -93,6 +94,7 @@ QVariantMap NativeDataMigrationServiceSource::makeSnapshot() const
     if (!m_client) return {};
     return {{QStringLiteral("isConnecting"), m_client->isConnecting()},
             {QStringLiteral("isImporting"), m_client->isImporting()},
+            {QStringLiteral("canCancelImport"), m_client->canCancelImport()},
             {QStringLiteral("isSearching"), m_client->isSearching()},
             {QStringLiteral("progress"), qBound(0.0, m_client->progress(), 1.0)},
             {QStringLiteral("currentOperation"), m_client->currentOperation().left(256)},
@@ -159,6 +161,11 @@ void NativeDataMigrationServiceSource::execute(QString requestId, QString operat
         complete(requestId, operation, false, {}, reason);
         return;
     }
+    if ((operation == QLatin1String("cancel") || operation == QLatin1String("disconnect"))
+        && !m_client->canCancelImport()) {
+        complete(requestId, operation, false, {}, QStringLiteral("restoreInProgress"));
+        return;
+    }
 
     const bool interrupt = operation == QLatin1String("cancel")
         || operation == QLatin1String("disconnect")
@@ -185,7 +192,11 @@ void NativeDataMigrationServiceSource::execute(QString requestId, QString operat
         const bool available = operation == QLatin1String("importAll")
             || (operation == QLatin1String("importOnlySettings") && manifest.value(QStringLiteral("hasSettings")).toBool())
             || (operation == QLatin1String("importOnlyProfiles") && manifest.value(QStringLiteral("profileCount")).toInt() > 0)
-            || (operation == QLatin1String("importOnlyShots") && manifest.value(QStringLiteral("shotCount")).toInt() > 0)
+            || (operation == QLatin1String("importOnlyShots")
+                && (manifest.value(QStringLiteral("shotCount")).toInt() > 0
+                    || manifest.value(QStringLiteral("recipeCount")).toInt() > 0
+                    || manifest.value(QStringLiteral("bagCount")).toInt() > 0
+                    || manifest.value(QStringLiteral("equipmentCount")).toInt() > 0))
             || (operation == QLatin1String("importOnlyMedia") && manifest.value(QStringLiteral("mediaCount")).toInt() > 0)
             || (operation == QLatin1String("importOnlyAIConversations") && manifest.value(QStringLiteral("aiConversationCount")).toInt() > 0);
         if (!available) {
@@ -216,7 +227,7 @@ void NativeDataMigrationServiceSource::execute(QString requestId, QString operat
         m_client->cancel();
         completeActive(true);
     } else if (operation == QLatin1String("importAll")) {
-        m_client->importAll();
+        m_client->importAll(arguments.value(QStringLiteral("replace"), false).toBool());
     } else if (operation == QLatin1String("importOnlySettings")) {
         m_client->importOnlySettings();
     } else if (operation == QLatin1String("importOnlyProfiles")) {

@@ -194,10 +194,224 @@ T.Page {
     }
 
     function handleBack() {
-        // Every committed edit is already persisted; just flush a possible
-        // in-progress text field and leave — no confirmation prompt needed.
+        requestReviewLeave(-2)
+    }
+
+    property int _carryLeaveIntent: -1
+    property string _carryPreviewRequest: ""
+    property string _carryApplyRequest: ""
+    property var _carryProposal: ({})
+    property bool _bagSelectionPending: false
+
+    function requestReviewLeave(intent) {
+        if (_carryLeaveIntent !== -1) return
+        _carryLeaveIntent = intent
         autosave()
-        AppShell.backRequested()
+        _continueReviewLeave()
+    }
+    function _continueReviewLeave() {
+        if (_carryLeaveIntent === -1 || _carryPreviewRequest !== "" || _carryApplyRequest !== ""
+            || _carryProposal.proposalId || carryForwardDialog.opened
+            || Object.keys(_pendingMetadataWrites).length > 0) return
+        if (_bagSelectionPending) return
+        if (_saveFailed) {
+            _carryLeaveIntent = -1
+            reviewActionError.show(TranslationManager.translate("postshotreview.saveBeforeLeaving", "Could not save your shot changes. Please try again."))
+            return
+        }
+        if (editShotId !== HistoryService.lastSavedShotId || !_editLoaded || !ShotReviewActions.ready
+            || _leasedClientId === "" || Object.keys(_reviewOpeningValues).length === 0) {
+            _finishReviewLeave()
+            return
+        }
+        _carryPreviewRequest = ShotReviewActions.executeFileOperation("previewCarryForward", {
+            reviewId: _reviewSessionId, shotId: editShotId,
+            opening: _reviewOpeningValues, saved: captureCarryForwardState()
+        })
+        if (_carryPreviewRequest === "") _finishReviewLeave()
+    }
+    function _finishReviewLeave() {
+        const intent = _carryLeaveIntent
+        _carryLeaveIntent = -1
+        _carryPreviewRequest = ""
+        _carryProposal = ({})
+        carryForwardDialog.close()
+        // An operation or child page may have taken over while the host replied.
+        if (!_reviewActive) return
+        if (intent === -2) AppShell.backRequested()
+        else if (intent >= 0) _performStep(intent)
+    }
+    function _abandonCarryForward() {
+        _carryLeaveIntent = -1
+        _carryPreviewRequest = ""
+        _carryProposal = ({})
+        carryForwardDialog.close()
+    }
+    Connections {
+        target: ShotReviewActions
+        function onCarryForwardInvalidated(reviewId) {
+            if (reviewId === postShotReviewPage._reviewSessionId && postShotReviewPage._carryApplyRequest === "")
+                postShotReviewPage._finishReviewLeave()
+        }
+        function onStateChanged() {
+            if (!ShotReviewActions.ready) {
+                postShotReviewPage._reviewOpeningValues = ({})
+                postShotReviewPage._abandonCarryForward()
+            }
+        }
+        function onActionCompleted(requestId, operation, success, result, reason) {
+            if (operation === "previewCarryForward" && requestId === postShotReviewPage._carryPreviewRequest) {
+                postShotReviewPage._carryPreviewRequest = ""
+                if (postShotReviewPage._carryLeaveIntent === -1) return
+                if (success && result.eligible) {
+                    postShotReviewPage._carryProposal = result
+                    carryForwardDialog.open()
+                } else {
+                    if (!success) {
+                        postShotReviewPage._abandonCarryForward()
+                        postShotReviewPage._reviewOpeningValues = ({})
+                        reviewActionError.show(reason)
+                    } else postShotReviewPage._finishReviewLeave()
+                }
+            } else if (operation === "applyCarryForward" && requestId === postShotReviewPage._carryApplyRequest) {
+                postShotReviewPage._carryApplyRequest = ""
+                if (success) postShotReviewPage._finishReviewLeave()
+                else {
+                    postShotReviewPage._abandonCarryForward()
+                    reviewActionError.show(reason)
+                }
+            }
+        }
+    }
+    Connections {
+        target: MachineState
+        function onPhaseChanged() {
+            if (MachineState.phase === MachineState.Phase.EspressoPreheating
+                || MachineState.phase === MachineState.Phase.Steaming
+                || MachineState.phase === MachineState.Phase.HotWater
+                || MachineState.phase === MachineState.Phase.Flushing
+                || MachineState.phase === MachineState.Phase.Disconnected)
+                postShotReviewPage._abandonCarryForward()
+        }
+    }
+
+    function carryForwardValue(field, value) {
+        if (field === "doseWeight" || field === "doseWeightG" || field === "doseG" || field === "targetWeight")
+            return Number(value).toFixed(1).replace(/\.0$/, "") + " g"
+        return String(value ?? "")
+    }
+    function carryForwardSummary() {
+        const labels = {
+            bagId: TranslationManager.translate("postshotreview.carry.beans", "Beans"),
+            beanBrand: TranslationManager.translate("postshotreview.carry.roaster", "Roaster"),
+            beanType: TranslationManager.translate("postshotreview.carry.coffee", "Coffee"),
+            roastDate: TranslationManager.translate("postshotreview.carry.roasted", "Roast date"),
+            roastLevel: TranslationManager.translate("postshotreview.carry.roast", "Roast level"),
+            doseWeight: TranslationManager.translate("postshotreview.carry.dose", "Dose"),
+            doseWeightG: TranslationManager.translate("postshotreview.carry.dose", "Dose"),
+            doseG: TranslationManager.translate("postshotreview.carry.dose", "Dose"),
+            grinderSetting: TranslationManager.translate("postshotreview.carry.grind", "Grind"),
+            grindPinned: TranslationManager.translate("postshotreview.carry.grind", "Grind"),
+            lastGrindSetting: TranslationManager.translate("postshotreview.carry.grind", "Grind"),
+            rpm: "RPM", rpmPinned: "RPM", lastRpm: "RPM",
+            equipmentId: TranslationManager.translate("postshotreview.carry.equipment", "Equipment"),
+            barista: TranslationManager.translate("postshotreview.carry.barista", "Barista"),
+            targetWeight: TranslationManager.translate("postshotreview.carry.target", "Stop at (ratio unchanged)")
+        }
+        const lines = []
+        const changes = _carryProposal.changes || []
+        for (let i = 0; i < changes.length; ++i) {
+            const row = changes[i]
+            if (row.field === "beanBaseId" || row.field === "beanBaseJson") continue
+            let before = carryForwardValue(row.field, row.before), after = carryForwardValue(row.field, row.after)
+            if (row.field === "bagId") {
+                before = [_carryProposal.previousBagRoaster, _carryProposal.previousBagName].filter(Boolean).join(" ")
+                after = [_carryProposal.bagRoaster, _carryProposal.bagName].filter(Boolean).join(" ")
+            } else if (row.field === "equipmentId") {
+                before = String(RecipeContext.preferences.dyeEquipmentName || before)
+                after = editEquipmentName || after
+            }
+            lines.push((labels[row.field] || row.field) + ": " + before + " → " + after)
+        }
+        if (changes.some(function(row) { return row.field === "beanBaseId" || row.field === "beanBaseJson" }))
+            lines.push(TranslationManager.translate("postshotreview.carry.beanDetails", "Bean details will also be updated."))
+        const effects = _carryProposal.persistentEffects || []
+        for (let j = 0; j < effects.length; ++j) {
+            const effect = effects[j]
+            const record = effect.record === "recipe"
+                ? TranslationManager.translate("postshotreview.carry.recipe", "Saved recipe") + " “" + (_carryProposal.recipeName || "") + "”"
+                : effect.record === "equipment"
+                ? TranslationManager.translate("postshotreview.carry.savedEquipment", "Saved equipment") + " “" + (_carryProposal.equipmentName || "") + "”"
+                : TranslationManager.translate("postshotreview.carry.bag", "Saved bag") + " “" + (_carryProposal.bagName || "") + "”"
+            if (effect.field === "bagId")
+                lines.push(record + ": " + TranslationManager.translate("postshotreview.carry.recipeBag", "use the corrected beans"))
+            else lines.push(record + ": " + (labels[effect.field] || effect.field)
+                            + " " + carryForwardValue(effect.field, effect.before) + " → " + carryForwardValue(effect.field, effect.after))
+        }
+        return lines.join("\n")
+    }
+    DecenzaDialog {
+        id: carryForwardDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(540), parent ? parent.width * 0.9 : Theme.scaled(540))
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        title: TranslationManager.translate("postshotreview.carry.title", "Update the next shot with these changes?")
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(16)
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("postshotreview.carry.saved", "Your shot edits are saved. You can also update the next shot:")
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.WordWrap
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(summaryText.implicitHeight, Theme.scaled(280))
+                contentWidth: availableWidth
+                Text {
+                    id: summaryText
+                    width: parent.width
+                    text: postShotReviewPage.carryForwardSummary()
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("postshotreview.carry.keep", "Leave next shot unchanged")
+                    accessibleName: text
+                    enabled: postShotReviewPage._carryApplyRequest === ""
+                    onClicked: postShotReviewPage._finishReviewLeave()
+                }
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("postshotreview.carry.apply", "Update next shot")
+                    accessibleName: text
+                    primary: true
+                    enabled: postShotReviewPage._carryApplyRequest === ""
+                    onClicked: {
+                        postShotReviewPage._carryApplyRequest = ShotReviewActions.executeFileOperation("applyCarryForward", {
+                            reviewId: postShotReviewPage._reviewSessionId,
+                            proposalId: postShotReviewPage._carryProposal.proposalId
+                        })
+                    }
+                }
+            }
+        }
     }
 
     // Intercept Android system back button / Escape key; reset auto-close on any key
@@ -238,6 +452,9 @@ T.Page {
         // Not while the previous step's shot is still loading: a second step would
         // drop both loads and leave the page faded out with nothing to save to.
         if (_stepping || index < 0 || index >= shotIds.length || index === currentIndex) return
+        requestReviewLeave(index)
+    }
+    function _performStep(index) {
         autosave()
         reviewGraph.dismissInspect()
         autoClose = false
@@ -492,13 +709,13 @@ T.Page {
         id: autoCloseTimer
         interval: postShotReviewPage.autoCloseTimeout * 60000
         running: postShotReviewPage.autoClose
+                 && postShotReviewPage._carryLeaveIntent === -1
                  && postShotReviewPage.autoCloseTimeout > 0
                  && postShotReviewPage.autoCloseTimeout < 31
                  && postShotReviewPage.StackView.status === StackView.Active
         onTriggered: {
             // Auto-close: flush any pending edit and exit
-            postShotReviewPage.autosave()
-            AppShell.backRequested()
+            postShotReviewPage.handleBack()
         }
     }
 
@@ -576,8 +793,6 @@ T.Page {
         // Do not replace an in-progress edit when the same shot is reloaded.
         if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
             return
-        postShotReviewPage._stickySyncCheckShot = shot
-        postShotReviewPage._checkStickySync()
         postShotReviewPage.editShotData = shot
         postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
         HistoryService.requestDecentUploadState(shotId)
@@ -648,6 +863,7 @@ T.Page {
             // (hasUnsavedChanges is transiently true before this point —
             // empty baseline vs. dose defaulted from Settings).
             postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+            postShotReviewPage._reviewOpeningValues = postShotReviewPage.captureCarryForwardState()
             postShotReviewPage._editLoaded = true
             // A control the user touched on the previous shot still shows that
             // shot's value until its binding is restored.
@@ -706,6 +922,8 @@ T.Page {
                 AppShell.backRequested()
         }
         function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (postShotReviewPage._carryLeaveIntent !== -1)
+                Qt.callLater(function() { postShotReviewPage._continueReviewLeave() })
             const pendingMetadata = postShotReviewPage._pendingMetadataWrites[requestId]
             const pendingMetadataShotId = pendingMetadata !== undefined
                 ? pendingMetadata.shotId : undefined
@@ -957,13 +1175,9 @@ T.Page {
     // bind to. Never mutate _undoStack without updating _undoDepth.
     property int _undoDepth: 0
     property var _committedState: ({})  // last persisted edit-field values
+    // Independent of the autosave/undo baseline, which advances after every save.
+    property var _reviewOpeningValues: ({})
     property bool _editLoaded: false    // true once _applyLoadedShot has populated fields
-    property double _stickySyncRevision: 0
-    property string _stickySyncRequestId: ""
-    property bool _stickySyncAllowed: false
-    property var _stickySyncCheckShot: null   // loaded shot awaiting RecipeContext.ready
-    property int _stickySyncDeferredShotId: -1
-    property var _queuedStickySync: null
     // Undo coalescing: a continuous interaction with one control (slider drag,
     // a burst of +/- stepper clicks, typing into one field) is ONE undoable
     // change. A new undo frame opens only when the edit key differs from the
@@ -988,6 +1202,13 @@ T.Page {
             notes: editNotes, beverageType: editBeverageType,
             beanBaseJson: editBeanBaseJson
         }
+    }
+
+    function captureCarryForwardState() {
+        const values = captureEditState()
+        values.bagId = editShotData.bagId > 0 ? editShotData.bagId : -1
+        values.beanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
+        return values
     }
 
     function applyEditState(s) {
@@ -1119,111 +1340,6 @@ T.Page {
         return src.toVariantMap ? src.toVariantMap() : Object.assign({}, src)
     }
 
-    // Save edited shot back to history
-    // Sync sticky metadata back to Settings (bean/grinder info) for the
-    // next shot — but ONLY when editing the most recent shot. The sticky
-    // settings are "prep for the next pull"; editing a HISTORIC shot
-    // (opened from Shot History) must not touch the bean
-    // dialog, dose/yield, or the live bean link. lastSavedShotId is
-    // seeded from the DB at startup, so this holds across app restarts
-    // too: the newest shot syncs forward, every older shot does not.
-    // Nor does it sync if any next-shot setting changed after the shot (#2060):
-    // nextShotUnchangedSince() checks at load, the revision guard after that.
-    // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise
-    // they would leak into the next shot's metadata, since MainController
-    // builds shot metadata from these Settings values at shot end.
-    //
-    // Submit the sticky update at the same save boundary as shot metadata. The
-    // service is engine-owned, so its correlated request can finish after this
-    // page closes; a revision guard prevents stale settings from being applied.
-    function runStickySync() {
-        var isMostRecentShot = editShotId > 0 && editShotId === HistoryService.lastSavedShotId
-        if (!isMostRecentShot) return
-        // Saved before the check could run: _checkStickySync() sends it.
-        if (_stickySyncCheckShot) { _stickySyncDeferredShotId = editShotId; return }
-        if (!_stickySyncAllowed || !RecipeContext.ready) return
-        const fields = {
-            dyeBeanBrand: editBeanBrand,
-            dyeBeanType: editBeanType,
-            dyeRoastDate: editRoastDate,
-            dyeRoastLevel: editRoastLevel,
-            dyeGrinderSetting: editGrinderSetting,
-            dyeGrinderRpm: editRpm,
-            activeEquipmentId: editEquipmentId,
-            shotEquipmentId: editShotData.equipmentId || -1,
-            dyeBarista: editBarista,
-            // An unset next-shot dose stays unset (0 is not written).
-            dyeBeanWeight: RecipeContext.preferences.dyeBeanWeight > 0 ? editDoseWeight : 0,
-            dyeDrinkWeight: editDrinkWeight,
-            dyeBeanBaseId: beanBaseLinked ? String(activeBeanBase.id) : "",
-            dyeBeanBaseData: beanBaseLinked ? editBeanBaseJson : ""
-        }
-        if (_stickySyncRequestId !== "") {
-            _queuedStickySync = fields
-            return
-        }
-        sendStickySync(fields, _stickySyncRevision)
-    }
-
-    // Taken once RecipeContext is ready: before that its revision reads 0 and
-    // its preferences are empty, so neither describes the next shot.
-    function _checkStickySync() {
-        const shot = _stickySyncCheckShot
-        if (!shot || !RecipeContext.ready) return
-        _stickySyncCheckShot = null
-        _stickySyncRevision = RecipeContext.revision
-        _stickySyncAllowed = nextShotUnchangedSince(shot, RecipeContext.preferences)
-        if (!_stickySyncAllowed && shot.id === HistoryService.lastSavedShotId)
-            WebDebugLogger.info("Shot", "PostShotReviewPage",
-                                "Shot edits will not carry to the next shot: next-shot settings changed after this shot")
-        if (_stickySyncDeferredShotId === editShotId) runStickySync()
-        _stickySyncDeferredShotId = -1
-    }
-
-    // Compares the raw record: the shot saved these exactly as SettingsDye held
-    // them, except an unset dose, which saves the profile's recommended dose
-    // (MainController). Drink weight is left out; it is the shot's measured
-    // yield, not a next-shot setting.
-    function nextShotUnchangedSince(shot, prefs) {
-        const id = v => v > 0 ? v : -1
-        return id(shot.bagId) === id(prefs.activeBagId)
-            && id(shot.recipeId) === id(prefs.activeRecipeId)
-            && (shot.beanBrand || "") === prefs.dyeBeanBrand
-            && (shot.beanType || "") === prefs.dyeBeanType
-            && (shot.roastDate || "") === prefs.dyeRoastDate
-            && (shot.roastLevel || "") === prefs.dyeRoastLevel
-            && (shot.beanBaseJson || "") === prefs.dyeBeanBaseData
-            && (shot.grinderSetting || "") === prefs.dyeGrinderSetting
-            && (shot.rpm || 0) === prefs.dyeGrinderRpm
-            && id(shot.equipmentId) === id(prefs.activeEquipmentId)
-            && (shot.barista || "") === prefs.dyeBarista
-            && (prefs.dyeBeanWeight <= 0 || Math.abs((shot.doseWeightG || 0) - prefs.dyeBeanWeight) < 0.005)
-    }
-
-    function sendStickySync(fields, expectedRevision) {
-        const requestId = RecipeContext.newRequestId()
-        _stickySyncRequestId = requestId
-        RecipeContext.applyShotBaseline(requestId, fields, expectedRevision)
-    }
-    Connections {
-        target: RecipeContext
-        function onStateChanged() { postShotReviewPage._checkStickySync() }
-        function onShotBaselineCompleted(requestId, success, revision, preferences, reason) {
-            if (requestId !== postShotReviewPage._stickySyncRequestId) return
-            postShotReviewPage._stickySyncRequestId = ""
-            if (!success) {
-                postShotReviewPage._queuedStickySync = null
-                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not sync shot details to next-shot settings:", reason].join(" "))
-                RecipeContext.refresh()
-                return
-            }
-            postShotReviewPage._stickySyncRevision = revision
-            const queued = postShotReviewPage._queuedStickySync
-            postShotReviewPage._queuedStickySync = null
-            if (queued) postShotReviewPage.sendStickySync(queued, revision)
-        }
-    }
-
     // The fields this page saves: the metadata key, the captureEditState()
     // key, and the shot-record property it mirrors. `pulled` marks the ones a
     // Visualizer pull can change underneath an open page.
@@ -1274,6 +1390,10 @@ T.Page {
                 ? Number(RecipeContext.preferences.dyeBeanWeight || 0) : baseline
             nb[spec.shot] = written[spec.meta]
             if (state[spec.state] === shown) {
+                // A pull is not a correction made in this review. Advance the
+                // opening value only while the user has left that field alone.
+                if (_reviewOpeningValues[spec.state] === shown)
+                    _reviewOpeningValues[spec.state] = after
                 state[spec.state] = after
                 shownChanged = true
             }
@@ -1371,8 +1491,6 @@ T.Page {
         const pending = Object.assign({}, _pendingMetadataWrites)
         pending[requestId] = { shotId: editShotId, metadata: Object.assign({}, metadata) }
         _pendingMetadataWrites = pending
-
-        runStickySync()
 
         // Advance the in-memory baseline so hasUnsavedChanges clears at once.
         // We deliberately do NOT reload from the DB on save success — an async
@@ -2182,10 +2300,12 @@ T.Page {
                 tasteBalance: postShotReviewPage.editTasteBalance
                 tasteBody: postShotReviewPage.editTasteBody
                 onTasteBalanceModified: function(value) {
+                    keyboardContainer.dismissTextInput()
                     postShotReviewPage.editTasteBalance = value
                     postShotReviewPage.autosave("tasteBalance")
                 }
                 onTasteBodyModified: function(value) {
+                    keyboardContainer.dismissTextInput()
                     postShotReviewPage.editTasteBody = value
                     postShotReviewPage.autosave("tasteBody")
                 }
@@ -2825,8 +2945,15 @@ T.Page {
                         return
                     }
                     for (let k in attrs) merged[k] = attrs[k]
+                    const previousJson = postShotReviewPage.editBeanBaseJson
+                    const previousRoast = postShotReviewPage.editRoastLevel
                     postShotReviewPage.editBeanBaseJson = JSON.stringify(merged)
                     if (attrs.degree) postShotReviewPage.editRoastLevel = attrs.degree
+                    // Enrichment of untouched fields is not a user correction.
+                    if (postShotReviewPage._reviewOpeningValues.beanBaseJson === previousJson)
+                        postShotReviewPage._reviewOpeningValues.beanBaseJson = postShotReviewPage.editBeanBaseJson
+                    if (postShotReviewPage._reviewOpeningValues.roastLevel === previousRoast)
+                        postShotReviewPage._reviewOpeningValues.roastLevel = postShotReviewPage.editRoastLevel
                     postShotReviewPage.autosave("beanBase", true)
                 }
             }
@@ -3273,9 +3400,9 @@ T.Page {
     } // KeyboardAwareContainer
 
     // "Link to Bean Base" nudge action. A historical shot (anything but the
-    // just-pulled one) links lightweight — attach the canonical record to THIS
-    // shot only, no bag created. The most-recent shot keeps the full Change
-    // Beans path, where linking the active bag is the intended "wrong bag" fix.
+    // just-pulled one) attaches the canonical record to this shot only. The
+    // latest shot uses Change Beans so a corrected bag can also be offered
+    // for the next shot when leaving review.
     function requestBeanLink() {
         if (editShotId === HistoryService.lastSavedShotId) {
             (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
@@ -3320,11 +3447,18 @@ T.Page {
         id: changeBeansLoader
         sourceComponent: Component {
             ChangeBeansDialog {
-                // Only the most recent shot is the "post-shot" fix path (sets
-                // activeBagId too); older shots opened through this page are historical
-                // — retag the shot only.
+                id: reviewBeanPicker
+                // Both contexts update only the completed shot.
                 context: postShotReviewPage.editShotId === HistoryService.lastSavedShotId ? "postShot" : "historicalShot"
                 shotId: postShotReviewPage.editShotId
+                reviewSessionId: postShotReviewPage._reviewSessionId
+                onSelectionPendingChanged: {
+                    postShotReviewPage._bagSelectionPending = selectionPending
+                    if (!selectionPending) Qt.callLater(function() {
+                        if (reviewBeanPicker.errorMessage.length > 0) postShotReviewPage._abandonCarryForward()
+                        else postShotReviewPage._continueReviewLeave()
+                    })
+                }
                 selectedBagId: postShotReviewPage.editShotData.bagId || 0
                 onBagSelected: function(bagId, bag) {
                     // The dialog already wrote the snapshot to the DB — mirror it into
@@ -3342,18 +3476,23 @@ T.Page {
                     nb.roastDate = postShotReviewPage.editRoastDate
                     nb.roastLevel = postShotReviewPage.editRoastLevel
                     nb.beanBaseJson = postShotReviewPage.editBeanBaseJson
+                    nb.frozenDate = bag.frozenDate || ""
+                    nb.defrostDate = bag.defrostDate || ""
+                    nb.storageHint = bag.storageHint || ""
+                    nb.openedDate = bag.openedDate || ""
                     postShotReviewPage.editShotData = nb
                     postShotReviewPage._committedState = postShotReviewPage.captureEditState()
                     postShotReviewPage.pendingVisualizerUpdate = true
                     postShotReviewPage.pendingDecentUpdate = true
+                    if (postShotReviewPage._carryLeaveIntent !== -1)
+                        Qt.callLater(function() { postShotReviewPage._continueReviewLeave() })
                 }
             }
         }
     }
     // Re-point this shot's grinder to a different/new package. The picker
     // doesn't touch the active bag (applyToActiveBag:false); we resolve the
-    // chosen package and persist equipmentId here. On the most recent shot the
-    // save's runStickySync then makes it the active (and active bag's) package.
+    // chosen package and persist equipmentId here.
     OnDemandLoader {
         id: equipmentDialogLoader
         sourceComponent: Component {

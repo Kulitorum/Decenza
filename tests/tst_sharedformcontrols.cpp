@@ -1,15 +1,32 @@
 #include <QtQuickTest/quicktest.h>
 #include <QAccessible>
+#include <QAbstractItemModel>
 #include <QFile>
+#include <QFontDatabase>
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickWindow>
+#include <QRegularExpression>
 #include <QScopeGuard>
+#include <QSignalSpy>
 #include <algorithm>
 #include <memory>
 
 #include "accessiblevaluechange.h"
+
+static QString qmlBlock(const QString& source, const QString& marker)
+{
+    const qsizetype start = source.indexOf(marker);
+    if (start < 0) return {};
+    int depth = 0;
+    for (qsizetype i = source.indexOf('{', start); i >= 0 && i < source.size(); ++i) {
+        if (source[i] == '{') ++depth;
+        else if (source[i] == '}' && --depth == 0) return source.mid(start, i - start + 1);
+    }
+    return {};
+}
 
 class NumericAccessibilityRegression : public QObject
 {
@@ -17,6 +34,8 @@ class NumericAccessibilityRegression : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
     void hostEchoesAndCommittedSteps();
+    void stringBrowserRefreshRetainsRowsAndAcceptsDeferredChanges();
+    void stringBrowserEditingRowSurvivesScrollingOffscreen();
 };
 
 void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
@@ -24,16 +43,6 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     QFile file(QFINDTESTDATA("../qml/components/ValueInput.qml"));
     QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
     const QString source = QString::fromUtf8(file.readAll());
-    const auto liftFunction = [](const QString& text, const QString& signature) {
-        const qsizetype start = text.indexOf(signature);
-        if (start < 0) return QString();
-        int depth = 0;
-        for (qsizetype i = text.indexOf('{', start); i >= 0 && i < text.size(); ++i) {
-            if (text[i] == '{') ++depth;
-            else if (text[i] == '}' && --depth == 0) return text.mid(start, i - start + 1);
-        }
-        return QString();
-    };
     const qsizetype headerStart = source.indexOf(QStringLiteral("    // Value properties"));
     const qsizetype headerEnd = source.indexOf(QStringLiteral("    // Enable keyboard focus"), headerStart);
     const qsizetype semanticsStart = source.indexOf(QStringLiteral("    // Accessibility - expose"));
@@ -54,7 +63,7 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     QString functions;
     for (const QString& name : {QStringLiteral("gearToStep"), QStringLiteral("adjustValue"),
                                 QStringLiteral("adjustValueWithStep")})
-        functions += liftFunction(source, QStringLiteral("function %1(").arg(name)) + QLatin1Char('\n');
+        functions += qmlBlock(source, QStringLiteral("function %1(").arg(name)) + QLatin1Char('\n');
     for (QString* block : {&header, &semantics, &popup, &functions}) {
         block->replace(QStringLiteral("AccessibleValueChange"), QStringLiteral("root.notifier"));
         block->replace(QStringLiteral("TranslationManager"), QStringLiteral("root.translator"));
@@ -202,6 +211,195 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     QCOMPARE(iface->valueInterface()->currentValue().toDouble(), 65.0);
     notifier->notifyNumericValueChanged(object.get());
     QVERIFY(sawValue(object.get(), 65));
+}
+
+void NumericAccessibilityRegression::stringBrowserRefreshRetainsRowsAndAcceptsDeferredChanges()
+{
+    QFile file(QFINDTESTDATA("../qml/pages/settings/StringBrowserPage.qml"));
+    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    // Execute the shipping model, with only its service and viewport supplied by
+    // the fixture. A no-op finish must not remove/recreate the edited delegate.
+    QString modelSource = qmlBlock(QString::fromUtf8(file.readAll()), QStringLiteral("ListModel {"));
+    QVERIFY(!modelSource.isEmpty());
+    modelSource.replace(QStringLiteral("LanguageService."), QStringLiteral("hostMock."));
+    modelSource.replace(QStringLiteral("stringEditor."), QStringLiteral("editorMock."));
+    modelSource.replace(QStringLiteral("stringBrowserPage."), QStringLiteral("root."));
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQuick
+        Item {
+            id: root
+            width: 400; height: 240
+            property var rows: []
+            property bool editing: false
+            property bool loading: false
+            function trace(eventName, details) {}
+            QtObject {
+                id: hostMock
+                property bool stringsLoading: root.loading
+                property var stringsContext: ({language: "en", revision: 1, sourceId: "fixture"})
+                property var strings: root.rows
+            }
+            QtObject {
+                id: editorMock
+                function acceptRefresh(context) { return !root.editing }
+            }
+            %1
+            ListView {
+                id: stringListView
+                anchors.fill: parent
+                model: stringModel
+                delegate: Text {
+                    required property int index
+                    required property string fallback
+                    width: 400; height: 40 + index % 3 * 20
+                    text: fallback
+                }
+            }
+        }
+    )QML").arg(modelSource).toUtf8(), QUrl());
+    QVariantList rows;
+    for (int i = 0; i < 30; ++i)
+        rows.append(QVariantMap{{QStringLiteral("key"), QString::number(i)},
+                                {QStringLiteral("fallback"), QStringLiteral("Row %1").arg(i)},
+                                {QStringLiteral("translation"), QString()},
+                                {QStringLiteral("aiTranslation"), QString()},
+                                {QStringLiteral("isTranslated"), false},
+                                {QStringLiteral("isAiGenerated"), false}});
+    std::unique_ptr<QObject> object(component.createWithInitialProperties({{QStringLiteral("rows"), rows}}));
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* model = object->findChild<QAbstractItemModel*>();
+    QVERIFY(model);
+    const QJSValue modelObject = engine.newQObject(model);
+    const auto refresh = [&](const QString& reason) {
+        const QJSValue result = modelObject.property(QStringLiteral("refresh"))
+            .callWithInstance(modelObject, {reason});
+        return !result.isError();
+    };
+    QVERIFY(refresh(QStringLiteral("stringsChanged")));
+    QCOMPARE(model->rowCount(), 30);
+    QSignalSpy removed(model, &QAbstractItemModel::rowsRemoved);
+    QSignalSpy inserted(model, &QAbstractItemModel::rowsInserted);
+    QSignalSpy reset(model, &QAbstractItemModel::modelReset);
+    QVERIFY(refresh(QStringLiteral("editorRefreshRequested")));
+    QVERIFY(removed.isEmpty());
+    QVERIFY(inserted.isEmpty());
+    QVERIFY(reset.isEmpty());
+
+    const int translationRole = model->roleNames().key(QByteArrayLiteral("translation"));
+    const auto translation = [&] { return model->data(model->index(13, 0), translationRole).toString(); };
+    auto changed = rows.at(13).toMap();
+    changed.insert(QStringLiteral("translation"), QStringLiteral("Updated by another client"));
+    changed.insert(QStringLiteral("isTranslated"), true);
+    rows[13] = changed;
+    QVERIFY(object->setProperty("editing", true));
+    QVERIFY(object->setProperty("rows", rows));
+    QVERIFY(refresh(QStringLiteral("stringsChanged")));
+    QVERIFY(translation().isEmpty());
+    QVERIFY(object->setProperty("editing", false));
+    QVERIFY(refresh(QStringLiteral("editorRefreshRequested")));
+    QCOMPARE(translation(), QStringLiteral("Updated by another client"));
+    QVERIFY(removed.isEmpty());
+    QVERIFY(inserted.isEmpty());
+    QVERIFY(reset.isEmpty());
+
+    QVERIFY(model->setProperty("searchFilter", QStringLiteral("Row 13")));
+    QCOMPARE(model->rowCount(), 1);
+    QVERIFY(!removed.isEmpty());
+    QCOMPARE(model->data(model->index(0, 0), translationRole).toString(), QStringLiteral("Updated by another client"));
+}
+
+void NumericAccessibilityRegression::stringBrowserEditingRowSurvivesScrollingOffscreen()
+{
+    QFile file(QFINDTESTDATA("../qml/pages/settings/StringBrowserPage.qml"));
+    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString source = QString::fromUtf8(file.readAll());
+    const QString editingPolicy = qmlBlock(source, QStringLiteral("function setEditing("));
+    const auto delegateType = QRegularExpression(QStringLiteral("delegate: (\\w+) \\{\\s+id: delegateRoot"))
+        .match(source);
+    QVERIFY(!editingPolicy.isEmpty());
+    QVERIFY(delegateType.hasMatch());
+    // The offscreen platform's default "Sans Serif" is not an installed macOS
+    // family; give TextEdit an installed application font before construction.
+    const QStringList families = QFontDatabase::families();
+    QVERIFY(!families.isEmpty());
+    const QFont previousFont = QGuiApplication::font();
+    const QFont fixtureFont(families.first());
+    QGuiApplication::setFont(fixtureFont);
+    const auto restoreFont = qScopeGuard([previousFont] { QGuiApplication::setFont(previousFont); });
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    // Exercise the shipping delegate's focus scope and selection policy in a
+    // variable-height list. Scrolling must not destroy its focused editor.
+    component.setData(QStringLiteral(R"QML(
+        import QtQuick
+        Item {
+            id: stringBrowserPage
+            width: 400; height: 240
+            property bool isEditing: false
+            property int editingIndex: -1
+            property var editedField: null
+            required property font fixtureFont
+            function activate(index) {
+                stringListView.positionViewAtIndex(index, ListView.Center)
+                const row = stringListView.itemAtIndex(index)
+                if (!row) return false
+                row.activate()
+                return true
+            }
+            function scrollAway() { stringListView.positionViewAtEnd() }
+            function returnToEditor() { stringListView.positionViewAtIndex(editingIndex, ListView.Center) }
+            ListView {
+                id: stringListView
+                anchors.fill: parent
+                clip: true
+                model: 100
+                delegate: %1 {
+                    id: delegateRoot
+                    required property int index
+                    width: 400; height: 40 + index % 3 * 20
+                    %2
+                    function activate() {
+                        stringBrowserPage.editedField = input
+                        input.forceActiveFocus()
+                    }
+                    TextEdit {
+                        id: input
+                        anchors.fill: parent
+                        text: "Unchanged translation"
+                        font: stringBrowserPage.fixtureFont
+                        onActiveFocusChanged: delegateRoot.setEditing(activeFocus, activeFocus ? delegateRoot.index : -1)
+                    }
+                }
+            }
+        }
+    )QML").arg(delegateType.captured(1), editingPolicy).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.createWithInitialProperties({
+        {QStringLiteral("fixtureFont"), fixtureFont}}));
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* item = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY(item);
+    QQuickWindow window;
+    window.resize(400, 240);
+    item->setParentItem(window.contentItem());
+    window.show();
+    window.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    const QJSValue root = engine.newQObject(object.get());
+    QTRY_VERIFY(root.property(QStringLiteral("activate")).callWithInstance(root, {13}).toBool());
+    QPointer<QQuickItem> input = qobject_cast<QQuickItem*>(root.property(QStringLiteral("editedField")).toQObject());
+    QVERIFY(input);
+    QTRY_VERIFY(input->hasActiveFocus());
+    QCOMPARE(object->property("editingIndex").toInt(), 13);
+    root.property(QStringLiteral("scrollAway")).callWithInstance(root);
+    QTest::qWait(50); // Allow the view's polish pass to release offscreen delegates.
+    QVERIFY(input);
+    QVERIFY(input->hasActiveFocus());
+    QCOMPARE(object->property("editingIndex").toInt(), 13);
+    root.property(QStringLiteral("returnToEditor")).callWithInstance(root);
+    QVERIFY(input->hasActiveFocus());
+    item->setParentItem(nullptr);
 }
 
 class SharedFormControlsSetup : public QObject

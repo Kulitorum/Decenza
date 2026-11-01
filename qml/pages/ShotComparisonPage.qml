@@ -21,6 +21,12 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var comparisonModel: ComparisonService
+    // The displayed shots can change without changing the Repeater's count.
+    property int _summaryVersion: 0
+    Connections {
+        target: shotComparisonPage.comparisonModel
+        function onShotsChanged() { shotComparisonPage._summaryVersion++ }
+    }
     readonly property var navigationContext: ({selectedShotIds: ComparisonService.selectedShotIds,
                                                baseShotId: ComparisonService.baseShotId,
                                                windowStart: ComparisonService.windowStart})
@@ -126,6 +132,7 @@ T.Page {
             RowLayout {
                 id: graphHeader
                 Layout.fillWidth: true
+                visible: shotComparisonPage.comparisonModel.totalShots > shotComparisonPage.comparisonModel.otherWindowSize + 1
                 spacing: Theme.spacingSmall
 
                 // Page through the other shots; the base stays in column 0.
@@ -159,6 +166,56 @@ T.Page {
                 Item { Layout.fillWidth: true }
 
                 GraphOptionsButton {}
+            }
+
+            // Per-shot inputs use the recorded values, not the tolerance-collapsed
+            // unchanged line in the detailed comparison.
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                Repeater {
+                    model: shotComparisonPage.comparisonModel.shotCount
+                    delegate: RowLayout {
+                        id: inputSummary
+                        required property int index
+                        readonly property var info: {
+                            let version = shotComparisonPage._summaryVersion
+                            return shotComparisonPage.comparisonModel.getShotInfo(index)
+                        }
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+
+                        ComparisonLineSwatch {
+                            shotIndex: inputSummary.index
+                            heavy: inputSummary.info.isBase === true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.Wrap
+                            text: {
+                                const i = inputSummary.info
+                                const grind = i.grinderSetting || "—"
+                                const dose = i.doseG === null || i.doseG === undefined
+                                    ? "—" : Number(i.doseG).toFixed(1) + " " + TranslationManager.translate("common.unit.grams", "g")
+                                const temp = i.temperatureOverrideC === null || i.temperatureOverrideC === undefined
+                                    ? "—" : Theme.formatTemperature(i.temperatureOverrideC, 1)
+                                return (i.dateTime || "") + (i.isBase ? " · " + ComparisonText.txt("ui.base") : "")
+                                    + " · " + ComparisonText.inputLabel("grinderSetting").replace(/[:：]\s*$/, "") + ": " + grind
+                                    + " · " + ComparisonText.inputLabel("doseG").replace(/[:：]\s*$/, "") + ": " + dose
+                                    + " · " + ComparisonText.inputLabel("temperatureOverrideC").replace(/[:：]\s*$/, "") + ": " + temp
+                            }
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+                        GraphOptionsButton {
+                            visible: inputSummary.index === 0 && !graphHeader.visible
+                            Layout.alignment: Qt.AlignTop
+                        }
+                    }
+                }
             }
 
             Rectangle {

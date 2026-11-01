@@ -258,6 +258,7 @@ public:
         QMap<QString, QString> registry;
         QMap<QString, QString> translations;
         QSet<QString> aiGenerated;
+        QSet<QString> userOverrides;
         QVariantMap metadata;
         bool loadFailed = false;
     };
@@ -278,9 +279,12 @@ public:
     };
     FileSnapshot captureFileSnapshot() const;
     static PreparedImport prepareTranslationImport(const FileSnapshot& snapshot,
-        const QString& filePath, const QString& expectedLanguage = {});
+        const QString& filePath, const QString& expectedLanguage = {}, bool replace = false);
     QVariantMap commitTranslationImport(const PreparedImport& prepared);
+    bool applyTransferredOverrides(const QStringList& keys, bool replace = false);
     static QString writeTranslationExport(const FileSnapshot& snapshot, const QString& filePath);
+    static void addLanguageToBackup(QJsonObject& backup, const FileSnapshot& snapshot);
+    static bool readBackupOverrides(const QJsonObject& language, const QJsonValue& value, QStringList* keys);
     static bool isValidLanguageCode(const QString& code);
     Q_INVOKABLE bool exportTranslation(const QString& filePath);
     Q_INVOKABLE QVariantMap importTranslation(const QString& filePath,
@@ -299,12 +303,15 @@ public:
     Q_INVOKABLE void mergeGroupTranslation(const QString& key);  // Resets key to use group's common translation
     Q_INVOKABLE bool isRtlLanguage(const QString& langCode) const;
     Q_INVOKABLE bool isRemoteLanguage(const QString& langCode) const;  // Available for download but not yet downloaded
+    bool communityLanguageAvailable(const QString& langCode) const;
+    bool needsCommunityDownload(const QString& langCode) const;
     Q_INVOKABLE int getTranslationPercent(const QString& langCode) const;  // Get translation % for any language
     Q_INVOKABLE int uniqueStringCount() const;  // Count of unique fallback texts
     Q_INVOKABLE int uniqueUntranslatedCount() const;  // Count of unique untranslated fallback texts
 
     // AI auto-translation
     Q_INVOKABLE void autoTranslate();
+    void retranslateAll();
     Q_INVOKABLE void cancelAutoTranslate();
     Q_INVOKABLE bool canAutoTranslate() const;
 
@@ -358,7 +365,7 @@ signals:
 private slots:
     void onLanguageListFetched(QNetworkReply* reply);
     void onLanguageFileFetched(QNetworkReply* reply);
-    void onAutoTranslateBatchReply(QNetworkReply* reply);
+    void onAutoTranslateBatchReply(QNetworkReply* reply, const QVariantList& batch);
     void onUploadUrlReceived(QNetworkReply* reply);
     void onTranslationUploaded(QNetworkReply* reply);
 
@@ -424,7 +431,8 @@ private:
     // Returns false when the provider answered but the reply was unusable — empty content, or
     // not the JSON object that was asked for. That is a FAILED batch, not zero translations,
     // and the difference matters: inside the bulk run a "success" triggers the upload.
-    [[nodiscard]] bool parseAutoTranslateResponse(const QByteArray& data);
+    [[nodiscard]] bool parseAutoTranslateResponse(const QByteArray& data, const QVariantList& batch = {});
+    void startAutoTranslate(bool retranslate);
 
     // Placeholders a string carries, e.g. {1, 2} for "%1 of %2". A translation must carry the
     // same set: reordering is fine and expected, losing or inventing one is not.
@@ -487,6 +495,8 @@ private:
 
     // Language metadata: {langCode: {displayName, nativeName, isRtl}}
     QMap<QString, QVariantMap> m_languageMetadata;
+    QSet<QString> m_communityLanguages;
+    bool m_communityCatalogKnown = false;
 
     // List of available language codes (local + community)
     QStringList m_availableLanguages;
@@ -504,6 +514,7 @@ private:
     // AI auto-translation state
     bool m_autoTranslating = false;
     bool m_autoTranslateCancelled = false;
+    bool m_retranslatingAll = false;
     int m_autoTranslateProgress = 0;
 
     // Batches the provider answered with something unusable. Reset per run; any non-zero value

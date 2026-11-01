@@ -659,21 +659,9 @@ void SettingsBrew::setStandingSteamPitcher(int index) {
 }
 
 int SettingsBrew::resolveRecipePitcherOverride(int recipeIndex) {
-    if (recipeIndex != NoStandingPitcher) {
-        // Park the standing selection the FIRST time a recipe overrides it. The
-        // guard is what makes recipe-to-recipe switching safe: without it, the
-        // second activation would park the first recipe's pitcher as if the user
-        // had chosen it, and deactivating would restore a drink, not a setting.
-        if (standingSteamPitcher() == NoStandingPitcher)
-            setStandingSteamPitcher(selectedSteamPitcher());
-        return recipeIndex;
-    }
-
-    const int standing = standingSteamPitcher();
-    if (standing == NoStandingPitcher)
-        return NoStandingPitcher;   // no override was ever applied
+    // Discard an override parked by older versions; it must never be restored.
     setStandingSteamPitcher(NoStandingPitcher);
-    return standing;
+    return recipeIndex;
 }
 
 QStringList SettingsBrew::migratedHeaterOffNames() const {

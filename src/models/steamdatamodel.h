@@ -35,6 +35,11 @@ public:
                          const QVector<QPointF>& temperature,
                          const QVector<QPointF>& flowGoals);
 
+    bool appendSnapshot(qint64 baseRevision, qint64 revision, double rawTime,
+                        const QVector<QPointF>& pressure, const QVector<QPointF>& flow,
+                        const QVector<QPointF>& temperature,
+                        const QVector<QPointF>* flowGoals = nullptr);
+
     // Goal-curve points as a list of QPointF, bound straight to LineSeries.values.
     QVariantList flowGoalPoints() const;
 

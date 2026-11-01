@@ -180,13 +180,20 @@ QString AIProvider::shortModelName() const
 // monthly = 3 shots a day. AI_ADVISOR.md carries the rates and token counts.
 // These rot: a catalog change updates this table in the same diff. A model with
 // no line shows none, rather than a borrowed price.
+// Terra 6.1: ~13.1K input / 0.34K output including reasoning on tasted
+// scenarios at low effort, $1/$5 per million (2026-10-30 replay).
+// Luna medium: ~13.1K input / 1.85K output including reasoning on tasted
+// scenarios at $0.10/$0.50 per million in the same replay.
+// These estimates exclude cache read/write adjustments.
 namespace {
 struct CostLine { const char* model; const char* key; const char* text; };
 const CostLine kCostLines[] = {
     { "gpt-6.1-sol", "ai.cost.openai.sol61",
       "About $0.03 per shot — roughly $2.75/month at 3 shots a day." },
-    { "gpt-6-luna", "ai.cost.openai.luna6",
-      "About $0.0015 per shot — roughly $0.13/month at 3 shots a day." },
+    { "gpt-6-luna", "ai.cost.openai.luna6.medium",
+      "About $0.0022 per shot — roughly $0.20/month at 3 shots a day." },
+    { "gpt-6.1-terra", "ai.cost.openai.terra61",
+      "Estimated $0.015 per shot — roughly $1.40/month at 3 shots a day." },
     // Sonnet's tokenizer counts ~60% more tokens than OpenAI's for the same
     // prompt, and the first call writes the 5-minute cache at 1.25x.
     { "claude-sonnet-5-5", "ai.cost.anthropic.sonnet55",
@@ -288,19 +295,21 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 {
-    // One balanced and one value pick, each the newest of its tier; rationale
-    // and measurements in docs/CLAUDE_MD/AI_ADVISOR.md.
+    // Sol remains the default; Terra is an optional middle price tier.
+    // Rationale and measurements in docs/CLAUDE_MD/AI_ADVISOR.md.
     return {
         { "gpt-6.1-sol", "GPT-6.1 Sol" },
         { "gpt-6-luna", "GPT-6 Luna" },
+        { "gpt-6.1-terra", "GPT-6.1 Terra" },
     };
 }
 
 QString OpenAIProvider::modelHint() const
 {
     return QStringLiteral(
-               "GPT-6.1 Sol is recommended: OpenAI's newest, concise and careful. GPT-6 Luna costs "
-               "about a twentieth as much, the best value of any model tested, with shorter replies.");
+               "GPT-6.1 Sol is recommended: concise and careful. GPT-6 Luna is the best value "
+               "tested, at about a twentieth of Sol's token price. "
+               "GPT-6.1 Terra costs half as much per token as Sol.");
 }
 
 void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
@@ -353,8 +362,8 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // Lowest reasoning, per model; shared with the bulk translator.
-    AIRequestShape::disableOpenAIReasoning(requestBody, m_model);
+    // Advisor settings use Terra low and Luna medium, separate from translation.
+    AIRequestShape::setOpenAIAdvisorReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -382,8 +391,9 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     searchTool["type"] = QString("web_search");
     requestBody["tools"] = QJsonArray{searchTool};
     // Reasoning "low": the lowest value every catalog entry accepts here
-    // (gpt-6.1-sol rejects "none"; both entries verified with web_search at
-    // "low", 2026-10-05). max_output_tokens covers reasoning + the JSON answer.
+    // (gpt-6.1-sol rejects "none"; Sol/Luna verified with web_search at
+    // "low", 2026-10-05; Terra 6.1 on 2026-10-30).
+    // max_output_tokens covers reasoning + the JSON answer.
     // Unlike analyze(), effort is no nextShot-block risk: this path extracts
     // bag-details JSON from a URL and never emits that block.
     QJsonObject reasoning;
@@ -529,9 +539,8 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // Sol runs at "low", its lowest; it emitted the nextShot block on every
-    // tasted scenario in the 2026-10-05 replay (tools/ai_model_eval/README.md).
-    AIRequestShape::disableOpenAIReasoning(requestBody, m_model);
+    // Match one-shot analysis, including Terra low and Luna medium.
+    AIRequestShape::setOpenAIAdvisorReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -1625,7 +1634,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    AIRequestShape::setOpenRouterReasoning(requestBody, m_model);
+    AIRequestShape::setOpenRouterAdvisorReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }
@@ -1650,7 +1659,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
-    AIRequestShape::setOpenRouterReasoning(requestBody, m_model);
+    AIRequestShape::setOpenRouterAdvisorReasoning(requestBody, m_model);
 
     sendRequest(requestBody);
 }

@@ -618,95 +618,128 @@ T.Page {
             spacing: Theme.spacingMedium
 
             // Header row with selection count and compare button
-            RowLayout {
+            Item {
+                id: selectionRegion
                 Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-                visible: shotHistoryPage.selectedShots.length > 0
+                Layout.preferredHeight: selectionRow.implicitHeight
 
-                Text {
-                    text: shotHistoryPage.selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    Layout.fillWidth: true
-                }
+                Flickable {
+                    anchors.fill: parent
+                    contentWidth: Math.max(width, selectionRow.implicitWidth)
+                    contentHeight: height
+                    flickableDirection: Flickable.HorizontalFlick
+                    interactive: contentWidth > width
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
+                    visible: shotHistoryPage.selectedShots.length > 0
 
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.clear", "Clear")
-                    accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
-                    onClicked: shotHistoryPage.clearSelection()
-                }
+                    RowLayout {
+                        id: selectionRow
+                        width: Math.max(selectionRegion.width, implicitWidth)
+                        height: selectionRegion.height
+                        spacing: Theme.spacingMedium
 
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.delete", "Delete")
-                    accessibleName: TranslationManager.translate("shotHistory.deleteSelected", "Delete selected shots")
-                    destructive: true
-                    enabled: HistoryService.ready && shotHistoryPage._deleteRequestId.length === 0
-                    onClicked: bulkDeleteConfirmDialog.open()
-                }
+                        Text {
+                            text: shotHistoryPage.selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
+                            Layout.fillWidth: true
+                        }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.compare", "Compare")
-                    accessibleName: TranslationManager.translate("shotHistory.compareShots", "Compare selected shots side by side")
-                    primary: true
-                    enabled: shotHistoryPage.selectedShots.length >= 2
-                    onClicked: shotHistoryPage.openComparison()
+                        AccessibleButton {
+                            text: TranslationManager.translate("shothistory.clear", "Clear")
+                            accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
+                            onClicked: shotHistoryPage.clearSelection()
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("shothistory.delete", "Delete")
+                            accessibleName: TranslationManager.translate("shotHistory.deleteSelected", "Delete selected shots")
+                            destructive: true
+                            enabled: HistoryService.ready && shotHistoryPage._deleteRequestId.length === 0
+                            onClicked: bulkDeleteConfirmDialog.open()
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("shothistory.compare", "Compare")
+                            accessibleName: TranslationManager.translate("shotHistory.compareShots", "Compare selected shots side by side")
+                            primary: true
+                            enabled: shotHistoryPage.selectedShots.length >= 2
+                            onClicked: shotHistoryPage.openComparison()
+                        }
+                    }
                 }
             }
 
             // Filter row
-            RowLayout {
+            Flickable {
+                id: filterScroller
                 Layout.fillWidth: true
-                spacing: Theme.spacingSmall
+                Layout.preferredHeight: filterRow.implicitHeight
+                contentWidth: Math.max(width, filterRow.implicitWidth)
+                contentHeight: height
+                flickableDirection: Flickable.HorizontalFlick
+                interactive: contentWidth > width
+                boundsBehavior: Flickable.StopAtBounds
+                clip: true
 
-                SearchField {
-                    id: searchBar
-                    Layout.fillWidth: true
-                    placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
-                    // An edit drops the exact-match filter a caller opened the page
-                    // with; the text search takes over. One query per edit: a reply
-                    // overtaken by a newer query is dropped (m_filterSerial in
-                    // ShotHistoryStorage::requestShotsFiltered).
-                    onQueryChanged: {
-                        if (shotHistoryPage.initialFilter)
-                            shotHistoryPage.initialFilter = null
-                        shotHistoryPage.loadShots()
+                RowLayout {
+                    id: filterRow
+                    width: Math.max(filterScroller.width, implicitWidth)
+                    height: filterScroller.height
+                    spacing: Theme.spacingSmall
+
+                    SearchField {
+                        id: searchBar
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: Theme.scaled(120)
+                        placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
+                        // An edit drops the exact-match filter a caller opened the page
+                        // with; the text search takes over. One query per edit: a reply
+                        // overtaken by a newer query is dropped (m_filterSerial in
+                        // ShotHistoryStorage::requestShotsFiltered).
+                        onQueryChanged: {
+                            if (shotHistoryPage.initialFilter)
+                                shotHistoryPage.initialFilter = null
+                            shotHistoryPage.loadShots()
+                        }
                     }
-                }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.keywords", "Keywords")
-                    accessibleName: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
-                    onClicked: searchHelpDialog.open()
-                }
+                    AccessibleButton {
+                        text: TranslationManager.translate("shothistory.keywords", "Keywords")
+                        accessibleName: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
+                        onClicked: searchHelpDialog.open()
+                    }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.save", "Save")
-                    accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
-                    enabled: searchBar.field.text.trim().length > 0
-                             && shotHistoryPage.savedSearches.indexOf(searchBar.field.text.trim()) === -1
-                             && shotHistoryPage._preferenceRequestId.length === 0
-                    onClicked: shotHistoryPage.addSavedSearch(searchBar.field.text.trim())
-                }
+                    AccessibleButton {
+                        text: TranslationManager.translate("shothistory.save", "Save")
+                        accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
+                        enabled: searchBar.field.text.trim().length > 0
+                                 && shotHistoryPage.savedSearches.indexOf(searchBar.field.text.trim()) === -1
+                                 && shotHistoryPage._preferenceRequestId.length === 0
+                        onClicked: shotHistoryPage.addSavedSearch(searchBar.field.text.trim())
+                    }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.saved", "Saved")
-                    accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
-                    icon.source: "qrc:/icons/list.svg"
-                    enabled: shotHistoryPage.savedSearches.length > 0
-                    onClicked: savedSearchesDialog.open()
-                }
+                    AccessibleButton {
+                        text: TranslationManager.translate("shothistory.saved", "Saved")
+                        accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
+                        icon.source: "qrc:/icons/list.svg"
+                        enabled: shotHistoryPage.savedSearches.length > 0
+                        onClicked: savedSearchesDialog.open()
+                    }
 
-                SortControls {
-                    keys: shotHistoryPage.sortFieldKeys
-                    labels: shotHistoryPage.sortFieldLabels
-                    defaultDirections: shotHistoryPage.defaultSortDirections
-                    field: shotHistoryPage.sortField
-                    direction: shotHistoryPage.sortDirection
-                    onSortChanged: function(field, direction) {
-                        shotHistoryPage.setHistoryPreference("sort", {
-                            "field": field,
-                            "direction": direction
-                        })
+                    SortControls {
+                        keys: shotHistoryPage.sortFieldKeys
+                        labels: shotHistoryPage.sortFieldLabels
+                        defaultDirections: shotHistoryPage.defaultSortDirections
+                        field: shotHistoryPage.sortField
+                        direction: shotHistoryPage.sortDirection
+                        onSortChanged: function(field, direction) {
+                            shotHistoryPage.setHistoryPreference("sort", {
+                                "field": field,
+                                "direction": direction
+                            })
+                        }
                     }
                 }
             }

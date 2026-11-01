@@ -124,7 +124,7 @@ private slots:
         QVERIFY(nativePhase.isValid());
         QVERIFY(remote.isValid());
         QVERIFY(RemoteMachineState::staticMetaObject.indexOfSignal("scaleWeightChanged()") >= 0);
-        QCOMPARE(nativePhase.keyCount(), 16);
+        QCOMPARE(nativePhase.keyCount(), 17);
         QCOMPARE(remote.keyCount(), nativePhase.keyCount());
         for (int index = 0; index < nativePhase.keyCount(); ++index) {
             QCOMPARE(QByteArray(remote.key(index)), QByteArray(nativePhase.key(index)));

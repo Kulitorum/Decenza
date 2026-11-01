@@ -1,6 +1,6 @@
 # Decenza web client
 
-The Wasm interface is an in-progress second interface; the existing HTML interface remains intact. It mounts the shared app QML and reaches host-owned data and operations through typed services. Full application parity and acceptance are still being validated.
+The experimental Wasm interface mounts the shared app QML and reaches host-owned data and operations through typed services. The existing HTML interface remains intact. Whole-application acceptance is still being validated.
 
 Production sources are in `src/webclient`, `src/remote`, `qml/webclient`, and `resources/webclient`. Diagnostic components, recorded traces and Qt reproductions remain development fixtures in this directory. Historical benchmark and acceptance evidence is recorded in the OpenSpec evaluation.
 
@@ -29,6 +29,8 @@ sets 11 (about 2 minutes, roughly 15% smaller).
 `DECENZA_WEB_BUNDLE_MODE=PREBUILT` verifies a supplied `DECENZA_WEB_BUNDLE_DIR` without a child build; `OFF` disables optional local packaging. Release CI's `DECENZA_REQUIRE_WEB_BUNDLE=ON` always uses PREBUILT and requires embedding; missing, corrupt or mismatched artifacts fail configuration. `DECENZA_EMBED_WEB_BUNDLE=OFF` retains the local macOS external resource-directory mode. The single `.github/workflows/release.yml` accepts `platforms=all` or a list. One Wasm producer and selected native jobs start in parallel. Ninja native jobs join the verified bundle for final linking/packaging; iOS performs setup in parallel and compiles once through its final archive. Cross-platform CI and installed-package behavior still require validation.
 
 The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface remains available at `/legacy/`. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
+
+When a backgrounded browser loses its session, it attempts to reconnect on return. A changed host or bundle still requires reloading the interface; a failed reconnect leaves the manual control available.
 
 ## One-time toolchain setup
 
@@ -163,11 +165,24 @@ acceptance.
 
 ## Current limits
 
-The browser starts on the shared Home page. Routes and host services are being
-validated in slices; the OpenSpec change records current evidence and remaining
-gates. Run the integrated client against the packaged native host.
+The browser starts on the shared Home page. The complete app inventory and Mac
+workflow checks are recorded in the OpenSpec change; source inclusion is not a
+claim that every device has passed acceptance. Broad release still needs the
+remaining mobile/screen-reader, device-performance, supervised-machine and
+installed-platform checks. Host-impact timing was not measured; see the recorded
+practical acceptance decision. Run the integrated client against its packaged host.
+
+Screen-reader support is activated per browser document through Qt's **Enable
+Screen Reader** button; the accessibility tree stays inactive otherwise. Actual
+mobile screen-reader acceptance remains open. On iPhone, the video screensaver
+currently cycles images rather than providing continuous playback while
+[QTBUG-151807](https://bugreports.qt.io/browse/QTBUG-151807) is unresolved.
 
 
 ### Mac trackpad scrolling
 
-Qt 6.12's Wasm wheel input still hits Flickable's angle-delta/easing path: [QTBUG-141540](https://qt-project.atlassian.net/browse/QTBUG-141540), with direct-scrolling work under review. The web bootstrap uses wheelScrollLines=5 to remove the default 0.6 distance scale, but this only partially mitigates continuous-gesture slowness. The maintainer chose to keep this small adjustment and track the upstream fix while continuing parity. Recheck and remove/reassess the adjustment when Qt's direct scrolling lands; do not add per-page scroll multipliers.
+The shared `BrowserDisplay` adapts Wasm pixel gestures to Qt's existing scrolling
+path; the bootstrap also sets `wheelScrollLines=5`. The maintainer verified Edge
+and Safari trackpad scrolling, including an Edge restart. Track the upstream
+[QTBUG-141540](https://qt-project.atlassian.net/browse/QTBUG-141540) when reassessing
+these adaptations; do not add per-page scroll multipliers.

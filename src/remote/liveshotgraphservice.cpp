@@ -284,7 +284,32 @@ void LiveShotGraphService::changed()
         if (!guard || requestedState != guard->m_state)
             return;
     }
-    emit guard->graphChanged();
+    guard->publishGraphChanges();
+}
+
+LiveShotGraphService::Collections LiveShotGraphService::collectionState() const
+{
+    return {phaseMarkers(), pressureGoalPoints(), flowGoalPoints(),
+            temperatureGoalPoints(), temperatureMixGoalPoints()};
+}
+
+void LiveShotGraphService::publishGraphChanges()
+{
+    const auto after = collectionState();
+    // Compare with what QML was told, including across buffered snapshot replay.
+    const auto before = std::exchange(m_publishedCollections, after);
+    const std::array<void (LiveShotGraphService::*)(), 5> notifiers{
+        &LiveShotGraphService::phaseMarkersChanged,
+        &LiveShotGraphService::pressureGoalPointsChanged,
+        &LiveShotGraphService::flowGoalPointsChanged,
+        &LiveShotGraphService::temperatureGoalPointsChanged,
+        &LiveShotGraphService::temperatureMixGoalPointsChanged};
+    const QPointer<LiveShotGraphService> guard(this);
+    for (size_t i = 0; i < before.size(); ++i) {
+        if (before[i] != after[i]) (this->*notifiers[i])();
+        if (!guard) return;
+    }
+    emit graphChanged();
 }
 
 void LiveShotGraphService::clearGraph(const QString& error)
@@ -300,7 +325,7 @@ void LiveShotGraphService::clearGraph(const QString& error)
     m_sequence = -1;
     m_errorMessage = error;
     applyRenderers();
-    emit graphChanged();
+    publishGraphChanges();
 }
 
 QString LiveShotGraphService::newRequestId() const
@@ -329,7 +354,7 @@ void LiveShotGraphService::requestSnapshotFor(const QString& requestId)
         m_bufferedDeltas.clear();
         m_bufferedBytes = 0;
         m_bufferOverflowed = false;
-        emit graphChanged();
+        publishGraphChanges();
     }
     if (!guard || guard->m_snapshotGeneration != generation
         || guard->m_pendingSnapshotId != requestId || !guard->m_snapshotRequested
@@ -464,10 +489,10 @@ void LiveShotGraphService::receiveSnapshot(const QString& requestId, qint64 epoc
         m_bufferOverflowed = false;
         m_ready = false;
         requestSnapshot();
-        emit graphChanged();
+        publishGraphChanges();
         return;
     }
-    emit graphChanged();
+    publishGraphChanges();
 }
 
 void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
@@ -518,7 +543,7 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         if (deltaEpoch <= m_epoch) {
             m_ready = false;
             m_errorMessage = QStringLiteral("A stale live graph reset was ignored; resynchronizing.");
-            emit graphChanged();
+            publishGraphChanges();
             requestSnapshot();
             return;
         }
@@ -549,19 +574,19 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         m_errorMessage.clear();
         applyRenderers();
         replacePortalSamples(portalSamples());
-        emit graphChanged();
+        publishGraphChanges();
         return;
     }
     if (type != QLatin1String("append") || deltaEpoch != m_epoch
         || deltaSequence != m_sequence + 1 || !applyAppend(delta)) {
         m_ready = false;
         m_errorMessage = QStringLiteral("Live graph updates arrived out of order; resynchronizing.");
-        emit graphChanged();
+        publishGraphChanges();
         requestSnapshot();
         return;
     }
     m_sequence = deltaSequence;
-    emit graphChanged();
+    publishGraphChanges();
 }
 
 bool LiveShotGraphService::applyAppend(const QVariantMap& delta)

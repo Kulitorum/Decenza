@@ -145,7 +145,7 @@ struct PendingConfirmation {
 // `profile.recipe`); "recipe" now means only the drink Recipe. Not visible to the fingerprint.
 // 1.20.0: bean_search gains an `action` arg — action=community summarises community shots for a
 // bean (Bean Search phase 6b), default action=search unchanged.
-inline constexpr const char* McpSurfaceVersion = "1.20.0";
+inline constexpr const char* McpSurfaceVersion = "1.21.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";

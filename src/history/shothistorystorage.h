@@ -671,8 +671,8 @@ public:
         }
 
         // Same policy for the package map. Empty means no equipment crossed: a
-        // pre-equipment source, an import that failed, or an archive with no
-        // shots in it (that path returns early, before the equipment import).
+        // pre-equipment source, an import that failed, or a source without
+        // equipment packages.
         //
         // The importer then refuses any conversation naming a package rather
         // than demoting it to bucket 0. Conversations that name NO package
@@ -770,6 +770,8 @@ signals:
     void grindContextRequestReady(const QString& requestId,
                                   const QVariantMap& context, const QString& reason);
     void importDatabaseFinished(bool success);
+    // Emitted on the owning thread after an imported database commits.
+    void importedDatabaseChanged();
     void shotMetadataUpdated(qint64 shotId, bool success);
     void shotMetadataUpdateRequestFinished(const QString& requestId, qint64 shotId,
                                            bool success, const QString& reason);

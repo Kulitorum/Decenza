@@ -355,6 +355,13 @@ general advice and conversations belong to AI. Storage owns database CRUD, backu
 restores and migrations. Network includes ShotServer and MQTT; Visualizer has its own
 owner. The live catalog contains the complete list.
 
+For String Customizer focus/scroll diagnostics (#2145), filter the submitted log by
+`[App][StringBrowserPage]` at DEBUG. Each JSON record has a page-local sequence number;
+`rowInstance` identifies a delegate across focus and destruction events, and `centerId`
+pairs the two scroll adjustments. Compare a failed tap on a scrolled row with a
+successful tap after narrowing the search. Records include geometry, refresh reasons
+and text lengths, but omit draft contents; scroll movement is logged at its boundaries.
+
 Android's `DiagnosticLog` bridge sends each runtime record through Qt once the logger
 is installed. Before Qt is available, receivers and services write prefixed logcat
 lines only. Uncaught-exception handlers and crash-report writers retain their
@@ -362,6 +369,17 @@ crash-safe paths; those files and logcat are separate from the persisted Qt log.
 The terminal console sink must never call Qt logging recursively.
 
 ## Runtime context and physical lines
+
+QML incremental-GC cross-validation reports its first 20 individual differences
+per run. It also emits a bounded summary each time the event loop receives a
+pending batch, even after that cap: local time, the most recently reported native
+page stack at the first difference, count, up to 12 types, and Qt's first object description.
+A batch is not necessarily one GC cycle; Qt does not emit a cycle boundary here.
+In an incremental run Qt's state machine re-drains the stack immediately before
+cross-validation. A difference is evidence of differing marks after that rescan;
+it does not identify the cause or prove the link to an earlier crash.
+The type and bitmap location do not identify the QML object or its retaining
+reference. The full re-mark remains enabled and supplies the marks used by sweep.
 
 `WebDebugLogger` preserves supplied category and portable file/line on WARN+
 records. Function context is retained when file/line is unavailable; it is omitted

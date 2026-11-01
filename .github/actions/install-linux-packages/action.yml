@@ -23,7 +23,7 @@ runs:
       env:
         EXTRA: ${{ inputs.extra-packages }}
       run: |
-        base="build-essential cmake ninja-build fuse libfuse2
+        base="build-essential cmake ninja-build fuse libfuse2 libssl-dev pkg-config
           libgl1-mesa-dev libgstreamer-gl1.0-0 libpulse-dev libpulse0 libspeechd2
           libxkbcommon-dev libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-glx0
           libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render0

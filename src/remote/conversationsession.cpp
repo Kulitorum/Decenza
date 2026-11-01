@@ -214,6 +214,7 @@ QString ConversationSession::send(const QString& operation, const QVariantMap& f
 void ConversationSession::receiveState(const QString& clientId, const QVariantMap& state)
 {
     if (!m_closing && clientId == m_clientId) {
+        if (m_ready && m_errorMessage.isEmpty() && m_state == state) return;
         m_state = state;
         m_ready = true;
         m_errorMessage.clear();
@@ -227,10 +228,7 @@ void ConversationSession::receiveStateReady(const QString& clientId, const QStri
     if (m_closing || clientId != m_clientId || m_pending.value(requestId) != QStringLiteral("state"))
         return;
     m_pending.remove(requestId);
-    m_state = state;
-    m_ready = true;
-    m_errorMessage.clear();
-    emit stateChanged();
+    receiveState(clientId, state);
 }
 
 void ConversationSession::receiveCompletion(const QString& clientId, const QString& requestId,

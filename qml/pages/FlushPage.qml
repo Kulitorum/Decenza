@@ -12,6 +12,7 @@ T.Page {
     id: flushPage
 
     objectName: "flushPage"
+    property bool openedFromSettingsSearch: false
     background: ThemedPageBackground {}
 
     SharedPresetDraft { id: presetDraft; domain: "flush" }
@@ -172,6 +173,8 @@ T.Page {
     // Skip the preset-reset and settings push while flushing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
+        if (openedFromSettingsSearch)
+            return
         if (!isFlushing) {
             applySelection()
             secondsInput.forceActiveFocus()
@@ -723,6 +726,9 @@ T.Page {
 
                         ValueInput {
                             id: secondsInput
+                            SettingsSearch.route: "flush"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.flushDuration", "Flush duration")
+                            SettingsSearch.keywords: ["flush", "time", "preset"]
                             Layout.preferredWidth: Theme.scaled(180)
                             value: flushPage.getCurrentPresetSeconds()
                             from: 1
@@ -760,6 +766,9 @@ T.Page {
 
                         ValueInput {
                             id: flowInput
+                            SettingsSearch.route: "flush"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.flushFlow", "Flush flow rate")
+                            SettingsSearch.keywords: ["flush", "flow", "preset"]
                             Layout.preferredWidth: Theme.scaled(180)
                             value: flushPage.getCurrentPresetFlow()
                             from: 2

@@ -65,7 +65,7 @@ TestCase {
     }
 
     Component { id: idlePageComponent; Item { objectName: "idlePage" } }
-    Component { id: steamPageComponent; Item { objectName: "steamPage" } }
+    Component { id: steamPageComponent; Item { objectName: "steamPage"; property bool openedFromSettingsSearch: false } }
     Component { id: espressoPageComponent; Item { objectName: "espressoPage" } }
 
     Component {
@@ -525,6 +525,33 @@ TestCase {
         verify(BrowserRouteHistory.parseState(savedByOlderBuild) === null)
     }
 
+    function test_calibrationReloadRetainsOriginalProfileSelection() {
+        const original = {recipeId: 42, profileFilename: "D-Flow Q.json"}
+        const entry = BrowserRouteHistory.entryWithPageContext(
+            {route: "sensorCalibration", args: {sensor: 0}},
+            {objectName: "sensorCalibrationPage", navigationContext: {restoreContext: original}})
+        const json = BrowserRouteHistory.makeState("calibration-session", 1,
+            [{route: "home"}, entry])
+        const restored = BrowserRouteHistory.parseState(json).stack[1]
+        const props = BrowserRouteHistory.pageProperties(restored)
+        compare(props.sensor, 0)
+        compare(props.initialRestoreContext.recipeId, original.recipeId)
+        compare(props.initialRestoreContext.profileFilename, original.profileFilename)
+        const longFilename = "x".repeat(251) + ".json"
+        const longEntry = BrowserRouteHistory.entryWithPageContext(
+            {route: "sensorCalibration", args: {sensor: 0}},
+            {objectName: "sensorCalibrationPage",
+             navigationContext: {restoreContext: {recipeId: 0, profileFilename: longFilename}}})
+        verify(longEntry !== null)
+        const longState = BrowserRouteHistory.makeState("calibration-session", 1,
+            [{route: "home"}, longEntry])
+        compare(BrowserRouteHistory.parseState(longState).stack[1].args.restoreContext.profileFilename,
+                longFilename)
+        compare(BrowserRouteHistory.entryLocationHash(restored), "sensorCalibration/0")
+        compare(BrowserRouteHistory.pageProperties(
+            {route: "sensorCalibration", args: {sensor: 0}}).initialRestoreContext, null)
+    }
+
     function test_stringBrowserSearchAndModeKeepDraftOutOfRoute() {
         resetNavigationStack()
         observedEntry = {route: "stringBrowser", args: {}}
@@ -586,6 +613,22 @@ TestCase {
         AppShell.unregisterBrowserDialog(underlying)
         compare(AppShell.consumeBrowserBack(), false)
         compare(AppShell.browserDialogDraftsDirty, false)
+    }
+
+    function test_screensaverInhibitionBelongsToEachOpenDialog() {
+        const firmwareManager = ({inhibitScreensaver: true})
+        const rebootPrompt = ({inhibitScreensaver: true})
+        const ordinaryDialog = ({inhibitScreensaver: false})
+        const dismiss = function() {}
+        AppShell.registerBrowserDialog(firmwareManager, true, false, dismiss)
+        AppShell.registerBrowserDialog(rebootPrompt, false, false, dismiss)
+        AppShell.registerBrowserDialog(ordinaryDialog, true, false, dismiss)
+        compare(AppShell.screensaverInhibited, true)
+        AppShell.unregisterBrowserDialog(firmwareManager)
+        compare(AppShell.screensaverInhibited, true)
+        AppShell.unregisterBrowserDialog(rebootPrompt)
+        compare(AppShell.screensaverInhibited, false)
+        AppShell.unregisterBrowserDialog(ordinaryDialog)
     }
 
     function test_browserRouteStateIsBoundedAndRoundTripsSafeArguments() {
@@ -774,6 +817,27 @@ TestCase {
         compare(homeCount, 1)
     }
 
+    function test_operationSearchPassesInitialProperties() {
+        resetNavigationStack()
+        compare(NavigationPolicy.showOperationPage(navigationStack, steamPageComponent,
+            "steamPage", function(page) {}, {openedFromSettingsSearch: true}), "push")
+        compare(navigationStack.currentItem.openedFromSettingsSearch, true)
+    }
+
+    function test_operationSearchHistoryRestoresWithoutPreparation() {
+        for (const route of ["steam", "hotwater", "flush"]) {
+            const entry = {route: route, args: {openedFromSettingsSearch: true}}
+            const json = BrowserRouteHistory.makeState("test-session", 1,
+                [{route: "home", args: {}}, entry])
+            const restored = BrowserRouteHistory.parseState(json).stack[1]
+            compare(restored.args.openedFromSettingsSearch, true)
+            compare(BrowserRouteHistory.pageProperties(restored).openedFromSettingsSearch, true)
+            compare(BrowserRouteHistory.entryLocationHash(restored), route)
+            verify(BrowserRouteHistory.normalizeEntry({route: route,
+                args: {openedFromSettingsSearch: "true"}}) === null)
+        }
+    }
+
     function test_sharedNavigationGuardImmediateTransitionRejectsSameTurnReentry() {
         resetNavigationStack()
         verify(beginTestNavigation(steamPageComponent))
@@ -858,6 +922,20 @@ TestCase {
 
         state.finish()
         compare(finishedCount, 1)
+    }
+
+    // The purge and long-black holds keep the completion on screen past its
+    // countdown; only finish() ends it.
+    function test_holdKeepsCompletionVisibleUntilFinished() {
+        state.showCompletion("Steam Complete", "steam")
+        state.hold()
+        wait(80)
+        compare(state.visible, true)
+        compare(finishedCount, 0)
+
+        state.finish()
+        compare(finishedCount, 1)
+        compare(state.pending, false)
     }
 
     function test_cancelResetsSuspensionForNextOperation() {

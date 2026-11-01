@@ -21,6 +21,8 @@ T.Page {
     objectName: "autoFavoritesPage"
     background: ThemedPageBackground {}
 
+    function openSettings() { settingsPopup.open() }
+
     property string _loadRequest: ""
     property string _favoritesRequest: ""
     readonly property bool _waitingForShotLoad: _loadRequest.length > 0
@@ -632,6 +634,9 @@ T.Page {
                 StyledComboBox {
                     enabled: preferenceWrite.ready
                     id: groupByCombo
+                    SettingsSearch.route: "autoFavorites"
+                    SettingsSearch.title: TranslationManager.translate("settings.search.autoFavoritesGrouping", "Auto-Favorites grouping")
+                    SettingsSearch.keywords: ["auto favorites", "group", "history"]
                     Layout.fillWidth: true
                     accessibleLabel: TranslationManager.translate("autofavorites.groupby", "Group by")
                     model: [
@@ -685,6 +690,9 @@ T.Page {
 
                 ValueInput {
                     enabled: preferenceWrite.ready
+                    SettingsSearch.route: "autoFavorites"
+                    SettingsSearch.title: TranslationManager.translate("settings.search.autoFavoritesMax", "Auto-Favorites maximum items")
+                    SettingsSearch.keywords: ["auto favorites", "maximum", "count"]
                     // HistoryService clears its snapshot while disconnected. Keep
                     // the control typed and disabled in that state; the fallback
                     // is display-only and is never written without user input.
@@ -718,6 +726,9 @@ T.Page {
 
                 StyledSwitch {
                     enabled: preferenceWrite.ready
+                    SettingsSearch.route: "autoFavorites"
+                    SettingsSearch.title: TranslationManager.translate("autofavorites.hideUnrated", "Hide unrated favorites")
+                    SettingsSearch.keywords: ["auto favorites", "unrated", "history"]
                     checked: preferenceWrite.displayedValue(
                         "autoFavoritesHideUnrated",
                         autoFavoritesPage.preferences.autoFavoritesHideUnrated ?? false)
@@ -744,6 +755,9 @@ T.Page {
 
                 StyledSwitch {
                     enabled: preferenceWrite.ready
+                    SettingsSearch.route: "autoFavorites"
+                    SettingsSearch.title: TranslationManager.translate("autofavorites.openBrewSettings", "Open brew settings after load")
+                    SettingsSearch.keywords: ["auto favorites", "brew", "load"]
                     checked: preferenceWrite.displayedValue(
                         "autoFavoritesOpenBrewSettings",
                         autoFavoritesPage.preferences.autoFavoritesOpenBrewSettings ?? false)

@@ -249,7 +249,7 @@ bool BrowserDisplay::remoteWebAccess() const
 #ifdef Q_OS_WASM
     // The Funnel serves on 443. The host's own Tailscale also reaches this server
     // under a .ts.net name, but on its LAN port, which is in the address.
-    return EM_ASM_INT({ return (location.hostname.endsWith('.ts.net') && location.port === '') ? 1 : 0; });
+    return EM_ASM_INT({ return (location.hostname.endsWith('.ts.net') && location.port === "") ? 1 : 0; });
 #else
     return false;
 #endif

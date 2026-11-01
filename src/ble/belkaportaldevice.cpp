@@ -154,6 +154,20 @@ void BelkaPortalDevice::setMachineBusy(bool busy)
     if (!busy) { m_reconnectAttempted = false; tryReconnect(); }
 }
 
+void BelkaPortalDevice::setFirmwareUpdateActive(bool active)
+{
+    if (m_firmwareUpdateActive == active) return;
+    m_firmwareUpdateActive = active;
+    if (active && this->active()) {
+        const bool reconnectEnabled = m_reconnectEnabled;
+        stopConnection(false);
+        m_reconnectEnabled = reconnectEnabled;
+    } else if (!active) {
+        m_reconnectAttempted = false;
+        tryReconnect();
+    }
+}
+
 void BelkaPortalDevice::connectDevice(const QString& identifier)
 {
     if (refuseWhileBusy(QStringLiteral("Connect"))) return;
@@ -259,9 +273,10 @@ void BelkaPortalDevice::setError(const QString& error)
 
 bool BelkaPortalDevice::refuseWhileBusy(const QString& action)
 {
-    if (!m_machineBusy && !m_extractionActive) return false;
+    if (!m_machineBusy && !m_extractionActive && !m_firmwareUpdateActive) return false;
     logEvent(QStringLiteral("refused"), QStringLiteral("%1 ignored: %2").arg(action,
-        m_extractionActive ? QStringLiteral("shot in progress") : QStringLiteral("machine busy")));
+        m_firmwareUpdateActive ? QStringLiteral("DE1 firmware update in progress")
+            : m_extractionActive ? QStringLiteral("shot in progress") : QStringLiteral("machine busy")));
     return true;
 }
 
@@ -381,7 +396,8 @@ void BelkaPortalDevice::beginScan()
 void BelkaPortalDevice::tryReconnect()
 {
     if (!m_reconnectEnabled || m_reconnectAttempted || m_savedAddress.isEmpty()
-        || m_machineBusy || m_extractionActive || active() || (m_transport && m_transport->isDisconnecting())) return;
+        || m_machineBusy || m_extractionActive || m_firmwareUpdateActive || active()
+        || (m_transport && m_transport->isDisconnecting())) return;
     for (const auto& device : m_devices) {
         if (deviceIdentifiersMatch(device, m_savedAddress)) {
             // One attempt per discovery cycle; advertising cannot create a reconnect loop.

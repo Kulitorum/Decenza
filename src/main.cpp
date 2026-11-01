@@ -218,6 +218,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/asynclogger.h"
 #include "core/deviceinfo.h"
 #include "core/btlogfilter.h"
+#include "core/gcdeferredabort.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/themeeditoroptions.h"
@@ -285,6 +286,8 @@ extern "C" const char* __ubsan_default_options()
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
+#include "controllers/firmwareupdater.h"
+#include "ble/refractometerrecovery.h"
 #include "controllers/profilemanager.h"
 #include "controllers/shottimingcontroller.h"
 #include "ai/aimanager.h"
@@ -730,8 +733,7 @@ int main(int argc, char *argv[])
     // mark is re-checked by a full one, which costs a full mark per GC cycle on the
     // GUI thread. Remove with the fix for that crash.
     BtLogFilter::enableGcCrossValidation();
-    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation on: a missed object logs a WARN "
-                                 "under [Memory][QmlGc] (#2076)";
+    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation enabled (#2076)";
 
 #ifdef Q_OS_WIN
     // Windows expresses monitor scaling as a percentage (100/125/150/175/200%),
@@ -1443,6 +1445,36 @@ int main(int argc, char *argv[])
     MachineState machineState(&de1Device);
     machineState.setSettings(&settings);
     machineState.setScale(&flowScale);  // Start with FlowScale, switch to physical scale if found
+#ifdef Q_OS_ANDROID
+    // Do not treat the default or a stale state as proof that the machine is idle.
+    // STATE_INFO must have arrived on the current connection, and the raw state
+    // (rather than a page or a deferred MachineState phase) must be non-operational.
+    GcDeferredAbort::Coordinator gcAbort(
+        [&] { return !de1Device.firmwareFlashInProgress()
+                 && GcDeferredAbort::confirmedIdle(de1Device.isConnected(),
+                 de1Device.hasCurrentStateInfo(), de1Device.state()); },
+        [&] {
+            // During a known operation, wait for its state notification instead
+            // of adding a Bluetooth read to the operation's control traffic.
+            if (!de1Device.firmwareFlashInProgress()
+                    && GcDeferredAbort::shouldRequestState(de1Device.isConnected(),
+                    de1Device.hasCurrentStateInfo(), de1Device.state()))
+                de1Device.requestCurrentStateInfo();
+        },
+        [](const QString& mismatch) {
+            const QByteArray evidence = mismatch.toLocal8Bit();
+            qFatal("%s", evidence.constData()); // log-marker-exempt: evidence already carries [Memory][QmlGc]
+        });
+    const auto gcStateConnection = QObject::connect(&de1Device, &DE1Device::stateInfoReceived,
+                                                     &gcAbort, [&] { gcAbort.stateInfoReceived(); });
+    const auto gcConnectionChange = QObject::connect(&de1Device, &DE1Device::connectedChanged,
+                                                      &gcAbort, [&] { gcAbort.connectionChanged(); });
+    BtLogFilter::setGcMismatchHandler([&](const QString& evidence) {
+        DIAG_WARN(MEMORY, "QmlGc") << "Mismatch captured; abort pending until the machine reports idle";
+        de1Device.setGcAbortPending(true);
+        gcAbort.mismatch(evidence);
+    });
+#endif
     flowScale.setSettings(&settings);
     ProfileStorage profileStorage;
 #ifndef Q_OS_IOS
@@ -1950,7 +1982,7 @@ int main(int argc, char *argv[])
     // Strategy:
     //   - App startup:
     //       • Call idleGc() immediately and start the 15-minute periodic timer.
-    //   - EspressoPreheating / HotWater / Flush start:
+    //   - Any operation starting (MachineState::isOperating):
     //       • Stop the periodic timer (no GC right before or during a shot).
     //       • Raise heap utilization threshold to 0.95 (GC only if heap is 95% full).
     //         No explicit System.gc() here — GC near preinfusion is worse than no GC.
@@ -1979,14 +2011,7 @@ int main(int argc, char *argv[])
         static bool s_inOperation = false;
         const Phase phase = machineState.phase();
 
-        const bool enteringOp = !s_inOperation && (
-            phase == Phase::EspressoPreheating ||   // earliest signal for espresso
-            phase == Phase::HotWater ||
-            phase == Phase::Steaming ||
-            phase == Phase::Flushing ||
-            phase == Phase::Descaling ||
-            phase == Phase::Cleaning ||
-            phase == Phase::Transport);
+        const bool enteringOp = !s_inOperation && machineState.isOperating();
 
         const bool exitingOp = s_inOperation && (
             phase == Phase::Idle ||
@@ -2415,6 +2440,14 @@ int main(int argc, char *argv[])
     BelkaPortalDevice belkaPortal([] { return new QtScaleBleTransport(); });
 #endif
     BelkaPortalForeign::s_singletonInstance = &belkaPortal;
+    QObject::connect(mainController.firmwareUpdater(), &FirmwareUpdater::stateChanged,
+                     &belkaPortal, [&bleManager, &belkaPortal, updater = mainController.firmwareUpdater()] {
+        const auto state = updater->state();
+        const bool transferring = state == FirmwareUpdater::State::Erasing
+            || state == FirmwareUpdater::State::Uploading || state == FirmwareUpdater::State::Verifying;
+        bleManager.setFirmwareUpdateActive(transferring);
+        belkaPortal.setFirmwareUpdateActive(transferring);
+    });
     if (mainController.shotServer())
         mainController.shotServer()->setBelkaPortalDevice(&belkaPortal);
     connectPortalDiscovery(&bleManager, &belkaPortal);
@@ -2566,6 +2599,7 @@ int main(int argc, char *argv[])
     NativeBackupServiceSource backupServiceSource(&backupManager, settings.app());
     FullBackupRestore fullBackupRestore(&settings, mainController.shotHistory(), &profileStorage,
                                        &screensaverManager, &aiManager, &translationManager);
+    mainController.dataMigration()->setFullBackupRestore(&fullBackupRestore);
     fullBackupRestore.setRestoreAllowed([&backupManager, &machineState] {
         return !backupManager.isBackupInProgress() && !backupManager.isRestoreInProgress()
             && !machineState.isOperating();
@@ -4016,6 +4050,8 @@ int main(int argc, char *argv[])
             stopReason = QStringLiteral("already connected");
         } else if (bleManager.isDisabled()) {
             stopReason = QStringLiteral("BLE is off (simulator mode) — will resume when it is re-enabled");
+        } else if (bleManager.firmwareUpdateActive()) {
+            stopReason = QStringLiteral("DE1 firmware update is active — will resume when it ends");
         }
         if (!stopReason.isEmpty()) {
             bleManager.refractometerDebug(
@@ -4095,74 +4131,18 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Arm the R2 reconnect when it drops during the hunt; stop it when it
-    // connects. refractometerConnectedChanged also fires transiently while a
-    // fresh connection is still being set up and on Forget — the saved-address
-    // guard and the !isActive() guard keep those from scrambling the backoff.
-    // Hunt-gated: the review page ends the hunt before disconnecting the R2
-    // (PostShotReviewPage.qml onDeactivating), so an ungated arm here started an
-    // off-page tick that could only stop itself. Hunt activation re-arms it.
-    QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged, handlerScope.get(),
-                     [&bleManager, &settings, &refractometerReconnectTimer,
-                      &refractometerReconnectAttempt, &reconnectDelays]() {
-        if (bleManager.isRefractometerConnected()) {
-            refractometerReconnectTimer.stop();
-            refractometerReconnectAttempt = 0;
-        } else if (!settings.savedRefractometerAddress().isEmpty()
-                   && bleManager.isRefractometerHunt()
-                   && !refractometerReconnectTimer.isActive()) {
-            refractometerReconnectAttempt = 0;
-            refractometerReconnectTimer.start(reconnectDelays[0]);
+    // Reconcile the same retry ladder on connection, hunt, BLE availability
+    // and firmware-suspension edges. In particular, firmware teardown stops
+    // the timer even when a browser keeps its review-page hunt open; resuming
+    // must re-arm it so a later scan error can recover without reopening it.
+    connectRefractometerRecovery(&bleManager, handlerScope.get(),
+        &refractometerReconnectTimer, refractometerReconnectAttempt, reconnectDelays[0],
+        [&settings] { return !settings.savedRefractometerAddress().isEmpty(); },
+        [&bleManager, &reconnectDelays] {
             bleManager.refractometerDebug(
-                QStringLiteral("Reconnect: scheduled first retry in %1 ms").arg(reconnectDelays[0]),
+                QStringLiteral("Reconnect: arming recovery tick in %1 ms").arg(reconnectDelays[0]),
                 QStringLiteral("main"));
-        }
-    });
-
-    // Arm/stop the R2 reconnect tick to track the review-page hunt. Hunt
-    // activation is the only arm for an R2 that dropped or never connected
-    // off-page (the connectedChanged arm is hunt-gated). The tick re-kicks a dead
-    // scan chain — onScanError deliberately does not re-chain.
-    QObject::connect(&bleManager, &BLEManager::refractometerHuntChanged, handlerScope.get(),
-                     [&bleManager, &settings, &refractometerReconnectTimer,
-                      &refractometerReconnectAttempt, &reconnectDelays](bool active) {
-        if (!active) {
-            refractometerReconnectTimer.stop();
-            refractometerReconnectAttempt = 0;
-            return;
-        }
-        if (!settings.savedRefractometerAddress().isEmpty()
-            && !bleManager.isRefractometerConnected()
-            && !refractometerReconnectTimer.isActive()) {
-            refractometerReconnectAttempt = 0;
-            refractometerReconnectTimer.start(reconnectDelays[0]);
-            bleManager.refractometerDebug(
-                QStringLiteral("Reconnect: review page opened — arming recovery tick in %1 ms")
-                    .arg(reconnectDelays[0]),
-                QStringLiteral("main"));
-        }
-    });
-
-    // Re-arm the R2 reconnect when BLE comes back during the hunt: the tick
-    // stops (rather than reschedules) while BLE is disabled. Off the review page
-    // there is nothing to resume — hunt activation arms it.
-    QObject::connect(&bleManager, &BLEManager::disabledChanged, handlerScope.get(),
-                     [&bleManager, &settings, &refractometerReconnectTimer,
-                      &refractometerReconnectAttempt, &reconnectDelays]() {
-        if (bleManager.isDisabled())
-            return;
-        if (!bleManager.isRefractometerHunt()
-            || settings.savedRefractometerAddress().isEmpty()
-            || bleManager.isRefractometerConnected()
-            || refractometerReconnectTimer.isActive())
-            return;
-        refractometerReconnectAttempt = 0;
-        refractometerReconnectTimer.start(reconnectDelays[0]);
-        bleManager.refractometerDebug(
-            QStringLiteral("Reconnect: BLE re-enabled, resuming retries in %1 ms")
-                .arg(reconnectDelays[0]),
-            QStringLiteral("main"));
-    });
+        });
 
     // No refractometer auto-connect at startup: the R2 is only used on the
     // post-shot review page, so it is pursued when that page opens (which fires
@@ -5455,6 +5435,12 @@ int main(int argc, char *argv[])
     });
 
     int result = app.exec();
+
+#ifdef Q_OS_ANDROID
+    BtLogFilter::setGcMismatchHandler({});
+    QObject::disconnect(gcStateConnection);
+    QObject::disconnect(gcConnectionChange);
+#endif
 
     // Sever the main() signal handlers before any local they captured is
     // destroyed — see the `handlerScope` comment where it is declared. This has

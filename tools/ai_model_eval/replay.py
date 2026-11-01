@@ -31,6 +31,7 @@ import random
 import re
 import subprocess
 import sys
+from typing import Optional
 import urllib.error
 import urllib.request
 
@@ -47,6 +48,7 @@ RESULTS = os.path.join(HERE, "runs")        # gitignored
 # on 2026-10-07, whose rates apply to prompts up to 100K tokens).
 PRICES = {
     "gpt-6.1-sol":   (2.00, 10.00),
+    "gpt-6.1-terra": (1.00, 5.00),
     "gpt-6-sol":     (2.00, 10.00),
     "gpt-6-luna":    (0.10, 0.50),
     "gpt-5.6-sol":   (4.00, 20.00),
@@ -88,7 +90,7 @@ def provider_of(model: str) -> str:
         return "openrouter"
     return "anthropic" if model.startswith("claude-") else "gemini" if model.startswith("gemini-") else "openai"
 
-# AIRequestShape::setOpenRouterReasoning: "none" for Luna, "enabled" for
+# AIRequestShape::setOpenRouterAdvisorReasoning: "medium" for Luna, "enabled" for
 # Gemma, "low" for the app's other OpenRouter models. A candidate outside the
 # catalog is sent nothing, i.e. the model's own default.
 OPENROUTER_CATALOG_LOW = {"openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
@@ -101,8 +103,10 @@ DEFAULT_EFFORT = "app"            # each model's own setting, as below
 
 
 def openai_app_effort(model: str) -> str:
-    """AIRequestShape::disableOpenAIReasoning: gpt-6.1-sol takes no "none"."""
-    return "low" if model == "gpt-6.1-sol" else "none"
+    """AIRequestShape::setOpenAIAdvisorReasoning: Terra low, Luna medium."""
+    if model == "gpt-6-luna":
+        return "medium"
+    return "low" if model in ("gpt-6.1-sol", "gpt-6.1-terra") else "none"
 
 # structuredNext contract — src/ai/shotsummarizer.cpp, "Response Format".
 REQUIRED_FIELDS = ["expectedDurationSec", "expectedFlowMlPerSec",
@@ -293,7 +297,7 @@ def call(key: str, model: str, effort: str, system: str, user: str):
             if effort != "app":
                 body["reasoning"] = {"effort": effort}
             elif model == "openai/gpt-6-luna":
-                body["reasoning"] = {"effort": "none"}
+                body["reasoning"] = {"effort": "medium"}
             elif model == "google/gemma-4-31b-it":
                 body["reasoning"] = {"enabled": True}
             elif model in OPENROUTER_CATALOG_LOW:
@@ -335,11 +339,11 @@ def call_openai(key: str, model: str, effort: str, system: str, user: str):
             payload = json.loads(r.read())
         choice = payload["choices"][0]
         content = choice["message"]["content"]
-        if content is None:
-            return None, "null content (refusal?)", payload.get("usage", {}), None
         usage = payload.get("usage", {})
         usage["reasoning_tokens"] = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
         usage["cached_tokens"] = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        if content is None:
+            return None, "null content (refusal?)", usage, choice.get("finish_reason")
         return content, None, usage, choice.get("finish_reason")
     except urllib.error.HTTPError as e:
         return None, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}", {}, None
@@ -385,15 +389,18 @@ def audit_block(text: str) -> dict:
     }
 
 
-def spend(model: str, usage: dict) -> float:
+def spend(model: str, usage: dict) -> Optional[float]:
+    """Reported bill or uncached estimate; None when usage/pricing is unavailable."""
     if usage.get("cost") is not None:      # OpenRouter bills and reports it per call
         return float(usage["cost"])
+    if not any(field in usage for field in ("prompt_tokens", "completion_tokens")):
+        return None
     if model not in PRICES:
         # Silence here would report $0.0000 for exactly the case this harness
         # exists to serve: a model too new to be in the table.
         print(f"  warning: no price for {model} — its spend is NOT counted",
               file=sys.stderr)
-        return 0.0
+        return None
     pin, pout = PRICES[model]
     return (usage.get("prompt_tokens", 0) * pin
             + usage.get("completion_tokens", 0) * pout) / 1_000_000
@@ -405,6 +412,14 @@ def write_key(outdir: str, keymap: dict) -> None:
 
 
 def run(args) -> None:
+    outdir = os.path.join(RESULTS, args.mode + (f"-{args.label}" if args.label else ""))
+    os.makedirs(outdir, exist_ok=True)
+    usage_path = os.path.join(outdir, "usage.json")
+    usage_records = []
+    # Reset before key lookup or requests: a failed rerun must not expose an
+    # earlier run's metering as if it belonged to this attempt.
+    with open(usage_path, "w") as f:
+        json.dump(usage_records, f, indent=2)
     scenarios = load_scenarios(args.scenarios, args.mode, args.captured)
     # model[@effort]: an @ pins that model's effort (gpt-6.1-sol takes no "none"); on
     # Anthropic it means adaptive thinking at that effort, on OpenRouter reasoning.effort.
@@ -412,11 +427,9 @@ def run(args) -> None:
     efforts = [e.strip() for e in args.efforts.split(",") if e.strip()]
     models = [m.split("@")[0] for m in specs]
     keys = {p: api_key(p) for p in {provider_of(m) for m in models}}
-    outdir = os.path.join(RESULTS, args.mode + (f"-{args.label}" if args.label else ""))
-    os.makedirs(outdir, exist_ok=True)
-
     rng = random.Random(args.seed)
-    keymap, results, total = {}, {}, 0.0
+    keymap, results = {}, {}
+    cost_totals = {}
 
     for scen in scenarios:
         with open(os.path.join(args.captured, scen["key"] + ".json")) as f:
@@ -443,6 +456,23 @@ def run(args) -> None:
         for i, (model, effort) in enumerate(combos):
             text, err, usage, finish = call(keys[provider_of(model)], model, effort, system, user)
             tag = f"{model}/{effort}"
+            # A response-level error may still have spent a reasoning budget
+            # or incurred a reported bill. Persist metering before handling it.
+            record = {"scenario": scen["key"], "model": model, "effort": effort,
+                      "usage": usage, "finish": finish}
+            if err:
+                record["error"] = err
+            cost = spend(model, usage)
+            if cost is not None:
+                cost_field = ("reported_cost_usd" if usage.get("cost") is not None
+                              else "uncached_cost_usd")
+                cost_totals[cost_field] = cost_totals.get(cost_field, 0.0) + cost
+                record[cost_field] = cost
+            # Keep metering separately from blinded replies. Open only after
+            # judging: token counts and effort can reveal model identity.
+            usage_records.append(record)
+            with open(usage_path, "w") as f:
+                json.dump(usage_records, f, indent=2)
             if err:
                 # Record it. Skipping made an errored call print as "n" in the
                 # summary — indistinguishable from the model omitting the block,
@@ -454,7 +484,6 @@ def run(args) -> None:
                     keymap[scen["key"]][labels[i]] = tag
                     write_key(outdir, keymap)
                 continue
-            total += spend(model, usage)
             reasoning = usage.get("reasoning_tokens", 0)
             a = audit_block(text)
             results[(scen["key"], model, effort)] = a
@@ -524,7 +553,16 @@ def run(args) -> None:
                 extra = ("   " + "  ".join(flags)) if flags else ""
                 print(f"  {model:15s} {effort:5s} {' '.join(cells)}{extra}")
 
-    print(f"\nTotal spend: ${total:.4f}")
+    for field, label in (
+        ("uncached_cost_usd", "Token-rate cost estimate (before cache adjustments)"),
+        ("reported_cost_usd", "Provider-reported cost (billing adjustments included)"),
+    ):
+        if field in cost_totals:
+            print(f"\n{label}: ${cost_totals[field]:.4f}")
+    unmetered = sum("uncached_cost_usd" not in r and "reported_cost_usd" not in r
+                    for r in usage_records)
+    if unmetered:
+        print(f"\nCost unavailable for {unmetered} call(s); excluded from cost totals.")
 
 
 def reveal(args) -> None:

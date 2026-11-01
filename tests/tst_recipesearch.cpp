@@ -61,6 +61,8 @@ private slots:
     // Settings search ranking, typo/accent tolerance, AND, and availability filtering
     void settingsSearch_data();
     void settingsSearch();
+    // Recent picks: ids unique across the index, resolved in order, dropped when not offered
+    void settingsRecentIds();
 
 private:
     QJSEngine m_engine;
@@ -549,6 +551,15 @@ void TestRecipeSearch::settingsSearch_data()
     QTest::newRow("production log download is searchable")
         << "save log zip" << QStringList{} << QVariantMap()
         << "debug/debugLogDownload" << "" << "" << "adjustment:Save log ZIP";
+    QTest::newRow("weight timed steam outside settings")
+        << "weight timed steaming" << all << QVariantMap()
+        << "steam" << "" << "" << "external:Enable weight-timed steaming";
+    QTest::newRow("graph trace keyword opens curve settings")
+        << "conductance" << all << QVariantMap()
+        << "" << "graphCurves" << "" << "";
+    QTest::newRow("short typo in a multiword query")
+        << "ht water temperature" << all << QVariantMap()
+        << "" << "hotWater" << "" << "";
 }
 
 void TestRecipeSearch::settingsSearch()
@@ -577,6 +588,37 @@ void TestRecipeSearch::settingsSearch()
         const QJSValue top = results.property(0);
         QCOMPARE(top.property("kind").toString() + ":" + top.property("title").toString(), firstItem);
     }
+}
+
+void TestRecipeSearch::settingsRecentIds()
+{
+    const QJSValue all = settingsMatcher({"android", "windows", "simulator", "debug", "debugWindows"});
+    QVERIFY2(!all.isError(), qPrintable(all.toString()));
+    const QJSValue items = all.property("search").call({QString()});
+    QStringList ids, dups;
+    for (int i = 0; i < items.property("length").toInt(); ++i) {
+        const QString id = items.property(i).property("id").toString();
+        if (ids.contains(id))
+            dups << id;
+        ids << id;
+    }
+    // A shared id would make a recent pick open a different setting than the one tapped.
+    QVERIFY2(dups.isEmpty(), qPrintable(dups.join(", ")));
+
+    const QString launcher = "machine/launcherMode/settings.options.useAsLauncher";
+    const QString backup = "historyData/dailyBackup/settings.data.dailybackup";
+    QVERIFY2(ids.contains(launcher) && ids.contains(backup), "fixture ids no longer in the index");
+    const QJSValue picks = m_engine.toScriptValue(QStringList{backup, "gone/card/key", launcher});
+    const auto lookedUp = [&](const QJSValue& matcher) {
+        QStringList out;
+        const QJSValue r = matcher.property("lookup").call({picks});
+        for (int i = 0; i < r.property("length").toInt(); ++i)
+            out << r.property(i).property("id").toString();
+        return out;
+    };
+    // Pick order is the reverse of index order, so a lookup that filters the index fails.
+    QCOMPARE(lookedUp(all), (QStringList{backup, launcher}));
+    QCOMPARE(lookedUp(settingsMatcher({"simulator"})), QStringList{backup});
 }
 
 QTEST_MAIN(TestRecipeSearch)

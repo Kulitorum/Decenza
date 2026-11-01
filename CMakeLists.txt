@@ -144,7 +144,7 @@ endif()
 option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" ${_tsnet_default})
 
 # Qt 6 modules - core required components
-find_package(Qt6 REQUIRED COMPONENTS
+find_package(Qt6 6.12.0 REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui
@@ -806,6 +806,8 @@ set(SOURCES
     src/controllers/preparationcontroller.h
     src/controllers/steamautoflushcontroller.cpp
     src/controllers/steamautoflushcontroller.h
+    src/controllers/drinksequencecontroller.cpp
+    src/controllers/drinksequencecontroller.h
     src/core/preparationstate.cpp
     src/core/preparationstate.h
     src/core/stableweightcapture.cpp
@@ -1154,6 +1156,8 @@ set(HEADERS
     src/core/basketaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
+    src/core/uiworkprobe.h
+    src/core/uiworkstats.h
     src/core/memorymonitor.h
     src/core/fddiagnostics.h
     src/core/logcollapse.h
@@ -1184,9 +1188,11 @@ set(HEADERS
     src/ble/portallogging.h
     src/controllers/portalcontroller.h
     src/ble/belkaportaldiscovery.h
+    src/ble/refractometerrecovery.h
     src/ble/blemanager.h
     src/ble/de1transport.h
     src/ble/de1device.h
+    src/ble/firmwarewritetiming.h
     src/ble/bletransport.h
     src/ble/scaledevice.h
     src/ble/scaledeviceproxy.h
@@ -1288,6 +1294,7 @@ set(HEADERS
     src/models/flowcalibrationmath.h
     src/network/shotserver.h
     src/network/shotservertls.h
+    src/network/tlspemwriter.h
     src/network/mqttclient.h
     src/network/mdnsresolver.h
     src/network/wifiscaleresult.h
@@ -1329,6 +1336,7 @@ endif()
 
 # Simulator engine headers - always included (see source section comment)
 list(APPEND HEADERS
+    src/simulator/firmwareflashsimulator.h
     src/simulator/de1simulator.h
     src/simulator/simulatedscale.h
     src/simulator/ghcsimulator.h
@@ -1702,8 +1710,6 @@ set(QML_FILES
     qml/components/graphs/DecenzaGraphsTheme.qml
     qml/components/ActionButton.qml
 	qml/components/BrewDialog.qml
-    qml/components/CircularGauge.qml
-    qml/components/ConnectionIndicator.qml
     qml/components/LiveCoachingBanner.qml
     qml/components/FavoritesListView.qml
     qml/components/FavoritesRowAction.qml
@@ -1756,6 +1762,7 @@ set(QML_FILES
     qml/components/SharedBottomBar.qml
     qml/components/SharedBottomBarStyle.qml
     qml/components/ThemeViewport.qml
+    qml/components/SharedMarkdownSource.qml
     qml/components/SharedSectionHeader.qml
     qml/components/NativeBottomBarStyle.qml
     qml/components/BottomBarSubtitle.qml
@@ -1876,7 +1883,6 @@ set(QML_FILES
     qml/components/CurrentPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
     qml/components/ThemeAdvancedDialog.qml
-    qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml
     qml/components/HistoryShotGraph.qml
     qml/components/GraphInspectBar.qml

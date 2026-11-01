@@ -586,6 +586,7 @@ ApplicationWindow {
     Connections {
         target: AppShell
         function onBrowserDialogDraftsDirtyChanged() { window.updateBeforeUnloadRequirement() }
+        function onScreensaverInhibitedChanged() { Qt.callLater(window.synchronizeSleepNavigation) }
     }
     Connections {
         target: HomePresetActions
@@ -606,10 +607,11 @@ ApplicationWindow {
         postShotReviewHandler: window.openPostShotReview
         onWakeRequested: window.synchronizeSleepNavigation()
         onBrewSettingsRequested: globalBrewDialog.open()
+        onBrewSettingRequested: title => globalBrewDialog.openSearchResult(title)
         onCompletionSuspendRequested: completionOverlay.suspend()
         onCompletionFinishRequested: completionOverlay.finish()
         onOperationNavigationStarting: window.syncCurrentNavigationContext()
-        onOperationNavigated: (component, action) => window.syncTrackedPage(component, ({}), action)
+        onOperationNavigated: (component, action, properties) => window.syncTrackedPage(component, properties, action)
         onCurrentItemChanged: {
             Qt.callLater(window.synchronizeSleepNavigation)
             if (AppShell.pendingBrewDialog) {
@@ -634,6 +636,7 @@ ApplicationWindow {
         return navigation.showOperationPage(component, pageObjectName)
     }
     EspressoCompletionCoordinator {
+        id: espressoCompletion
         isCalibrationShot: window.pageStack.find(item => item.objectName === "sensorCalibrationPage") !== null
         postShotReviewTimeout: Number(RecipeContext.preferences.postShotReviewTimeout)
         onLeaveOperationPageRequested: window.leaveOperationPage()
@@ -693,7 +696,8 @@ ApplicationWindow {
     function synchronizeSleepNavigation() {
         if (!window.recipeServicesReady || !window.browserRouteHistoryReady
                 || window.applyingBrowserHistory || pageStack.busy) return
-        if (ScreensaverService.state.screensaverActive && !navigation.screensaverActive) {
+        if (ScreensaverService.state.screensaverActive && !navigation.screensaverActive
+                && !AppShell.screensaverInhibited) {
             if (navigation.currentItem) PopupCloser.closeAllUnder(navigation.currentItem)
             // Sleep is transient presentation, not another browser Back step.
             window.pushTrackedPage(navigation.screensaverPage, {}, true)
@@ -735,7 +739,8 @@ ApplicationWindow {
         const previous = window.previousMachinePhase
         window.previousMachinePhase = phase
 
-        const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+        const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase,
+                                                                              AppShell.drinkInCupView)
         if (previous !== phase && operationPage !== "") {
             completionOverlay.cancel()
             navigation.showMachineOperation(phase)
@@ -745,7 +750,9 @@ ApplicationWindow {
             if (previous === MachineState.Phase.Steaming && name === "steamPage") {
                 completionOverlay.showCompletion(
                     TranslationManager.translate("main.completion.steam", "Steam Complete"), "steam")
-            } else if (previous === MachineState.Phase.HotWater && name === "hotWaterPage") {
+            } else if (previous === MachineState.Phase.HotWater
+                       && (name === "hotWaterPage" || name === "espressoPage")
+                       && !espressoCompletion.heldForDrink) {
                 completionOverlay.showCompletion(
                     TranslationManager.translate("main.completion.hotwater", "Hot Water Complete"), "hotwater")
             } else if (previous === MachineState.Phase.Flushing && name === "flushPage"

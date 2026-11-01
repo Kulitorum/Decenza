@@ -19,7 +19,7 @@ import urllib.request
 # --openrouter (comma-separated) to probe candidates.
 ANTHROPIC_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
 GEMINI_MODELS = ["gemini-3.8-flash"]
-OPENAI_MODELS = ["gpt-6.1-sol", "gpt-6-luna"]
+OPENAI_MODELS = ["gpt-6.1-sol", "gpt-6-luna", "gpt-6.1-terra"]
 OPENROUTER_MODELS = ["openai/gpt-6-luna", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
                      "anthropic/claude-haiku-5.5",
                      "google/gemini-3.8-flash", "z-ai/glm-5.3-flash", "google/gemma-4-31b-it"]
@@ -45,6 +45,12 @@ def openai_effort(model: str) -> str:
     return "low" if model == "gpt-6.1-sol" else "none"
 
 
+def openai_advisor_effort(model: str) -> str:
+    if model == "gpt-6-luna":
+        return "medium"
+    return "low" if model in ("gpt-6.1-sol", "gpt-6.1-terra") else "none"
+
+
 def openai_takes_temperature(model: str) -> bool:
     return model != "gpt-6.1-sol"
 
@@ -53,6 +59,10 @@ def openrouter_reasoning(model: str) -> dict:
     if model == "google/gemma-4-31b-it":
         return {"enabled": True}
     return {"effort": "none" if model == "openai/gpt-6-luna" else "low"}
+
+
+def openrouter_advisor_reasoning(model: str) -> dict:
+    return {"effort": "medium"} if model == "openai/gpt-6-luna" else openrouter_reasoning(model)
 
 
 def setting(key: str) -> str:
@@ -186,13 +196,14 @@ def check_openai() -> None:
     ok = [{"role": "user", "content": "Reply with the single word: ok"}]
     for model in OPENAI_MODELS:
         effort = openai_effort(model)
+        advisor_effort = openai_advisor_effort(model)
         translator = {"model": model, "reasoning_effort": effort, "messages": ok}
         if openai_takes_temperature(model):
             translator["temperature"] = 0.3
         for body, label in (
             # OpenAIProvider::analyze()
-            ({"model": model, "max_completion_tokens": 4096, "reasoning_effort": effort,
-              "messages": ok}, f"advisor: reasoning_effort={effort}"),
+            ({"model": model, "max_completion_tokens": 4096, "reasoning_effort": advisor_effort,
+              "messages": ok}, f"advisor: reasoning_effort={advisor_effort}"),
             # TranslationManager
             (translator, f"translator: reasoning_effort={effort}"
                          + (" + temperature=0.3" if "temperature" in translator else "")),
@@ -219,9 +230,11 @@ def check_openrouter() -> None:
     for model in OPENROUTER_MODELS:
         # analyze() at the advisor cap, and testConnection()'s 10-token request.
         for max_tokens in (4096, 10):
+            reasoning = (openrouter_advisor_reasoning(model) if max_tokens == 4096
+                         else openrouter_reasoning(model))
             status, payload = post("https://openrouter.ai/api/v1/chat/completions", headers,
                                    {"model": model, "max_tokens": max_tokens,
-                                    "reasoning": openrouter_reasoning(model),
+                                    "reasoning": reasoning,
                                     "messages": [{"role": "user", "content": "Reply with the single word: ok"}]})
             print(f"  {'PASS' if status == 200 else 'FAIL'}  {model} max_tokens={max_tokens}"
                   f"{'' if status == 200 else f' ({status}): ' + msg(payload)}")

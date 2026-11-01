@@ -7,6 +7,17 @@ import Decenza
 
 DecenzaDialog {
     id: root
+
+    function openSearchResult(title) {
+        open()
+        Qt.callLater(function() {
+            const row = SettingsSearchLocator.findRow(mainColumn, title)
+            if (!row) return
+            const pos = row.mapToItem(brewFlickable.contentItem, 0, 0)
+            brewFlickable.contentY = Math.max(0, Math.min(pos.y - Theme.scaled(10),
+                brewFlickable.contentHeight - brewFlickable.height))
+        })
+    }
     parent: Overlay.overlay
     anchors.centerIn: parent
     // 520 on tablets; caps to the viewport so it can't overflow a narrow phone
@@ -503,8 +514,8 @@ DecenzaDialog {
                 && Number(dialog.activeBaselineYieldValue) === Number(expected.yieldValue)
                 && dialog.activeBaselineYieldMode === expected.yieldMode
         if (kind === "recipe-temperature") {
-            var profileTemperature = Number(next.profileTemperatureC)
-            var tempOffset = Number(expected.tempOffsetC)
+            const profileTemperature = Number(next.profileTemperatureC)
+            const tempOffset = Number(expected.tempOffsetC)
             const shouldOverrideTemperature = profileTemperature > 0 && Math.abs(tempOffset) > 0.05
             const expectedTemperature = shouldOverrideTemperature
                 ? profileTemperature + tempOffset : 0
@@ -1318,6 +1329,9 @@ DecenzaDialog {
                     // profileTemperature, so this is byte-identical to before.
                     ValueInput {
                         id: tempInput
+                        SettingsSearch.route: "brew"
+                        SettingsSearch.title: TranslationManager.translate("brewDialog.brewTempDelta", "Brew temperature offset")
+                        SettingsSearch.keywords: ["brew", "temperature", "offset"]
                         Layout.fillWidth: true
                         // The offset is entered/shown in the user's unit (a delta scales
                         // ×9/5 for °F, no origin shift); stored back as a Celsius delta.
@@ -1460,6 +1474,9 @@ DecenzaDialog {
 
                 ValueInput {
                     id: doseInput
+                    SettingsSearch.route: "brew"
+                    SettingsSearch.title: TranslationManager.translate("brewDialog.doseWeight", "Dose weight")
+                    SettingsSearch.keywords: ["brew", "coffee", "dose", "beans"]
                     Layout.fillWidth: true
                     // Overridden ⟺ Clear would change it (Clear restores the bag's
                     // remembered dose, else 18 g).
@@ -1543,6 +1560,9 @@ DecenzaDialog {
 
                 ValueInput {
                     id: cupTareInput
+                    SettingsSearch.route: "brew"
+                    SettingsSearch.title: TranslationManager.translate("brewDialog.doseCupWeight", "Dose cup weight")
+                    SettingsSearch.keywords: ["dose", "cup", "tare", "scale"]
                     Layout.fillWidth: true
                     value: Number(root.preferences.doseCupTareWeight || 0)
                     from: 0
@@ -1576,6 +1596,9 @@ DecenzaDialog {
                     Layout.preferredWidth: Theme.scaled(36)
                     Layout.preferredHeight: Theme.scaled(36)
                     Layout.alignment: Qt.AlignVCenter
+                    SettingsSearch.route: "brew"
+                    SettingsSearch.title: TranslationManager.translate("settings.search.captureSound", "Weight capture sound")
+                    SettingsSearch.keywords: ["capture", "sound", "bell", "beep", "scale"]
 
                     Image {
                         id: dingBell
@@ -1633,6 +1656,9 @@ DecenzaDialog {
                 // did not).
                 Rectangle {
                     id: ratioPick
+                    SettingsSearch.route: "brew"
+                    SettingsSearch.title: TranslationManager.translate("brewDialog.brewRatio", "Brew ratio")
+                    SettingsSearch.keywords: ["brew", "ratio", "yield"]
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
                     // Overridden ≈ Clear would change it: the baseline ratio
@@ -1727,6 +1753,9 @@ DecenzaDialog {
 
                     ValueInput {
                         id: targetInput
+                        SettingsSearch.route: "brew"
+                        SettingsSearch.title: TranslationManager.translate("brewDialog.stopAtWeight", "Stop at weight")
+                        SettingsSearch.keywords: ["brew", "yield", "weight", "target"]
                         Layout.fillWidth: true
                         // Overridden ≈ Clear would change it. The baseline is
                         // the anchor pair's stop-at (baselineStopAt): the
@@ -1887,6 +1916,9 @@ DecenzaDialog {
                 }
 
                 GrindField {
+                    SettingsSearch.route: "brew"
+                    SettingsSearch.title: TranslationManager.translate("brewDialog.grinderSetting", "Grinder setting")
+                    SettingsSearch.keywords: ["brew", "grinder", "grind", "rpm"]
                     // Content-hugging, like the other value controls in this
                     // dialog — a full-width box around a short grind value
                     // reads wrong next to the steppers.

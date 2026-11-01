@@ -718,6 +718,9 @@ TestCase {
     }
 
     function init() {
+        browserBackDialogTest.close()
+        browserBackDialogTest.inhibitScreensaver = false
+        browserBackDialogTest.browserUnloadDirty = true
         conversationFocusDialog.close()
         tryCompare(conversationFocusDialog, "visible", false)
         equipmentImeTarget = null
@@ -1494,6 +1497,33 @@ TestCase {
         compare(AppShell.consumeBrowserBack(), false)
     }
 
+    function test_firmwareDialogInhibitsScreensaverUntilClosed() {
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.inhibitScreensaver = true
+        browserBackDialogTest.open()
+        tryCompare(browserBackDialogTest, "visible", true)
+        compare(AppShell.screensaverInhibited, true)
+        browserBackDialogTest.inhibitScreensaver = false
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.inhibitScreensaver = true
+        compare(AppShell.screensaverInhibited, true)
+        // Firmware state may change or the panel may remain loaded: the visible
+        // dialog owns the inhibition until it is explicitly closed.
+        browserBackDialogTest.browserUnloadDirty = false
+        compare(AppShell.screensaverInhibited, true)
+        browserBackDialogTest.close()
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.inhibitScreensaver = false
+        browserBackDialogTest.browserUnloadDirty = true
+    }
+
+    function test_ordinaryDialogDoesNotInhibitScreensaver() {
+        browserBackDialogTest.open()
+        tryCompare(browserBackDialogTest, "visible", true)
+        compare(AppShell.screensaverInhibited, false)
+        browserBackDialogTest.close()
+    }
+
     function test_modalConversationBoundaryContainsTabAndRestoresPreviousFocus() {
         passwordField.forceActiveFocus(Qt.TabFocusReason)
         verify(passwordField.activeFocus)
@@ -1893,6 +1923,86 @@ TestCase {
         compare(sharedEquipmentDialogTest.saveError, equipmentDialogStrings.equipmentChanged)
         verify(findVisibleTextItem(sharedEquipmentDialogTest, equipmentDialogStrings.equipmentChanged) !== null)
         compare(equipmentPackageSavedSpy.count, 0)
+    }
+
+    Component {
+        id: markdownSnapshotComponent
+        Item {
+            id: snapshotView
+            property var snapshot: ({ app: {releaseNotes: "First notes"}, firmware: {progress: 0} })
+            SharedMarkdownSource {
+                id: parsedNotes
+                markdown: snapshotView.snapshot.app.releaseNotes
+            }
+            readonly property string inlineHtml: parsedNotes.html
+            readonly property string popupHtml: parsedNotes.html
+        }
+    }
+
+    Component {
+        id: conversationSnapshotComponent
+        Item {
+            id: conversationView
+            property var state: ({ transcript: "Saved advice", busy: false })
+            SharedMarkdownSource {
+                id: overlayTranscript
+                markdown: conversationView.state.transcript || ""
+            }
+            SharedMarkdownSource {
+                id: settingsTranscript
+                markdown: conversationView.state.transcript || ""
+            }
+            TextArea { id: overlayText; text: overlayTranscript.html; textFormat: Text.RichText }
+            TextArea { id: settingsText; text: settingsTranscript.html; textFormat: Text.RichText }
+            readonly property string overlayContent: overlayText.text ? overlayText.getText(0, overlayText.length) : ""
+            readonly property string settingsContent: settingsText.text ? settingsText.getText(0, settingsText.length) : ""
+        }
+    }
+
+    function test_conversationStatusChangesDoNotReparseTranscripts() {
+        const view = createTemporaryObject(conversationSnapshotComponent, testCase)
+        verify(view !== null)
+        compare(view.overlayContent, "Saved advice")
+        compare(view.settingsContent, view.overlayContent)
+        const before = MarkdownRenderer.calls()
+        for (let i = 0; i < 100; ++i) {
+            view.state = { transcript: "Saved advice", busy: i % 2 === 0,
+                           hasSavedConversation: i % 3 === 0, messageCount: i }
+            compare(view.overlayContent, "Saved advice")
+            compare(view.settingsContent, view.overlayContent)
+        }
+        compare(MarkdownRenderer.calls(), before)
+        view.state = { transcript: "Fresh advice", busy: false }
+        compare(view.overlayContent, "Fresh advice")
+        compare(view.settingsContent, view.overlayContent)
+        compare(MarkdownRenderer.calls(), before + 2)
+        view.state = { transcript: "", busy: false }
+        compare(view.overlayContent, "")
+        compare(view.settingsContent, view.overlayContent)
+        compare(MarkdownRenderer.calls(), before + 4)
+    }
+
+    function test_firmwareProgressDoesNotReparseReleaseNotes() {
+        const view = createTemporaryObject(markdownSnapshotComponent, testCase)
+        verify(view !== null)
+        compare(view.inlineHtml, "<p>First notes</p>")
+        compare(view.popupHtml, view.inlineHtml)
+        const before = MarkdownRenderer.calls()
+        // Replacing both nested maps reproduces the host's whole-state snapshots.
+        for (let i = 1; i <= 100; ++i) {
+            view.snapshot = { app: {releaseNotes: "First notes"}, firmware: {progress: i / 100} }
+            compare(view.inlineHtml, "<p>First notes</p>")
+            compare(view.popupHtml, view.inlineHtml)
+        }
+        compare(MarkdownRenderer.calls(), before)
+        view.snapshot = { app: {releaseNotes: "New notes"}, firmware: {progress: 1} }
+        compare(view.inlineHtml, "<p>New notes</p>")
+        compare(view.popupHtml, view.inlineHtml)
+        compare(MarkdownRenderer.calls(), before + 1)
+        view.snapshot = { app: {releaseNotes: ""}, firmware: {progress: 1} }
+        compare(view.inlineHtml, "<p></p>")
+        compare(view.popupHtml, view.inlineHtml)
+        compare(MarkdownRenderer.calls(), before + 2)
     }
 
 }

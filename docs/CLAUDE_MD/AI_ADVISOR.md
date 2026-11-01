@@ -62,18 +62,18 @@ still works, exactly as before.
 | Provider | Models (first = default) | Thinking setting | Caching | Cost |
 |----------|-------------------------|--------------|---------|------|
 | Anthropic | Sonnet 5.5, Haiku 5.5 | `thinking: between_tools` (Sonnet); Haiku: `adaptive` at `effort: low` on analysis requests, `disabled` elsewhere | Explicit `cache_control`, **5-minute** TTL, on the system prompt and the first user message | Cloud |
-| OpenAI | GPT-6.1 Sol, GPT-6 Luna | `reasoning_effort`: `low` (Sol), `none` (Luna) | Automatic for prefixes over 1,024 tokens; 30-minute default on GPT-5.6 and later | Cloud |
+| OpenAI | GPT-6.1 Sol, GPT-6 Luna, GPT-6.1 Terra | `reasoning_effort`: advisor `low` (Sol/Terra), `medium` (Luna); translation `none` (Terra/Luna) | Automatic for prefixes over 1,024 tokens; 30-minute default on GPT-5.6 and later | Cloud |
 | Google Gemini | 3.8 Flash | `thinkingLevel`: `low` | Implicit, automatic (system prompt first); it did not hit on 3.8 Flash in testing | Cloud |
-| OpenRouter | GPT-6 Luna, GPT-6.1 Sol, Sonnet 5.5, Haiku 5.5, Gemini 3.8 Flash, GLM-5.3 Flash, Gemma 4 31B | `reasoning`: `effort: none` (Luna), `enabled: true` (Gemma), `effort: low` (the rest, where reasoning is mandatory and `none` is a 400) | Passes through | Cloud |
+| OpenRouter | GPT-6 Luna, GPT-6.1 Sol, Sonnet 5.5, Haiku 5.5, Gemini 3.8 Flash, GLM-5.3 Flash, Gemma 4 31B | `reasoning`: advisor `effort: medium` (Luna; Test Connection uses `none`), `enabled: true` (Gemma), `effort: low` (the rest, where reasoning is mandatory and `none` is a 400) | Passes through | Cloud |
 | Ollama | User-selected | none sent | N/A | Local/free |
 
 The thinking settings live in one header, `src/ai/airequestshape.h`, shared by the advisor and the bulk translator; `tst_aiproviders` holds the live-verified table and fails for a catalogued model that is not in it (`tools/ai_model_eval/probe_request_shape.py` checks a candidate). A saved model the catalog no longer offers is cleared at startup (`AIManager::savedModelFor`), and an empty one means the default.
 
 #### Model-selection rationale (2026-10-05)
 
-One **balanced** and one **value** pick per provider, each the newest of its tier unless an older model is much cheaper. Flagship tiers (Opus 5.5 at $4/$20 with thinking that cannot be turned off, GPT-6 Astra, Gemini Pro) cost two or more times the balanced pick for no gain on this task.
+One **balanced** and one **value** pick per provider (plus optional GPT-6.1 Terra on OpenAI), each the newest of its tier unless an older model is much cheaper. Flagship tiers (Opus 5.5 at $4/$20 with thinking that cannot be turned off, GPT-6 Astra, Gemini Pro) cost two or more times the balanced pick for no gain on this task.
 
-- **OpenAI**: `gpt-6.1-sol` ($2/$10) and `gpt-6-luna` ($0.10/$0.50) replace Terra, Luna 5.6, 5.4 and 5.4 mini — the same or lower price, a generation newer. Luna is the only value-tier model with no bad advice on the final prompt, which makes it the best value overall. Sol rejects `reasoning_effort: "none"` (lowest is `"low"`) and, at that effort, any `temperature` but the default; the translator omits temperature for it (`setOpenAITemperature`).
+- **OpenAI**: `gpt-6.1-sol` ($2/$10) and `gpt-6-luna` ($0.10/$0.50) replaced Terra 5.6, Luna 5.6, 5.4 and 5.4 mini — the same or lower price, a generation newer. Luna is the only value-tier model with no bad advice on the final prompt, which makes it the best value overall. Sol rejects `reasoning_effort: "none"` (lowest is `"low"`) and, at that effort, any `temperature` but the default; the translator omits temperature for it (`setOpenAITemperature`).
 - **Anthropic**: `claude-sonnet-5-5` and `claude-haiku-5-5` ($0.10/$0.50 for prompts up to 100K tokens), the value pick. With thinking off, Haiku 5.5 gave bad advice on 4 of 12 replayed shots, the same direction reversals Haiku 4.5 made. With adaptive thinking at `effort: low` it gave bad advice on none of 12, for about $0.0005 more per shot, so `AIRequestShape::setAnthropicAdvisorThinking` turns thinking on for the advisor's analysis requests only. Test Connection's 10-token request cannot hold thinking (#1691). Sonnet 5.5 rejects `thinking: disabled` and asks for `between_tools`.
 - **OpenRouter**: the direct providers' models at their per-token price (plus a 5.5% fee on card credit purchases), Luna first as the default, and two cheap extras on the maintainer's call: GLM-5.3 Flash and Gemma 4 31B. Both gave right grind advice on the two scenarios tried but stated a guessed taste, which the prompt forbids, so they are the exception to the no-bad-advice rule below and carry less evidence than Luna. Six other cheap models failed; per-model results in the README findings log, 2026-10-06.
 - **Gemini**: `gemini-3.8-flash` ($0.75/$3.75, half of 3.5 Flash) only. A value pick must not give bad advice: on the final prompt 3.5 Flash-Lite reversed a grind direction and advised on an untasted blowout, 3.1 Flash-Lite jumped three steps on a prep failure, and 2.5 Flash went finer on a bitter shot. 3.8 Flash rejects `thinkingLevel: "minimal"`; `"low"` reported no thinking tokens. Google's page flags a price change for 3.8 Flash on January 1, 2027. With thinking on, 3.5 and 3.1 Flash-Lite would cost about $0.008 and $0.006 a shot against 3.8 Flash's $0.012, too small a saving to fill the value slot (maintainer, 2026-10-07).
@@ -81,6 +81,92 @@ One **balanced** and one **value** pick per provider, each the newest of its tie
 Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings log, 2026-10-05). On the trimmed prompt every catalog model emitted a usable block on every tasted scenario: `bitter-over`'s prose stop-weight change became a `targetWeightG`, and Sol's prose `grinderSetting` went away.
 
 **Caching: 5 minutes, not 1 hour, on Anthropic.** On Sonnet 5.5's ~15.4K cached tokens: the input cost of those tokens for one analysis plus two quick follow-ups is $0.045 at 5m, $0.068 at 1h, $0.093 uncached; for a lone analysis $0.039 / $0.062 / $0.031. 1h only wins when the next question comes 5–60 minutes later (a 10-minute dial-in rhythm), judged the uncommon case. Each read restarts the TTL. Sonnet 5.5's tokenizer counts ~60% more tokens than OpenAI's for the same prompt (20.9K vs 13.1K).
+
+#### OpenAI pricing verification (2026-10-30)
+
+GPT-6.1 Terra is the third OpenAI option; Sol remains the default. The live
+request-shape probe accepted Terra's advisor `reasoning_effort: none`, translator
+`temperature: 0.3` at that effort, and Responses `web_search` at `low`.
+
+Standard USD per million tokens, for prompts up to 272K tokens, verified against
+[OpenAI pricing](https://developers.openai.com/api/docs/pricing) and the
+[Terra model page](https://developers.openai.com/api/docs/models/gpt-6.1-terra):
+
+| Model | Input | Output | Cached input | Cache write (30m / 12h) |
+|---|---|---|---|---|
+| GPT-6.1 Sol | $2.00 | $10.00 | $0.10 | $2.50 / $5.00 |
+| GPT-6.1 Terra | $1.00 | $5.00 | $0.05 | $1.25 / $2.50 |
+| GPT-6 Luna | $0.10 | $0.50 | $0.01 | $0.125 / $0.25 |
+
+The existing Sol and Luna token rates remain correct. Per-shot hints are estimates
+for one analysis; follow-up turns, web tools, caching and reasoning can change the
+bill. Terra uses `low` reasoning for advisor analysis and conversations; translation
+keeps `none` with temperature 0.3. On the saved October 7 `captured_v4` prompts,
+reasoning off produced usable next-shot blocks on 13/16 tasted responses across
+three runs. Low and medium each produced 8/8 over two runs, with the taste gate
+intact on 4/4 untasted responses per effort. No grind-direction reversals or
+prose settings appeared. The current blowout prompted prep/scale checks correctly.
+Correction: the older blowout described by the `untasted-run` caption is absent
+from `captured_v4`, so historical-blowout detection was not tested.
+
+The metered comparison used six scenarios at `none`, and two runs of six each at
+`low` and `medium`. Means below use the same input workload, 13,131 tokens, and
+standard uncached rates **before cache read/write adjustments**, not invoice costs.
+Reasoning tokens are included in output, not added to it again.
+
+| Terra effort | Output incl. reasoning | Reasoning tokens | Per analysis | Extra vs none |
+|---|---|---|---|---|
+| none | 226 | 0 | $0.01426 | — |
+| low | 279 | 55 (range 0–162) | $0.01453 | $0.00027 (~2%) |
+| medium | 536 | 298 (range 103–466) | $0.01581 | $0.00155 (~11%) |
+
+Low wins on cost with no observed quality loss against medium. On tasted
+scenarios alone its mean was $0.01481, supporting the displayed ~$0.015 per shot
+and ~$1.40/month at three shots a day. For a fully warm prompt the comparison
+projects $0.00178 / $0.00205 / $0.00334 per analysis for none/low/medium. The actual
+runs had different cache hits and writes per effort, so those bills cannot isolate
+reasoning cost. At reported 30-minute cache-write rates, the 30 metered comparison
+calls estimate $0.149 total; earlier pilot calls are additional.
+
+The remaining supported settings were then tested twice on the same six cases:
+high and xhigh each returned 8/8 usable tasted replies, kept the taste gate on
+4/4 untasted replies, and had no truncation or material direction/context errors.
+High averaged 734 reasoning tokens and $0.018031 per analysis (+24% over low);
+xhigh averaged 2,348 and $0.026248 (+81%). These costs also exclude cache
+adjustments. There was no clear quality gain over low on this small set.
+`max` returned HTTP 400 `unsupported_value` on the app's Chat Completions path;
+its accepted list stopped at xhigh, although the model documentation lists max.
+Responses behavior was not evaluated. Terra stays at low.
+
+This is a small replay of stored prompts, not fresh-current-prompt evidence or a
+head-to-head comparison with Sol/Luna. Sol remains the default. Full method and
+run labels live in `tools/ai_model_eval/README.md`; private payloads stay gitignored.
+
+#### Luna reasoning follow-up (2026-10-30)
+
+Two runs of six stored `captured_v4` scenarios at none/low/medium gave usable
+next-shot blocks on 4/8, 6/8 and 8/8 tasted replies respectively. All three
+preserved the taste gate on 4/4 untasted replies, with no truncation or reversed
+grind direction. Medium averaged 1,285 reasoning tokens (251–2,048), versus
+137 (0–484) at low. At equal uncached input rates, total estimates were
+$0.001436 / $0.001507 / $0.002094 per analysis: medium adds ~$0.00066, or ~$0.06
+for 90 analyses. Context mistakes were reduced, not eliminated.
+
+High was then run twice on the same six cases: 7/8 usable tasted replies,
+4/4 intact untasted taste gates, and one empty reply after all 4,096 completion
+tokens were spent on reasoning (`finish_reason: length`). It averaged 2,472
+reasoning tokens and $0.002681 per analysis before cache adjustments, ~28% more
+than medium. A larger token cap was not evaluated.
+
+The requested settings are now implemented: Luna advisor `medium` on direct
+OpenAI and OpenRouter, Terra advisor `low`. OpenAI translation keeps `none` for
+both models, and OpenRouter's 10-token connection check keeps Luna at `none`.
+Live request-shape probes passed both OpenAI models' advisor/translation/web paths
+and OpenRouter Luna's advisor and connection settings on 2026-10-30. OpenRouter's
+quality/cost hint uses the direct Luna replay estimate, not an OpenRouter quality
+replay. Detailed judgments,
+capture limitations and cost assumptions are in the evaluation README findings
+log. Qt Creator and local build/test validation remain on the maintainer's hold.
 
 #### Known model defects
 
@@ -99,7 +185,8 @@ Evidence: `tools/ai_model_eval/` replay of six tablet prompts (README findings l
 
 The AI settings tab, the legacy AI settings page and the ShotServer settings page all show this per-model line. The lines are one table in `aiprovider.cpp`; an OpenRouter model prices as its direct counterpart unless it has its own line. From the tokens each model used in the 2026-10-05 replay of the trimmed prompt with compact shot data (cold cache), at published rates; monthly assumes 3 shots a day.
 
-Ranked by replay quality, best first (tools/ai_model_eval findings, 2026-10-05):
+Historical quality order from the 2026-10-05 replay; Luna's row uses the adopted
+medium-effort setting measured on 2026-10-30 (no new cross-model ranking):
 
 | Model | Quality in replay | $/1M in / out | Tokens in / out | Per shot | Per month |
 |---|---|---|---|---|---|
@@ -107,7 +194,7 @@ Ranked by replay quality, best first (tools/ai_model_eval findings, 2026-10-05):
 | `gpt-6.1-sol` | Usable block every time on the trimmed prompt; never skipped the taste gate | 2.00 / 10.00 | 13.1K / 0.41K | $0.030 | $2.75 |
 | `claude-haiku-5-5` | With low-effort thinking: right direction on all 12 replayed shots, usable block on 8 of 8 tasted (2026-10-07) | 0.10 / 0.50 | 21K / ~2K incl. thinking | $0.0034 (incl. 5m cache write) | $0.31 |
 | `gemini-3.8-flash` | Usable block every time; on the old prompt moved the grind on an untasted blowout | 0.75 / 3.75 | 13.8K / 0.49K | $0.012 | $1.10 |
-| `gpt-6-luna` | Usable block on 7 of 8 tasted shots, right direction every time, asked before advising on untasted shots | 0.10 / 0.50 | 12.9K / 0.32K | $0.0015 | $0.13 |
+| `gpt-6-luna` | Medium reasoning: usable blocks on 8/8 tasted shots, taste gate on 4/4 untasted (2026-10-30) | 0.10 / 0.50 | 13.1K / 1.85K incl. thinking | $0.0022 | $0.20 |
 
 OpenRouter-only lines, from the cost OpenRouter reported on the 2026-10-06 probe (it caches some of the prompt, so tokens × rate overstates them):
 

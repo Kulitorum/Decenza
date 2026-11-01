@@ -99,7 +99,6 @@ The following interactions have no keyboard/screen-reader alternative:
 | **PresetPillRow** | Preset selection | MEDIUM - selection + reorder |
 | **StatusBar** | Status display | MEDIUM - important info |
 | **BottomBar** | Navigation | MEDIUM - back button |
-| **CircularGauge** | Value display | LOW - purely informational |
 | **ShotGraph** | Extraction chart | DEFERRED - complex visualization |
 
 ---

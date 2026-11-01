@@ -45,6 +45,7 @@ private:
     QPointer<BelkaPortalDevice> m_belkaPortal;
     QPointer<AccessibilityManager> m_accessibility;
     QVariantMap m_appearance;
+    qint64 m_appearanceBytes = -1;
     QString m_packageId;
     QString m_hostId;
     quint64 m_sequence = 0;

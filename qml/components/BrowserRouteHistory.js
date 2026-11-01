@@ -158,6 +158,13 @@ function normalizeEntry(value) {
             ? value.args : ({})
     var safe = ({})
     switch (value.route) {
+    case "steam":
+    case "hotwater":
+    case "flush":
+        if (args.openedFromSettingsSearch !== undefined
+                && typeof args.openedFromSettingsSearch !== "boolean") return null
+        if (args.openedFromSettingsSearch === true) safe.openedFromSettingsSearch = true
+        break
     case "stringBrowser":
         if (!_stringFits(args.searchText, 8192)) return null
         safe.searchText = _stringArg(args.searchText, 8192)
@@ -221,6 +228,14 @@ function normalizeEntry(value) {
         if (args.sensor !== undefined && !Number.isInteger(Number(args.sensor))) return null
         safe.sensor = Number.isInteger(Number(args.sensor)) ? Number(args.sensor) : 0
         if (safe.sensor < 0 || safe.sensor > 4) return null
+        if (args.restoreContext !== undefined && args.restoreContext !== null) {
+            const restore = args.restoreContext
+            if (typeof restore !== "object" || Array.isArray(restore)
+                    || !Number.isSafeInteger(restore.recipeId) || restore.recipeId < 0
+                    || !_stringFits(restore.profileFilename, 256)) return null
+            safe.restoreContext = {recipeId: restore.recipeId,
+                                   profileFilename: _stringArg(restore.profileFilename, 256)}
+        }
         break
     case "shotDetail":
     case "postShotReview": {
@@ -471,6 +486,10 @@ function commonStackPrefixLength(left, right) {
 function pageProperties(entry, hostId) {
     var args = entry.args || ({})
     switch (entry.route) {
+    case "steam":
+    case "hotwater":
+    case "flush": return args.openedFromSettingsSearch === true
+        ? {openedFromSettingsSearch: true} : ({})
     case "stringBrowser": return {initialSearchText: args.searchText || "", initialFilterMode: args.filterMode || 0}
     case "profiles": return {initialPickerContext: args.pickerContext || null}
     case "history": return {initialFilter: args.initialFilter || null,
@@ -483,7 +502,8 @@ function pageProperties(entry, hostId) {
                              retainSearchOnActivation: true}
     case "beans": return {searchQuery: args.searchQuery || "", showFinished: args.showFinished === true,
                            retainSearchOnActivation: true}
-    case "sensorCalibration": return {sensor: args.sensor || 0}
+    case "sensorCalibration": return {sensor: args.sensor || 0,
+                                      initialRestoreContext: args.restoreContext || null}
     case "settings": return {requestedTabId: args.requestedTabId || ""}
     case "shotDetail": return {editShotId: args.editShotId || 0, shotIds: args.shotIds || [], autoClose: false}
     case "postShotReview": return {editShotId: args.editShotId || 0, shotIds: args.shotIds || [], autoClose: args.autoClose === true}
@@ -499,7 +519,8 @@ function entryWithPageContext(entry, page) {
     var names = {settings: "settingsPage", history: "shotHistoryPage",
                  shotDetail: "postShotReviewPage", postShotReview: "postShotReviewPage",
                  recipes: "recipesPage", beans: "bagInventoryPage", shotComparison: "shotComparisonPage",
-                 stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage"}
+                 stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage",
+                 sensorCalibration: "sensorCalibrationPage"}
     if (!entry || !page || names[entry.route] !== page.objectName
             || !page.navigationContext || typeof page.navigationContext !== "object")
         return null

@@ -46,6 +46,9 @@ DecenzaDialog {
         }
 
         GraphOptionToggleCard {
+            SettingsSearch.route: "graphOptions"
+            SettingsSearch.title: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
+            SettingsSearch.keywords: ["graph", "chart", "curves", "resistance", "conductance"]
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             label: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
@@ -58,6 +61,9 @@ DecenzaDialog {
         }
 
         GraphFlowScaleCard {
+            SettingsSearch.route: "graphOptions"
+            SettingsSearch.title: TranslationManager.translate("graph.options.flowScale", "Flow Scale")
+            SettingsSearch.keywords: ["graph", "chart", "flow", "scale", "magnify"]
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             Layout.topMargin: Theme.spacingSmall

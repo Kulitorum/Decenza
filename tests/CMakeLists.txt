@@ -40,6 +40,10 @@ function(decenza_fail_on_invalid_aot)
     get_property(_tests DIRECTORY PROPERTY TESTS)
     foreach(_test IN LISTS _tests)
         set_property(TEST ${_test} APPEND PROPERTY ENVIRONMENT "QV4_FAIL_ON_INVALID_AOT=1")
+        # GUI-linked Qt tests otherwise appear as separate apps in the macOS Dock.
+        if(APPLE AND NOT IOS)
+            set_property(TEST ${_test} APPEND PROPERTY ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        endif()
     endforeach()
     set_property(DIRECTORY PROPERTY DECENZA_FAIL_ON_INVALID_AOT ON)
 endfunction()
@@ -591,6 +595,9 @@ add_decenza_test(tst_autoflowcal
 add_decenza_test(tst_machinestate
     tst_machinestate.cpp
     mocks/MockScaleDevice.h
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/drinksequencecontroller.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/drinksequencecontroller.cpp
 )
 
 # Shared request tracking for the facade tests, with one QObject/moc owner.
@@ -834,6 +841,7 @@ target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 # drift again. Also covers DocumentFormatter's colour round trip.
 add_decenza_test(tst_customwidgethtml
     tst_customwidgethtml.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/uiworkprobe.h
     ${CMAKE_SOURCE_DIR}/src/core/documentformatter.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.h
@@ -841,6 +849,8 @@ add_decenza_test(tst_customwidgethtml
 # Qt6::Quick, not just Qml: documentformatter.h includes <QQuickTextDocument>, which is a
 # Quick header even though nothing in this test constructs one.
 target_link_libraries(tst_customwidgethtml PRIVATE Qt6::Qml Qt6::Quick)
+# Focus, keyboard and wheel checks need exposed windows, but not desktop windows.
+set_tests_properties(tst_customwidgethtml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_decenza_test(tst_libraryservice
     tst_libraryservice.cpp
@@ -1876,6 +1886,7 @@ target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 # library. It includes version.h and calls versionCode(), hence version_code.cpp. ---
 add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/btlogfilter.cpp
     ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/systemlogservicesource.h
@@ -2092,6 +2103,7 @@ endif()
 # and Wasm targets; aliases keep them together in this isolated test URI.
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickTest QuickEffects QuickControls2)
 set(_shared_form_control_sources
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedMarkdownSource.qml
     ${CMAKE_SOURCE_DIR}/qml/components/ColorEditor.qml
     ${CMAKE_SOURCE_DIR}/qml/AppShell.qml
     ${CMAKE_SOURCE_DIR}/qml/components/SharedSectionHeader.qml
@@ -2138,7 +2150,7 @@ set(_shared_form_control_sources
     ${CMAKE_SOURCE_DIR}/qml/components/SharedSwitchStyle.qml
     ${CMAKE_SOURCE_DIR}/qml/components/SharedStyledSwitch.qml
 )
-foreach(_card_source IN ITEMS ColorEditor.qml SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
+foreach(_card_source IN ITEMS SharedMarkdownSource.qml ColorEditor.qml SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/qml/components/${_card_source}
         PROPERTIES QT_RESOURCE_ALIAS ${_card_source})
 endforeach()
@@ -2661,6 +2673,10 @@ add_decenza_test(tst_remotesessionserver
     ${CMAKE_SOURCE_DIR}/src/network/remotesessionserver.cpp
 )
 target_link_libraries(tst_remotesessionserver PRIVATE decenza_webrequestguardlib decenza_qtrowebsockettestlib Qt6::WebSockets)
+if(NOT ANDROID AND NOT IOS)
+    target_link_libraries(tst_remotesessionserver PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(tst_remotesessionserver PRIVATE DECENZA_TEST_OPENSSL_PEM)
+endif()
 
 add_decenza_test(tst_remotelastshotsnapshot
     tst_remotelastshotsnapshot.cpp
@@ -2850,18 +2866,24 @@ qt6_add_repc_replicas(tst_aisettingsservicesource ${CMAKE_SOURCE_DIR}/src/remote
 target_include_directories(tst_aisettingsservicesource PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_aisettingsservicesource PRIVATE Qt6::RemoteObjects Qt6::Qml)
 
+add_library(decenza_fullbackuprestoretestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.h)
+set_target_properties(decenza_fullbackuprestoretestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_compile_definitions(decenza_fullbackuprestoretestlib PRIVATE DECENZA_TESTING)
+target_link_libraries(decenza_fullbackuprestoretestlib PUBLIC decenza_testlib)
+
 add_decenza_test(tst_backupoperationpolicy tst_backupoperationpolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.h
     ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.cpp
     ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.h)
 qt6_add_repc_sources(tst_backupoperationpolicy ${CMAKE_SOURCE_DIR}/src/remote/backupservice.rep)
 target_include_directories(tst_backupoperationpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_backupoperationpolicy PRIVATE
     decenza_serviceoperationtestlib decenza_aimanagertestlib decenza_appserviceslib
     decenza_settingsserializerlib decenza_profilelib decenza_shotlib decenza_filebundletestlib
-    decenza_importservicetestlib
+    decenza_importservicetestlib decenza_fullbackuprestoretestlib
     Qt6::RemoteObjects decenza_zip)
 add_decenza_test(tst_debugconversionpolicy tst_debugconversionpolicy.cpp)
 add_library(decenza_filebundletestlib STATIC
@@ -2881,7 +2903,7 @@ qt6_add_repc_sources(tst_datamigrationcommandpolicy ${CMAKE_SOURCE_DIR}/src/remo
 qt6_add_repc_replicas(tst_datamigrationcommandpolicy ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice.rep)
 target_include_directories(tst_datamigrationcommandpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_datamigrationcommandpolicy PRIVATE
-    decenza_aimanagertestlib decenza_appserviceslib decenza_settingsserializerlib
+    decenza_aimanagertestlib decenza_appserviceslib decenza_settingsserializerlib decenza_fullbackuprestoretestlib
     decenza_profilelib decenza_shotlib decenza_serviceoperationtestlib decenza_remoteservicebasetestlib decenza_localnetworktestlib Qt6::RemoteObjects Qt6::Qml)
 
 add_decenza_test(tst_shotserversettingspolicy tst_shotserversettingspolicy.cpp)

@@ -4,6 +4,7 @@
 #include "core/translationcatalog.h"
 #include "remote/servicepayload.h"
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include "remote/languageservice.h"
 #include "remote/languageservice_qml.h"
@@ -23,6 +24,7 @@
 #include <QQmlComponent>
 #include <QJSValue>
 #include <memory>
+#include <cstring>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
@@ -54,6 +56,59 @@ protected:
     {
         ++requests;
         return new PausedLanguageReply(request, this);
+    }
+};
+
+class CatalogReply final : public QNetworkReply
+{
+public:
+    CatalogReply(const QNetworkRequest& request, QByteArray body, QObject* parent)
+        : QNetworkReply(parent), m_body(std::move(body))
+    {
+        setRequest(request);
+        setUrl(request.url());
+        open(QIODevice::ReadOnly);
+        QMetaObject::invokeMethod(this, [this] { emit readyRead(); emit finished(); }, Qt::QueuedConnection);
+    }
+    void abort() override {}
+    qint64 bytesAvailable() const override { return m_body.size() - m_offset + QNetworkReply::bytesAvailable(); }
+protected:
+    qint64 readData(char* data, qint64 maximum) override
+    {
+        const qint64 count = qMin(maximum, static_cast<qint64>(m_body.size()) - m_offset);
+        if (count <= 0) return -1;
+        std::memcpy(data, m_body.constData() + m_offset, static_cast<size_t>(count));
+        m_offset += count;
+        return count;
+    }
+private:
+    QByteArray m_body;
+    qint64 m_offset = 0;
+};
+
+class CatalogNetwork final : public QNetworkAccessManager
+{
+public:
+    bool hasBritishEnglish = false;
+    int languageDownloads = 0;
+protected:
+    QNetworkReply* createRequest(Operation, const QNetworkRequest& request, QIODevice*) override
+    {
+        QJsonObject body;
+        if (request.url().path().endsWith(QStringLiteral("/languages"))) {
+            QJsonArray languages{QJsonObject{{QStringLiteral("code"), QStringLiteral("de")},
+                                            {QStringLiteral("name"), QStringLiteral("German")}}};
+            if (hasBritishEnglish)
+                languages.append(QJsonObject{{QStringLiteral("code"), QStringLiteral("en-GB")},
+                                             {QStringLiteral("name"), QStringLiteral("English (UK)")}});
+            body.insert(QStringLiteral("languages"), languages);
+        } else {
+            ++languageDownloads;
+            body = {{QStringLiteral("language"), QStringLiteral("en-GB")},
+                    {QStringLiteral("translations"), QJsonObject{
+                        {QStringLiteral("fixture.pitcher"), QStringLiteral("Milk jug")}}}};
+        }
+        return new CatalogReply(request, QJsonDocument(body).toJson(), this);
     }
 };
 
@@ -177,6 +232,72 @@ private slots:
     }
 
     void cleanup() { LanguageService::setPublishedNode(nullptr); }
+
+    void englishVariantsPreserveExistingCustomisations()
+    {
+        Settings settings;
+        TranslationManager manager(&m_network, &settings);
+        QVERIFY(manager.availableLanguages().contains(QStringLiteral("en")));
+        QVERIFY(manager.availableLanguages().contains(QStringLiteral("en-GB")));
+        QCOMPARE(manager.getLanguageDisplayName(QStringLiteral("en")), QStringLiteral("English (US)"));
+        QCOMPARE(manager.getLanguageDisplayName(QStringLiteral("en-GB")), QStringLiteral("English (UK)"));
+        QVERIFY(!manager.deleteLanguage(QStringLiteral("en-GB")));
+        manager.registerString(QStringLiteral("test.pitcher"), QStringLiteral("Milk pitcher"));
+        manager.setTranslation(QStringLiteral("test.pitcher"), QStringLiteral("My pitcher"));
+        manager.setCurrentLanguage(QStringLiteral("en-GB"));
+        manager.setTranslation(QStringLiteral("test.pitcher"), QStringLiteral("Milk jug"));
+        manager.setCurrentLanguage(QStringLiteral("en"));
+        QCOMPARE(manager.exportTranslationCatalog().value(QStringLiteral("entries")).toObject()
+                     .value(QStringLiteral("test.pitcher")).toObject()
+                     .value(QStringLiteral("translation")).toString(), QStringLiteral("My pitcher"));
+        manager.setCurrentLanguage(QStringLiteral("en-GB"));
+        QCOMPARE(manager.exportTranslationCatalog().value(QStringLiteral("entries")).toObject()
+                     .value(QStringLiteral("test.pitcher")).toObject()
+                     .value(QStringLiteral("translation")).toString(), QStringLiteral("Milk jug"));
+    }
+
+    void publishedLanguageBecomesAvailableForDownload()
+    {
+        Settings settings;
+        CatalogNetwork network;
+        TranslationManager manager(&network, &settings);
+        manager.registerString(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk pitcher"));
+        QVERIFY(manager.addLanguage(QStringLiteral("qaa"), QStringLiteral("Local fixture")));
+        NativeLanguageServiceSource source(&manager);
+        QSignalSpy completed(&source, &LanguageStateSimpleSource::operationCompleted);
+        source.execute(QStringLiteral("list-before"), QStringLiteral("refreshLanguageList"), {});
+        QTRY_COMPARE(completed.count(), 1);
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(!manager.communityLanguageAvailable(QStringLiteral("en-GB")));
+        QVERIFY(!manager.communityLanguageAvailable(QStringLiteral("qaa")));
+        QVERIFY(manager.communityLanguageAvailable(QStringLiteral("de")));
+        QVERIFY(manager.needsCommunityDownload(QStringLiteral("de")));
+        QVERIFY(!manager.needsCommunityDownload(QStringLiteral("qaa")));
+        const QVariantList rows = source.snapshot().value(QStringLiteral("languages")).toList();
+        const auto british = std::find_if(rows.cbegin(), rows.cend(), [](const QVariant& row) {
+            return row.toMap().value(QStringLiteral("code")).toString() == QLatin1String("en-GB");
+        });
+        QVERIFY(british != rows.cend());
+        QVERIFY(!british->toMap().value(QStringLiteral("communityAvailable")).toBool());
+        source.execute(QStringLiteral("missing"), QStringLiteral("downloadLanguage"),
+                       {{QStringLiteral("code"), QStringLiteral("en-GB")}});
+        QCOMPARE(completed.count(), 2);
+        QVERIFY(!completed.last().at(2).toBool());
+        QCOMPARE(network.languageDownloads, 0);
+
+        network.hasBritishEnglish = true;
+        source.execute(QStringLiteral("list-after"), QStringLiteral("refreshLanguageList"), {});
+        QTRY_COMPARE(completed.count(), 3);
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(manager.communityLanguageAvailable(QStringLiteral("en-GB")));
+        source.execute(QStringLiteral("select"), QStringLiteral("selectLanguage"),
+                       {{QStringLiteral("code"), QStringLiteral("en-GB")}});
+        QTRY_COMPARE(completed.count(), 4);
+        QVERIFY2(completed.last().at(2).toBool(), qPrintable(completed.last().at(4).toString()));
+        QCOMPARE(network.languageDownloads, 1);
+        QCOMPARE(manager.translateString(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk pitcher")),
+                 QStringLiteral("Milk jug"));
+    }
 
     void requestStringsArePagedAndBounded()
     {
@@ -364,6 +485,30 @@ private slots:
         QVERIFY(!manager.isAutoTranslating());
         settings.ai()->setAiProvider(QString());
         settings.ai()->setOpenaiApiKey(QString());
+    }
+
+    void retranslateIncludesExistingTranslationsAndLocksLanguage()
+    {
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("de"));
+        settings.ai()->setAiProvider(QStringLiteral("openai"));
+        settings.ai()->setOpenaiApiKey(QStringLiteral("fixture-key-never-sent"));
+        PausedLanguageNetwork network;
+        TranslationManager manager(&network, &settings);
+        manager.registerString(QStringLiteral("refresh.existing"), QStringLiteral("A manual entry"));
+        manager.setTranslation(QStringLiteral("refresh.existing"), QStringLiteral("Alter Text"));
+        NativeLanguageServiceSource source(&manager);
+        QSignalSpy completed(&source, &LanguageStateSimpleSource::operationCompleted);
+        const int requests = network.requests;
+        source.execute(QStringLiteral("refresh"), QStringLiteral("retranslateAll"), stringArguments(source, {}));
+        QVERIFY(manager.isAutoTranslating());
+        QVERIFY(network.requests > requests);
+        source.execute(QStringLiteral("switch"), QStringLiteral("selectLanguage"),
+                       {{QStringLiteral("code"), QStringLiteral("en")}});
+        QCOMPARE(completed.last().at(4).toString(), QStringLiteral("busy"));
+        QCOMPARE(manager.currentLanguage(), QStringLiteral("de"));
+        source.execute(QStringLiteral("stop"), QStringLiteral("cancelAutoTranslate"), {});
+        QVERIFY(!manager.isAutoTranslating());
     }
 
     void sharedEditorKeepsDraftContextAcrossRefreshFailureRetryAndOtherEditors()
@@ -803,6 +948,7 @@ private slots:
         Settings settings;
         settings.setValue(QStringLiteral("localization/language"), QStringLiteral("de"));
         TranslationManager manager(&m_network, &settings);
+        QVERIFY(manager.addLanguage(QStringLiteral("de"), QStringLiteral("German")));
         manager.registerString(QStringLiteral("cache.a"), QStringLiteral("Shared fallback"));
         manager.registerString(QStringLiteral("cache.b"), QStringLiteral("Shared fallback"));
         NativeLanguageServiceSource source(&manager);
@@ -817,6 +963,12 @@ private slots:
         manager.setTranslation(QStringLiteral("cache.b"), QStringLiteral("Übersetzung"));
         QCOMPARE(source.snapshot().value(QStringLiteral("uniqueUntranslatedCount")).toInt(),
                  manager.uniqueUntranslatedCount());
+        const QVariantList rows = source.snapshot().value(QStringLiteral("languages")).toList();
+        const auto german = std::find_if(rows.cbegin(), rows.cend(), [](const QVariant& row) {
+            return row.toMap().value(QStringLiteral("code")).toString() == QLatin1String("de");
+        });
+        QVERIFY(german != rows.cend());
+        QCOMPARE(german->toMap().value(QStringLiteral("percent")).toInt(), 100);
     }
 
     void admissionNotificationCanDetachFacade_data()

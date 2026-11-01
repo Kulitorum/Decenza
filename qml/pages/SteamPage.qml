@@ -21,7 +21,18 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property string pageTitle: steamPageTitle.text
+    property bool openedFromSettingsSearch: false
     Tr { id: steamPageTitle; key: "steam.title"; fallback: "Steam"; visible: false }
+
+    function showSearchResult(title) {
+        Qt.callLater(function() {
+            const row = SettingsSearchLocator.findRow(editorColumn, title)
+            if (!row) return
+            const pos = row.mapToItem(editorFlick.contentItem, 0, 0)
+            editorFlick.contentY = Math.max(0, Math.min(pos.y - Theme.scaled(10),
+                editorFlick.contentHeight - editorFlick.height))
+        })
+    }
 
     // Use StackView.onActivated (not Component.onCompleted) so side effects
     // run when the page is actually shown, not during construction. This
@@ -31,6 +42,8 @@ T.Page {
     // a redundant BLE write.
     StackView.onActivated: {
         steamPage.syncActiveSafetyWarnings()
+        if (openedFromSettingsSearch)
+            return
         if (!isSteaming) {
             const heaterOff = steamPage.currentPitcherDisabled
             if (steamPage.requestPageAction("steam-prepare", {}) !== "" && !heaterOff)
@@ -115,6 +128,15 @@ T.Page {
                                                        { expectedSoftStopped: steamSoftStopped })
         if (pendingNavigationRequestId === "")
             pendingNavigationAction = ""
+    }
+
+    // Back stops a running steam the way Stop does, as Back stops a shot on the
+    // espresso page; otherwise it leaves the page.
+    function backFromPage() {
+        if (isSteaming || steamSoftStopped || isSteamHeating || isPuffing)
+            stopSteamFromPage()
+        else
+            leaveSteamFromPage()
     }
 
     function leaveSteamFromPage() {
@@ -426,6 +448,11 @@ T.Page {
 
     // Steam view mode: "timer" (default) or "chart".
     readonly property string steamViewMode: SteamService.state.steamViewMode
+
+    function toggleSteamView() {
+        const next = steamViewMode === "timer" ? "chart" : "timer"
+        SteamService.request("set-steam-view-mode", { value: next, expectedValue: steamViewMode }, "")
+    }
 
     // Live safety warning banner. Restore it from the tracker's active state on
     // activation and snapshot changes; the live signals only prompt a refresh.
@@ -806,8 +833,7 @@ T.Page {
                             "Switch between timer and chart view")
                         accessibleItem: parent
                         onAccessibleClicked: {
-                            var newMode = steamPage.steamViewMode === "timer" ? "chart" : "timer"
-                            SteamService.request("set-steam-view-mode", { value: newMode, expectedValue: steamPage.steamViewMode }, "")
+                            steamPage.toggleSteamView()
                         }
                     }
                 }
@@ -1605,6 +1631,9 @@ T.Page {
 
                         ValueInput {
                             id: durationSlider
+                            SettingsSearch.route: "steam"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.steamDuration", "Steam duration")
+                            SettingsSearch.keywords: ["steam", "time", "pitcher"]
                             Layout.preferredWidth: Theme.scaled(180)
                             from: 1
                             to: 120
@@ -1649,6 +1678,9 @@ T.Page {
 
                         ValueInput {
                             id: flowSlider
+                            SettingsSearch.route: "steam"
+                            SettingsSearch.title: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
+                            SettingsSearch.keywords: ["steam", "flow", "pitcher"]
                             Layout.preferredWidth: Theme.scaled(180)
                             from: 40
                             to: 250
@@ -1693,6 +1725,9 @@ T.Page {
 
                         ValueInput {
                             id: steamTempSlider
+                            SettingsSearch.route: "steam"
+                            SettingsSearch.title: TranslationManager.translate("steam.label.temperature.accessible", "Steam Temperature")
+                            SettingsSearch.keywords: ["steam", "temperature", "pitcher"]
                             Layout.preferredWidth: Theme.scaled(180)
                             from: Theme.cToDisplay(120)
                             to: Theme.cToDisplay(170)
@@ -1766,6 +1801,9 @@ T.Page {
                         // same per-preset storage as the Weigh button below.
                         ValueInput {
                             id: pitcherWeightInput
+                            SettingsSearch.route: "steam"
+                            SettingsSearch.title: TranslationManager.translate("steam.label.pitcherWeight.accessible", "Milk pitcher weight")
+                            SettingsSearch.keywords: ["steam", "empty", "jug", "tare"]
                             Layout.preferredWidth: Theme.scaled(150)
                             from: 0
                             to: 1000
@@ -1909,8 +1947,8 @@ T.Page {
                         }
                         Tr {
                             Layout.fillWidth: true
-                            key: "steam.weightTimed.summary"
-                            fallback: "Stops steaming by milk weight instead of a fixed time, so a small or large pitcher both finish at the same temperature. Calibrate once — steam a weighed pitcher and tap Use last steam, or set the reference by hand — then just rest the pitcher on the scale and steam; the bell rings when it has the weight."
+                            key: "steam.weightTimed.summaryBeforeSteam"
+                            fallback: "Weigh the milk before steaming. The app uses that weight to set the steam time; hold and move the pitcher while steaming. Calibrate once using a weighed steam or enter the steam rate by hand."
                             wrapMode: Text.WordWrap
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.labelFont.pixelSize
@@ -1920,6 +1958,9 @@ T.Page {
                     // Master on/off (off by default; calibrating turns it on). Off = plain
                     // fixed-duration steaming; the calibration is kept for when you re-enable.
                     StyledSwitch {
+                        SettingsSearch.route: "steam"
+                        SettingsSearch.title: TranslationManager.translate("steam.weightTimed.enable", "Enable weight-timed steaming")
+                        SettingsSearch.keywords: ["steam", "milk", "weight", "timed", "jug"]
                         Layout.fillWidth: true
                         text: TranslationManager.translate("steam.weightTimed.enable", "Enable weight-timed steaming")
                         accessibleName: text
@@ -1970,6 +2011,9 @@ T.Page {
 
                             ValueInput {
                                 id: steamRateInput
+                                SettingsSearch.route: "steam"
+                                SettingsSearch.title: TranslationManager.translate("steam.rate.title.accessible", "Steam rate seconds per gram")
+                                SettingsSearch.keywords: ["steam", "calibration", "milk", "weight", "time"]
                                 Layout.preferredWidth: Theme.scaled(170)
                                 from: 0
                                 to: 2.0
@@ -2073,6 +2117,18 @@ T.Page {
                     // toggles bind to Settings.app and stay put when presets switch, so
                     // they are rendered as their own headed group, not more preset rows.
                     // Banner and voice are independent opt-ins, both off by default. ──
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        SettingsSearch.route: "steam"
+                        SettingsSearch.title: TranslationManager.translate("settings.search.steamView", "Steam timer or chart view")
+                        SettingsSearch.keywords: ["steam", "timer", "chart", "graph", "view"]
+                        text: steamPage.steamViewMode === "timer"
+                            ? TranslationManager.translate("steam.view.timer", "Steam view: Timer")
+                            : TranslationManager.translate("steam.view.chart", "Steam view: Chart")
+                        accessibleName: text
+                        onClicked: steamPage.toggleSteamView()
+                    }
+
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
@@ -2098,6 +2154,9 @@ T.Page {
                     }
 
                     StyledSwitch {
+                        SettingsSearch.route: "steam"
+                        SettingsSearch.title: TranslationManager.translate("steam.coaching.banner", "Show coaching banner")
+                        SettingsSearch.keywords: ["steam", "coaching", "milk"]
                         Layout.fillWidth: true
                         visible: !steamPage.currentPitcherDisabled
                         text: TranslationManager.translate("steam.coaching.banner", "Show coaching banner")
@@ -2112,6 +2171,9 @@ T.Page {
                     }
 
                     StyledSwitch {
+                        SettingsSearch.route: "steam"
+                        SettingsSearch.title: TranslationManager.translate("steam.coaching.voice", "Speak coaching cues")
+                        SettingsSearch.keywords: ["steam", "coaching", "milk", "voice"]
                         Layout.fillWidth: true
                         visible: !steamPage.currentPitcherDisabled
                         text: TranslationManager.translate("steam.coaching.voice", "Speak coaching cues")
@@ -2139,11 +2201,11 @@ T.Page {
         id: milkCapture
         onMilkCaptured: function(milk, t) {
             if (steamPage.StackView.status !== StackView.Active
-                    || !SteamService.state.milkAutoCaptureEnabled || t <= 0)
+                    || !SteamService.state.milkAutoCaptureEnabled)
                 return
-            steamPage.captureBannerText =
-                TranslationManager.translate("steam.capture.locked", "Steam time set: %1s for %2g milk")
-                    .arg(t).arg(milk.toFixed(0))
+            steamPage.captureBannerText = t > 0
+                ? TranslationManager.translate("steam.capture.locked", "Steam time set: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
+                : TranslationManager.translate("scale.milkCaptured", "Milk captured: %1 g").arg(milk.toFixed(0))
             steamPage.captureBannerVisible = true
             captureBannerTimer.restart()
             if (AccessibilityManager.enabled)
@@ -2180,15 +2242,19 @@ T.Page {
     // (During-steam coaching banner is provided by upstream's LiveCoachingBanner
     // near the top of this page, gated on SteamService.state.steamCoachVisualEnabled.)
 
-    // Small flashing reminder while the milk pitcher is settling on the scale, or why a
-    // settled load is not being captured (SteamLabels.captureHint). Disappears the
-    // instant it captures (the bell rings).
+    // Explain the settling wait without depending on the optional capture sound.
     Text {
         id: steamWaitForBellHint
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         anchors.topMargin: Theme.scaled(70)
         z: 1000
+        width: Math.min(parent.width - Theme.scaled(32), implicitWidth)
+        leftPadding: Theme.scaled(12)
+        rightPadding: Theme.scaled(12)
+        topPadding: Theme.scaled(8)
+        bottomPadding: Theme.scaled(8)
+        wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
         readonly property string milkHint: SteamLabels.captureHint(milkCapture)
         visible: milkHint !== "" || (milkCapture.active && !milkCapture.isCaptured
@@ -2197,15 +2263,10 @@ T.Page {
                  && milkCapture.netWeight >= milkCapture.minNet
                  && milkCapture.netWeight <= milkCapture.maxNet)
         text: milkHint !== "" ? milkHint
-            : TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
-        color: Theme.warningColor
-        font: Theme.labelFont
-        SequentialAnimation on opacity {
-            running: steamWaitForBellHint.visible
-            loops: Animation.Infinite
-            NumberAnimation { to: 0.25; duration: 450 }
-            NumberAnimation { to: 1.0; duration: 450 }
-        }
+            : TranslationManager.translate("scale.waitForStableCapture", "Keep on the scale until the weight is captured")
+        color: Theme.textColor
+        font: Theme.bodyFont
+        Rectangle { anchors.fill: parent; z: -1; color: Theme.cardBackgroundColor; radius: Theme.cardRadius }
     }
 
     // Accessibility: announce scale weight at intervals while weighing milk (settings view, not steaming)
@@ -2254,11 +2315,14 @@ T.Page {
     // Hidden translation helper for "No pitcher"
     Tr { id: noPitcherText; key: "steam.label.noPitcher"; fallback: "No pitcher"; visible: false }
 
-    // Bottom bar (hide during soft-stop waiting for purge, steam heating, and puffing)
     BottomBar {
-        visible: !steamPage.isSteaming && !steamPage.steamSoftStopped && !steamPage.isSteamHeating && !steamPage.isPuffing
         title: steamPage.getCurrentPitcherName() || noPitcherText.text
-        onBackClicked: steamPage.leaveSteamFromPage()
+        backAccessibleName: steamPage.isSteaming || steamPage.steamSoftStopped
+                            || steamPage.isSteamHeating || steamPage.isPuffing
+            ? TranslationManager.translate("steam.accessible.stopAndGoBack", "Stop steaming and go back")
+            : TranslationManager.translate("bottombar.button.back.accessible",
+                                           "Back. Return to previous screen")
+        onBackClicked: steamPage.backFromPage()
 
         // The built-in "Heater off" entry carries no duration, flow or
         // temperature. The sliders keep the LAST real pitcher's values while

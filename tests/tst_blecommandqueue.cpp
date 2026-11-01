@@ -43,6 +43,66 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    // A 150 ms platform ACK, 3 ms queued delivery, 2 ms queue bookkeeping,
+    // 3 ms consumers, 2 ms drain check and a 5 ms next-dispatch gap must stay distinguishable.
+    // A retry adds an attempt, not a second acknowledged packet.
+    void firmwareTimingSeparatesPlatformAndApplicationWork() {
+        FirmwareWriteTiming timing;
+        const QByteArray first("first"), second("second");
+        constexpr qint64 ms = 1000000;
+        timing.dispatched(first, 0, 29055);
+        timing.issued(ms);
+        QVERIFY(timing.acknowledged(first, 150 * ms, 153 * ms));
+        timing.callbackFinished(153 * ms, 155 * ms, 158 * ms, 160 * ms);
+        timing.dispatched(second, 165 * ms, 29054);
+        timing.issued(166 * ms);
+        timing.dispatched(second, 665 * ms, 29054);
+        timing.issued(666 * ms);
+        QVERIFY(timing.acknowledged(second, 815 * ms, 818 * ms));
+        timing.callbackFinished(818 * ms, 820 * ms, 823 * ms, 825 * ms);
+        const QString summary = timing.report(QStringLiteral("test"));
+        QVERIFY(summary.contains("acked=2 totalAcked=2 retries=1 pendingMax=29055 rate=2.42"));
+        QVERIFY(summary.contains("writeToQtSignal=150.000/150.000"));
+        QVERIFY(summary.contains("qtDelivery=3.000/3.000"));
+        QVERIFY(summary.contains("issueCall=1.000/1.000"));
+        QVERIFY(summary.contains("queueRelease=2.000/2.000"));
+        QVERIFY(summary.contains("ackConsumers=3.000/3.000"));
+        QVERIFY(summary.contains("drainCheck=2.000/2.000"));
+        QVERIFY(summary.contains("nextDispatchGap=5.000/5.000"));
+        QVERIFY(timing.report(QStringLiteral("empty")).isEmpty());
+    }
+
+    void firmwareTimingIsBoundedAndRejectsUnmatchedReplies() {
+        FirmwareWriteTiming timing;
+        constexpr qint64 ms = 1000000;
+        int reports = 0;
+        for (int i = 0; i < 1100; ++i) {
+            const QByteArray packet = QByteArray::number(i);
+            const qint64 start = i * 160 * ms;
+            timing.dispatched(packet, start, 29055 - i);
+            timing.issued(start + ms);
+            QVERIFY(!timing.acknowledged("unmatched", start + 150 * ms, start + 150 * ms));
+            QVERIFY(timing.acknowledged(packet, start + 150 * ms, start + 150 * ms));
+            timing.callbackFinished(start + 150 * ms, start + 151 * ms, start + 151 * ms, start + 152 * ms);
+            if (timing.reportDue()) {
+                ++reports;
+                const QString summary = timing.report(QStringLiteral("sample"));
+                QVERIFY(summary.contains(reports == 1 ? "acked=64 totalAcked=64"
+                                                      : "acked=1024 totalAcked=1088"));
+            }
+        }
+        QCOMPARE(reports, 2);
+        QVERIFY(timing.report(QStringLiteral("map-request")).contains("acked=12 totalAcked=1100"));
+        timing.reset();
+        QVERIFY(!timing.acknowledged("1099", 0, 0));
+        QVERIFY(timing.report(QStringLiteral("disconnect")).isEmpty());
+        timing.dispatched("new", 0, 0);
+        timing.issued(ms);
+        QVERIFY(timing.acknowledged("new", 150 * ms, 150 * ms));
+        timing.callbackFinished(150 * ms, 150 * ms, 150 * ms, 150 * ms);
+        QVERIFY(timing.report(QStringLiteral("new-run")).contains("acked=1 totalAcked=1"));
+    }
+
     // --- FIFO and dispatch ------------------------------------------------
 
     void writesQueueInSubmissionOrder() {

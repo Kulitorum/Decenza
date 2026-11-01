@@ -9,12 +9,14 @@ function isOperationPage(name) {
     return operationPageNames.indexOf(name) >= 0
 }
 
-function machineOperationPage(phase, phases) {
+// drinkInCupView: AppShell.drinkInCupView, where a drink's hot water stays on the
+// Espresso page.
+function machineOperationPage(phase, phases, drinkInCupView) {
     if (phase === phases.EspressoPreheating || phase === phases.Preinfusion
             || phase === phases.Pouring || phase === phases.Ending)
         return "espressoPage"
     if (phase === phases.Steaming) return "steamPage"
-    if (phase === phases.HotWater) return "hotWaterPage"
+    if (phase === phases.HotWater) return drinkInCupView === true ? "espressoPage" : "hotWaterPage"
     if (phase === phases.Flushing) return "flushPage"
     if (phase === phases.Descaling) return "descalingPage"
     if (phase === phases.Transport) return "transportPage"
@@ -49,16 +51,16 @@ function beginNavigation(shellState, stack, defer) {
     return true
 }
 
-function showOperationPage(stack, component, targetName, closePopups) {
+function showOperationPage(stack, component, targetName, closePopups, properties) {
     const current = stack.currentItem
     const currentName = current ? current.objectName : ""
     const action = operationAction(currentName, targetName)
     if (action === "replace")
-        stack.replaceCurrentItem(component)
+        properties ? stack.replaceCurrentItem(component, properties) : stack.replaceCurrentItem(component)
     else if (action === "push") {
         if (current)
             closePopups(current)
-        stack.push(component)
+        properties ? stack.push(component, properties) : stack.push(component)
     }
     return action
 }

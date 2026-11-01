@@ -488,6 +488,19 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-android-v1'
 
+      - name: Install instrumented QtQml
+        run: |
+          # Keep the downloaded SDK cache stock and reject a different Qt build.
+          printf '%s  %s\n' \
+            9c369a8da4adef65bd090fed1f846ca480f12e6cd36c6728a9c5e54a9da178af "$QT_ROOT_DIR/lib/libQt6Qml_arm64-v8a.so" \
+            cc21256f62e350d9e66ca729d71ca96ea72498f0379f808dc8a981e02fb2e248 "$QT_ROOT_DIR/lib/libQt6Core_arm64-v8a.so" | sha256sum --check
+          STAGED_QT="$RUNNER_TEMP/qt-android-gc"
+          cp -a "$QT_ROOT_DIR" "$STAGED_QT"
+          rm -f "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
+          cp android/qt-overrides/libQt6Qml_arm64-v8a.so "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
+          echo "QT_ROOT_DIR=$STAGED_QT" >> "$GITHUB_ENV"
+          echo "$STAGED_QT/bin" >> "$GITHUB_PATH"
+
       - name: Install Android NDK and compile platform
         run: |
           # The compile platform is stated once, in CMakeLists.txt.
@@ -603,6 +616,7 @@ jobs:
           # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
           # on made ccache miss ~88% of this leg's compiles. See PR #1738.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
@@ -650,6 +664,15 @@ jobs:
           APK="$(dirname "${SIGNED[0]}")/Decenza_${VERSION}.apk"
           cp "${SIGNED[0]}" "$APK"
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
+
+      - name: Verify instrumented QtQml in the APK
+        run: |
+          READELF="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          unzip -p "${{ steps.apk.outputs.apk_path }}" lib/arm64-v8a/libQt6Qml_arm64-v8a.so > "$RUNNER_TEMP/apk-qtqml.so"
+          EXPECTED=$("$READELF" -n android/qt-overrides/libQt6Qml_arm64-v8a.so | awk '/Build ID:/ {print $NF}')
+          ACTUAL=$("$READELF" -n "$RUNNER_TEMP/apk-qtqml.so" | awk '/Build ID:/ {print $NF}')
+          test -n "$EXPECTED" && test "$EXPECTED" = "$ACTUAL"
+          echo "Verified QtQml build ID: $ACTUAL"
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7.0.2
@@ -1244,29 +1267,33 @@ jobs:
           curl -L "$OPENSSL_URL" | tar xz
           cd "openssl-${OPENSSL_VERSION}"
 
-          # Build arm64
-          ./Configure darwin64-arm64-cc no-shared no-tests \
-            --prefix="${INSTALL_PREFIX}/arm64" \
-            -mmacosx-version-min=12.0
-          make -j$(sysctl -n hw.ncpu)
-          make install_sw
-          make clean
-
-          # Build x86_64
-          ./Configure darwin64-x86_64-cc no-shared no-tests \
-            --prefix="${INSTALL_PREFIX}/x86_64" \
-            -mmacosx-version-min=12.0
-          make -j$(sysctl -n hw.ncpu)
-          make install_sw
+          for architecture in arm64 x86_64; do
+            ./Configure "darwin64-${architecture}-cc" shared no-tests \
+              --prefix="${INSTALL_PREFIX}/${architecture}" \
+              -mmacosx-version-min=12.0
+            make -j"$(sysctl -n hw.ncpu)"
+            make install_sw
+            make clean
+          done
 
           # Create universal libs
           mkdir -p "${INSTALL_PREFIX}/lib"
           cp -R "${INSTALL_PREFIX}/arm64/include" "${INSTALL_PREFIX}/"
-          for lib in libssl.a libcrypto.a; do
+          for lib in libssl.a libcrypto.a libssl.3.dylib libcrypto.3.dylib; do
             lipo -create \
               "${INSTALL_PREFIX}/arm64/lib/${lib}" \
               "${INSTALL_PREFIX}/x86_64/lib/${lib}" \
               -output "${INSTALL_PREFIX}/lib/${lib}"
+          done
+
+          for lib in libssl.3.dylib libcrypto.3.dylib; do
+            install_name_tool -id "@rpath/${lib}" "${INSTALL_PREFIX}/lib/${lib}"
+          done
+          for architecture in arm64 x86_64; do
+            install_name_tool \
+              -change "${INSTALL_PREFIX}/${architecture}/lib/libcrypto.3.dylib" \
+              "@loader_path/libcrypto.3.dylib" \
+              "${INSTALL_PREFIX}/lib/libssl.3.dylib"
           done
           echo "Universal OpenSSL installed at ${INSTALL_PREFIX}"
 
@@ -1320,6 +1347,20 @@ jobs:
 
           echo "Bundled frameworks:"
           ls -la "$APP_PATH/Contents/Frameworks/" | head -20
+
+      - name: Bundle OpenSSL runtime for Qt HTTPS
+        run: |
+          APP_PATH="build/macos/Release/Decenza.app"
+          test -s "$APP_PATH/Contents/PlugIns/tls/libqopensslbackend.dylib"
+          for lib in libssl.3.dylib libcrypto.3.dylib; do
+            bundled="$APP_PATH/Contents/Frameworks/$lib"
+            cp "$RUNNER_TEMP/openssl-universal/lib/$lib" "$bundled"
+            lipo "$bundled" -verify_arch x86_64 arm64
+            if otool -L "$bundled" | grep -F "$RUNNER_TEMP/openssl-universal"; then
+              echo "OpenSSL runtime still references its build directory: $lib" >&2
+              exit 1
+            fi
+          done
 
       - name: Sign the application
         env:
@@ -1878,11 +1919,7 @@ jobs:
         env:
           QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
           QML_SOURCES_PATHS: ${{ github.workspace }}/qml
-        run: |
-          ./linuxdeploy-x86_64.AppImage \
-            --appdir AppDir \
-            --plugin qt \
-            --output appimage
+        run: bash scripts/package_linux_appimage.sh x86_64
 
       - name: Rename AppImage
         run: |
@@ -2060,11 +2097,7 @@ jobs:
         env:
           QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
           QML_SOURCES_PATHS: ${{ github.workspace }}/qml
-        run: |
-          ./linuxdeploy-aarch64.AppImage \
-            --appdir AppDir \
-            --plugin qt \
-            --output appimage
+        run: bash scripts/package_linux_appimage.sh aarch64
 
       - name: Rename AppImage
         run: |

@@ -5,6 +5,7 @@
 #include <QIODevice>
 
 #include "remote/servicepayload.h"
+#include "remote/hostsessionpayload.h"
 #include "remote/servicevalue.h"
 
 class ServicePayloadTest final : public QObject
@@ -71,6 +72,24 @@ private slots:
         stream << payload;
         QCOMPARE(stream.status(), QDataStream::Ok);
         QCOMPARE(ServicePayload::serializedSize(payload), qint64(serialized.size()));
+    }
+
+    void splitHostPayloadSharesOneBudget()
+    {
+        const QVariantMap appearance{{QStringLiteral("theme"), QStringLiteral("dark")}};
+        const qint64 appearanceBytes = HostSessionPayload::appearanceSize(appearance);
+        QVERIFY(appearanceBytes > 0);
+        QVariantMap telemetry{{QStringLiteral("extra"), QByteArray()}};
+        const qint64 overhead = ServicePayload::serializedSize(telemetry);
+        const qint64 available = HostSessionPayload::MaximumBytes - appearanceBytes - overhead;
+        telemetry.insert(QStringLiteral("extra"), QByteArray(available, 'x'));
+        QVERIFY(HostSessionPayload::fitsTelemetry(telemetry, appearanceBytes));
+        telemetry.insert(QStringLiteral("extra"), QByteArray(available + 1, 'x'));
+        QVERIFY(!HostSessionPayload::fitsTelemetry(telemetry, appearanceBytes));
+        QVERIFY(!HostSessionPayload::fitsTelemetry({}, -1));
+        QVERIFY(!HostSessionPayload::fitsTelemetry({}, HostSessionPayload::MaximumBytes + 1));
+        QCOMPARE(HostSessionPayload::appearanceSize(
+            {{QStringLiteral("extra"), QByteArray(HostSessionPayload::MaximumBytes, 'x')}}), qint64(-1));
     }
 };
 

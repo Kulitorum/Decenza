@@ -149,7 +149,7 @@ inline ValidationResult validateFile(const QString& path) {
     // declares is the signature of a resume the server answered with the
     // whole body instead of the requested range: the partial's bytes with a
     // complete copy appended. Published images carry a small trailing pad
-    // (bundled v1352 is 463,872 bytes against a ByteCount of 461,824, so
+    // (bundled v1358 is 463,872 bytes against a ByteCount of 461,824, so
     // 1,984 bytes past ByteCount + 64), so the ceiling has to allow slack —
     // but not a second image's worth. A whole duplicate body is orders of
     // magnitude past this.

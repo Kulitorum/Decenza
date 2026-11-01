@@ -236,6 +236,8 @@ Both paths skip learning and save `Settling::abandonedSettleWeight()` (`settling
 2. **The settle base**, if no clean avg was captured and either the reading fell below the base (drip only adds) or the event was a disturbance (the reading before it may be the disturbance starting).
 3. **The last reading** otherwise: a lift before any signal, at or above the base.
 
+**Hot water starting during settling** (started by hand before the shot settled, `endSettlingForHotWater`; a sequenced americano waits for the settle) ends it at hot water's flow-start edge, before its 200 ms tare can reach the reading. A captured clean avg completes the settle normally, so learning still runs. Without one, the shot is saved as for a lift (rule 2 or 3 above), and learning is skipped.
+
 The fallback only affects the persisted `finalWeightG` (and therefore the shot review's verdict, the AI advisor's `yieldG`, the visualizer export, and `DyeSettings::dyeDrinkWeight`).
 
 ### Offline replay

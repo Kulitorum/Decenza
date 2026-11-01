@@ -125,10 +125,11 @@ T.StackView {
 
     signal wakeRequested()
     signal brewSettingsRequested()
+    signal brewSettingRequested(string title)
     signal completionSuspendRequested()
     signal completionFinishRequested()
     signal operationNavigationStarting()
-    signal operationNavigated(Component component, string action)
+    signal operationNavigated(Component component, string action, var properties)
     signal pageScalePersistenceRequested(string pageName, real scale)
 
     function startNavigation() {
@@ -151,12 +152,12 @@ T.StackView {
             root.showHome()
     }
 
-    function showOperationPage(component, pageObjectName) {
+    function showOperationPage(component, pageObjectName, properties) {
         operationNavigationStarting()
         const action = OperationNavigationPolicy.showOperationPage(
             root, component, pageObjectName,
-            function(current) { PopupCloser.closeAllUnder(current) })
-        operationNavigated(component, action)
+            function(current) { PopupCloser.closeAllUnder(current) }, properties)
+        operationNavigated(component, action, properties || ({}))
         return action
     }
 
@@ -166,7 +167,8 @@ T.StackView {
     }
 
     function showMachineOperation(phase) {
-        const pageName = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+        const pageName = OperationNavigationPolicy.machineOperationPage(
+            phase, MachineState.Phase, AppShell.drinkInCupView)
         if (pageName !== "") showOperationPage(root[pageName], pageName)
     }
 
@@ -194,9 +196,25 @@ T.StackView {
         showOperationPage(steamPage, "steamPage")
     }
 
+    function goToSteamSetting(title) {
+        if (!startNavigation()) return
+        showOperationPage(steamPage, "steamPage", { openedFromSettingsSearch: true })
+        const page = root.currentItem as SteamPage
+        if (page)
+            page.showSearchResult(title)
+    }
+
     function goToHotWater() {
         if (!startNavigation()) return
         showOperationPage(hotWaterPage, "hotWaterPage")
+    }
+
+    function goToOperationSetting(route) {
+        if (!startNavigation()) return
+        if (route === "hotWater")
+            showOperationPage(hotWaterPage, "hotWaterPage", { openedFromSettingsSearch: true })
+        else if (route === "flush")
+            showOperationPage(flushPage, "flushPage", { openedFromSettingsSearch: true })
     }
 
     function goToSettings(tabId) {
@@ -352,6 +370,13 @@ T.StackView {
         pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
     }
 
+    function goToAutoFavoritesSettings() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
+        const page = root.currentItem as AutoFavoritesPage
+        if (page) Qt.callLater(function() { page.openSettings() })
+    }
+
     function goToAutoFavoriteInfo(options) {
         if (!startNavigation()) return
         root.pushPage(autoFavoriteInfoPage, options || ({}))
@@ -415,9 +440,9 @@ T.StackView {
         else if (component === beanInfoPage) { route = "beans"; args = props }
         else if (component === equipmentPage) route = "equipment"
         else if (component === espressoPage) route = "espresso"
-        else if (component === steamPage) route = "steam"
-        else if (component === hotWaterPage) route = "hotwater"
-        else if (component === flushPage) route = "flush"
+        else if (component === steamPage) { route = "steam"; args = props }
+        else if (component === hotWaterPage) { route = "hotwater"; args = props }
+        else if (component === flushPage) { route = "flush"; args = props }
         else if (component === profileSelectorPage) { route = "profiles"; args = props }
         else if (component === autoFavoritesPage) route = "favorites"
         else if (component === autoFavoriteInfoPage) { route = "favoriteInfo"; args = props }
@@ -505,6 +530,13 @@ T.StackView {
     Connections {
         target: AppShell
 
+        // A long black's water can open the Hot Water page before the drink flag
+        // arrives; once it does, the cup view takes the drink over.
+        function onDrinkInCupViewChanged() {
+            if (AppShell.drinkInCupView && !root.busy && root.currentItem
+                    && root.currentItem.objectName === "hotWaterPage")
+                root.showOperationPage(root.espressoPage, "espressoPage")
+        }
         function onBackRequested() { root.goBack() }
 
         function onProfileEditorRequested() { root.goToProfileEditor() }
@@ -519,6 +551,10 @@ T.StackView {
 
         function onEspressoRequested() { root.goToEspresso() }
         function onSteamRequested() { root.goToSteam() }
+        function onSteamSettingRequested(title) { root.goToSteamSetting(title) }
+        function onOperationSettingRequested(route) { root.goToOperationSetting(route) }
+        function onBrewSettingRequested(title) { root.brewSettingRequested(title) }
+        function onAutoFavoritesSettingsRequested() { root.goToAutoFavoritesSettings() }
         function onHotWaterRequested() { root.goToHotWater() }
         function onFlushRequested() { root.goToFlush() }
         function onSettingsRequested(tabId) { root.goToSettings(tabId) }

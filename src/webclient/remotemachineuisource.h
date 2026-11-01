@@ -2,6 +2,8 @@
 
 #include "remotesessionbackend.h"
 #include <QPointer>
+#include <QHash>
+#include <QVariant>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 // Shared lifetime/freshness handling for the native-named browser facades.
@@ -23,7 +25,11 @@ protected:
     bool sessionIsFresh() const;
     const MachineUiSnapshot& machineUi() const;
 
+    void publishChanges();
+
 private:
+    quint64 m_generation = 0;
+    QHash<int, QVariant> m_publishedValues;
     QPointer<RemoteSessionBackend> m_session;
     QList<QMetaObject::Connection> m_connections;
 };

@@ -161,6 +161,7 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
         const double rangeX = m_maxX - m_minX;
         const double rangeY = m_maxY - m_minY;
         const float halfWidth = m_lineWidth * 0.5f;
+        int drawVertexCount = 0;
 
         if (rangeX > 0 && rangeY > 0 && m_pointCount > 1) {
             const double scaleX = w / rangeX;
@@ -232,26 +233,19 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
                 vi += 2;
             }
 
-            // Fill remaining vertices with degenerate (last point)
-            QSGGeometry::Point2D last = v[vi - 1];
-            for (int i = vi; i < MAX_VERTICES; ++i) {
-                v[i] = last;
-            }
+            drawVertexCount = vi;
         } else if (rangeX > 0 && rangeY > 0 && m_pointCount == 1) {
             // Single point: draw a small dot
             float px = static_cast<float>((m_points[0].x() - m_minX) * (w / rangeX));
             float py = h - static_cast<float>((m_points[0].y() - m_minY) * (h / rangeY));
             v[0].set(px - halfWidth, py - halfWidth);
             v[1].set(px + halfWidth, py - halfWidth);
-            for (int i = 2; i < MAX_VERTICES; ++i) {
-                v[i].set(px, py);
-            }
-        } else {
-            for (int i = 0; i < MAX_VERTICES; ++i) {
-                v[i].set(0.0f, 0.0f);
-            }
+            v[2].set(px, py);
+            drawVertexCount = 3;
         }
 
+        // Draw count keeps the allocation intact (Qt qsggeometry.cpp:462-477).
+        geometry->setVertexCount(drawVertexCount);
         geometry->markVertexDataDirty();
         gnode->markDirty(QSGNode::DirtyGeometry);
         m_geometryDirty = false;

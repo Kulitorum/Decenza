@@ -10,6 +10,7 @@
 #include "remote/steamservice_qml.h"
 #include "rep_steamservice_source.h"
 #include "models/steamdatamodel.h"
+#include "core/steamgraphupdate.h"
 #include "network/steamhealthsnapshot.h"
 
 class TestSteamSource final : public SteamStateSimpleSource
@@ -21,7 +22,7 @@ public:
     using SteamStateSimpleSource::setEditorRevision;
     using SteamStateSimpleSource::setHostId;
     using SteamStateSimpleSource::setWarningSnapshot;
-    using SteamStateSimpleSource::setGraphSnapshot;
+    using SteamStateSimpleSource::setGraphUpdate;
     using SteamStateSimpleSource::setSteamPitcherPresets;
     using SteamStateSimpleSource::setSelectedSteamPitcher;
     using SteamStateSimpleSource::setSelectedSteamPitcherDisplayIndex;
@@ -32,6 +33,12 @@ public:
     using SteamStateSimpleSource::setSteamTemperatureActual;
     using SteamStateSimpleSource::setSteamTemperature;
     using SteamStateSimpleSource::setSteamHeaterOn;
+    QVariantMap snapshotForSync;
+    int snapshotRequests = 0;
+    QVariantMap currentGraphSnapshot() override {
+        ++snapshotRequests;
+        return snapshotForSync.isEmpty() ? graphUpdate() : snapshotForSync;
+    }
     int calls = 0;
     QStringList operations;
     QVariantMap lastFields;
@@ -372,7 +379,7 @@ private slots:
         nextSource.setWarnings({});
         const QVariant point = QVariant::fromValue(QVariantList{
             QVariant::fromValue(QVariantList{0.0, 6.0})});
-        nextSource.setGraphSnapshot({{QStringLiteral("revision"), 8},
+        nextSource.setGraphUpdate({{QStringLiteral("revision"), 8},
             {QStringLiteral("rawTime"), 0.0}, {QStringLiteral("pressure"), point},
             {QStringLiteral("flow"), point}, {QStringLiteral("temperature"), point},
             {QStringLiteral("flowGoalPoints"), QVariantList{}}});
@@ -595,7 +602,7 @@ private slots:
         const QVariantList pressure{pair(0.0, 1.0), pair(0.25, 2.0)};
         const QVariantList flow{pair(0.0, 3.0), pair(0.25, 4.0)};
         const QVariantList temperature{pair(0.0, 90.0), pair(0.25, 91.0)};
-        source.setGraphSnapshot({{QStringLiteral("revision"), 2},
+        source.setGraphUpdate({{QStringLiteral("revision"), 2},
                                  {QStringLiteral("rawTime"), 0.25},
                                  {QStringLiteral("pressure"), pressure},
                                  {QStringLiteral("flow"), flow},
@@ -608,12 +615,85 @@ private slots:
         QCOMPARE(service->graph()->temperatureData().at(1), QPointF(0.25, 91.0));
     }
 
+    void graphStreamAppendsAndResynchronizesMissingHistory()
+    {
+        SteamDataModel graph;
+        SteamGraphUpdate::Publisher publisher;
+        graph.addFlowGoalPoint(0, 2);
+        graph.addSample(0, 1, 2, 130);
+        publisher.next(graph); // The joining client only sees the latest delta.
+        graph.addSample(1, 1, 2, 130);
+        TestSteamSource source;
+        source.setHostId(QStringLiteral("stream-host"));
+        source.snapshotForSync = SteamGraphUpdate::capture(graph);
+        source.setGraphUpdate(publisher.next(graph));
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<SteamStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        SteamService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* service = SteamServiceForeign::create(&engine, &engine);
+        QTRY_COMPARE(service->graph()->sampleCount(), 2);
+        QCOMPARE(source.snapshotRequests, 1);
+        QSignalSpy goalChanges(service->graph(), &SteamDataModel::flowGoalPointsChanged);
+        qsizetype transmittedPoints = 0;
+        for (int i = 2; i < 302; ++i) {
+            graph.addSample(i, 1, 2, 130);
+            const auto delta = publisher.next(graph);
+            QVERIFY(delta.contains(QStringLiteral("baseRevision")));
+            QVERIFY(!delta.contains(QStringLiteral("flowGoalPoints")));
+            transmittedPoints += delta.value(QStringLiteral("pressure")).toList().size()
+                + delta.value(QStringLiteral("flow")).toList().size()
+                + delta.value(QStringLiteral("temperature")).toList().size();
+            source.setGraphUpdate(delta);
+            QTRY_COMPARE(service->graph()->revision(), graph.revision());
+        }
+        QCOMPARE(transmittedPoints, 900); // Three new points per sample, independent of history length.
+        QCOMPARE(goalChanges.size(), 0);
+        QCOMPARE(source.snapshotRequests, 1);
+        QCOMPARE(service->graph()->pressureData(), graph.pressureData());
+        graph.addSample(302, 3, 4, 140);
+        publisher.next(graph); // Simulate one lost publication.
+        graph.addSample(303, 3, 4, 140);
+        source.snapshotForSync = SteamGraphUpdate::capture(graph);
+        source.setGraphUpdate(publisher.next(graph));
+        QTRY_COMPARE(service->graph()->sampleCount(), 304);
+        QCOMPARE(source.snapshotRequests, 2);
+        QCOMPARE(service->graph()->temperatureData(), graph.temperatureData());
+        QCOMPARE(goalChanges.size(), 0);
+        // An older publication cannot roll the client back.
+        source.setGraphUpdate(SteamGraphUpdate::capture(graph, 303, graph.revision() - 1));
+        QCoreApplication::processEvents();
+        QCOMPARE(service->graph()->sampleCount(), 304);
+        // Clearing starts a fresh graph and publisher cursor.
+        graph.clear();
+        publisher.reset();
+        graph.addSample(0, 5, 6, 120);
+        source.setGraphUpdate(publisher.next(graph));
+        QTRY_COMPARE(service->graph()->sampleCount(), 1);
+        QCOMPARE(service->graph()->pressureData().first(), QPointF(0, 5));
+        QCOMPARE(goalChanges.size(), 1);
+        // A new host epoch may restart revisions below the previous graph's cursor.
+        SteamDataModel restartedGraph;
+        restartedGraph.addSample(0, 9, 8, 125);
+        source.snapshotForSync = SteamGraphUpdate::capture(restartedGraph);
+        source.setHostId(QStringLiteral("restarted-host"));
+        QTRY_COMPARE(service->graph()->revision(), restartedGraph.revision());
+        QCOMPARE(service->graph()->pressureData().first(), QPointF(0, 9));
+        restartedGraph.addSample(1, 7, 6, 126);
+        source.setGraphUpdate(SteamGraphUpdate::capture(restartedGraph, 1, 1, false));
+        QTRY_COMPARE(service->graph()->sampleCount(), 2);
+        QCOMPARE(service->graph()->pressureData(), restartedGraph.pressureData());
+    }
+
     void nodeDestructionInvalidatesFacade()
     {
         TestSteamSource source;
         const QVariant points = QVariant::fromValue(
             QVariantList{QVariant::fromValue(QVariantList{0.0, 1.0})});
-        source.setGraphSnapshot({{QStringLiteral("revision"), 1},
+        source.setGraphUpdate({{QStringLiteral("revision"), 1},
                                  {QStringLiteral("rawTime"), 0.0},
                                  {QStringLiteral("pressure"), points},
                                  {QStringLiteral("flow"), points},

@@ -12,23 +12,23 @@ class RemoteMachineState final : public RemoteMachineUiSource
     QML_NAMED_ELEMENT(MachineState)
     QML_SINGLETON
 
-    Q_PROPERTY(RemoteMachineState::Phase phase READ phase NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool isFlowing READ isFlowing NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool isHeating READ isHeating NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool isReady READ isReady NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double scaleWeight READ scaleWeight NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double scaleFlowRate READ scaleFlowRate NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double cumulativeVolume READ cumulativeVolume NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double pourVolume READ pourVolume NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double shotTime READ shotTime NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double targetWeight READ targetWeight NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double targetVolume READ targetVolume NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double smoothedScaleFlowRate READ smoothedScaleFlowRate NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool canDecreaseTargetWeight READ canDecreaseTargetWeight NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(double hotWaterTargetWeight READ hotWaterTargetWeight NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(QString controlContextId READ controlContextId NOTIFY machineUiChanged FINAL)
-    Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(RemoteMachineState::Phase phase READ phase NOTIFY phaseChanged FINAL)
+    Q_PROPERTY(bool isFlowing READ isFlowing NOTIFY isFlowingChanged FINAL)
+    Q_PROPERTY(bool isHeating READ isHeating NOTIFY isHeatingChanged FINAL)
+    Q_PROPERTY(bool isReady READ isReady NOTIFY isReadyChanged FINAL)
+    Q_PROPERTY(double scaleWeight READ scaleWeight NOTIFY scaleWeightChanged FINAL)
+    Q_PROPERTY(double scaleFlowRate READ scaleFlowRate NOTIFY scaleFlowRateChanged FINAL)
+    Q_PROPERTY(double cumulativeVolume READ cumulativeVolume NOTIFY cumulativeVolumeChanged FINAL)
+    Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY preinfusionVolumeChanged FINAL)
+    Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged FINAL)
+    Q_PROPERTY(double shotTime READ shotTime NOTIFY shotTimeChanged FINAL)
+    Q_PROPERTY(double targetWeight READ targetWeight NOTIFY targetWeightChanged FINAL)
+    Q_PROPERTY(double targetVolume READ targetVolume NOTIFY targetVolumeChanged FINAL)
+    Q_PROPERTY(double smoothedScaleFlowRate READ smoothedScaleFlowRate NOTIFY smoothedScaleFlowRateChanged FINAL)
+    Q_PROPERTY(bool canDecreaseTargetWeight READ canDecreaseTargetWeight NOTIFY canDecreaseTargetWeightChanged FINAL)
+    Q_PROPERTY(double hotWaterTargetWeight READ hotWaterTargetWeight NOTIFY hotWaterTargetWeightChanged FINAL)
+    Q_PROPERTY(QString controlContextId READ controlContextId NOTIFY controlContextIdChanged FINAL)
+    Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY standbySwitchOpenChanged FINAL)
 
 public:
     enum class Phase {
@@ -57,11 +57,26 @@ public:
     bool standbySwitchOpen() const { return machineUi().standbySwitchOpen; }
 
 signals:
+    void phaseChanged();
+    void isFlowingChanged();
+    void isHeatingChanged();
+    void isReadyChanged();
+    void scaleFlowRateChanged();
+    void cumulativeVolumeChanged();
+    void preinfusionVolumeChanged();
+    void pourVolumeChanged();
+    void shotTimeChanged();
+    void targetWeightChanged();
+    void targetVolumeChanged();
+    void smoothedScaleFlowRateChanged();
+    void canDecreaseTargetWeightChanged();
+    void hotWaterTargetWeightChanged();
+    void controlContextIdChanged();
+    void standbySwitchOpenChanged();
     void scaleWeightChanged();
 
 private:
     explicit RemoteMachineState(QObject* parent);
-    double m_lastScaleWeight = 0.0;
 };
 
 static_assert(!std::is_default_constructible_v<RemoteMachineState>,

@@ -6,7 +6,40 @@
 #include "ble/refractometers/refractometerproxy.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/transport/scalebletransport.h"
+#include "ble/refractometerrecovery.h"
 #include "remote/shotreviewsessions.h"
+
+class RecoveryDiscoveryReplay : public QObject {
+    Q_OBJECT
+public:
+    bool hunt = true;
+    bool connected = false;
+    bool disabled = false;
+    bool flashing = false;
+    bool scanning = false;
+    int scans = 0;
+    bool isRefractometerHunt() const { return hunt; }
+    bool isRefractometerConnected() const { return connected; }
+    bool isDisabled() const { return disabled; }
+    bool firmwareUpdateActive() const { return flashing; }
+    void setFlashing(bool active) {
+        flashing = active;
+        if (active) {
+            scanning = false;
+            emit disconnectRefractometerRequested();
+        } else if (hunt) {
+            scan();
+        }
+        emit firmwareUpdateActiveChanged();
+    }
+    void scan() { scanning = true; ++scans; }
+signals:
+    void refractometerConnectedChanged();
+    void refractometerHuntChanged(bool active);
+    void disabledChanged();
+    void firmwareUpdateActiveChanged();
+    void disconnectRefractometerRequested();
+};
 
 // Test DiFluid R2 refractometer BLE packet parsing, checksum validation,
 // and device name matching.
@@ -182,6 +215,81 @@ private slots:
     }
 
     void init() { QTest::failOnWarning(); }
+
+    void firmwareResumeRestoresRecoveryAfterScanError()
+    {
+        RecoveryDiscoveryReplay discovery;
+        QTimer timer;
+        timer.setSingleShot(true);
+        int attempt = 3;
+        connectRefractometerRecovery(&discovery, &timer, &timer, attempt, 5,
+                                    [] { return true; }, [] {});
+        QObject::connect(&discovery, &RecoveryDiscoveryReplay::disconnectRefractometerRequested,
+                         &timer, &QTimer::stop);
+        QObject::connect(&timer, &QTimer::timeout, &discovery, [&] { discovery.scan(); });
+        timer.start(60000);
+        discovery.setFlashing(true);
+        QVERIFY(!timer.isActive());
+        QCOMPARE(attempt, 0);
+
+        // The browser hunt stays open; no huntChanged signal will rescue it.
+        discovery.setFlashing(false);
+        QCOMPARE(discovery.scans, 1);
+        QVERIFY(timer.isActive());
+        QCOMPARE(timer.interval(), 5);
+        discovery.scanning = false; // onScanError ends the immediate scan chain
+        QTRY_COMPARE(discovery.scans, 2);
+        QVERIFY(discovery.scanning);
+    }
+
+    void firmwareResumeRespectsRecoveryGates_data()
+    {
+        QTest::addColumn<bool>("paired");
+        QTest::addColumn<bool>("hunt");
+        QTest::addColumn<bool>("connected");
+        QTest::addColumn<bool>("disabled");
+        QTest::newRow("forgotten") << false << true << false << false;
+        QTest::newRow("review closed") << true << false << false << false;
+        QTest::newRow("already connected") << true << true << true << false;
+        QTest::newRow("BLE disabled") << true << true << false << true;
+    }
+
+    void firmwareResumeRespectsRecoveryGates()
+    {
+        QFETCH(bool, paired);
+        QFETCH(bool, hunt);
+        QFETCH(bool, connected);
+        QFETCH(bool, disabled);
+        RecoveryDiscoveryReplay discovery;
+        QTimer timer;
+        timer.setSingleShot(true);
+        int attempt = 2;
+        connectRefractometerRecovery(&discovery, &timer, &timer, attempt, 60000,
+                                    [&] { return paired; }, [] {});
+        discovery.setFlashing(true);
+        discovery.hunt = hunt;
+        discovery.connected = connected;
+        discovery.disabled = disabled;
+        discovery.setFlashing(false);
+        QVERIFY(!timer.isActive());
+        QCOMPARE(attempt, 0);
+    }
+
+    void recoveryEventsPreserveAnActiveBackoff()
+    {
+        RecoveryDiscoveryReplay discovery;
+        QTimer timer;
+        timer.setSingleShot(true);
+        int attempt = 3;
+        connectRefractometerRecovery(&discovery, &timer, &timer, attempt, 5000,
+                                    [] { return true; }, [] {});
+        timer.start(60000);
+        emit discovery.refractometerConnectedChanged();
+        emit discovery.refractometerHuntChanged(true);
+        emit discovery.disabledChanged();
+        QCOMPARE(attempt, 3);
+        QCOMPARE(timer.interval(), 60000);
+    }
 
     void physicalStartFreezesOwnerBeforeAnyReading_data() {
         QTest::addColumn<int>("status");

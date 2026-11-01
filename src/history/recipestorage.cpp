@@ -296,11 +296,7 @@ QString Recipe::deriveDrinkType(const Recipe& recipe, const QString& profileBeve
     if (bev == QLatin1String("tea_portafilter"))
         return QStringLiteral("tea");
 
-    bool milk = false;
-    if (!recipe.steamJson.isEmpty()) {
-        const QJsonDocument doc = QJsonDocument::fromJson(recipe.steamJson.toUtf8());
-        milk = doc.isObject() && doc.object().value(QStringLiteral("hasMilk")).toBool();
-    }
+    const bool milk = RecipeEditFields::milkActive(recipe.steamJson);
     // Milk + added water is its own drink (a latte with an added hot-water
     // pour) — checked before milk-alone so the combination is named distinctly.
     // Order is irrelevant here; the wizard fixes this type's water to "before".
@@ -310,10 +306,11 @@ QString Recipe::deriveDrinkType(const Recipe& recipe, const QString& profileBeve
         return QStringLiteral("latte");
 
     if (water) {
-        const QString order = QJsonDocument::fromJson(recipe.hotWaterJson.toUtf8())
-                                  .object().value(QStringLiteral("order")).toString();
-        return order == QLatin1String("before") ? QStringLiteral("long_black")
-                                                : QStringLiteral("americano");
+        return RecipeEditFields::drinkSequence(recipe.profileTitle, recipe.steamJson,
+                                               recipe.hotWaterJson)
+                == RecipeEditFields::DrinkSequence::WaterBefore
+            ? QStringLiteral("long_black")
+            : QStringLiteral("americano");
     }
 
     if (bev == QLatin1String("filter") || bev == QLatin1String("pourover"))

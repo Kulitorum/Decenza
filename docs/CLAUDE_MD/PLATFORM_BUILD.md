@@ -110,6 +110,10 @@ Then in Xcode: Product → Archive for App Store submission.
 
 Native release CI passes `DECENZA_WEB_BUNDLE_DIR` for the matching Wasm deployment and `DECENZA_REQUIRE_WEB_BUNDLE=ON`. CMake verifies and embeds that artifact before deployment/signing. Local Qt Creator builds automatically build matching Wasm before native packaging when the SDK is available; `DECENZA_WEB_BUNDLE_MODE=LOCAL` requires the one-time SDK setup, while PREBUILT uses an existing artifact. See `tools/webclient/README.md` for prerequisites, path options and validation limits.
 
+### Desktop OpenSSL runtime
+
+Qt's OpenSSL plugin needs shared runtime libraries even when Decenza links OpenSSL statically for certificate generation. macOS CI builds universal static and shared libraries, bundles the shared pair in `Contents/Frameworks` with portable install names, and verifies both architectures before signing. Both Linux AppImages use `scripts/package_linux_appimage.sh` to explicitly deploy `libssl.so.3` and `libcrypto.so.3`; packaging fails if either library or the Qt OpenSSL plugin is missing.
+
 ## Windows Installer
 
 The Windows installer is built with Inno Setup (`installer/setup.iss`). It uses a local config file `installer/setupvars.iss` (gitignored) to define machine-specific paths.
@@ -128,7 +132,7 @@ Copy `installer/TEMPLATE_setupvars.iss` to `installer/setupvars.iss` and adjust 
 ```
 
 ### OpenSSL Dependency
-The app links OpenSSL directly (for TLS certificate generation in Remote Access). The installer must bundle `libssl-3-x64.dll` and `libcrypto-3-x64.dll`. If `OpenSslDir` is defined in `setupvars.iss`, the installer copies them automatically. Install OpenSSL for Windows from https://slproweb.com/products/Win32OpenSSL.html if you don't have it.
+The app links OpenSSL directly for TLS certificate generation. The installer must bundle `libssl-3-x64.dll`, `libcrypto-3-x64.dll` and Qt's `tls/qopensslbackend.dll` so Qt can serve HTTPS with the generated EC certificate. It passes `--force-openssl` to `windeployqt` and fails packaging if any of these files is missing. If `OpenSslDir` is defined in `setupvars.iss`, the installer copies the runtime DLLs automatically. Install OpenSSL for Windows from https://slproweb.com/products/Win32OpenSSL.html if you don't have it.
 
 ## Android Build & Signing
 

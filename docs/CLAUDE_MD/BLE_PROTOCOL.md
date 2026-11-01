@@ -72,6 +72,10 @@ stall, three times in one connect.
 starve every other device — a worse failure than the one being fixed — and unlike a
 GATT operation it is radio-scheduler work the host stack already interleaves.
 
+### Firmware update radio use
+
+DE1 firmware flashing requests Sleep and waits for its write ACK before erasing; ordinary state changes remain blocked during the flash. It temporarily pauses other BLE peripherals: BLEManager disconnects scales and refractometers, blocks their discovery/connect entry points, and retains their saved selections; PORTAL is suspended by the same firmware-state wiring in `main.cpp`. Teardown drops peripheral queues and stops their heartbeat producers. Connections resume after verification or failure. DE1-only recovery discovery stays available; WiFi and USB scales are not paused. Firmware response deadlines begin at the matching request's write ACK, so queue residence is not mistaken for an unanswered request.
+
 ### Recovering a DE1 link that has gone silent
 
 A DE1 link can stop working while `QLowEnergyController` still reports it connected. Measured

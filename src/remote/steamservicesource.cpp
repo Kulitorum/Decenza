@@ -27,6 +27,7 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 
@@ -55,25 +56,6 @@ bool readBool(const QVariantMap& map, const QString& key, bool* output)
     return true;
 }
 
-QVariantList pointList(const QVector<QPointF>& points)
-{
-    QVariantList result;
-    result.reserve(points.size());
-    for (const QPointF& point : points)
-        result.append(QVariant::fromValue(QVariantList{point.x(), point.y()}));
-    return result;
-}
-
-QVariantList goalPointList(const QVariantList& points)
-{
-    QVariantList result;
-    result.reserve(points.size());
-    for (const QVariant& value : points) {
-        const QPointF point = value.toPointF();
-        result.append(QVariant::fromValue(QVariantList{point.x(), point.y()}));
-    }
-    return result;
-}
 } // namespace
 
 NativeSteamServiceSource::NativeSteamServiceSource(MainController* controller,
@@ -106,21 +88,21 @@ NativeSteamServiceSource::NativeSteamServiceSource(MainController* controller,
                             &SettingsBrew::milkAutoCaptureEnabledChanged,
                             &SettingsBrew::lastSteamMilkGChanged,
                             &SettingsBrew::lastSteamTimeSChanged})
-            connect(brew, signal, this, &NativeSteamServiceSource::scheduleRefresh);
+            connect(brew, signal, this, &NativeSteamServiceSource::scheduleSettingsRefresh);
 
         auto* app = m_settings->app();
         for (auto signal : {&SettingsApp::steamViewModeChanged,
                             &SettingsApp::steamCoachVisualEnabledChanged,
                             &SettingsApp::steamCoachAudioEnabledChanged})
-            connect(app, signal, this, &NativeSteamServiceSource::scheduleRefresh);
+            connect(app, signal, this, &NativeSteamServiceSource::scheduleSettingsRefresh);
 
         auto* graph = m_settings->graph();
         for (auto signal : {&SettingsGraph::showSteamPressureChanged,
                             &SettingsGraph::showSteamFlowChanged,
                             &SettingsGraph::showSteamTemperatureChanged})
-            connect(graph, signal, this, &NativeSteamServiceSource::scheduleRefresh);
+            connect(graph, signal, this, &NativeSteamServiceSource::scheduleSettingsRefresh);
         connect(m_settings->hardware(), &SettingsHardware::steamTwoTapStopChanged,
-                this, &NativeSteamServiceSource::scheduleRefresh);
+                this, &NativeSteamServiceSource::scheduleSettingsRefresh);
     }
     if (m_machineState) {
         connect(m_machineState, &MachineState::phaseChanged,
@@ -172,16 +154,18 @@ NativeSteamServiceSource::NativeSteamServiceSource(MainController* controller,
     }
     if (m_editor)
         connect(m_editor, &SteamPageEditor::editorRevisionChanged,
-                this, &NativeSteamServiceSource::scheduleRefresh);
+                this, &NativeSteamServiceSource::scheduleSettingsRefresh);
     if (m_health) {
         connect(m_health, &SteamHealthTracker::warningSnapshotChanged,
-                this, &NativeSteamServiceSource::scheduleRefresh);
+                this, &NativeSteamServiceSource::scheduleWarningRefresh);
     }
     if (m_graph) {
         connect(m_graph, &SteamDataModel::flushed,
                 this, &NativeSteamServiceSource::scheduleGraphRefresh);
-        connect(m_graph, &SteamDataModel::cleared,
-                this, &NativeSteamServiceSource::scheduleGraphRefresh);
+        connect(m_graph, &SteamDataModel::cleared, this, [this] {
+            m_graphPublisher.reset();
+            scheduleGraphRefresh();
+        });
     }
     refreshSnapshot();
 }
@@ -203,22 +187,27 @@ void NativeSteamServiceSource::scheduleRefresh()
     }, Qt::QueuedConnection);
 }
 
+void NativeSteamServiceSource::scheduleSettingsRefresh()
+{
+    m_settingsDirty = true;
+    scheduleRefresh();
+}
+
+void NativeSteamServiceSource::scheduleWarningRefresh()
+{
+    m_warningsDirty = true;
+    scheduleRefresh();
+}
+
 void NativeSteamServiceSource::scheduleGraphRefresh()
 {
     m_graphSnapshotDirty = true;
     scheduleRefresh();
 }
 
-QVariantMap NativeSteamServiceSource::captureGraphSnapshot() const
+QVariantMap NativeSteamServiceSource::currentGraphSnapshot()
 {
-    if (!m_graph)
-        return {};
-    return {{QStringLiteral("revision"), m_graph->revision()},
-            {QStringLiteral("rawTime"), m_graph->rawTime()},
-            {QStringLiteral("pressure"), pointList(m_graph->pressureData())},
-            {QStringLiteral("flow"), pointList(m_graph->flowData())},
-            {QStringLiteral("temperature"), pointList(m_graph->temperatureData())},
-            {QStringLiteral("flowGoalPoints"), goalPointList(m_graph->flowGoalPoints())}};
+    return m_graph ? SteamGraphUpdate::capture(*m_graph) : QVariantMap{};
 }
 
 void NativeSteamServiceSource::refreshSnapshot()
@@ -227,16 +216,43 @@ void NativeSteamServiceSource::refreshSnapshot()
         || !m_preparation || !m_health || !m_editor)
         return;
 
-    const auto* brew = m_settings->brew();
-    const auto* app = m_settings->app();
-    const auto* graph = m_settings->graph();
-    const QVariantList presets = brew->steamPitcherPresets();
-    const int selected = brew->selectedSteamPitcher();
+    if (std::exchange(m_settingsDirty, false)) {
+        const auto* brew = m_settings->brew();
+        const auto* app = m_settings->app();
+        const auto* graph = m_settings->graph();
+        const QVariantList presets = brew->steamPitcherPresets();
+        const int selected = brew->selectedSteamPitcher();
+        setSteamPitcherPresets(presets);
+        setSelectedSteamPitcher(selected);
+        setSelectedSteamPitcherDisplayIndex(SteamPitcherSelection::displayIndex(presets, selected));
+        setSteamTemperature(brew->steamTemperature());
+        setSteamTimeout(brew->steamTimeout());
+        setSteamFlow(brew->steamFlow());
+        setSteamAutoFlushSeconds(brew->steamAutoFlushSeconds());
+        setSteamSecondsPerGram(brew->steamSecondsPerGram());
+        setMilkAutoCaptureEnabled(brew->milkAutoCaptureEnabled());
+        setLastSteamMilkG(brew->lastSteamMilkG());
+        setLastSteamTimeS(brew->lastSteamTimeS());
+        setLastSteamEffectiveDurationSec(brew->effectiveSteamDurationSec(selected, lastSteamMilkG()));
+        setSteamTwoTapStop(m_settings->hardware()->steamTwoTapStop());
+        setSteamViewMode(app->steamViewMode());
+        setSteamCoachVisualEnabled(app->steamCoachVisualEnabled());
+        setSteamCoachAudioEnabled(app->steamCoachAudioEnabled());
+        setShowSteamPressure(graph->showSteamPressure());
+        setShowSteamFlow(graph->showSteamFlow());
+        setShowSteamTemperature(graph->showSteamTemperature());
+        setEditorRevision(m_editor->editorRevision());
+    }
+    if (std::exchange(m_warningsDirty, false)) {
+        setActiveWarningKinds(m_health->activeWarningKinds());
+        setActiveWarningSessionId(m_health->activeWarningSessionId());
+        setActiveSteamSession(m_health->activeSession());
+        setWarningSnapshot(m_health->warningSnapshot().toJson().toVariantMap());
+    }
+    const auto preset = SteamPitcherSelection::presetAt(steamPitcherPresets(), selectedSteamPitcher());
     const double measuredMilk = m_scale->connected() && !m_scale->isFlowScale()
-        ? brew->netMilkForPitcher(selected, m_preparation->loadOnScaleG(m_machineState->scaleWeight()))
-        : 0.0;
-    const double lastMilk = brew->lastSteamMilkG();
-
+        ? SteamCalculations::netMilkForPitcher(preset,
+            m_preparation->loadOnScaleG(m_machineState->scaleWeight())) : 0.0;
     setDeviceConnected(m_device->isConnected());
     setDeviceState(m_device->stateInt());
     setDeviceSubState(m_device->subStateInt());
@@ -252,49 +268,26 @@ void NativeSteamServiceSource::refreshSnapshot()
     setScaleIsFlowScale(m_scale->isFlowScale());
     setScaleWeight(m_machineState->scaleWeight());
     setSteamTemperatureActual(m_device->steamTemperature());
-    setSteamPitcherPresets(presets);
-    setSelectedSteamPitcher(selected);
-    setSelectedSteamPitcherDisplayIndex(brew->selectedSteamPitcherDisplayIndex());
-    setSteamTemperature(brew->steamTemperature());
-    setSteamTimeout(brew->steamTimeout());
-    setPlannedSteamDurationSec(m_preparation->plannedSteamDurationSec());
-    setSteamFlow(brew->steamFlow());
-    setSteamAutoFlushSeconds(brew->steamAutoFlushSeconds());
-    setSteamSecondsPerGram(brew->steamSecondsPerGram());
-    setMilkAutoCaptureEnabled(brew->milkAutoCaptureEnabled());
-    setLastSteamMilkG(lastMilk);
-    setLastSteamTimeS(brew->lastSteamTimeS());
-    setSteamTwoTapStop(m_settings->hardware()->steamTwoTapStop());
-    setSteamViewMode(app->steamViewMode());
-    setSteamCoachVisualEnabled(app->steamCoachVisualEnabled());
-    setSteamCoachAudioEnabled(app->steamCoachAudioEnabled());
-    setShowSteamPressure(graph->showSteamPressure());
-    setShowSteamFlow(graph->showSteamFlow());
-    setShowSteamTemperature(graph->showSteamTemperature());
+    setPlannedSteamDurationSec(m_preparation->plannedSteamDurationSec(
+        preset, milkAutoCaptureEnabled(), steamSecondsPerGram(), steamTimeout()));
     setSteamHeaterOn(m_controller->steamHeaterOn());
     setSteamSoftStopped(m_controller->steamSoftStopped());
     setSteamAutoFlushCountdown(m_controller->steamAutoFlushCountdown());
     setSteamTimeoutScaled(m_preparation->steamTimeoutScaled());
     setMilkScaleLoadG(m_preparation->milkScaleLoadG());
     setMeasuredMilkG(measuredMilk);
-    setScaledSteamTimeout(brew->scaledSteamTime(selected, measuredMilk));
-    setLastSteamEffectiveDurationSec(brew->effectiveSteamDurationSec(selected, lastMilk));
+    setScaledSteamTimeout(SteamCalculations::scaledSteamTime(
+        preset, milkAutoCaptureEnabled(), steamSecondsPerGram(), measuredMilk));
     const auto* coach = m_controller->liveSteamCoach();
     setCueText(coach ? coach->cueText() : QString());
     setCueSeverity(coach ? coach->cueSeverity() : QString());
     setCueActive(coach && coach->cueActive());
     setDurationMilkDerived(coach && coach->durationMilkDerived());
-    setActiveWarningKinds(m_health->activeWarningKinds());
-    setActiveWarningSessionId(m_health->activeWarningSessionId());
-    setActiveSteamSession(m_health->activeSession());
-    setWarningSnapshot(m_health->warningSnapshot().toJson().toVariantMap());
-    setEditorRevision(m_editor->editorRevision());
-    if (m_graphSnapshotDirty && m_graph
-        && m_lastGraphSnapshotRevision != m_graph->revision()) {
-        setGraphSnapshot(captureGraphSnapshot());
-        m_lastGraphSnapshotRevision = m_graph->revision();
+    const bool publishGraph = std::exchange(m_graphSnapshotDirty, false);
+    if (publishGraph && m_graph) {
+        const auto update = m_graphPublisher.next(*m_graph);
+        if (!update.isEmpty()) setGraphUpdate(update);
     }
-    m_graphSnapshotDirty = false;
 }
 
 QVariantMap NativeSteamServiceSource::failure(const QString& message) const

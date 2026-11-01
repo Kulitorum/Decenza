@@ -390,6 +390,10 @@ bool DatabaseBackupManager::createBackup(bool force)
             settingsJson["ai_conversations"] = conversations;
     }
 
+    const bool hasLanguageSnapshot = m_translationManager != nullptr;
+    const auto languageSnapshot = hasLanguageSnapshot ? m_translationManager->captureFileSnapshot()
+                                                      : TranslationManager::FileSnapshot{};
+
     // Collect paths on main thread (some accessors may use JNI/platform APIs)
     QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
     QString downloadedProfilesPath = m_profileStorage ? m_profileStorage->downloadedProfilesPath() : QString();
@@ -399,7 +403,7 @@ bool DatabaseBackupManager::createBackup(bool force)
 
     // Run heavy I/O on background thread
     QThread* thread = QThread::create(
-        [this, dateStr, zipPath, backupDir, settingsJson, dbPath,
+        [this, dateStr, zipPath, backupDir, settingsJson, dbPath, hasLanguageSnapshot, languageSnapshot,
          userProfilesPath, downloadedProfilesPath, personalMediaDir, tempLocation,
          destroyed = m_destroyed]() {
 
@@ -438,10 +442,21 @@ bool DatabaseBackupManager::createBackup(bool force)
 
         // Write settings.json (from pre-captured snapshot)
         if (!settingsJson.isEmpty()) {
+            QJsonObject backupSettings = settingsJson;
+            if (hasLanguageSnapshot) TranslationManager::addLanguageToBackup(backupSettings, languageSnapshot);
+            if (backupSettings.value(QStringLiteral("languageTranslationError")).toBool()) {
+                QDir(stagingDir).removeRecursively();
+                QMetaObject::invokeMethod(this, [this, destroyed]() {
+                    if (*destroyed) return;
+                    m_backupInProgress = false;
+                    emit backupFailed(tr_("backup.error.languageExport", "Could not back up language customizations"));
+                }, Qt::QueuedConnection);
+                return;
+            }
             QString settingsPath = stagingDir + "/settings.json";
             QFile file(settingsPath);
             if (file.open(QIODevice::WriteOnly)) {
-                file.write(QJsonDocument(settingsJson).toJson(QJsonDocument::Indented));
+                file.write(QJsonDocument(backupSettings).toJson(QJsonDocument::Indented));
                 file.close();
                 DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Settings exported to" << settingsPath;
             } else {
@@ -732,6 +747,10 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
     QPointer<ScreensaverVideoManager> screensaverGuard(m_screensaverManager);
     QPointer<DatabaseBackupManager> managerGuard(this);
     QCoreApplication* callbackContext = QCoreApplication::instance();
+    const QPointer<TranslationManager> translations(m_translationManager);
+    const bool hasTranslationManager = !translations.isNull();
+    const auto languageSnapshot = translations ? translations->captureFileSnapshot()
+                                               : TranslationManager::FileSnapshot{};
 
     // Run heavy I/O on background thread. The optional lease is retained even
     // when the requester drops its transfer owner during the restore.
@@ -739,6 +758,7 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
         [this, filename, zipPath, merge, restoreShots, restoreSettings, restoreProfiles, restoreMedia,
          userProfilesPath, downloadedProfilesPath, personalMediaDir, dbPath, tempLocation,
          hasScreensaverManager, screensaverGuard, managerGuard, callbackContext,
+         translations, hasTranslationManager, languageSnapshot,
          inputLease, destroyed = m_destroyed]() {
         Q_UNUSED(inputLease)
         // Create temp directory for extraction
@@ -779,6 +799,9 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
 
         const QString restoreDir = isRawDb ? QFileInfo(zipPath).absolutePath() : tempDir;
         QJsonObject settingsJson;
+        TranslationManager::PreparedImport languageImport;
+        QStringList languageOverrides;
+        bool hasLanguage = false;
         if (restoreSettings) {
             const QString settingsPath = restoreDir + "/settings.json";
             if (QFile::exists(settingsPath)) {
@@ -793,6 +816,31 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                                              QStringLiteral("settings.json has invalid format"));
                 }
             }
+        }
+        if (restoreSettings && settingsJson.value(QStringLiteral("languageTranslationError")).toBool())
+            errors << qMakePair(QStringLiteral("backup.error.languageReadFailed"),
+                                QStringLiteral("The backup could not read its language customizations"));
+        if (restoreSettings && settingsJson.contains(QStringLiteral("languageTranslation"))) {
+            hasLanguage = true;
+            const QJsonValue input = settingsJson.value(QStringLiteral("languageTranslation"));
+            const QJsonValue overrideInput = settingsJson.value(QStringLiteral("languageOverrides"));
+            bool valid = hasTranslationManager && input.isObject()
+                && TranslationManager::readBackupOverrides(input.toObject(), overrideInput, &languageOverrides);
+            const QString languagePath = QDir(tempDir).filePath(QStringLiteral("language-import.json"));
+            QFile languageFile(languagePath);
+            const QByteArray payload = QJsonDocument(input.toObject()).toJson(QJsonDocument::Compact);
+            if (valid && languageFile.open(QIODevice::WriteOnly)
+                && languageFile.write(payload) == payload.size() && languageFile.flush()) {
+                languageFile.close();
+                languageImport = TranslationManager::prepareTranslationImport(languageSnapshot, languagePath,
+                    input.toObject().value(QStringLiteral("language")).toString(), !merge);
+                valid = languageImport.reason.isEmpty();
+            } else {
+                valid = false;
+            }
+            if (!valid)
+                errors << qMakePair(QStringLiteral("backup.error.languageInvalid"),
+                                    QStringLiteral("The language customizations could not be restored"));
         }
         if (restoreProfiles) {
             for (const QString& folder : {QStringLiteral("user"), QStringLiteral("downloaded")}) {
@@ -1023,13 +1071,16 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
         QMetaObject::invokeMethod(callbackContext,
             [managerGuard, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored,
              errors, merge, shotImport, destroyed, mediaStageReady, preparedMedia,
-             mediaStage, screensaverGuard, restoreMedia, restoreSettings]() mutable {
+             mediaStage, screensaverGuard, restoreMedia, restoreSettings, hasLanguage,
+             languageImport, languageOverrides, translations]() mutable {
                 if (!managerGuard || *destroyed) return;
                 Q_UNUSED(mediaStage)
                 QPointer<DatabaseBackupManager> selfGuard = managerGuard;
                 QVector<QPair<QString, QString>> restoreErrors = errors;
-                if (shotsImported && managerGuard->m_storage)
+                if (shotsImported && managerGuard->m_storage) {
                     managerGuard->m_storage->refreshTotalShots();
+                    emit managerGuard->m_storage->importedDatabaseChanged();
+                }
                 if (!selfGuard) return;
                 if (profilesRestored) emit managerGuard->profilesRestored();
                 if (!selfGuard) return;
@@ -1062,6 +1113,20 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                                                               SettingsSerializer::sensitiveKeys()))
                         restoreErrors << qMakePair(QStringLiteral("backup.error.settingsImport"),
                                                    QStringLiteral("Some settings could not be restored"));
+                }
+                if (!selfGuard) return;
+                if (hasLanguage) {
+                    const bool imported = translations && translations->commitTranslationImport(languageImport)
+                        .value(QStringLiteral("success")).toBool();
+                    if (!selfGuard) return;
+                    if (imported && translations) {
+                        translations->setCurrentLanguage(languageImport.language);
+                        if (!selfGuard) return;
+                    }
+                    if (!imported || !translations || translations->currentLanguage() != languageImport.language
+                        || !translations->applyTransferredOverrides(languageOverrides, !merge))
+                        restoreErrors << qMakePair(QStringLiteral("backup.error.languageImport"),
+                                                   QStringLiteral("The language customizations could not be restored"));
                 }
                 if (!selfGuard) return;
                 QString conversationNote;

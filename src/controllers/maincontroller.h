@@ -17,6 +17,7 @@
 #include "core/steamstopstate.h"
 #include "core/yieldspec.h"
 #include "core/brewbaseline.h"
+#include "core/shotreviewbaseline.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -76,6 +77,7 @@ class ShotTimingController;
 class TranslationManager;
 class ScaleDeviceProxy;
 class SteamAutoFlushController;
+class DrinkSequenceController;
 struct ShotSample;
 
 class MainController : public QObject,
@@ -234,6 +236,12 @@ class MainController : public QObject,
     Q_PROPERTY(double steamAutoFlushCountdown READ steamAutoFlushCountdown
                NOTIFY steamAutoFlushCountdownChanged FINAL)
     Q_PROPERTY(bool steamSoftStopped READ steamSoftStopped NOTIFY steamSoftStoppedChanged FINAL)
+    // The step an americano or long black will request when the running one
+    // ends: a DrinkSequenceController::Step (recipe-drink-sequence).
+    Q_PROPERTY(int pendingDrinkStep READ pendingDrinkStep NOTIFY pendingDrinkStepChanged FINAL)
+    // True from arming until the second step ends, or is skipped, dropped or
+    // refused; the drink stays on screen meanwhile.
+    Q_PROPERTY(bool drinkSequenceActive READ drinkSequenceActive NOTIFY drinkSequenceActiveChanged FINAL)
 
 public:
     explicit MainController(QNetworkAccessManager* networkManager,
@@ -250,6 +258,9 @@ public:
     bool steamHeaterOn() const { return m_steamHeaterPolicy && m_steamHeaterPolicy->resolve().on; }
     double steamAutoFlushCountdown() const;
     bool steamSoftStopped() const { return m_steamStopState.softStopped(); }
+    int pendingDrinkStep() const;
+    bool drinkSequenceActive() const;
+    void skipPendingDrinkStep();
 
     // Non-profile accessors
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
@@ -290,7 +301,7 @@ public:
     }
     void setBLEManager(BLEManager* bleManager);
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
-    void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
+    void setTimingController(ShotTimingController* controller);
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
     SteamDataModel* steamDataModel() const { return m_steamDataModel; }
@@ -350,6 +361,15 @@ public:
     LocationProvider* locationProvider() const { return m_locationProvider; }
     qint64 lastSavedShotId() const { return m_lastSavedShotId; }
     qint64 espressoOperationId() const { return m_espressoOperationId; }
+    quint64 reviewOperationGeneration() const { return m_reviewOperationGeneration; }
+    bool reviewOperationInProgress() const;
+    bool reviewHasNewerEspressoOperation() const {
+        return m_lastSavedShotOperationId > 0 && m_espressoOperationId != m_lastSavedShotOperationId;
+    }
+    std::optional<ShotReviewSetup> currentShotReviewSetup() const;
+    std::optional<ShotReviewSetup> shotReviewBaseline(qint64 shotId) const;
+    bool publishShotReviewPatch(const QVariantMap& patch, const QVariantMap& committedBag,
+                                const QVariantMap& committedRecipe);
     QString shotStopReasonForPresentation() const;
 
     // For simulator integration
@@ -596,6 +616,8 @@ signals:
                                          bool success, const QString& reason);
     void steamHeaterStateChanged();
     void steamAutoFlushCountdownChanged();
+    void pendingDrinkStepChanged();
+    void drinkSequenceActiveChanged();
     void steamSoftStoppedChanged();
     void steamPageActionSucceeded(const QString& action, bool dismissPage);
     void steamPageActionFailed(const QString& action, const QString& message);
@@ -623,6 +645,7 @@ signals:
     void shotFlowStartedForOperation(qint64 operationId, int phase);
     void lastSavedShotIdChanged();
     void espressoOperationIdChanged();
+    void reviewOperationGenerationChanged();
     // generateFakeShotData()'s row was stored. Not emitted when that save is skipped or
     // fails, so a listener never opens a stale shot.
     void simulatedShotSaved(qint64 shotId);
@@ -830,6 +853,7 @@ private:
     PreparationController* m_preparation = nullptr;
     SteamPageEditor* m_steamPageEditor = nullptr;
     SteamAutoFlushController* m_steamAutoFlush = nullptr;
+    DrinkSequenceController* m_drinkSequence = nullptr;
     SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
@@ -930,7 +954,11 @@ private:
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
+    ShotReviewBaselines m_shotReviewBaselines;
     qint64 m_espressoOperationId = 0; // Monotonic token for correlating shot completion saves
+    qint64 m_lastSavedShotOperationId = 0;
+    quint64 m_reviewOperationGeneration = 0;
+    int m_reviewOperationKind = 0;
     QQueue<EndedEspressoOperation> m_endedEspressoOperations;
     QQueue<EndedEspressoOperation> m_processingEspressoOperations;
     QQueue<StartedFlow> m_startedFlows;
@@ -953,6 +981,7 @@ private:
     // the write-through stamps ignore self-inflicted change signals. The
     // controller methods that need it take it as an argument.
     bool m_applyingRecipe = false;
+    bool m_applyingShotReview = false;
     // recipe-auto-load: the id loadAutoLoadRecipeIfNeeded() is waiting on a
     // recipeReady()/recipeCheckFailed() for, so its existence/archived check
     // can filter out every OTHER recipeReady the app fires (active-recipe
@@ -1007,7 +1036,6 @@ private:
     // "the recipe's pitcher was deleted", which reach the selection watcher
     // identically. A heater-off recipe names the built-in, which cannot be
     // deleted, so it always counts as present.
-    bool recipeSteamPitcherStillExists(const QString& steamJson) const;
 
     // --- RecipeWiringController ports (two SideEffectPort methods are declared
     // above, marked as such).
@@ -1049,14 +1077,7 @@ private:
     // re-assert covers reconnect — but the log must not claim otherwise.
     bool pushShotSettings(double steamTempC, const QString& reason);
 
-    // Apply an active recipe's pitcher as an OVERRIDE of the user's standing
-    // selection, or (with SettingsBrew::NoStandingPitcher) unwind back to it.
-    //
-    // A recipe's pitcher is part of the drink, not a new preference: activating
-    // a latte used to overwrite the standing selection outright, so a user whose
-    // resting state was "Heater off" got a warm boiler for the rest of the day
-    // after one milk drink. Idempotent — re-activating while an override is
-    // already parked does not overwrite what was parked.
+    // Select the recipe's pitcher, if it names one.
     void setRecipeSteamPitcherOverride(int index);
     // Wire the deactivation watchers + write-through stamps (called once
     // from the constructor after storages exist).

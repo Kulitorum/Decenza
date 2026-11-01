@@ -21,6 +21,7 @@
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class TranslationManager;
+class FullBackupRestore;
 class QTcpSocket;
 
 class Settings;
@@ -75,10 +76,13 @@ public:
     void setShotHistoryStorage(ShotHistoryStorage* shotHistory) { m_shotHistory = shotHistory; }
     void setScreensaverVideoManager(ScreensaverVideoManager* screensaver) { m_screensaver = screensaver; }
     void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
+    void setFullBackupRestore(FullBackupRestore* restore);
 
     // Property getters
     bool isConnecting() const { return m_connecting; }
     bool isImporting() const { return m_importing || m_shotImportInFlight; }
+    bool canCancelImport() const { return !m_fullRestoreInFlight; }
+    bool lastImportWasReplacement() const { return m_lastImportWasReplacement; }
     bool isSearching() const { return m_searching; }
     double progress() const { return m_progress; }
     QString currentOperation() const { return m_currentOperation; }
@@ -162,7 +166,7 @@ public:
     Q_INVOKABLE void disconnect();
 
     // Import all data types
-    Q_INVOKABLE void importAll();
+    Q_INVOKABLE void importAll(bool replace = false);
 
     // Import individual data types (can be called from QML)
     Q_INVOKABLE void importOnlySettings();
@@ -199,6 +203,7 @@ private slots:
     void onManifestReply();
     void onSettingsReply();
     void onExtraSettingsReply();
+    void onFullBackupReply();
     void onProfileListReply();
     void onProfileFileReply();
     void onShotsReply();
@@ -212,6 +217,8 @@ private slots:
     void onAuthReply();
 
 private:
+    struct FullBackupDownload;
+    void pumpFullBackupDownload();
     // Helper structs for tracking downloads
     struct ProfileDownload {
         QString category;
@@ -266,6 +273,7 @@ private:
 
     QNetworkAccessManager* m_networkManager;
     QPointer<QNetworkReply> m_currentReply;
+    std::shared_ptr<FullBackupDownload> m_fullBackupDownload;
     QTemporaryDir* m_tempDir = nullptr;
 
     Settings* m_settings = nullptr;
@@ -284,6 +292,9 @@ private:
     QString m_errorMessage;
     QString m_aiConversationNote;   // what the conversation step could not do; see the property
     TranslationManager* m_translationManager = nullptr;
+    QPointer<FullBackupRestore> m_fullRestore;
+    bool m_fullRestoreInFlight = false;
+    bool m_lastImportWasReplacement = false;
 
     // Import queue for importAll()
     QStringList m_importQueue;

@@ -575,13 +575,15 @@ T.Page {
         if (StackView.status !== StackView.Active || !PreparationService.state.available)
             return
         if (_pendingPreparationRowMode !== "") {
-            if (PreparationService.state.mode === _pendingPreparationRowMode)
+            if (PreparationService.state.mode === _pendingPreparationRowMode) {
                 activePresetFunction = PreparationService.state.mode
-            _pendingPreparationRowMode = ""
+                _pendingPreparationRowMode = ""
+            }
             return
         }
-        // Do not close a local inventory/editor row when the host mode changes.
-        if (activePresetFunction === "" || isPreparationMode(activePresetFunction))
+        // Follow host mode changes only while a preparation row is already open.
+        // A closed row stays closed until this client requests one.
+        if (isPreparationMode(activePresetFunction))
             activePresetFunction = PreparationService.state.mode
     }
 
@@ -654,8 +656,9 @@ T.Page {
             if (idlePage.StackView.status !== StackView.Active
                     || PreparationService.state.mode !== "steam")
                 return
-            if (t <= 0) return
-            idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
+            idlePage.milkCaptureText = t > 0
+                ? TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
+                : TranslationManager.translate("scale.milkCaptured", "Milk captured: %1 g").arg(milk.toFixed(0))
             idlePage.milkCaptureShown = true
             idleMilkCaptureTimer.restart()
             if (AccessibilityManager.enabled)
@@ -683,15 +686,19 @@ T.Page {
         }
     }
 
-    // Small flashing reminder shown while a dose cup of beans is settling on the
-    // scale (a load is present but stable-capture hasn't fired yet). Disappears the
-    // instant capture completes; a ding plays then only if doseCaptureSoundEnabled.
+    // Explain the settling wait without depending on the optional capture sound.
     Text {
         id: waitForBellHint
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         anchors.topMargin: Theme.scaled(70)
         z: 1500
+        width: Math.min(parent.width - Theme.scaled(32), implicitWidth)
+        leftPadding: Theme.scaled(12)
+        rightPadding: Theme.scaled(12)
+        topPadding: Theme.scaled(8)
+        bottomPadding: Theme.scaled(8)
+        wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
         // Only while a load sits in the capture window with a cup saved. Outside
         // [minNet, maxNet] no capture will ever fire, so don't tell the user to wait
@@ -709,15 +716,10 @@ T.Page {
         readonly property string milkHint: SteamLabels.captureHint(idleMilkCapture)
         visible: beansSettling || milkSettling || milkHint !== ""
         text: milkHint !== "" ? milkHint
-            : TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
-        color: Theme.warningColor
-        font: Theme.labelFont
-        SequentialAnimation on opacity {
-            running: waitForBellHint.visible
-            loops: Animation.Infinite
-            NumberAnimation { to: 0.25; duration: 450 }
-            NumberAnimation { to: 1.0; duration: 450 }
-        }
+            : TranslationManager.translate("scale.waitForStableCapture", "Keep on the scale until the weight is captured")
+        color: Theme.textColor
+        font: Theme.bodyFont
+        Rectangle { anchors.fill: parent; z: -1; color: Theme.cardBackgroundColor; radius: Theme.cardRadius }
     }
 
     StackView.onStatusChanged: {
@@ -1013,7 +1015,7 @@ T.Page {
                     PresetPillRow {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: steamPresetLoader.width
-                        presets: SteamService.state.steamPitcherPresets
+                        presets: SteamLabels.steamRow(SteamService.state.steamPitcherPresets)
                         selectedIndex: SteamService.state.selectedSteamPitcherDisplayIndex
                         supportLongPress: true
                         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
@@ -1030,13 +1032,15 @@ T.Page {
                         // name already says pitcher and for the built-in entry.
                         pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
-                        onPresetSelected: function(index) { HomePresetActions.tapSteamPitcher(index) }
+                        onPresetSelected: function(index) { HomePresetActions.tapSteamRowEntry(index) }
 
                         // Long-press a pitcher to open the steam page settings, where you set
                         // the duration and either tap "Weigh" next to Reference milk (with milk
                         // on the scale) or "Use as baseline" to teach this pitcher its
                         // milk-weight -> steam-time reference.
                         onPresetLongPressed: function(index) {
+                            if (SteamLabels.isPurgePill(presets[index]))
+                                return
                             HomePresetActions.selectSteamPitcher(index)
                             AppShell.steamRequested()
                         }

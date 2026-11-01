@@ -273,6 +273,7 @@ T.ApplicationWindow {
 
     DecenzaDialog {
         id: firmwareRebootRequiredDialog
+        inhibitScreensaver: true
         logName: "Firmware reboot required"
         modal: true
         dim: true
@@ -398,21 +399,12 @@ T.ApplicationWindow {
 
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
-        var phase = MachineState.phase
+        if (AppShell.screensaverInhibited) return true
         // Treat an in-progress firmware flash as an active operation so the
         // auto-sleep countdown can't fire mid-upload and cut BLE.
         var fw = MainController.firmwareUpdater
         if (fw && fw.isFlashing) return true
-        return phase === MachineState.Phase.EspressoPreheating ||
-               phase === MachineState.Phase.Preinfusion ||
-               phase === MachineState.Phase.Pouring ||
-               phase === MachineState.Phase.Ending ||
-               phase === MachineState.Phase.Steaming ||
-               phase === MachineState.Phase.HotWater ||
-               phase === MachineState.Phase.Flushing ||
-               phase === MachineState.Phase.Descaling ||
-               phase === MachineState.Phase.Cleaning ||
-               phase === MachineState.Phase.Transport
+        return MachineState.isOperating
     }
 
     // Sleep countdown timer - ticks every minute
@@ -1054,6 +1046,7 @@ T.ApplicationWindow {
         screensaverActive: root.screensaverActive
         onWakeRequested: root.goToIdleFromScreensaver()
         onBrewSettingsRequested: root.openBrewSettings()
+        onBrewSettingRequested: title => globalBrewDialog.openSearchResult(title)
         onCompletionSuspendRequested: root.suspendCompletionForDialog()
         onCompletionFinishRequested: root.finishCompletion()
         onPageScalePersistenceRequested: (pageName, scale) => Settings.setValue("pageScale/" + pageName, scale)
@@ -3136,6 +3129,7 @@ T.ApplicationWindow {
         function onPhaseChanged() {
             let phase = MachineState.phase
             let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+            const wasHotWater = root.previousPhase === MachineState.Phase.HotWater
             let wasIdle = (root.previousPhase === MachineState.Phase.Idle ||
                           root.previousPhase === MachineState.Phase.Ready ||
                           root.previousPhase === MachineState.Phase.Heating)
@@ -3218,7 +3212,8 @@ T.ApplicationWindow {
                 }
             }
 
-            const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+            const operationPage = OperationNavigationPolicy.machineOperationPage(
+                phase, MachineState.Phase, AppShell.drinkInCupView)
             if (operationPage !== "") {
                 if (!pageStack.busy) navigation.showMachineOperation(phase)
             } else if (phase === MachineState.Phase.Sleep) {
@@ -3243,8 +3238,13 @@ T.ApplicationWindow {
 
                 if (currentPage === "steamPage") {
                     root.showCompletion(trSteamComplete.text, "steam")
-                } else if (currentPage === "hotWaterPage") {
-                    root.showCompletion(trHotWaterComplete.text, "hotwater")
+                } else if (currentPage === "hotWaterPage"
+                           || (currentPage === "espressoPage" && wasHotWater)) {
+                    // A long black's water may have run on the espresso page (cup
+                    // view). An americano's water ends its drink, and the shot's
+                    // review takes the page instead.
+                    if (!espressoCompletion.heldForDrink)
+                        root.showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
                     if (AppShell.userExitedFlush) {
                         WebDebugLogger.debug("DE1", "main", ["Phase Idle/Ready: flush exited by user, skipping completion overlay"].map(String).join(" "))
@@ -3266,6 +3266,10 @@ T.ApplicationWindow {
     Connections {
         target: AppShell
         function onImmediateQuitRequested() { Qt.quit() }
+        function onScreensaverInhibitedChanged() {
+            if (AppShell.screensaverInhibited)
+                ScreensaverManager.screensaverActive = false
+        }
         function onQuitRequested() {
             if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing)
                 firmwareFlashExitDialog.open()
@@ -3296,6 +3300,10 @@ T.ApplicationWindow {
     }
 
     function goToScreensaver() {
+        if (AppShell.screensaverInhibited) {
+            ScreensaverManager.screensaverActive = false
+            return
+        }
         // Already showing (the P shortcut is unguarded): replacing the page with
         // itself would only restart the video. The flag is the one thing to check:
         // left clear under a showing page, auto-sleep re-slept the machine every
@@ -3810,6 +3818,7 @@ T.ApplicationWindow {
     Tr { id: trAnnounceShotComplete; key: "main.accessibility.shotComplete"; fallback: "Shot complete"; visible: false }
     Tr { id: trAnnounceSteaming; key: "main.accessibility.steaming"; fallback: "Steaming"; visible: false }
     Tr { id: trAnnounceHotWater; key: "main.accessibility.dispensingHotWater"; fallback: "Dispensing hot water"; visible: false }
+    Tr { id: trAnnounceSteamPurge; key: "main.accessibility.purgingSteamWand"; fallback: "Purging the steam wand"; visible: false }
     Tr { id: trAnnounceFlushing; key: "main.accessibility.flushing"; fallback: "Flushing"; visible: false }
     Tr { id: trAnnounceDescaling; key: "main.accessibility.descaling"; fallback: "Descaling in progress"; visible: false }
     Tr { id: trAnnounceCleaning; key: "main.accessibility.cleaning"; fallback: "Cleaning in progress"; visible: false }
@@ -3868,6 +3877,9 @@ T.ApplicationWindow {
                     break
                 case MachineState.Phase.Transport:
                     announcement = trAnnounceTransport.text
+                    break
+                case MachineState.Phase.SteamPurge:
+                    announcement = trAnnounceSteamPurge.text
                     break
             }
 

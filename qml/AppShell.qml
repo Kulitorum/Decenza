@@ -41,6 +41,11 @@ QtObject {
     // callback is supplied by that shared base, not discovered on arbitrary QML.
     property var _browserDialogs: []
     property bool browserDialogDraftsDirty: false
+    // Client-local: an open firmware manager or reboot prompt must survive
+    // inactivity even after a failed/completed flash stops counting as busy.
+    readonly property bool screensaverInhibited: _browserDialogs.some(function(entry) {
+        return entry.dialog.inhibitScreensaver === true
+    })
 
     function registerBrowserDialog(dialog: var, dismissible: bool,
                                    dirty: bool, dismiss: var): void {
@@ -89,6 +94,11 @@ QtObject {
     // Why the espresso operation ended: "manual", "weight", "machine", or "".
     // Drives the stop-reason overlay that draws above every page.
     property string stopReason: ""
+
+    // An americano or long black with the cup view: the Espresso page shows both
+    // steps (recipe-drink-sequence). Every page-for-phase decision passes this.
+    readonly property bool drinkInCupView: MachineControlService.drinkSequenceActive
+        && RecipeContext.preferences.espressoExtractionView === "cupFill"
 
     // Set by FlushPage's back-arrow / STOP handlers to suppress the 1.5 s "Flush
     // Complete" overlay when the user explicitly chose to leave. Single-shot:
@@ -149,6 +159,10 @@ QtObject {
     // (QML_NAVIGATION.md).
     signal espressoRequested()
     signal steamRequested()
+    signal steamSettingRequested(string title)
+    signal operationSettingRequested(string route)
+    signal brewSettingRequested(string title)
+    signal autoFavoritesSettingsRequested()
     signal hotWaterRequested()
     signal flushRequested()
     signal settingsRequested(string tabId)

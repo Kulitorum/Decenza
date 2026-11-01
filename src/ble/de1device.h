@@ -118,6 +118,11 @@ public:
     bool isGuiEnabled() const;
 
     DE1::State state() const { return m_state; }
+    // Only true after STATE_INFO has been received on the current connection.
+    bool hasCurrentStateInfo() const { return m_stateInfoReceived; }
+    void requestCurrentStateInfo();
+    // A captured GC failure is awaiting a safe point for its crash report.
+    void setGcAbortPending(bool pending) { m_gcAbortPending = pending; }
     DE1::SubState subState() const { return m_subState; }
     int stateInt() const { return static_cast<int>(m_state); }
     int subStateInt() const { return static_cast<int>(m_subState); }
@@ -274,6 +279,15 @@ public slots:
     void startEspresso();
     void startSteam();
     void startHotWater();
+    // Start HotWater or Espresso with no one at the machine: a recipe's second
+    // step. On hardware this is the same BLE request as startHotWater/
+    // startEspresso, and a GHC machine accepts it only inside the firmware's
+    // post-step window. In simulation with the GHC active, the simulator applies
+    // that rule, since the app's own controls stand in for GHC taps there.
+    void startUnattended(DE1::State state);
+    // The firmware's steam-wand purge (SteamRinse). It ends by itself, and a GHC
+    // machine accepts it without a tap.
+    void startSteamPurge();
     void startFlush();
     void startDescale();
     bool cancelPendingDescale(); // Cancel only a descale still waiting for cold preparation
@@ -400,12 +414,17 @@ public slots:
     static int bucketHeaterVoltage(int raw);
 
     // ---- Firmware update (BLE A009 / A006) --------------------------------
-    // These three writers talk directly to the transport and deliberately
+    // These writers talk directly to the transport and deliberately
     // bypass the per-register MMR dedupe cache (m_lastMMRValues): firmware
     // uploads stream ~28,000 unique 16-byte chunks, populating the cache
     // with those would grow the hash uselessly and risk colliding with
     // real MMR register addresses. See tasks.md §3 and the firmware-update
     // design doc for the wire formats.
+
+    // Firmware owner's prelude: queue Sleep without clearing commands or
+    // dropping the flash guard that blocks all ordinary state writes.
+    void requestFirmwareSleep();
+    void setSimulatedFirmwareBuild(int build);
 
     // Write the 7-byte FWMapRequest to A009 (firmware-update control).
     // `fwToErase=1, fwToMap=1` starts Phase 1 (erase). A second call with
@@ -431,6 +450,7 @@ public slots:
 
 signals:
     void connectedChanged();
+    void stateInfoReceived();
     void connectingChanged();
     void stateChanged();
     void subStateChanged();
@@ -592,6 +612,8 @@ private:
     bool m_ownsTransport = false;  // True when DE1Device created the transport (connectToDevice)
 
     DE1::State m_state = DE1::State::Sleep;
+    bool m_stateInfoReceived = false;
+    bool m_gcAbortPending = false;
     DE1::SubState m_subState = DE1::SubState::Ready;
 
     // Descale step timing. The firmware reports no progress figure and no expected
@@ -775,6 +797,8 @@ private:
     static constexpr double WATER_LEVEL_LOG_HYSTERESIS_MM = 2.0;
     QString m_firmwareVersion;
     int m_firmwareBuildNumber = 0;
+    int m_firmwareBuildBeforeSimulation = 0;
+    QString m_firmwareVersionBeforeSimulation;
     int m_machineModel = 0;
     int m_heaterVoltage = 0;  // 0=unknown, read from MMR HEATER_VOLTAGE
     uint32_t m_serialNumber = 0;  // 0=unknown, read from MMR SERIAL_NUMBER

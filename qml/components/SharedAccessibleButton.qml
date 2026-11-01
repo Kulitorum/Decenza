@@ -34,6 +34,8 @@ T.Button {
     property int _customFontSize: 0
     property int _customFontWeight: -1
     property bool tintIcon: false
+    // Draw the icon after the label ("Skip" + the step it skips).
+    property bool iconAfterText: false
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             implicitContentWidth + leftPadding + rightPadding)
@@ -67,6 +69,7 @@ T.Button {
             anchors.centerIn: parent
             spacing: root.icon.source.toString() !== "" && root.text !== ""
                      ? root.buttonStyle.scaled(6) : 0
+            layoutDirection: root.iconAfterText ? Qt.RightToLeft : Qt.LeftToRight
             Accessible.ignored: true
 
             Image {

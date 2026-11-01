@@ -2,6 +2,7 @@
 
 #include "blegattqueue.h"
 #include "de1transport.h"
+#include "firmwarewritetiming.h"
 
 #include <QBluetoothDeviceInfo>
 #include <QElapsedTimer>
@@ -99,7 +100,8 @@ private slots:
     // still in the air. The conflation was invisible before there was a slot to
     // free.
     void onCharacteristicRead(const QLowEnergyCharacteristic& c, const QByteArray& value);
-    void onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value);
+    void onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value,
+                                 qint64 signalAtNs = 0);
     void onDescriptorWritten(const QLowEnergyDescriptor& descriptor, const QByteArray& value);
 
 private:
@@ -317,6 +319,9 @@ private:
     // that arrived at +45 ms into a 3 s stall, three times in one connect
     // (#1819). One clock, and it is the outer one.
     QTimer m_operationTimeoutTimer;
+
+    FirmwareWriteTiming m_firmwareWriteTiming;
+    void flushFirmwareWriteTiming(const QString& reason);
 
     // Consecutive writes abandoned after exhausting their retries, reset by any
     // successful write and by a disconnect. Recognises a link that has stopped

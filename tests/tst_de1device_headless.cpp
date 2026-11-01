@@ -62,6 +62,89 @@ private slots:
         QCOMPARE(device.isHeadless(), true);
     }
 
+    void gcAbortStateRequiresFreshStateInfoAfterDisconnect() {
+        TestFixture f;
+        QSignalSpy received(&f.device, &DE1Device::stateInfoReceived);
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.parseStateInfo(QByteArray(1, '\0'));
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        QCOMPARE(received.count(), 0);
+        // The first reading may equal the default Sleep state; it must still
+        // notify the deferred abort coordinator that the state is now known.
+        f.device.parseStateInfo(statePayload(DE1::State::Sleep, DE1::SubState::Ready));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        QCOMPARE(received.count(), 1);
+        f.device.onTransportDisconnected();
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.parseStateInfo(statePayload(DE1::State::Espresso, DE1::SubState::Pouring));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        QCOMPARE(received.count(), 2);
+    }
+
+    // A purge from a non-idle state goes through Idle first, as de1app's
+    // start_steam_rinse does; from Idle it is the one request.
+    void steamPurgeRequestsSteamRinse() {
+        TestFixture f;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        f.transport.clearWrites();
+        f.device.startSteamPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 QList<QByteArray>{QByteArray(1, char(DE1::State::SteamRinse))});
+
+        f.transport.clearWrites();
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ready));
+        f.device.startSteamPurge();
+        QCOMPARE(requestedStates(f.transport),
+                 (QList<QByteArray>{QByteArray(1, char(DE1::State::Idle)),
+                                    QByteArray(1, char(DE1::State::SteamRinse))}));
+    }
+
+    void gcAbortPendingBlocksNewOperationsButAllowsStop() {
+        TestFixture f;
+        f.device.setGcAbortPending(true);
+        for (const auto state : {DE1::State::Espresso, DE1::State::Steam, DE1::State::HotWater,
+                                 DE1::State::HotWaterRinse, DE1::State::SteamRinse,
+                                 DE1::State::Descale, DE1::State::Clean, DE1::State::AirPurge}) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                QStringLiteral(".*Operation start blocked while a QML GC crash report is pending.*")));
+            f.device.requestState(state);
+        }
+        QVERIFY(requestedStates(f.transport).isEmpty());
+        f.device.requestState(DE1::State::Idle);
+        f.device.requestState(DE1::State::SkipToNext);
+        f.device.stopOperationUrgent();
+        QCOMPARE(requestedStates(f.transport),
+                 (QList<QByteArray>{QByteArray(1, char(DE1::State::Idle)),
+                                    QByteArray(1, char(DE1::State::SkipToNext)),
+                                    QByteArray(1, char(DE1::State::Idle))}));
+    }
+
+    void gcAbortStateIsInvalidatedOnTransportReplacement() {
+        TestFixture f;
+        MockTransport replacement;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        f.device.setTransport(&replacement);
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Steaming));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        f.device.setTransport(&f.transport);
+        QVERIFY(!f.device.hasCurrentStateInfo());
+    }
+
+    void gcAbortRequestsStateAndInvalidatesItOnExplicitDisconnect() {
+        TestFixture f;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        f.transport.reads.clear();
+        f.device.requestCurrentStateInfo();
+        QCOMPARE(f.transport.reads, (QList<QBluetoothUuid>{DE1::Characteristic::STATE_INFO}));
+        f.device.disconnect();
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.requestCurrentStateInfo();
+        QCOMPARE(f.transport.reads.size(), 1);
+    }
+
     void firmwareDescaleProgressKeepsMeasuredSchedule() {
         TestFixture f;
         emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
@@ -94,10 +177,10 @@ private slots:
         QTest::addColumn<bool>("deferred");
         QTest::addColumn<bool>("ghcConfirmed");
         QTest::newRow("unknown-ghc") << 0 << false << true << true;
-        QTest::newRow("stable-ghc") << 1352 << false << true << true;
+        QTest::newRow("pre-native-ghc") << 1352 << false << true << true;
         QTest::newRow("native-boundary-ghc") << 1356 << false << false << true;
-        QTest::newRow("early-access-ghc") << 1358 << false << false << true;
-        QTest::newRow("stable-no-ghc") << 1352 << true << false << true;
+        QTest::newRow("post-native-ghc") << 1358 << false << false << true;
+        QTest::newRow("pre-native-no-ghc") << 1352 << true << false << true;
         QTest::newRow("unknown-firmware-ghc-unread") << 0 << true << true << false;
         QTest::newRow("old-firmware-ghc-unread") << 1352 << true << true << false;
         QTest::newRow("native-firmware-ghc-unread") << 1356 << true << false << false;

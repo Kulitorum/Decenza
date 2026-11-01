@@ -16,6 +16,7 @@ T.Dialog {
     property bool browserBackDismissible:
         (control.closePolicy & T.Popup.CloseOnEscape) !== 0
     property bool browserUnloadDirty: false
+    property bool inhibitScreensaver: false
     signal logShown(string name)
 
     function dismissForBrowserBack(): void {

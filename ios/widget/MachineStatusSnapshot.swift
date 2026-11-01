@@ -30,6 +30,7 @@ enum WidgetPhase {
         "Descaling": "Descaling",
         "Cleaning": "Cleaning",
         "Transport": "Transport",
+        "SteamPurge": "Purging",
     ]
     static func shortLabel(_ phase: String) -> String {
         if phase.isEmpty { return "Decenza" }

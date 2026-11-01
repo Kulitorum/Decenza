@@ -21,6 +21,11 @@ T.Page {
 
     // Index into the SensorCalibration table. Set by main.qml when pushing.
     property int sensor: 0
+    property var initialRestoreContext: null
+    readonly property var navigationContext: ({restoreContext: {
+        recipeId: Math.max(0, calibrationPage._restoreRecipeId),
+        profileFilename: calibrationPage._restoreProfileName
+    }})
 
     // The service snapshot is a reactive typed read model; all operator inputs
     // and wizard state remain local to this page instance.
@@ -227,8 +232,11 @@ T.Page {
     }
 
     function beginCalibration() {
-        calibrationPage._restoreRecipeId = RecipeService.activeRecipeId
-        calibrationPage._restoreProfileName = ProfileService.currentProfileSummary.filename || ""
+        // Browser reload must retain the selection from before the test profile loaded.
+        const restore = calibrationPage.initialRestoreContext
+        calibrationPage._restoreRecipeId = restore ? restore.recipeId : RecipeService.activeRecipeId
+        calibrationPage._restoreProfileName = restore ? restore.profileFilename
+            : (ProfileService.currentProfileSummary.filename || "")
         calibrationPage.profileLoadRequestId = ProfileService.loadProfile(
             calibrationPage.sensorInfo.profileFilename ?? "")
         calibrationPage._refreshContext()

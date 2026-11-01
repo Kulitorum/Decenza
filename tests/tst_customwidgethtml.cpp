@@ -38,6 +38,7 @@
 #include <memory>
 
 #include "core/documentformatter.h"
+#include "core/uiworkprobe.h"
 #include "core/settings_network.h"
 #include "remote/browserdisplay.h"
 
@@ -60,12 +61,27 @@ public:
     }
 };
 
+class WidgetThemeProbe : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QVariantMap bodyFont READ bodyFont CONSTANT)
+public:
+    QVariantMap bodyFont() const { return {{QStringLiteral("pixelSize"), 16}}; }
+    Q_INVOKABLE QString replaceEmojiWithImg(const QString& value, int, bool) {
+        ++calls;
+        return value;
+    }
+    Q_INVOKABLE QString translate(const QString&, const QString& fallback) const { return fallback; }
+    Q_INVOKABLE double cToDisplay(double value) const { return value; }
+    int calls = 0;
+};
+
 class TestCustomWidgetHtml : public QObject {
     Q_OBJECT
 
 private slots:
     void init() { QTest::failOnWarning(); }
     void initTestCase();
+    void customWidgetFormattingDependsOnlyOnUsedValues();
 
     void bothImplementationsAgree_data();
     void bothImplementationsAgree();
@@ -196,6 +212,86 @@ void TestCustomWidgetHtml::initTestCase()
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     m_jsSegmentsToHtml = result;
     QVERIFY(m_jsSegmentsToHtml.isCallable());
+}
+
+void TestCustomWidgetHtml::customWidgetFormattingDependsOnlyOnUsedValues()
+{
+    const QString source = readSource(SrcPath::kCustomItem);
+    const qsizetype start = source.indexOf(QStringLiteral("    // Trigger counter"));
+    const qsizetype end = source.indexOf(QStringLiteral("    // Timer to update"), start);
+    QVERIFY(start >= 0 && end > start);
+    QString shipping = source.mid(start, end - start)
+        + liftFunction(source, QStringLiteral("function sanitizeHtml("))
+        + liftFunction(source, QStringLiteral("function substituteVariables("));
+    for (const auto& name : {QStringLiteral("DE1Device"), QStringLiteral("MachineState"),
+            QStringLiteral("ProfileManager"), QStringLiteral("ProfileService"),
+            QStringLiteral("ScaleDevice"), QStringLiteral("Settings"), QStringLiteral("RecipeContext"),
+            QStringLiteral("Theme"), QStringLiteral("TranslationManager")}) {
+        const QHash<QString, QString> names{{"DE1Device", "device"}, {"MachineState", "machine"},
+            {"ProfileManager", "profiles"}, {"ProfileService", "profileService"},
+            {"ScaleDevice", "scale"}, {"Settings", "settings"}, {"RecipeContext", "recipe"},
+            {"Theme", "theme"}, {"TranslationManager", "translations"}};
+        shipping.replace(QRegularExpression(QStringLiteral("\\b%1\\b").arg(name)),
+                         QStringLiteral("root.") + names.value(name));
+    }
+    const QString fixture = QStringLiteral(R"(
+        import QtQml
+        QtObject {
+            id: root
+            property string content: "%CONNECTED%"
+            required property QtObject theme
+            required property QtObject workProbe
+            property QtObject translations: theme
+            property QtObject machine: null
+            property QtObject profiles: null
+            property QtObject profileService: null
+            property QtObject scale: null
+            property QtObject settings: null
+            property QtObject recipe: null
+            property QtObject device: QtObject {
+                property real temperature: 93
+                property real steamTemperature: 140
+                property real pressure: 0
+                property real flow: 0
+                property real waterLevel: 75
+                property int waterLevelMl: 800
+                property string stateString: "Idle"
+                property bool connected: true
+            }
+            function _warn(message) { throw new Error(message) }
+            %1
+        }
+    )").arg(shipping);
+    QQmlEngine engine;
+    WidgetThemeProbe theme;
+    UiWorkProbe workProbe;
+    QQmlComponent component(&engine);
+    component.setData(fixture.toUtf8(), QUrl());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties({
+        {QStringLiteral("theme"), QVariant::fromValue(&theme)},
+        {QStringLiteral("workProbe"), QVariant::fromValue(&workProbe)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    QCOMPARE(view->property("resolvedText").toString(), QStringLiteral("Online"));
+    QObject* device = qvariant_cast<QObject*>(view->property("device"));
+    QVERIFY(device);
+    const int initialCalls = theme.calls;
+    for (int i = 1; i <= 100; ++i) {
+        QVERIFY(device->setProperty("temperature", 93.0 + i));
+        QVERIFY(device->setProperty("pressure", double(i)));
+    }
+    QCOMPARE(theme.calls, initialCalls);
+    QVERIFY(device->setProperty("connected", false));
+    QCOMPARE(view->property("resolvedText").toString(), QStringLiteral("Offline"));
+    QCOMPARE(theme.calls, initialCalls + 1);
+    QVERIFY(view->setProperty("content", QStringLiteral("%TEMP%")));
+    QCOMPARE(view->property("resolvedText").toString(), QStringLiteral("193.0"));
+    const int temperatureCalls = theme.calls;
+    for (int i = 0; i < 100; ++i) QVERIFY(device->setProperty("flow", double(i)));
+    QCOMPARE(theme.calls, temperatureCalls);
+    QVERIFY(device->setProperty("temperature", 94.0));
+    QCOMPARE(view->property("resolvedText").toString(), QStringLiteral("94.0"));
+    QCOMPARE(theme.calls, temperatureCalls + 1);
 }
 
 QString TestCustomWidgetHtml::readSource(const QString &relativePath)

@@ -117,6 +117,9 @@ private:
         qint64 timestamp = 0;
         double duration = 0;
         double pourStartSec = 0;
+        QString grinderSetting;
+        double doseWeightG = 0;
+        double temperatureOverrideC = 0;
 
         QVector<QPointF> pressure;
         QVector<QPointF> flow;

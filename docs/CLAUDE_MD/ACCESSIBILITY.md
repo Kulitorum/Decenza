@@ -9,6 +9,17 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 - Extraction announcements (phase changes, weight milestones, periodic updates)
 - User-configurable settings in Settings → Accessibility
 
+### Wasm screen-reader activation
+
+The web client uses Qt's on-demand **Enable Screen Reader** button
+(`qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:106-120`). Do not force
+`QT_WASM_ENABLE_ACCESSIBILITY` on for ordinary clients: iPhone pinch-zoom memory
+terminations stopped in live trials with the unused accessibility DOM disabled. Browser
+activation is local to that client and independent of the host's announcement
+settings. Mac accessibility-tree activation/navigation passes; actual mobile
+VoiceOver/TalkBack and zoom with the tree enabled remain acceptance checks in
+the Wasm OpenSpec change.
+
 ### Announcement routing (`AccessibilityManager.announce()`)
 
 `AccessibilityManager.announce(text, interrupt=false)` is the only announcement entry point used from QML (~25 call sites). At dispatch time it picks one of two paths automatically:
@@ -27,7 +38,6 @@ There is **no user-visible delivery-mode setting**. Routing is automatic; the ex
 | `qml/components/AccessibleButton.qml` | Standard button with required `accessibleName` |
 | `qml/components/AccessibleMouseArea.qml` | Custom-styled button with announce-first TalkBack behavior |
 | `qml/components/AccessibleTapHandler.qml` | TapHandler variant that works with TalkBack |
-| `qml/components/AccessibleLabel.qml` | Tap-to-announce text label |
 
 ### Key C++ Component
 

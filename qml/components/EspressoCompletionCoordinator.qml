@@ -19,6 +19,9 @@ Item {
     property bool pendingMetadataNavigation: false
     // qint64 is bounded to JavaScript's exact-integer range by MainController.
     property double activeOperationId: 0
+    // An americano or long black stays one drink on screen: leaving the shot page
+    // and opening its review wait until the drink's second step has finished.
+    property bool heldForDrink: false
 
     signal leaveOperationPageRequested()
     signal reviewRequested(int shotId)
@@ -93,6 +96,12 @@ Item {
             return
         }
 
+        if (heldForDrink || MachineControlService.drinkSequenceActive) {
+            pendingMetadataNavigation = true
+            heldForDrink = true
+            return
+        }
+
         if (isCalibrationShot || postShotReviewTimeout === 0)
             return
 
@@ -102,13 +111,45 @@ Item {
             WebDebugLogger.warn("Shot", "main", "Post-shot navigation skipped: no valid saved shot ID")
     }
 
+    // The timer's navigation, also run when a held drink finishes.
+    function navigateAfterShot() {
+        if (root.isCalibrationShot) {
+            root.pendingMetadataNavigation = false
+            root.leaveOperationPageRequested()
+            return
+        }
+        if (root.pendingMetadataNavigation) {
+            root.pendingMetadataNavigation = false
+            if (root.postShotReviewTimeout === 0) {
+                WebDebugLogger.debug("Shot", "main", "Post-shot review timeout is Instant; skipping review page")
+                root.leaveOperationPageRequested()
+            } else if (root.pendingShotId > 0) {
+                root.reviewRequested(root.pendingShotId)
+            } else {
+                WebDebugLogger.warn("Shot", "main", "Post-shot navigation skipped: no valid saved shot ID")
+                root.leaveOperationPageRequested()
+            }
+        } else {
+            root.leaveOperationPageRequested()
+        }
+    }
+
     Connections {
         target: MachineControlService
 
         function onStateChanged() {
+            // drinkSequenceActive outlasts the second step, so its fall means the
+            // drink is over and the review takes that step's page's place. It also
+            // reads false while the service is not ready, which must not end the hold.
+            if (root.heldForDrink && MachineControlService.ready
+                    && !MachineControlService.drinkSequenceActive) {
+                root.heldForDrink = false
+                root.navigateAfterShot()
+            }
             if (!MachineControlService.ready || (root.activeOperationId > 0
                     && root.activeOperationId !== MachineControlService.espressoOperationId)) {
                 root.stopOverlayVisible = false
+                root.heldForDrink = false
                 root.pendingMetadataNavigation = false
                 root.pendingShotId = -1
                 root.wasEspressoOperation = false
@@ -204,26 +245,11 @@ Item {
                 root.pendingMetadataNavigation = false
                 return
             }
-            if (root.isCalibrationShot) {
-                root.pendingMetadataNavigation = false
-                root.leaveOperationPageRequested()
+            if (MachineControlService.drinkSequenceActive) {
+                root.heldForDrink = true
                 return
             }
-
-            if (root.pendingMetadataNavigation) {
-                root.pendingMetadataNavigation = false
-                if (root.postShotReviewTimeout === 0) {
-                    WebDebugLogger.debug("Shot", "main", "Post-shot review timeout is Instant; skipping review page")
-                    root.leaveOperationPageRequested()
-                } else if (root.pendingShotId > 0) {
-                    root.reviewRequested(root.pendingShotId)
-                } else {
-                    WebDebugLogger.warn("Shot", "main", "Post-shot navigation skipped: no valid saved shot ID")
-                    root.leaveOperationPageRequested()
-                }
-            } else {
-                root.leaveOperationPageRequested()
-            }
+            root.navigateAfterShot()
         }
     }
 }

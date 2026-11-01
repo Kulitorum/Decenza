@@ -65,7 +65,6 @@
 #include <QPainter>
 #include <QCoreApplication>
 #include <QRegularExpression>
-#include <QThread>
 #include <QRandomGenerator>
 #include <QUuid>
 #include <QSslServer>
@@ -76,22 +75,37 @@
 #else
 #include <sys/socket.h>
 #include <unistd.h>
-#include <cerrno>
 #endif
 
 #ifdef Q_OS_IOS
 #include <Security/Security.h>
 #import <Foundation/Foundation.h>
 #else
+#include "tlspemwriter.h"
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/rand.h>
+#include <openssl/err.h>
 #endif
 
 #include "shotservertls.h"
+
+namespace {
+#ifndef Q_OS_IOS
+void logOpenSslFailure(const char* operation)
+{
+    const unsigned long error = ERR_peek_last_error();
+    char description[256] = {};
+    if (error)
+        ERR_error_string_n(error, description, sizeof(description));
+    DIAG_WARN(NETWORK, "ShotServer") << "TLS operation failed:" << operation
+             << "OpenSSL error=" << Qt::hex << error << Qt::dec << description;
+}
+#endif
+}
 
 // Query shot list from DB. Returns true on success, false on query failure.
 static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
@@ -3172,26 +3186,41 @@ bool ShotServer::setupTls()
     const auto keyAlgo = QSsl::Ec;
 #endif
 
-    // Check if cert/key already exist
-    if (QFile::exists(certPath) && QFile::exists(keyPath)) {
+    const auto loadCertificate = [&]() {
         QFile certFile(certPath);
         QFile keyFile(keyPath);
-        if (certFile.open(QIODevice::ReadOnly) && keyFile.open(QIODevice::ReadOnly)) {
-            m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
-            m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
-            if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
-                if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
-                    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate expired, regenerating";
-                } else if (!ShotServerTls::coversAddresses(m_sslCert.subjectAlternativeNames(),
-                                                         ShotServerTls::localAddresses())) {
-                    DIAG_INFO(NETWORK, "ShotServer") << "Regenerating HTTPS certificate to cover current network addresses";
-                } else {
-                    DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
-                    return true;
-                }
+        if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
+            DIAG_WARN(NETWORK, "ShotServer") << "Cannot open TLS files: certificateOpen="
+                     << certFile.isOpen() << "error=" << certFile.errorString()
+                     << "keyOpen=" << keyFile.isOpen() << "error=" << keyFile.errorString();
+            return false;
+        }
+        const QByteArray certPem = certFile.readAll();
+        const QByteArray keyPem = keyFile.readAll();
+        if (certFile.error() != QFileDevice::NoError || keyFile.error() != QFileDevice::NoError) {
+            DIAG_WARN(NETWORK, "ShotServer") << "TLS file read errors: certificate="
+                     << certFile.errorString() << "key=" << keyFile.errorString();
+        }
+
+        m_sslCert = QSslCertificate(certPem, QSsl::Pem);
+        m_sslKey = QSslKey(keyPem, keyAlgo, QSsl::Pem);
+        return !m_sslCert.isNull() && !m_sslKey.isNull();
+    };
+
+    // Check if cert/key already exist
+    if (QFile::exists(certPath) && QFile::exists(keyPath)) {
+        if (loadCertificate()) {
+            if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
+                DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate expired, regenerating";
+            } else if (!ShotServerTls::coversAddresses(m_sslCert.subjectAlternativeNames(),
+                                                     ShotServerTls::localAddresses())) {
+                DIAG_INFO(NETWORK, "ShotServer") << "Regenerating HTTPS certificate to cover current network addresses";
             } else {
-                DIAG_DEBUG(NETWORK, "ShotServer") << "Existing cert/key invalid or wrong type, regenerating";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
+                return true;
             }
+        } else {
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Existing cert/key invalid or wrong type, regenerating";
         }
     }
 
@@ -3202,17 +3231,7 @@ bool ShotServer::setupTls()
     }
 
     // Load the newly generated cert/key
-    QFile certFile(certPath);
-    QFile keyFile(keyPath);
-    if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
-        DIAG_WARN(NETWORK, "ShotServer") << "Failed to read generated certificate files";
-        return false;
-    }
-
-    m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
-    m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
-
-    if (m_sslCert.isNull() || m_sslKey.isNull()) {
+    if (!loadCertificate()) {
         DIAG_WARN(NETWORK, "ShotServer") << "Generated certificate or key is invalid";
         return false;
     }
@@ -3516,21 +3535,30 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
 {
     // Generate EC P-256 key pair using OpenSSL EVP API
+    const auto succeeded = [](bool ok, const char* operation) {
+        if (!ok)
+            logOpenSslFailure(operation);
+        return ok;
+    };
+
     EVP_PKEY* pkey = nullptr;
     EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
-    if (!pctx) return false;
+    if (!pctx) {
+        logOpenSslFailure("create EC key context");
+        return false;
+    }
 
     bool success = false;
     X509* x509 = nullptr;
 
     do {
-        if (EVP_PKEY_keygen_init(pctx) <= 0) break;
-        if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0) break;
-        if (EVP_PKEY_keygen(pctx, &pkey) <= 0) break;
+        if (!succeeded(EVP_PKEY_keygen_init(pctx) > 0, "initialize EC key generation")) break;
+        if (!succeeded(EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) > 0, "select EC curve")) break;
+        if (!succeeded(EVP_PKEY_keygen(pctx, &pkey) > 0, "generate EC key pair")) break;
 
         // Create X509 certificate
         x509 = X509_new();
-        if (!x509) break;
+        if (!succeeded(x509 != nullptr, "allocate X509 certificate")) break;
 
         // Set version to v3
         X509_set_version(x509, 2);
@@ -3547,7 +3575,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         // instance and was silent on the branch that five of the six platforms actually build.
         ASN1_INTEGER* serialNumber = X509_get_serialNumber(x509);
         unsigned char serial_bytes[16];
-        if (RAND_bytes(serial_bytes, sizeof(serial_bytes)) != 1) break;
+        if (!succeeded(RAND_bytes(serial_bytes, sizeof(serial_bytes)) == 1, "generate certificate serial")) break;
         BIGNUM* bn = BN_bin2bn(serial_bytes, sizeof(serial_bytes), nullptr);
         BN_to_ASN1_INTEGER(bn, serialNumber);
         BN_free(bn);
@@ -3581,32 +3609,21 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         }
 
         // Sign with our private key
-        if (X509_sign(x509, pkey, EVP_sha256()) <= 0) break;
+        if (!succeeded(X509_sign(x509, pkey, EVP_sha256()) > 0, "sign X509 certificate")) break;
 
-        // Write certificate to PEM file.
-        //
-        // The fopen was checked but the write was not, and success = true below ran regardless,
-        // so a disk that filled up mid-write yielded a truncated cert and a reported success.
-        // Both PEM_write_* return 1 on success. fclose is checked too and deliberately runs
-        // BEFORE the verdict: buffered output is flushed at close, so that is where a
-        // write-out-of-space error usually appears, and breaking early would leak the FILE*.
-        FILE* certFile = fopen(certPath.toLocal8Bit().constData(), "wb");
-        if (!certFile) break;
-        const bool certWritten = PEM_write_X509(certFile, x509) == 1;
-        const bool certClosed = fclose(certFile) == 0;
-        if (!certWritten || !certClosed) {
-            DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath;
+        QString writeError;
+        if (!TlsPemWriter::write(certPath, [&](BIO* buffer) {
+                return succeeded(PEM_write_bio_X509(buffer, x509) == 1, "encode certificate PEM");
+            }, &writeError)) {
+            DIAG_WARN(NETWORK, "ShotServer") << "could not write the certificate to" << certPath << writeError;
             break;
         }
 
-        // Write private key to PEM file
-        FILE* keyFile = fopen(keyPath.toLocal8Bit().constData(), "wb");
-        if (!keyFile) break;
-        const bool keyWritten =
-            PEM_write_PrivateKey(keyFile, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1;
-        const bool keyClosed = fclose(keyFile) == 0;
-        if (!keyWritten || !keyClosed) {
-            DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath;
+        if (!TlsPemWriter::write(keyPath, [&](BIO* buffer) {
+                return succeeded(PEM_write_bio_PrivateKey(buffer, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1,
+                                 "encode private key PEM");
+            }, &writeError)) {
+            DIAG_WARN(NETWORK, "ShotServer") << "could not write the private key to" << keyPath << writeError;
             break;
         }
 

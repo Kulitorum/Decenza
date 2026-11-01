@@ -49,6 +49,7 @@ class MachineState : public QObject {
     Q_PROPERTY(bool isFlowing READ isFlowing NOTIFY phaseChanged)
     Q_PROPERTY(bool isHeating READ isHeating NOTIFY phaseChanged)
     Q_PROPERTY(bool isReady READ isReady NOTIFY phaseChanged)
+    Q_PROPERTY(bool isOperating READ isOperating NOTIFY phaseChanged)
     Q_PROPERTY(QString controlContextId READ controlContextId NOTIFY controlContextIdChanged)
     Q_PROPERTY(double shotTime READ shotTime NOTIFY shotTimeChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)

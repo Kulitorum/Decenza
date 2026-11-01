@@ -261,6 +261,7 @@ void BleTransport::subscribeAll() {
 }
 
 void BleTransport::disconnect() {
+    flushFirmwareWriteTiming(QStringLiteral("disconnect"));
     // Releases the slot if we hold it and drops everything of ours still
     // waiting, including any half-finished subscribeAll() sequence — a
     // torn-down connection's queued work must not bleed into the next attempt,
@@ -464,6 +465,7 @@ void BleTransport::onControllerConnected() {
 }
 
 void BleTransport::onControllerDisconnected() {
+    flushFirmwareWriteTiming(QStringLiteral("link-disconnected"));
     info(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     stopAndroidKeepalive();
 
@@ -621,7 +623,14 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
             connect(m_service, &QLowEnergyService::characteristicRead,
                     this, &BleTransport::onCharacteristicRead, qc);
             connect(m_service, &QLowEnergyService::characteristicWritten,
-                    this, &BleTransport::onCharacteristicWritten, qc);
+                    this, [this](const QLowEnergyCharacteristic& c, const QByteArray& value) {
+                        // Capture only a timestamp on the emitting thread; all state
+                        // and consumers retain their queued delivery on our thread.
+                        const qint64 signalAt = FirmwareWriteTiming::nowNs();
+                        QMetaObject::invokeMethod(this, [this, c, value, signalAt]() {
+                            onCharacteristicWritten(c, value, signalAt);
+                        }, Qt::QueuedConnection);
+                    }, Qt::DirectConnection);
             connect(m_service, &QLowEnergyService::descriptorWritten,
                     this, &BleTransport::onDescriptorWritten, qc);
             connect(m_service, &QLowEnergyService::errorOccurred,
@@ -813,7 +822,12 @@ void BleTransport::onDescriptorWritten(const QLowEnergyDescriptor& descriptor, c
     emitQueueDrainedIfIdle();
 }
 
-void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {
+void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value,
+                                            qint64 signalAtNs) {
+    const qint64 enteredAt = FirmwareWriteTiming::nowNs();
+    const bool measured = ownsInFlight(c.uuid())
+        && c.uuid() == DE1::Characteristic::WRITE_TO_MMR
+        && m_firmwareWriteTiming.acknowledged(value, signalAtNs ? signalAtNs : enteredAt, enteredAt);
     // Guarded, like completeOperation() below it. An ACK for a write already
     // abandoned at the clock would otherwise zero the consecutive-failure run and
     // print "accepting writes again" about a link that is not — and a late ACK is
@@ -821,9 +835,19 @@ void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, co
     // defeated by its own evidence.
     if (ownsInFlight(c.uuid())) noteWriteSucceeded();
     completeOperation(c.uuid());
+    const qint64 releasedAt = measured ? FirmwareWriteTiming::nowNs() : 0;
 
     emit writeComplete(c.uuid(), value);
+    const qint64 consumersFinishedAt = measured ? FirmwareWriteTiming::nowNs() : 0;
     emitQueueDrainedIfIdle();
+    if (measured) {
+        m_firmwareWriteTiming.callbackFinished(enteredAt, releasedAt, consumersFinishedAt,
+                                                FirmwareWriteTiming::nowNs());
+        if (m_firmwareWriteTiming.reportDue()) {
+            const QString summary = m_firmwareWriteTiming.report(QStringLiteral("sample"));
+            if (!summary.isEmpty()) log(summary);
+        }
+    }
 }
 
 // -- Private helpers --
@@ -942,7 +966,20 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
         m_gattQueue->noteFailed(this);
         return;
     }
+    const bool firmwareChunk = uuid == DE1::Characteristic::WRITE_TO_MMR
+        && data.size() == 20 && quint8(data[0]) == 16;
+    if (uuid == DE1::Characteristic::FW_MAP_REQUEST)
+        flushFirmwareWriteTiming(QStringLiteral("map-request"));
+    if (firmwareChunk)
+        m_firmwareWriteTiming.dispatched(data, FirmwareWriteTiming::nowNs(), m_gattQueue->pendingCount());
     m_service->writeCharacteristic(m_characteristics[uuid], data);
+    if (firmwareChunk) m_firmwareWriteTiming.issued(FirmwareWriteTiming::nowNs());
+}
+
+void BleTransport::flushFirmwareWriteTiming(const QString& reason) {
+    const QString summary = m_firmwareWriteTiming.report(reason);
+    if (!summary.isEmpty()) log(summary);
+    m_firmwareWriteTiming.reset();
 }
 
 bool BleTransport::linkAcceptsGattOperations(const QBluetoothUuid& uuid,
@@ -1181,6 +1218,7 @@ void BleTransport::submitWrite(const QBluetoothUuid& uuid, const QByteArray& dat
         // forgetWriteFailureState() and zero the counter, so the increment would
         // restart the episode from 1 on exactly the links that fault hardest.
         noteWriteAbandoned();
+        flushFirmwareWriteTiming(QStringLiteral("write-abandoned"));
         emit writeAbandoned(uuid, data);
         emit de1LinkFault(QStringLiteral("write-failed"));
         emitQueueDrainedIfIdle();

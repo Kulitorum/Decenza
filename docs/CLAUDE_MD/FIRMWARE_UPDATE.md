@@ -6,6 +6,8 @@ Decenza ships a built-in DE1 firmware updater that mirrors what the original `de
 
 **Settings → Firmware tab.**
 
+The firmware manager and power-cycle prompt inhibit the client's screensaver while open, including after success or failure. Native auto-sleep pauses too; closing the dialog restores normal inactivity behavior. The panel staying loaded after closing does not retain that inhibition.
+
 Two buttons:
 
 - **Check now** — forces a check against the bundled firmware catalog. Bypasses the once-per-week throttle.
@@ -13,17 +15,20 @@ Two buttons:
 
 ## What happens automatically
 
-- 30 seconds after the app starts (and at most once per 168 hours), Decenza compares the selected bundled firmware entry against the DE1's installed build. Stable is bundled build 1352; Early access, opt-in via Settings → Firmware, is bundled build 1358. No network request is needed for the check or for the firmware bytes.
+- 30 seconds after the app starts (and at most once per 168 hours), Decenza compares the selected bundled firmware entry against the DE1's installed build. Stable is bundled build 1358; Early access, opt-in via Settings → Firmware, is bundled build 1359. No network request is needed for the check or for the firmware bytes.
 - The bundled manifest build is compared against `MMR 0x800010` (the firmware build number the DE1 reports over BLE). Strictly greater = newer.
 - Persistence: `firmware/lastCheckedAt` (epoch seconds) lives in `QSettings`.
 
 ## What an update looks like
 
-**Expect ~15–20 minutes on Android** — not 45 seconds. Android BLE write-with-response is serialised at ~30 ms per ACK; 28,992 chunks at that rate is ~16 minutes of upload alone. On desktop platforms BLE is faster (macOS/Linux can hit closer to 2–3 minutes), but the Android tablet is the common case.
+**Android upload time depends on the tablet and connection.** At ~30 ms per ACK, about 29,000 chunks take ~15–20 minutes. The SM-X210 on Android 16 / Qt 6.12.0 (build 3652, October 30 capture) instead sustained ~158 ms per acknowledged packet, or roughly 76 minutes, even with the BLE scale disconnected and HIGH priority requested. Its upload had no retry/disconnect trail; the current log does not separate radio round-trip time from app dispatch overhead. Use the measured upload-time estimate. Desktop BLE can be closer to 2–3 minutes.
 
+- **Preparation — Sleep**: Queue a Sleep request and wait for its write ACK before subscribing or sending erase. The firmware guard stays engaged throughout, so ordinary state changes and MMR writes remain blocked. This matches DE1app's firmware-mode reconnect and Decaid's prelude. Transport abandonment stops the update with a retryable error; erase timers do not run while Sleep is queued. The ACK confirms the write, rather than a separate machine-state notification.
 - **Phase 1 — Erase**: `FWMapRequest(erase=1, map=1)` sent on characteristic `A009`. DE1 erases the inactive flash bank. Modern firmware sends a single erase-complete notification (`fwToErase=0`). The chunk pump starts as soon as that notification lands, with a 10 s fallback on every platform if it never does. Measured at +1.31 s on a DE1+/PCB 1.3, so the notification is the normal path and the timer is the exception. Matches reaprime/decaid; de1app gates on nothing and always waits the fixed 10 s.
 - **Phase 2 — Upload**: 28,992 sequential 20-byte packets streamed to characteristic `A006`. Each packet is `[len=16][addr24 BE][16-byte payload]`. Length byte is 16 (`0x10`) — same format as MMR writes which use length 4. Address is 24-bit **big-endian**. ACK-driven progress so the bar tracks bytes on the wire, not bytes in the BLE queue.
+  The native and browser firmware screens show the actual acknowledged upload percentage from 0 to 100%, with approximate upload time remaining based on average acknowledged throughput since upload began. Preparation/erasing and verification show indeterminate progress with their own status labels; neither reserves a percentage of the upload bar. Before the first timed ACK the line says it is estimating; verification time is separate.
 - **Phase 3 — Verify**: `FWMapRequest(erase=0, map=1, FirstError=FF,FF,FF)` on `A009`. DE1 verifies the inactive bank and replies with a 3-byte `FirstError`. `{0xFF, 0xFF, 0xFD}` = success; anything else = the byte offset of the first corrupt block.
+  The 60 s response timeout starts only after the exact verify request's write ACK. Queuing the request does not start that clock; transport write abandonment fails explicitly. A terminal success arriving after a response timeout restores the power-cycle prompt, provided no new attempt has started.
 
   **A notification is a verdict only when `WindowIncrement == 0`, `fwToErase == 0`, `fwToMap == 1` *and* `FirstError != FF FF FF`.** Anything else is the bootloader talking mid-scan, and its `FirstError` is a cursor rather than a corrupt-block address — reading it as one turns normal progress into a permanent-looking failure that survives Retry. We keep waiting; the 60 s verify timeout is the backstop. This is reaprime/decaid's `_isTerminalVerificationResponse` (`unified_de1.firmware.dart:142-147`).
 
@@ -31,6 +36,8 @@ Two buttons:
 - On success, the DE1 remaps the inactive bank as active. It does **not** auto-reboot in practice — on every captured flash (upgrade and downgrade) the machine keeps running the old firmware until the user flips its power switch. Decenza prompts for a power-cycle immediately after verify (see `FirmwareUpdater::AwaitingReboot`) and its auto-reconnect logic re-establishes BLE once the DE1 comes back up on the new firmware.
 
 ### BLE subscription timing (matters)
+
+During erase, upload and verification, BLEManager temporarily disconnects BLE scales and refractometers and blocks peripheral scans/connections; PORTAL is suspended too. Saved selections are retained and normal peripheral connections resume on a terminal outcome or the power-cycle prompt. An open refractometer hunt also regains its retry timer, so a later scan error can recover without reopening the review. WiFi and USB scales are unaffected, and DE1-only discovery remains available for recovery. This prevents scale heartbeat commands accumulating behind the image and delaying the verify request: the October 30 SM-X210 capture queued verification at +72:58, timed out at +73:58, then actually dispatched it about 3½ minutes after submission and received `FF FF FD` 1.3 s later.
 
 The FWMapRequest (A009) CCCD subscription is enabled **right before verify** — *not* at the start of erase. This matches `de1app/de1_comms.tcl:991`. The heavy upload-write burst appears to invalidate the A009 subscription on Android, so a re-subscribe immediately before the verify request is required for the verify response to reach the app.
 
@@ -52,22 +59,24 @@ Failure types and what they mean:
 
 | Message | Likely cause | What to do |
 |---|---|---|
+| "Could not put DE1 to sleep before firmware update" | Sleep write exhausted its transport retries; erase was not sent | Reconnect the DE1 and retry. |
 | "Erase did not complete. Retry, or power-cycle the DE1." | No erase-complete notification within 30 s | Retry. If repeated, power-cycle the DE1 and reconnect. |
 | "DE1 disconnected during firmware update" | BLE dropped mid-update | Bring the DE1 back into range, reconnect, tap Retry. The bootloader handles half-flashed inactive banks gracefully — next boot still uses the active bank. |
 | "Verification failed at block A.B.C" | DE1 detected corruption at byte offset A·B·C during verify | Retry. If it repeats, this is worth a bug report — include the block offset. |
 | "DE1 did not reconnect after verify" | Disconnected during verify, didn't come back within the 180 s (3 min) ambiguous-verify grace window | Power-cycle the DE1 and reconnect; if the version reads as the new build, the update actually succeeded and we just missed the confirmation — Decenza will retroactively flip to "Update complete" once the new version reads back. |
-| "No response from DE1 during verify" | The 60 s verify timeout fired without a notification | Most commonly a missing subscribe before verify (fixed) or a bootloader that validated and rebooted without emitting a response (the ambiguous-verify path will catch this via post-reconnect version check). Retry is usually correct. |
+| "No response from DE1 during verify" | No terminal verdict within 60 s after the verify request's ACK | A late success restores the power-cycle prompt automatically. A disconnect/reconnect is checked against the target version. |
+| "Could not send firmware verification request to DE1" | The verify request exhausted its transport retries | Reconnect the DE1 and retry. |
 | "The firmware file is not valid. Please report this." | Bundled `.bin` failed manifest/header/digest validation | **Non-retryable.** The application bundle probably contains mismatched firmware assets — this should never happen. Report it. |
 | "Finish current operation first" | Tried to update mid-shot/steam/flush/descale | End the current operation and tap Retry. |
 
 ## Where the firmware comes from
 
-Decenza ships the firmware images in the app bundle, using Decaid's firmware manifest as the source of truth. Two channels:
+Decenza ships the firmware images in the app bundle, described by `resources/firmware/manifest.json` (Decaid's manifest format). Each channel is the manifest entry whose `channel` is `stable` or `early-access`, so moving a build between channels is a manifest edit; `tst_firmwareassetcachehelpers` fails if two entries share a channel. Two channels:
 
 | Channel | Bundled build | Who should pick it |
 |---|---|---|
-| Stable (default) | 1352 (`de1-1352.bin`) | Everyone, unless you have a reason to opt into pre-release firmware. |
-| Early access (opt-in) | 1358 (`de1-1358.bin`) | Testers who want to try the newer bundled firmware before it becomes Decenza's default. |
+| Stable (default) | 1358 (`de1-1358.bin`, de1app `7e94ef3c`) | Everyone, unless you have a reason to opt into pre-release firmware. |
+| Early access (opt-in) | 1359 (`de1-1359.bin`, a Decenza-specific build from Decent, not in de1app/decaid) | Testers. Adds a 5 s window after Espresso → Idle in which a BLE HotWater request starts without a GHC tap. |
 
 The Firmware tab shows release notes from the selected Decaid manifest entry, tied to the displayed channel and version. Early access is persisted as `firmware/EA`; the one-time upgrade removes the obsolete `firmware/nightlyChannel` key and resets every install to Stable before a user opts into Early access again.
 
@@ -151,7 +160,7 @@ Five suites cover the firmware module. **No counts here on purpose** — the num
 - `tst_firmwareheader` — `.dat` header parser and on-disk validator: BoardMarker, the size floor and ceiling, and the malformed-header shapes (`_data()` table)
 - `tst_firmwareassetcachehelpers` — Decaid manifest parsing, bundled resource validation, channel classification, release-note metadata
 - `tst_de1device_firmware` — `DE1Device::writeFWMapRequest` / `writeFirmwareChunk` (bypasses MMR dedupe cache), `fwMapResponse` signal including `WindowIncrement`
-- `tst_firmwareupdater` — full state-machine flows: happy path; firmware updates keep the DE1 awake; the erase-complete notification starts the upload ahead of the fallback timer; "still erasing" does not, and neither does one arriving before the erase request's own write ACK; a non-terminal verify notification is ignored rather than reported as failure; erase timeout; disconnect during upload; verify failure; precondition refused; same-version re-flash still flashes; dismiss; retry restart; verify-disconnect retroactive success and grace timeout
+- `tst_firmwareupdater` — full state-machine flows: happy path; Sleep ACK precedes erase, unrelated/late ACKs cannot bypass it, and Sleep abandonment permits a fresh retry; the erase-complete notification starts the upload ahead of the fallback timer; "still erasing" does not, and neither does one arriving before the erase request's own write ACK; a non-terminal verify notification is ignored rather than reported as failure; erase timeout; disconnect during upload; verify failure; precondition refused; same-version re-flash still flashes; dismiss; retry restart; verify-disconnect retroactive success and grace timeout
 
 Build with `-DBUILD_TESTS=ON` and run individual binaries from `build/<config>/tests/Debug/`.
 
@@ -182,3 +191,28 @@ Eight non-obvious bugs surfaced only after trying a real flash. Worth reading be
 6. **Queue depth ≠ wire depth.** `BleTransport::queueCommand` enqueues immediately but BLE drains at ACK speed. Progress-from-queued-count jumps to 90 % in seconds and hangs; progress-from-ACK-count tracks the wire and is what the user should see.
 7. **Verify timeouts need to be generous.** 10 s is too tight; 60 s works. Bootloader verification of the entire 453 KB image plus signature/checksum takes real time.
 8. **The QML name is case-sensitive: `MainController`, capital M, not `mainController`.** Getting it wrong resolves the object to undefined silently — the tab rendered with `fw = null` for ages before we caught it. *(`MainController` is no longer a context property; it is a compile-time QML singleton, so a file using it needs `import Decenza`. The lesson survives the mechanism change, and qmllint now catches the misspelling instead of the user finding it.)*
+
+## Diagnosing slow BLE uploads
+
+`[DE1][BLE] firmware BLE timing` is a bounded DEBUG summary after the first 64
+acknowledgements, then each 1024, with the remainder flushed at the next map request
+or transport teardown. It records packet rate (16 firmware payload bytes per packet),
+acknowledged count, retry attempts, maximum pending depth, and average/maximum times:
+
+- `writeToQtSignal`: dispatch into `QLowEnergyService::writeCharacteristic` to our
+  direct `characteristicWritten` signal tap. This includes Qt, the platform Bluetooth
+  stack, radio/device response, and upstream callback delivery; it is **not** an HCI
+  measurement and cannot distinguish those components alone.
+- `qtDelivery`: that signal tap to our queued ACK handler on the transport thread.
+- `issueCall`: synchronous time spent inside `writeCharacteristic`.
+- `queueRelease`: ACK-handler entry through shared queue completion bookkeeping.
+- `ackConsumers`: synchronous ACK consumers, including updater progress publication.
+- `drainCheck`: the transport's pending-count/drain check.
+- `nextDispatchGap`: end of the previous measured ACK handler to the next firmware
+  write dispatch. Includes event-loop delay and any intervening operations.
+
+Times use a monotonic clock. Summaries cover the latest window; they store aggregate
+counts/sums/maxima, without per-packet history or payload logging. Retry ACK latency is measured
+from the latest attempt; packet rate also includes retry backoff. A large pending
+count is expected for the bulk upload. Queue scans remain unchanged so their measured
+cost can guide an optimization instead of attributing radio latency to them.

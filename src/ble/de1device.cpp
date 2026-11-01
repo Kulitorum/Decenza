@@ -113,6 +113,8 @@ DE1Device::~DE1Device() {
 // -- Transport abstraction --
 
 void DE1Device::setTransport(DE1Transport* transport) {
+    if (m_transport != transport)
+        m_stateInfoReceived = false;
     // Disconnect old transport signals if any
     if (m_transport) {
         QObject::disconnect(m_transport, nullptr, this, nullptr);
@@ -172,6 +174,7 @@ QString DE1Device::connectionType() const {
 // -- Transport signal handlers --
 
 void DE1Device::onTransportConnected() {
+    m_stateInfoReceived = false;
     // The canonical "the machine is usable now" line, and the counterpart in
     // onTransportDisconnected below. Every transport announces its own
     // connection in its own terms ("Transport connected" for BLE, "Port opened"
@@ -233,6 +236,7 @@ void DE1Device::onTransportConnected() {
 }
 
 void DE1Device::onTransportDisconnected() {
+    m_stateInfoReceived = false;
     // The keepalive run ends here. Without this its suppressed tally sat in the
     // table across the whole disconnect, and the first keepalive after a
     // reconnect — possibly hours later — printed carrying the PREVIOUS session's
@@ -533,9 +537,16 @@ void DE1Device::setSimulationMode(bool enabled) {
     if (m_simulationMode == enabled) {
         return;
     }
+    if (m_firmwareFlashInProgress) {
+        DEVICE_WARN(QStringLiteral("Simulation mode change blocked during firmware flash"));
+        return;
+    }
+    m_stateInfoReceived = false;
     m_simulationMode = enabled;
 
     if (enabled) {
+        m_firmwareBuildBeforeSimulation = m_firmwareBuildNumber;
+        m_firmwareVersionBeforeSimulation = m_firmwareVersion;
         m_state = DE1::State::Idle;
         m_subState = DE1::SubState::Ready;
         m_pressure = 0.0;
@@ -548,6 +559,7 @@ void DE1Device::setSimulationMode(bool enabled) {
         m_waterLevel = 75.0;
         m_waterLevelMm = 31.25;
         m_waterLevelMl = 872;
+        m_firmwareBuildNumber = 1342;
         m_firmwareVersion = QStringLiteral("BLE v4.0.0, API v4\nFW v10.5.0, API v250\npcb=1.3, model=DE1PRO, firmware=v1342");
         // A simulated machine reports a nominal heater voltage, like a real one.
         // Without it the Heater Calibration popup shows "your machine has not
@@ -560,6 +572,10 @@ void DE1Device::setSimulationMode(bool enabled) {
         emit stateChanged();
         emit subStateChanged();
         emit waterLevelChanged();
+        emit firmwareVersionChanged();
+    } else {
+        m_firmwareBuildNumber = m_firmwareBuildBeforeSimulation;
+        m_firmwareVersion = m_firmwareVersionBeforeSimulation;
         emit firmwareVersionChanged();
     }
 
@@ -591,6 +607,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
 
     m_state = state;
     m_subState = subState;
+    m_stateInfoReceived = true;
 
     updateDescaleProgressState(previousState, previousSubState);
 
@@ -600,6 +617,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+    emit stateInfoReceived();
 }
 
 void DE1Device::setSimulatedIdleSteamTemp(double steamTempC) {
@@ -679,6 +697,7 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void DE1Device::disconnect() {
+    m_stateInfoReceived = false;
     // Surface any in-flight profile upload as a failure before we tear down
     // the transport — otherwise listeners (ProfileManager, QML) would never
     // see a resolution for this attempt.
@@ -806,6 +825,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
 
     m_state = newState;
     m_subState = newSubState;
+    m_stateInfoReceived = true;
     updateDescaleProgressState(previousState, previousSubState);
 
     // A maintenance request held back because the machine was cold goes out as soon
@@ -820,6 +840,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+    emit stateInfoReceived();
 }
 
 void DE1Device::updateDescaleProgressState(DE1::State previousState,
@@ -1367,6 +1388,13 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
+    if (m_gcAbortPending && (state == DE1::State::Espresso || state == DE1::State::Steam
+            || state == DE1::State::HotWater || state == DE1::State::HotWaterRinse
+            || state == DE1::State::SteamRinse || state == DE1::State::Descale
+            || state == DE1::State::Clean || state == DE1::State::AirPurge)) {
+        DEVICE_WARN(QStringLiteral("Operation start blocked while a QML GC crash report is pending"));
+        return;
+    }
     if (state == DE1::State::Idle)
         m_connectSleep = ConnectSleep::None;
 #ifdef DECENZA_SIMULATOR
@@ -1383,6 +1411,9 @@ void DE1Device::requestState(DE1::State state) {
             break;
         case DE1::State::HotWaterRinse:
             m_simulator->startFlush();
+            break;
+        case DE1::State::SteamRinse:
+            m_simulator->startSteamPurge();
             break;
         case DE1::State::Idle:
             if (m_simulator->state() == DE1::State::Sleep) {
@@ -1416,6 +1447,14 @@ void DE1Device::requestState(DE1::State state) {
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     writeRequestedState(state, StateWrite::Normal);
+}
+
+void DE1Device::requestCurrentStateInfo() {
+    if (m_simulationMode) {
+        if (m_stateInfoReceived) emit stateInfoReceived();
+    } else if (m_transport && m_transport->isConnected()) {
+        m_transport->read(DE1::Characteristic::STATE_INFO);
+    }
 }
 
 void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {
@@ -1504,6 +1543,31 @@ void DE1Device::startHotWater() {
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::HotWater);
+}
+
+void DE1Device::startUnattended(DE1::State state) {
+#ifdef DECENZA_SIMULATOR
+    if (m_simulationMode && m_simulator && !m_isHeadless
+        && !m_simulator->acceptsUnattendedStart(state)) {
+        DEVICE_WARN(QStringLiteral("Simulated GHC refused %1: it needs a tap on the machine")
+                        .arg(DE1::stateToString(state)));
+        return;
+    }
+#endif
+    if (state == DE1::State::HotWater)
+        startHotWater();
+    else if (state == DE1::State::Espresso)
+        startEspresso();
+    else
+        DEVICE_WARN(QStringLiteral("startUnattended has no start for %1; nothing requested")
+                        .arg(DE1::stateToString(state)));
+}
+
+void DE1Device::startSteamPurge() {
+    DEVICE_INFO(QStringLiteral("Starting steam purge"));
+    if (m_state != DE1::State::Idle)
+        requestState(DE1::State::Idle);
+    requestState(DE1::State::SteamRinse);
 }
 
 void DE1Device::startFlush() {
@@ -2269,6 +2333,25 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 }
 
 // ----- Firmware update (A009 / A006) -------------------------------------
+
+void DE1Device::setSimulatedFirmwareBuild(int build) {
+    if (!m_simulationMode) return;
+    m_firmwareBuildNumber = build;
+    m_firmwareVersion = QStringLiteral("BLE v4.0.0, API v4\nFW v10.5.0, API v250\npcb=1.3, model=DE1PRO, firmware=v%1").arg(build);
+    emit firmwareVersionChanged();
+}
+
+void DE1Device::requestFirmwareSleep() {
+#ifdef DECENZA_SIMULATOR
+    if (m_simulationMode) {
+        if (m_simulator) m_simulator->goToSleep();
+        setSimulatedState(DE1::State::Sleep, DE1::SubState::Ready);
+        return;
+    }
+#endif
+    if (!m_transport) return;
+    writeRequestedState(DE1::State::Sleep, StateWrite::Normal);
+}
 
 void DE1Device::writeFWMapRequest(uint8_t fwToErase, uint8_t fwToMap,
                                   std::array<uint8_t, 3> firstError) {

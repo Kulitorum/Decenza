@@ -203,6 +203,27 @@ private slots:
         QVERIFY(!BelkaPortalDevice::isPortal(scale));
     }
 
+    void firmwareUpdateDisconnectsAndRestoresSavedPortal()
+    {
+        auto* transport = new PortalTransport;
+        BelkaPortalDevice portal(transport);
+        start(portal, transport);
+        const QString address = portal.savedAddress();
+        QVERIFY(!address.isEmpty());
+        portal.setFirmwareUpdateActive(true);
+        QCOMPARE(portal.state(), "disconnected");
+        QVERIFY(!transport->linked);
+        QCOMPARE(portal.savedAddress(), address);
+        portal.connectDevice(address);
+        QVERIFY(!portal.reconnect());
+        portal.setMachineBusy(false);
+        portal.observeDevice(device);
+        QTest::qWait(20);
+        QCOMPARE(transport->operations.count("connect"), 1);
+        portal.setFirmwareUpdateActive(false);
+        QTRY_COMPARE(transport->operations.count("connect"), 2);
+    }
+
     void synchronousDisconnectCanReconnectForgetAndRecoverFromError() {
         auto* transport = new PortalTransport;
         BelkaPortalDevice portal(transport);

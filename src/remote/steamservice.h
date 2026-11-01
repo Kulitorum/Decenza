@@ -69,6 +69,11 @@ private:
     static QRemoteObjectNode* publishedNode();
     void onReplicaStateChanged();
     void applyGraphSnapshot();
+    void consumeGraphUpdate(const QVariantMap& update);
+    bool applyGraphUpdate(const QVariantMap& update, bool append);
+    void requestGraphSnapshot();
+    void resetGraphSync();
+    void rejectGraphUpdate();
     void reconcileWarningSnapshot();
     void failPending(const QString& message);
     void finishRequest(QRemoteObjectPendingCallWatcher* watcher, const QString& requestId,
@@ -86,6 +91,11 @@ private:
     QString m_pendingOperation;
     quint64 m_generation = 0;
     quint64 m_requestGeneration = 0;
+    bool m_graphInitialized = false;
+    QString m_graphHostId;
+    QString m_graphRequestId;
+    QList<QVariantMap> m_graphUpdates;
+    qsizetype m_bufferedGraphPoints = 0;
     QString m_warningHostId;
     qint64 m_warningCursor = 0;
     bool m_warningInitialized = false;

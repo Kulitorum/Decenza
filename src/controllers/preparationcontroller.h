@@ -35,6 +35,8 @@ public:
     bool setMilkTimeLocked(bool locked) override;
     // The next start's duration, or the actual timeout of an active steam.
     int plannedSteamDurationSec() const;
+    int plannedSteamDurationSec(const QVariantMap& pitcher, bool milkAutoCaptureEnabled,
+                                double secondsPerGram, int timeoutSec) const;
 
 #ifdef DECENZA_TESTING
     void setClockForTesting(std::function<qint64()> clock);
@@ -61,6 +63,8 @@ private:
     void finishSteamSession();
     void beginSteamSession();
     int scaledSteamDurationAtStart(QString* source = nullptr) const;
+    int scaledSteamDurationAtStart(const QVariantMap& pitcher, bool milkAutoCaptureEnabled,
+                                   double secondsPerGram, QString* source = nullptr) const;
     void scheduleWake(std::optional<qint64> beanWake,
                       std::optional<qint64> milkWake);
     void disconnectScaleConnections();
