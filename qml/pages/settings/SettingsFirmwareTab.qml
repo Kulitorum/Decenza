@@ -72,22 +72,24 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        anchors.margins: Theme.spacingSmall
+        spacing: Theme.spacingSmall
 
         // ----- Version card ---------------------------------------
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(120)
+            Layout.preferredHeight: versionContent.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.borderColor
             border.width: 1
 
             RowLayout {
+                id: versionContent
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
                 spacing: Theme.spacingLarge
 
                 ColumnLayout {
@@ -174,7 +176,8 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(86)
+            Layout.preferredHeight: releaseNotesContent.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.fw && firmwareTab.fw.availableVersion > 0
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -182,8 +185,9 @@ Item {
             border.width: 1
 
             ColumnLayout {
+                id: releaseNotesContent
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
                 spacing: Theme.scaled(3)
 
                 Text {
@@ -205,7 +209,6 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     text: firmwareTab.fw && firmwareTab.fw.availableReleaseNotes
                           ? firmwareTab.fw.availableReleaseNotes
                           : TranslationManager.translate(
@@ -227,7 +230,8 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(70)
+            Layout.preferredHeight: downgradeContent.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.fw
                      && ((firmwareTab.fw.updateAvailable && firmwareTab.fw.isDowngrade)
                          || firmwareTab.fw.isReflash)
@@ -237,8 +241,9 @@ Item {
             border.width: 1
 
             RowLayout {
+                id: downgradeContent
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
                 spacing: Theme.spacingSmall
 
                 ColumnLayout {
@@ -287,7 +292,8 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(50)
+            Layout.preferredHeight: simulatorMessage.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.fw && firmwareTab.fw.isSimulated
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -295,8 +301,9 @@ Item {
             border.width: 1
 
             Text {
+                id: simulatorMessage
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
                 text: TranslationManager.translate(
                           "firmware.tab.simulatedFlashNote",
                           "Simulator connected — firmware transfer and reboot are simulated. " +
@@ -316,7 +323,8 @@ Item {
             // which would otherwise fire this 110px accent-bordered card
             // every channel toggle and look like a red/pink flash.
             Layout.fillWidth: true
-            Layout.preferredHeight: firmwareProgressContent.implicitHeight + 2 * Theme.spacingMedium
+            Layout.preferredHeight: firmwareProgressContent.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.isFlashing
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -326,10 +334,12 @@ Item {
             ColumnLayout {
                 id: firmwareProgressContent
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
                 spacing: Theme.spacingSmall
 
                 Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                     text: firmwareTab.fw ? firmwareTab.fw.stateText : ""
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(15)
@@ -387,7 +397,8 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(80)
+            Layout.preferredHeight: errorContent.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateFailed
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -395,9 +406,10 @@ Item {
             border.width: 1
 
             RowLayout {
+                id: errorContent
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
+                spacing: Theme.spacingSmall
 
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -436,7 +448,8 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(60)
+            Layout.preferredHeight: successMessage.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateSucceeded
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -444,7 +457,12 @@ Item {
             border.width: 1
 
             Text {
-                anchors.centerIn: parent
+                id: successMessage
+                anchors.fill: parent
+                anchors.margins: Theme.spacingSmall
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                wrapMode: Text.Wrap
                 text: TranslationManager.translate(
                           "firmware.tab.success",
                           "Update complete — DE1 is on v%1")
@@ -460,7 +478,8 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(80)
+            Layout.preferredHeight: rebootMessage.implicitHeight + 2 * Theme.spacingSmall
+            Layout.fillHeight: false
             visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateAwaitingReboot
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
@@ -468,8 +487,9 @@ Item {
             border.width: 1
 
             Text {
+                id: rebootMessage
                 anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
+                anchors.margins: Theme.spacingSmall
                 text: TranslationManager.translate(
                           "firmware.tab.awaitingManualReboot",
                           "Firmware flashed — please power-cycle the DE1 to boot into the new version.")
@@ -485,8 +505,7 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingMedium
-            spacing: Theme.spacingMedium
+            spacing: Theme.spacingSmall
 
             ColumnLayout {
                 Layout.fillWidth: true
@@ -531,7 +550,6 @@ Item {
 
         Text {
             Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingMedium
             text: TranslationManager.translate(
                       "firmware.tab.sourceNoteConnection",
                       "Firmware is bundled with Decenza. Auto-checks run weekly. " +
