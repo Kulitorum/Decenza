@@ -15,17 +15,17 @@
 
 ## 3. Integration validation
 
-- [x] 3.1 Source 032a1ae2, including main 621853e6, passed [CI 41345285826](https://github.com/janhcla/Decenza/actions/runs/41345285826): Linux 205/205, no retries, QML gate 357/357, Android and Wasm builds passed.
+- [x] 3.1 Source 949fd637, including main 621853e6, passed [CI 41348885569](https://github.com/janhcla/Decenza/actions/runs/41348885569): Linux 205/205, no retries, QML gate 357/357, Android and Wasm builds passed.
 - [x] 3.2 [Regression controls 41345407581](https://github.com/janhcla/Decenza/actions/runs/41345407581) passed against source 032a1ae2: six deliberate regressions failed at the intended assertions, with all four owner suites green before and after restoration.
 - [ ] 3.3 Native/browser interaction and physical-sensor acceptance remain unverified. No current build was started on a paired host or installed on the live tablet; perform this manual acceptance before release.
+
+## 4. Review follow-up
+
+- [x] 4.1 Reuse the mounting-mode decoder in both database readers; retain the existing independent performance-index creation after migration 50.
+- [x] 4.2 Reject simulated serving scales, leave initial cup mass uncovered, retain actually measured pre-drip baselines and derive the ratio envelope only from finite positive reference ratios. [Four regression controls](https://github.com/janhcla/Decenza/actions/runs/41348913871) against source 949fd637 failed at the intended assertions; both owner suites passed before and after restoration.
+- [x] 4.3 Render both review-card warning icons through the shared emoji image helper.
+- [x] 4.4 Full Linux suite, Android/Wasm builds and QML passed in CI 41348885569; [text invariants](https://github.com/janhcla/Decenza/actions/runs/41348888596) passed on source 949fd637.
 
 ## Workflow follow-up
 
 - Archive this change as the final PR commit before an explicitly requested merge.
-
-## 4. Review follow-up
-
-- [ ] 4.1 Reuse the mounting-mode decoder in both database readers; retain the existing independent performance-index creation after migration 50.
-- [ ] 4.2 Reject simulated serving scales, leave initial cup mass uncovered and derive the ratio envelope only from finite positive reference ratios; extend existing provenance, coverage and calibration tests and prove they catch each defect.
-- [ ] 4.3 Render both review-card warning icons through the shared emoji image helper.
-- [ ] 4.4 Run the full Linux suite, Android/Wasm builds, QML and text gates after these fixes.
