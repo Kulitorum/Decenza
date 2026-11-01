@@ -15,8 +15,8 @@
 
 ## 3. Integration validation
 
-- [ ] 3.1 Re-run after incorporating main 621853e6. Previous source b1dae020 passed [CI 41342483399](https://github.com/janhcla/Decenza/actions/runs/41342483399): Linux 205/205, no retries, QML gate 357/357, Android and Wasm builds passed.
-- [x] 3.2 [Regression controls 41342881887](https://github.com/janhcla/Decenza/actions/runs/41342881887) passed: six deliberate regressions failed at the intended assertions, with all four owner suites green before and after restoration.
+- [x] 3.1 Source 032a1ae2, including main 621853e6, passed [CI 41345285826](https://github.com/janhcla/Decenza/actions/runs/41345285826): Linux 205/205, no retries, QML gate 357/357, Android and Wasm builds passed.
+- [x] 3.2 [Regression controls 41345407581](https://github.com/janhcla/Decenza/actions/runs/41345407581) passed against source 032a1ae2: six deliberate regressions failed at the intended assertions, with all four owner suites green before and after restoration.
 - [ ] 3.3 Native/browser interaction and physical-sensor acceptance remain unverified. No current build was started on a paired host or installed on the live tablet; perform this manual acceptance before release.
 
 ## Workflow follow-up
