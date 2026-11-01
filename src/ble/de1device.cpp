@@ -66,6 +66,12 @@
 #include <utility>
 
 namespace {
+bool isSteamPurgeWrite(const QBluetoothUuid& uuid, const QByteArray& data)
+{
+    return uuid == DE1::Characteristic::REQUESTED_STATE && data.size() == 1
+        && static_cast<uint8_t>(data[0]) == static_cast<uint8_t>(DE1::State::SteamRinse);
+}
+
 qint64 monotonicMsNow()
 {
     using namespace std::chrono;
@@ -113,8 +119,10 @@ DE1Device::~DE1Device() {
 // -- Transport abstraction --
 
 void DE1Device::setTransport(DE1Transport* transport) {
-    if (m_transport != transport)
+    if (m_transport != transport) {
         m_stateInfoReceived = false;
+        m_steamPurgeRequest = SteamPurgeRequest::None;
+    }
     // Disconnect old transport signals if any
     if (m_transport) {
         QObject::disconnect(m_transport, nullptr, this, nullptr);
@@ -322,6 +330,7 @@ void DE1Device::onTransportDisconnected() {
     // A deferred maintenance request belongs to this connection. A late/new
     // state notification must not start it after the link has been lost.
     m_pendingMaintenanceState = DE1::State::NoRequest;
+    m_steamPurgeRequest = SteamPurgeRequest::None;
 
     // Restore the permissive default so a GHC machine's "false" doesn't carry
     // into the next connection and block its start buttons until (or unless)
@@ -457,6 +466,9 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
 }
 
 void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (m_steamPurgeRequest == SteamPurgeRequest::Pending && isSteamPurgeWrite(uuid, data))
+        m_steamPurgeRequest = SteamPurgeRequest::Acknowledged;
+
     // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack).
     // Carries [SAW], not [DE1]: it measures stop-at-weight, which is shot logic
     // rather than the machine. SAW is now a registered subsystem — the open
@@ -543,6 +555,7 @@ void DE1Device::setSimulationMode(bool enabled) {
     }
     m_stateInfoReceived = false;
     m_simulationMode = enabled;
+    m_steamPurgeRequest = SteamPurgeRequest::None;
 
     if (enabled) {
         m_firmwareBuildBeforeSimulation = m_firmwareBuildNumber;
@@ -609,6 +622,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     m_subState = subState;
     m_stateInfoReceived = true;
 
+    updateSteamPurgeRequest();
     updateDescaleProgressState(previousState, previousSubState);
 
     if (stateChanged) {
@@ -826,6 +840,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     m_state = newState;
     m_subState = newSubState;
     m_stateInfoReceived = true;
+    updateSteamPurgeRequest();
     updateDescaleProgressState(previousState, previousSubState);
 
     // A maintenance request held back because the machine was cold goes out as soon
@@ -841,6 +856,30 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
         emit this->subStateChanged();
     }
     emit stateInfoReceived();
+}
+
+void DE1Device::updateSteamPurgeRequest()
+{
+    // Firmware v1359 reports Steam for a requested SteamRinse. Retain the
+    // request through its preliminary Idle reply, then clear it on exit.
+    if (m_steamPurgeRequest == SteamPurgeRequest::None)
+        return;
+    if (m_state == DE1::State::Steam || m_state == DE1::State::SteamRinse) {
+        if (m_steamPurgeRequest != SteamPurgeRequest::Cancelling)
+            m_steamPurgeRequest = SteamPurgeRequest::Running;
+    } else if (m_state != DE1::State::Idle || m_steamPurgeRequest == SteamPurgeRequest::Running
+               || m_steamPurgeRequest == SteamPurgeRequest::Cancelling)
+        m_steamPurgeRequest = SteamPurgeRequest::None;
+}
+
+void DE1Device::trackSteamPurgeRequest(DE1::State requestedState)
+{
+    if (requestedState == DE1::State::SteamRinse)
+        m_steamPurgeRequest = SteamPurgeRequest::Pending;
+    else if (requestedState == DE1::State::Idle && m_steamPurgeRequest != SteamPurgeRequest::None)
+        m_steamPurgeRequest = SteamPurgeRequest::Cancelling;
+    else
+        m_steamPurgeRequest = SteamPurgeRequest::None;
 }
 
 void DE1Device::updateDescaleProgressState(DE1::State previousState,
@@ -1397,8 +1436,13 @@ void DE1Device::requestState(DE1::State state) {
     }
     if (state == DE1::State::Idle)
         m_connectSleep = ConnectSleep::None;
+    if (!m_simulationMode) {
+        if (!m_transport) return;
+        if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
+    }
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
+        trackSteamPurgeRequest(state);
         switch (state) {
         case DE1::State::Espresso:
             m_simulator->startEspresso();
@@ -1445,7 +1489,6 @@ void DE1Device::requestState(DE1::State state) {
 #endif
 
     if (!m_transport) return;
-    if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     writeRequestedState(state, StateWrite::Normal);
 }
 
@@ -1458,6 +1501,7 @@ void DE1Device::requestCurrentStateInfo() {
 }
 
 void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {
+    trackSteamPurgeRequest(state);
     // A wake that never reached the machine reads exactly like one the app never
     // sent, and the field log could not separate them: this was the only state
     // write with no line of its own (SM-X210, 2026-09-19).
@@ -1857,6 +1901,10 @@ void DE1Device::clearCommandQueue() {
     if (m_transport) {
         const qsizetype dropped = m_transport->clearQueue();
         if (dropped > 0) {
+            // An acknowledged purge has left the queue; clearing unrelated
+            // work must not erase its intent while its state reply is pending.
+            if (m_steamPurgeRequest == SteamPurgeRequest::Pending)
+                m_steamPurgeRequest = SteamPurgeRequest::None;
             m_lastMMRValues.clear();
             // Same reason, one characteristic over: a discarded read-back is an
             // answer that will never come, and a write left unconfirmed here can
@@ -1918,6 +1966,9 @@ void DE1Device::writeTankPreheatForProfile(const Profile& profile) {
 // and on completion verify the two lists match exactly.
 
 void DE1Device::onWriteAbandoned(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (m_steamPurgeRequest == SteamPurgeRequest::Pending && isSteamPurgeWrite(uuid, data))
+        m_steamPurgeRequest = SteamPurgeRequest::None;
+
     if (uuid != DE1::Characteristic::WRITE_TO_MMR || data.size() < 4) return;
 
     // m_lastMMRValues is recorded at DISPATCH (writeMMR, below), so it says

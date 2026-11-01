@@ -20,6 +20,12 @@ settings. Mac accessibility-tree activation/navigation passes; actual mobile
 VoiceOver/TalkBack and zoom with the tree enabled remain acceptance checks in
 the Wasm OpenSpec change.
 
+For browser automation, invoke that button's DOM click or screen-reader action:
+Qt clips it with `clip-path: inset(50%)` (`qwasmcssstyle.cpp:224-236`), so a
+coordinate click from a native accessibility element can miss it. In Edge,
+invoking the button's click handler exposed the shared app controls immediately;
+activation lasts for that document and must be repeated after a reload.
+
 ### Announcement routing (`AccessibilityManager.announce()`)
 
 `AccessibilityManager.announce(text, interrupt=false)` is the only announcement entry point used from QML (~25 call sites). At dispatch time it picks one of two paths automatically:

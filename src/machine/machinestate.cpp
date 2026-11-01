@@ -602,6 +602,10 @@ void MachineState::updatePhase() {
             break;
 
         case DE1::State::Steam:
+            if (m_device->isSteamPurgeActive()) {
+                m_phase = Phase::SteamPurge;
+                break;
+            }
             // Map all active steam substates to Steaming phase
             // This keeps the live view visible during purge (Puffing) and ending
             // Only show Heating for pre-steam warmup (Heating/FinalHeating substates)

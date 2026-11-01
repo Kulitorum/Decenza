@@ -23,6 +23,12 @@
 ### D1. A `SteamPurge` phase
 Add `SteamPurge` to `DECENZA_MACHINE_PHASES` and map `DE1::State::SteamRinse` to it. It is not flowing (no shot or scale timer, like `Transport`), not ready (`isReady` is an allow-list), and operating (`isOperating` is a deny-list). `phaseString()` gives "SteamPurge" for MQTT and MCP.
 The hand-written lists in `mcptools_control.cpp` (`operationRunning`), `profilemanager.cpp` (`isActivePhase`) and `main.cpp` (`enteringOp`) become `isOperating()`, so `machine_stop` can end a purge and the phase is listed once. Before replacing `main.cpp`'s entering edge, check that it differs only in using EspressoPreheating as the first espresso signal. `reviewOperationKind` keeps `SteamPurge` at 0: a purge is not a reviewed operation.
+
+Hardware evidence (2026-11-01, build 3656, firmware v1359): a SteamRinse request reports Steam, then Idle. `DE1Device` retains the dispatched purge intent through the preliminary Idle reply and the ensuing Steam/SteamRinse state, clearing it on exit, transport replacement or disconnect. `MachineState` maps that requested Steam to SteamPurge; the native raw-state navigation handler also excludes it. Unrequested Steam remains a normal steam session.
+
+An abandoned SteamRinse write or a queue clear that discards an unacknowledged request clears its pending intent. A write acknowledgement preserves the intent across later queue clears until a machine-state reply resolves it; an already observed purge also survives transport-write cleanup.
+
+An explicit Idle request marks the purge as cancelling. A late Steam reply still belongs to that purge until Idle confirms cancellation, which clears the intent even when no Steam reply preceded it. The preliminary Idle sent before SteamRinse is issued before the new purge intent is recorded.
 *Alternative:* map SteamRinse to `Steaming`. Rejected: that phase drives steam-session finalisation, the health tracker and milk capture, and a purge is none of those. Mapping it to `Flushing` would show "Flush Complete".
 
 ### D2. One GHC-exempt start
@@ -43,7 +49,7 @@ Widget label tables (`ios/widget/MachineStatusSnapshot.swift`, `MachineStatusWid
 
 ## Risks / Trade-offs
 
-- [The purge's real duration and wand behaviour are untimed.] → The 10 s window only has to cover the tap; the page waits for the phase, not a clock. Time a real purge during validation and correct the simulator constant.
+- [Firmware purge duration varies.] → The 10 s window only has to cover the tap; completion waits for machine-state events. The simulator's three-second duration is illustrative, not a firmware timing claim. Protocol/state tests cover the host fix without requiring a hardware retest.
 - [A new phase reaches platform widget code that CI builds only on tag push.] → Platform test builds for iOS and Android before release, as the widget tables are platform-guarded.
 - [Collapsing the operation lists changes `machine_stop` and the auto-load guard for any phase they missed.] → Diff each list against `isOperating()` before replacing it. A phase in one and not the other is either a bug fixed or a deliberate exception, which keeps its own check.
 

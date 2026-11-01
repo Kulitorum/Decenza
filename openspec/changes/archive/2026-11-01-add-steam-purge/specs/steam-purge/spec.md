@@ -17,7 +17,7 @@ A Purge control SHALL request the DE1's SteamRinse state. The app SHALL allow it
 - **THEN** a Purge tap starts nothing
 
 ### Requirement: The app shows a purge while it runs
-While the DE1 reports SteamRinse, the app SHALL report the phase `SteamPurge`: the machine SHALL NOT count as ready, other start controls SHALL be unavailable, and status surfaces (home-screen widget, MQTT, MCP) SHALL name it. A purge SHALL NOT open an operation page or count as a steam session.
+While the DE1 reports SteamRinse, or reports Steam for the app's current purge request, the app SHALL report the phase `SteamPurge`: the machine SHALL NOT count as ready, other start controls SHALL be unavailable, and status surfaces (home-screen widget, MQTT, MCP) SHALL name it. A purge SHALL NOT open an operation page or count as a steam session.
 
 #### Scenario: Purging blocks other starts
 - **WHEN** a purge is running
@@ -26,6 +26,21 @@ While the DE1 reports SteamRinse, the app SHALL report the phase `SteamPurge`: t
 #### Scenario: Purge is not a steam session
 - **WHEN** a purge runs and ends
 - **THEN** no steam-session finalisation, steam health record or milk readout is produced
+
+#### Scenario: Firmware reports Steam for a purge
+- **WHEN** the app requests SteamRinse and the machine reports Steam
+- **THEN** the app reports SteamPurge and preserves the current page
+
+### Requirement: Failed and cancelled purge requests do not capture later steam
+The app SHALL clear unacknowledged purge intent when its state write is abandoned or discarded. An explicit Idle cancellation SHALL clear purge intent when Idle is reported, even if Steam was never observed. Acknowledged or observed purges SHALL retain their identity through unrelated queue cleanup and late Steam replies while cancellation is pending.
+
+#### Scenario: Purge write never reaches the machine
+- **WHEN** a purge write is abandoned or discarded, then the user starts steam from the GHC
+- **THEN** the app handles the new operation as normal steaming
+
+#### Scenario: Immediate Back cancels a purge
+- **WHEN** Back requests Idle before the machine has reported the requested purge, then Idle is reported
+- **THEN** a later GHC-initiated Steam is handled as normal steaming
 
 ### Requirement: The Steam page offers Purge after steaming
 When steaming ends and the machine reports Idle, the Steam page SHALL stay up for 10 seconds showing Purge, Done and a bottom bar with Back, instead of leaving after the 1.5 second completion message. Purge SHALL start a purge and the page SHALL leave when the purge ends. Done SHALL leave immediately. Back SHALL stop a running purge or steam and leave immediately. Hot water and flush completion SHALL keep their 1.5 second message.
