@@ -254,39 +254,15 @@ public:
     // the page was built.
     int selectedSteamPitcherDisplayIndex() const;
 
-    // The pitcher the user chose for THEMSELVES, parked while an active recipe
-    // overrides the selection, and restored when that recipe is deactivated or
-    // replaced by one that names no pitcher.
-    //
-    // Stored rather than held in memory so it survives a restart with a recipe
-    // still active. Not user-facing and not in the settings backup: it is the
-    // other half of a live override, meaningless without the recipe it belongs
-    // to. Without it, activating a latte permanently overwrote a standing
-    // "Heater off" — the one-tap idle switch the whole feature is built around.
+    // Legacy parked selection, retained only to discard settings from older versions.
     static constexpr int NoStandingPitcher = -2;
     int standingSteamPitcher() const;
     void setStandingSteamPitcher(int index);
-    // Index maintenance for a stored SELECTION when the array changes under it,
-    // as pure functions so the live selection and the parked standing pitcher
-    // get identical treatment from one definition. They were two hand-copies of
-    // the same arithmetic, and the parked one had no reorder handling at all —
-    // a drag while a recipe override was active silently restored a different
-    // pitcher on deactivation. Sentinels (< 0) are positionless and pass through.
+    // Keep selections on the same preset when the array changes.
     static int shiftedForRemoval(int index, int removedIndex);
     static int shiftedForMove(int index, int from, int to);
 
-    // Park or unwind a recipe's pitcher override, returning the index the caller
-    // should now select and apply — or NoStandingPitcher for "nothing to do".
-    //
-    // `recipeIndex` is the active recipe's pitcher, or NoStandingPitcher when it
-    // names none (deactivation, or a recipe without a steam block).
-    //
-    // The decision lives here rather than in MainController because it is pure
-    // settings state: which value is parked, when it may be overwritten, and
-    // what comes back. Only the push to the machine needs a controller. Keeping
-    // them together made the rule reachable only through a class the tests
-    // cannot construct, which is a reason to move the rule — not a reason to
-    // leave it untested.
+    // A recipe with no pitcher leaves the current selection unchanged.
     int resolveRecipePitcherOverride(int recipeIndex);
 
     // Names of the user-created "Off" presets the constructor migration removed,

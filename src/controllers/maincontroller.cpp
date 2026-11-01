@@ -2033,17 +2033,6 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this, [this]() {
         if (!m_recipeWiring.shouldDeactivateOnPitcherChange(m_applyingRecipe))
             return;
-        // Dropping the parked standing selection stops deactivateRecipe's
-        // override unwind from re-selecting it over the pick that got us here.
-        // Only when there WAS a pick: deleting the preset the recipe names
-        // lands here too (shiftedForRemoval answers with the Heater off
-        // sentinel for the entry that was deleted) and nobody chose anything,
-        // so the user's parked pitcher has to survive to be unwound to. The
-        // recipe's own pitcher still being present is what tells the two
-        // apart.
-        if (recipeSteamPitcherStillExists(
-                m_recipeWiring.activeRecipe().value(QStringLiteral("steamJson")).toString()))
-            m_settings->brew()->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
         deactivateRecipe();
     });
     connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this, [this]() {
@@ -2568,10 +2557,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         const QJsonObject steam = parseSteamBlock(recipe.value("steamJson").toString());
         {
             auto* brew = m_settings->brew();
-            // The recipe's pitcher OVERRIDES the standing selection for as long
-            // as the recipe is active — it is part of the drink, not a new
-            // preference. NoStandingPitcher means "this recipe names none", which
-            // unwinds any override from the recipe before it.
+            // A recipe naming no pitcher leaves the current selection alone.
             int overrideIndex = SettingsBrew::NoStandingPitcher;
             const QString pitcherName = steam.value("pitcherName").toString();
             if (steam.value("heaterOff").toBool()) {
@@ -2943,10 +2929,7 @@ void MainController::deactivateRecipe() {
     if (m_recipeWiring.clearActiveRecipeCache()) {
         emit activeRecipeChanged();
     }
-    // Unwind any pitcher override back to the user's standing selection. That
-    // path re-sends the settings itself, so the applySteamSettings() below is
-    // redundant when an override was unwound — it still runs unconditionally,
-    // and the BLE layer dedups the second identical payload.
+    // Leave the current pitcher selected when the recipe ends.
     setRecipeSteamPitcherOverride(SettingsBrew::NoStandingPitcher);
     // The recipe is one of the policy's inputs in BOTH directions — leaving a
     // milk recipe drops a permission, leaving an espresso drops a VETO — so
@@ -2971,24 +2954,6 @@ void MainController::loadAutoLoadRecipeIfNeeded() {
     // accessor for a single row.
     m_pendingAutoLoadRecipeId = recipeId;
     m_recipeStorage->requestRecipe(recipeId);
-}
-
-bool MainController::recipeSteamPitcherStillExists(const QString& steamJson) const {
-    if (!m_settings)
-        return false;
-    const QJsonObject o = QJsonDocument::fromJson(steamJson.toUtf8()).object();
-    if (o.value(QStringLiteral("heaterOff")).toBool())
-        return true;  // the built-in entry, which no delete can remove
-    const QString name = o.value(QStringLiteral("pitcherName")).toString().trimmed();
-    if (name.isEmpty())
-        return false;
-    const QVariantList presets = m_settings->brew()->steamPitcherPresets();
-    for (const QVariant& v : presets) {
-        if (v.toMap().value(QStringLiteral("name")).toString()
-                .compare(name, Qt::CaseInsensitive) == 0)
-            return true;
-    }
-    return false;
 }
 
 void MainController::stampActiveRecipe(const QString& field, const QVariant& value) {
@@ -3720,7 +3685,7 @@ bool MainController::leaveSteamPage()
 
 void MainController::setRecipeSteamPitcherOverride(int index) {
     if (!m_settings) return;
-    // The park/unwind decision is SettingsBrew's; this half is only the push.
+    // A recipe without a pitcher leaves the existing selection untouched.
     const int select = m_settings->brew()->resolveRecipePitcherOverride(index);
     if (select != SettingsBrew::NoStandingPitcher)
         selectSteamPitcher(select);
