@@ -113,8 +113,10 @@ DE1Device::~DE1Device() {
 // -- Transport abstraction --
 
 void DE1Device::setTransport(DE1Transport* transport) {
-    if (m_transport != transport)
+    if (m_transport != transport) {
         m_stateInfoReceived = false;
+        m_steamPurgeRequest = SteamPurgeRequest::None;
+    }
     // Disconnect old transport signals if any
     if (m_transport) {
         QObject::disconnect(m_transport, nullptr, this, nullptr);
@@ -322,6 +324,7 @@ void DE1Device::onTransportDisconnected() {
     // A deferred maintenance request belongs to this connection. A late/new
     // state notification must not start it after the link has been lost.
     m_pendingMaintenanceState = DE1::State::NoRequest;
+    m_steamPurgeRequest = SteamPurgeRequest::None;
 
     // Restore the permissive default so a GHC machine's "false" doesn't carry
     // into the next connection and block its start buttons until (or unless)
@@ -539,6 +542,7 @@ void DE1Device::setSimulationMode(bool enabled) {
     }
     m_stateInfoReceived = false;
     m_simulationMode = enabled;
+    m_steamPurgeRequest = SteamPurgeRequest::None;
 
     if (enabled) {
         m_state = DE1::State::Idle;
@@ -598,6 +602,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     m_subState = subState;
     m_stateInfoReceived = true;
 
+    updateSteamPurgeRequest();
     updateDescaleProgressState(previousState, previousSubState);
 
     if (stateChanged) {
@@ -815,6 +820,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     m_state = newState;
     m_subState = newSubState;
     m_stateInfoReceived = true;
+    updateSteamPurgeRequest();
     updateDescaleProgressState(previousState, previousSubState);
 
     // A maintenance request held back because the machine was cold goes out as soon
@@ -830,6 +836,18 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
         emit this->subStateChanged();
     }
     emit stateInfoReceived();
+}
+
+void DE1Device::updateSteamPurgeRequest()
+{
+    // Firmware v1359 reports Steam for a requested SteamRinse. Retain the
+    // request through its preliminary Idle reply, then clear it on exit.
+    if (m_steamPurgeRequest == SteamPurgeRequest::None)
+        return;
+    if (m_state == DE1::State::Steam || m_state == DE1::State::SteamRinse)
+        m_steamPurgeRequest = SteamPurgeRequest::Running;
+    else if (m_state != DE1::State::Idle || m_steamPurgeRequest == SteamPurgeRequest::Running)
+        m_steamPurgeRequest = SteamPurgeRequest::None;
 }
 
 void DE1Device::updateDescaleProgressState(DE1::State previousState,
@@ -1386,6 +1404,14 @@ void DE1Device::requestState(DE1::State state) {
     }
     if (state == DE1::State::Idle)
         m_connectSleep = ConnectSleep::None;
+    if (!m_simulationMode) {
+        if (!m_transport) return;
+        if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
+    }
+    if (state == DE1::State::SteamRinse)
+        m_steamPurgeRequest = SteamPurgeRequest::Pending;
+    else if (state != DE1::State::Idle)
+        m_steamPurgeRequest = SteamPurgeRequest::None;
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         switch (state) {
@@ -1434,7 +1460,6 @@ void DE1Device::requestState(DE1::State state) {
 #endif
 
     if (!m_transport) return;
-    if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     writeRequestedState(state, StateWrite::Normal);
 }
 

@@ -23,6 +23,8 @@
 ### D1. A `SteamPurge` phase
 Add `SteamPurge` to `DECENZA_MACHINE_PHASES` and map `DE1::State::SteamRinse` to it. It is not flowing (no shot or scale timer, like `Transport`), not ready (`isReady` is an allow-list), and operating (`isOperating` is a deny-list). `phaseString()` gives "SteamPurge" for MQTT and MCP.
 The hand-written lists in `mcptools_control.cpp` (`operationRunning`), `profilemanager.cpp` (`isActivePhase`) and `main.cpp` (`enteringOp`) become `isOperating()`, so `machine_stop` can end a purge and the phase is listed once. Before replacing `main.cpp`'s entering edge, check that it differs only in using EspressoPreheating as the first espresso signal. `reviewOperationKind` keeps `SteamPurge` at 0: a purge is not a reviewed operation.
+
+Hardware evidence (2026-11-01, build 3656, firmware v1359): a SteamRinse request reports Steam, then Idle. `DE1Device` retains the dispatched purge intent through the preliminary Idle reply and the ensuing Steam/SteamRinse state, clearing it on exit, transport replacement or disconnect. `MachineState` maps that requested Steam to SteamPurge; the native raw-state navigation handler also excludes it. Unrequested Steam remains a normal steam session.
 *Alternative:* map SteamRinse to `Steaming`. Rejected: that phase drives steam-session finalisation, the health tracker and milk capture, and a purge is none of those. Mapping it to `Flushing` would show "Flush Complete".
 
 ### D2. One GHC-exempt start

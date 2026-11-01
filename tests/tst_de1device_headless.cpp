@@ -97,6 +97,15 @@ private slots:
         QCOMPARE(requestedStates(f.transport),
                  (QList<QByteArray>{QByteArray(1, char(DE1::State::Idle)),
                                     QByteArray(1, char(DE1::State::SteamRinse))}));
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ready));
+        QVERIFY(f.device.isSteamPurgeActive());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral(".*DE1 DISCONNECTED while Steam.*unrequested drop.*")));
+        f.device.onTransportDisconnected();
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Steaming));
+        QVERIFY(!f.device.isSteamPurgeActive());
     }
 
     void gcAbortPendingBlocksNewOperationsButAllowsStop() {

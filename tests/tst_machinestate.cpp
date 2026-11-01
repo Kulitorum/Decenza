@@ -410,6 +410,48 @@ private slots:
         QVERIFY(!f.state.isFlowing());
     }
 
+    void requestedSteamPurgeRecognizesFirmwareReplies_data() {
+        QTest::addColumn<int>("reportedState");
+        QTest::newRow("firmware-1359") << int(DE1::State::Steam);
+        QTest::newRow("steam-rinse") << int(DE1::State::SteamRinse);
+    }
+
+    void requestedSteamPurgeRecognizesFirmwareReplies() {
+        QFETCH(int, reportedState);
+        SequenceFixture f(QStringLiteral("after"));
+        QTRY_COMPARE(f.state.m_lastEmittedPhase, MachineState::Phase::Ready);
+        QSignalSpy stopped(&f.state, &MachineState::steamFlowStopped);
+        QSignalSpy phases(&f.state, &MachineState::phaseChanged);
+
+        // Include a preliminary Idle response and a second purge, matching
+        // the reported idle-pill -> completion-window workflow.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            f.device.startSteamPurge();
+            f.notify(DE1::State::Idle, DE1::SubState::Ready);
+            for (const auto subState : {DE1::SubState::Ready, DE1::SubState::Steaming,
+                                        DE1::SubState::Puffing, DE1::SubState::Ending}) {
+                f.notify(DE1::State(reportedState), subState);
+                QVERIFY(f.device.isSteamPurgeActive());
+                QCOMPARE(f.state.phase(), MachineState::Phase::SteamPurge);
+                QVERIFY(f.state.isOperating());
+                QVERIFY(!f.state.isReady());
+                QVERIFY(!f.state.isFlowing());
+            }
+            QTRY_COMPARE(phases.count(), attempt * 2 + 1);
+            f.notify(DE1::State::Idle, DE1::SubState::Ready);
+            QVERIFY(!f.device.isSteamPurgeActive());
+            QCOMPARE(f.state.phase(), MachineState::Phase::Ready);
+            QTRY_COMPARE(phases.count(), attempt * 2 + 2);
+        }
+        QCOMPARE(phases.count(), 4);
+        QCOMPARE(stopped.count(), 0);
+
+        f.notify(DE1::State::Steam, DE1::SubState::Steaming);
+        QVERIFY(!f.device.isSteamPurgeActive());
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        QVERIFY(f.state.isFlowing());
+    }
+
     // ==========================================
     // isFlowing property
     // ==========================================
