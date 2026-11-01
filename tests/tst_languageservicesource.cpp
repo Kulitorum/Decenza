@@ -948,6 +948,7 @@ private slots:
         Settings settings;
         settings.setValue(QStringLiteral("localization/language"), QStringLiteral("de"));
         TranslationManager manager(&m_network, &settings);
+        QVERIFY(manager.addLanguage(QStringLiteral("de"), QStringLiteral("German")));
         manager.registerString(QStringLiteral("cache.a"), QStringLiteral("Shared fallback"));
         manager.registerString(QStringLiteral("cache.b"), QStringLiteral("Shared fallback"));
         NativeLanguageServiceSource source(&manager);
@@ -962,6 +963,12 @@ private slots:
         manager.setTranslation(QStringLiteral("cache.b"), QStringLiteral("Übersetzung"));
         QCOMPARE(source.snapshot().value(QStringLiteral("uniqueUntranslatedCount")).toInt(),
                  manager.uniqueUntranslatedCount());
+        const QVariantList rows = source.snapshot().value(QStringLiteral("languages")).toList();
+        const auto german = std::find_if(rows.cbegin(), rows.cend(), [](const QVariant& row) {
+            return row.toMap().value(QStringLiteral("code")).toString() == QLatin1String("de");
+        });
+        QVERIFY(german != rows.cend());
+        QCOMPARE(german->toMap().value(QStringLiteral("percent")).toInt(), 100);
     }
 
     void admissionNotificationCanDetachFacade_data()

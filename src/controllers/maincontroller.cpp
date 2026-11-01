@@ -1124,6 +1124,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     connect(m_recipeStorage, &RecipeStorage::recipesChanged, m_recipeStorage, &RecipeStorage::requestInventory);
     connect(m_shotHistory, &ShotHistoryStorage::importedDatabaseChanged,
             m_recipeStorage, &RecipeStorage::recipesChanged);
+    connect(m_shotHistory, &ShotHistoryStorage::importedDatabaseChanged,
+            m_bagStorage, &CoffeeBagStorage::bagsChanged);
+    connect(m_shotHistory, &ShotHistoryStorage::importedDatabaseChanged,
+            m_equipmentStorage, &EquipmentStorage::packagesChanged);
     // Not before the startup migrations are done: ShotHistoryStorage reports ready only then.
     if (m_shotHistory->isReady())
         m_recipeStorage->requestInventory();

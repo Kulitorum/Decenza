@@ -220,8 +220,12 @@ Item {
                                     return langDelegate.langCode !== "en" && !LanguageService.isRemoteLanguage(langDelegate.langCode)
                                 }
                                 text: {
-                                    var snapshot = LanguageService.snapshot
-                                    return LanguageService.getTranslationPercent(langDelegate.langCode) + "%"
+                                    var rows = LanguageService.snapshot.languages || []
+                                    for (var i = 0; i < rows.length; ++i) {
+                                        if (rows[i].code === langDelegate.langCode)
+                                            return rows[i].percent + "%"
+                                    }
+                                    return "0%"
                                 }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
