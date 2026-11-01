@@ -840,6 +840,7 @@ target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 # drift again. Also covers DocumentFormatter's colour round trip.
 add_decenza_test(tst_customwidgethtml
     tst_customwidgethtml.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/uiworkprobe.h
     ${CMAKE_SOURCE_DIR}/src/core/documentformatter.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.h
