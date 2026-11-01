@@ -843,6 +843,8 @@ add_decenza_test(tst_customwidgethtml
 # Qt6::Quick, not just Qml: documentformatter.h includes <QQuickTextDocument>, which is a
 # Quick header even though nothing in this test constructs one.
 target_link_libraries(tst_customwidgethtml PRIVATE Qt6::Qml Qt6::Quick)
+# Focus, keyboard and wheel checks need exposed windows, but not desktop windows.
+set_tests_properties(tst_customwidgethtml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_decenza_test(tst_libraryservice
     tst_libraryservice.cpp

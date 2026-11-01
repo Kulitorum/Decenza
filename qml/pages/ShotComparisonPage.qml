@@ -132,6 +132,7 @@ T.Page {
             RowLayout {
                 id: graphHeader
                 Layout.fillWidth: true
+                visible: shotComparisonPage.comparisonModel.totalShots > shotComparisonPage.comparisonModel.otherWindowSize + 1
                 spacing: Theme.spacingSmall
 
                 // Page through the other shots; the base stays in column 0.
@@ -208,6 +209,10 @@ T.Page {
                             }
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
+                        }
+                        GraphOptionsButton {
+                            visible: inputSummary.index === 0 && !graphHeader.visible
+                            Layout.alignment: Qt.AlignTop
                         }
                     }
                 }
