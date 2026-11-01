@@ -440,6 +440,11 @@ private slots:
         }
         f.settings.brew()->setSteamTimeout(65);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
+        const auto* brew = f.settings.brew();
+        const auto cachedPitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+        QCOMPARE(f.preparation.plannedSteamDurationSec(cachedPitcher,
+            brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), brew->steamTimeout()),
+            expectedSeconds);
         QSignalSpy immediate(&f.preparation, &PreparationController::steamTimeoutImmediateRequested);
         QSignalSpy started(&f.machine, &MachineState::shotStarted);
         f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
@@ -458,6 +463,8 @@ private slots:
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
         f.settings.brew()->setSteamTimeout(70);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), 70);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(cachedPitcher,
+            brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), 70), 70);
     }
 
     // #2058, on both surfaces that weigh milk: the idle screen's Steam row and the

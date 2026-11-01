@@ -80,6 +80,8 @@ private:
 
     SettingsBrew* m_brew = nullptr;
     MachineState* m_machineState = nullptr;
+    mutable bool m_revisionValid = false;
+    mutable QString m_cachedRevision;
     bool m_busy = false;
     QString m_errorMessage;
 };

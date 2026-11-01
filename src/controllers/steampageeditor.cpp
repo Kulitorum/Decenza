@@ -1,6 +1,7 @@
 #include "steampageeditor.h"
 
 #include "../core/settings.h"
+#include "core/uiworkstats.h"
 #include "../core/settings_brew.h"
 #include "../machine/machinestate.h"
 #include "../ble/scaledevice.h"
@@ -53,7 +54,10 @@ SteamPageEditor::SteamPageEditor(SettingsBrew* brew, MachineState* machineState,
                         &SettingsBrew::steamFlowChanged,
                         &SettingsBrew::milkAutoCaptureEnabledChanged,
                         &SettingsBrew::steamSecondsPerGramChanged}) {
-        connect(m_brew, signal, this, &SteamPageEditor::editorRevisionChanged);
+        connect(m_brew, signal, this, [this] {
+            m_revisionValid = false;
+            emit editorRevisionChanged();
+        });
     }
 }
 
@@ -62,6 +66,9 @@ QString SteamPageEditor::editorRevision() const
     if (!m_brew)
         return {};
 
+    if (m_revisionValid)
+        return m_cachedRevision;
+    UiWorkStats::Span work(UiWorkStats::Kind::SteamEditorRevision);
     MachineUiSnapshot machineUi;
     machineUi.brewSteamTemperature = m_brew->steamTemperature();
     machineUi.brewSteamTimeout = m_brew->steamTimeout();
@@ -70,7 +77,10 @@ QString SteamPageEditor::editorRevision() const
     machineUi.brewSteamSecondsPerGram = m_brew->steamSecondsPerGram();
     const SteamPitcherSnapshot pitchers = SteamPitcherSnapshot::project(
         m_brew->steamPitcherPresets(), m_brew->selectedSteamPitcher());
-    return SteamEditRequest::editorRevision(pitchers, machineUi);
+    work.items = pitchers.presets.size();
+    m_cachedRevision = SteamEditRequest::editorRevision(pitchers, machineUi);
+    m_revisionValid = true;
+    return m_cachedRevision;
 }
 
 QString SteamPageEditor::newRequestId() const

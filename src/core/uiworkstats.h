@@ -6,12 +6,15 @@
 
 // GUI-thread counters: one bounded summary per active path, at most every 10 seconds.
 namespace UiWorkStats {
-enum class Kind { SteamPublish, SteamApply, BrowserBindings, WidgetFormat };
+enum class Kind {
+    SteamPublish, SteamApply, BrowserBindings, WidgetFormat, SteamRefresh, SteamEditorRevision, Count
+};
 struct Counter {
     explicit Counter(const char* label) : name(label) {}
     const char* name;
     QElapsedTimer window;
     quint64 calls = 0;
+    quint64 lifetimeCalls = 0;
     quint64 changes = 0;
     quint64 items = 0;
     qint64 totalNs = 0;
@@ -20,6 +23,7 @@ struct Counter {
     void record(qint64 elapsedNs, quint64 changed, quint64 workItems) {
         if (!window.isValid()) window.start();
         ++calls;
+        ++lifetimeCalls;
         changes += changed;
         items += workItems;
         totalNs += elapsedNs;
@@ -36,8 +40,9 @@ struct Counter {
     }
 };
 inline Counter& counter(Kind kind) {
-    static std::array<Counter, 4> counters{Counter("steam-publish"), Counter("steam-apply"),
-                                          Counter("browser-bindings"), Counter("widget-format")};
+    static std::array<Counter, static_cast<size_t>(Kind::Count)> counters{
+        Counter("steam-publish"), Counter("steam-apply"), Counter("browser-bindings"),
+        Counter("widget-format"), Counter("steam-refresh"), Counter("steam-editor-revision")};
     return counters[static_cast<size_t>(kind)];
 }
 struct Span {
