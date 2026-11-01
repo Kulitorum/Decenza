@@ -116,7 +116,8 @@ signals:
     void sampleReady(double time, double pressure, double flow, double temp,
                      double pressureGoal, double flowGoal, double tempGoal,
                      int frameNumber, bool isFlowMode);
-    void weightSampleReady(double time, double weight, double flowRate, const QString& weightSource);
+    void weightSampleReady(double time, double weight, double flowRate);
+    void weightSourceUsed(const QString& source);
 
     // Stop conditions
     void stopAtWeightReached();
@@ -150,7 +151,6 @@ private:
 
     DE1Device* m_device = nullptr;
     QPointer<ScaleDevice> m_scale;
-    QString m_weightSource = QStringLiteral("unknown");
     Settings* m_settings = nullptr;
     MachineState* m_machineState = nullptr;
     const Profile* m_currentProfile = nullptr;

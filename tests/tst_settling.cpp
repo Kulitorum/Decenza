@@ -135,18 +135,20 @@ private slots:
         tc.setScale(&scale);
         ShotDataModel model;
         connect(&tc, &ShotTimingController::weightSampleReady, &model,
-            qOverload<double, double, double, const QString&>(&ShotDataModel::addWeightSample));
-        QSignalSpy samples(&tc, &ShotTimingController::weightSampleReady);
+            qOverload<double, double, double>(&ShotDataModel::addWeightSample));
+        connect(&tc, &ShotTimingController::weightSourceUsed, &model, &ShotDataModel::recordWeightSource);
+        QSignalSpy sources(&tc, &ShotTimingController::weightSourceUsed);
         ShotSample sample;
         tc.startShot();
         tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
         tc.onWeightSample(2.0, 1.0, 1.0);
+        QCOMPARE(model.weightSource(), QStringLiteral("flow_scale_virtual"));
         scale.setIsFlowScale(false);
         tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
-        QCOMPARE(samples.last().at(3).toString(), QStringLiteral("flow_scale_virtual"));
+        QCOMPARE(sources.last().at(0).toString(), QStringLiteral("flow_scale_virtual"));
         tc.onWeightSample(3.0, 1.0, 1.0);
         tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
-        QCOMPARE(samples.last().at(3).toString(), QStringLiteral("physical_scale"));
+        QCOMPARE(sources.last().at(0).toString(), QStringLiteral("physical_scale"));
         QCOMPARE(model.weightSource(), QStringLiteral("flow_scale_virtual"));
         tc.endShot();
         model.clear();
@@ -155,6 +157,10 @@ private slots:
         tc.onWeightSample(4.0, 1.0, 1.0);
         tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
         QCOMPARE(model.weightSource(), QStringLiteral("physical_scale"));
+        scale.setIsFlowScale(true);
+        tc.onWeightSample(5.0, 1.0, 1.0);
+        tc.endShot(); // No graph sample between the virtual packet and this manual stop.
+        QCOMPARE(model.weightSource(), QStringLiteral("flow_scale_virtual"));
     }
 
     void sensorTimeUsesExtractionOriginAndIncludesSettlingOnly() {

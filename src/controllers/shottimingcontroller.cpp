@@ -146,7 +146,6 @@ void ShotTimingController::startShot()
 
     // Reset weight state
     m_weight = 0;
-    m_weightSource = QStringLiteral("unknown");
     m_flowRate = 0;
     m_smoothedFlowRate = 0.0;
     m_flowRateInitialized = false;
@@ -264,7 +263,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     // The LSLR smoother produces clean flow rates even during the Ending phase,
     // so we always emit the real value — it naturally decays to zero as dripping stops
     if (m_extractionStarted && m_weight >= 0.1) {
-        emit weightSampleReady(time, m_weight, m_flowRate, m_weightSource);
+        emit weightSampleReady(time, m_weight, m_flowRate);
     }
 }
 
@@ -318,7 +317,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             return;
         }
 
-        m_weightSource = servingWeightSource();
+        emit weightSourceUsed(servingWeightSource());
         m_weight = weight;
         m_flowRate = flowRate;
         emit weightChanged();
@@ -327,7 +326,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // since shotTime() is frozen at extraction end for the timer display)
         // LSLR produces clean flow rates even during settling — emit the real value
         double time = (QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0;
-        emit weightSampleReady(time, weight, flowRate, m_weightSource);
+        emit weightSampleReady(time, weight, flowRate);
 
         // Rolling average stability detection
         // Add sample to circular buffer
@@ -469,7 +468,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         return;
     }
 
-    m_weightSource = servingWeightSource();
+    emit weightSourceUsed(servingWeightSource());
     m_weight = weight;
     m_flowRateShort = flowRateShort;
 

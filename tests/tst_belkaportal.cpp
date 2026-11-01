@@ -1463,10 +1463,11 @@ private slots:
         });
         ShotDataModel captured;
         captured.setPortalMountingMode(QStringLiteral("onScale"));
+        captured.recordWeightSource(QStringLiteral("physical_scale"));
         for (int i = 0; i <= 250; ++i) {
             const double time = i * 0.1;
             captured.addSample(time, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0, 94.0);
-            captured.addWeightSample(time, time * 1.28, 1.28, QStringLiteral("physical_scale"));
+            captured.addWeightSample(time, time * 1.28, 1.28);
             captured.addPortalSample(time, 7.0, 72.0);
         }
         ShotMetadata metadata;

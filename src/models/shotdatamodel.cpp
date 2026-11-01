@@ -114,12 +114,11 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
     m_flushTimer->start();
 }
 
-void ShotDataModel::addWeightSample(double time, double weight, double flowRate, const QString& source)
+void ShotDataModel::recordWeightSource(const QString& source)
 {
     // Any synthetic or unclassified sample makes the whole curve ineligible.
     if (m_weightSource.isEmpty() || m_weightSource == QLatin1String("physical_scale"))
         m_weightSource = source;
-    addWeightSample(time, weight, flowRate);
 }
 
 void ShotDataModel::clear() {
