@@ -5,30 +5,6 @@
 Governs the Steam page's stop controls. The page SHALL NOT offer a dedicated Purge button, so the firmware steam-wand purge runs only as a side effect of stopping steam, and keyboard and screen-reader focus stays coherent after removal.
 
 ## Requirements
-### Requirement: Steam page SHALL NOT present a dedicated Purge control
-
-The Steam page SHALL NOT display a dedicated "Purge" button in either its live-steaming
-view or its settings view. The firmware steam-wand purge is triggered as a side effect of
-stopping steam (a Steam→Idle state transition), so it SHALL be reached through the stop
-path rather than a separate on-screen control.
-
-#### Scenario: Live steaming view offers no Purge button
-
-- **WHEN** the machine is actively steaming and the Steam page live view is shown
-- **THEN** no "Purge" button is displayed
-- **AND** on a headless machine the Stop button remains available, and stopping steam
-  triggers the firmware steam-wand purge on the Steam→Idle transition
-
-#### Scenario: Settings view offers no Purge button
-
-- **WHEN** the machine is not steaming and the Steam page settings view is shown
-- **THEN** no "Purge" button is displayed
-
-#### Scenario: GHC machine stops steam without an on-screen control
-
-- **WHEN** the machine is non-headless (a group-head controller is installed) and is steaming
-- **THEN** the Steam page shows no in-app stop or purge button
-- **AND** steam is stopped — and the firmware purge fired — via the physical group-head control
 
 ### Requirement: Keyboard and screen-reader focus order SHALL remain intact after Purge removal
 
@@ -49,3 +25,13 @@ to traverse the Steam page's remaining controls in a coherent order with no dead
 - **THEN** focus moves among the remaining settings-view controls (add-pitcher, duration
   slider, and neighboring controls) with no reference to a removed Purge button
 
+### Requirement: Back on the Steam page stops steam
+The Steam page SHALL show its bottom bar with Back while steam runs, including steam heating, a soft stop and puffing. Back SHALL then act as the Stop control does, as Back stops a shot on the espresso page. With no steam running, Back SHALL leave the page as before.
+
+#### Scenario: Back while steaming
+- **WHEN** the machine is steaming and the user taps Back
+- **THEN** the app sends the same stop request as the Stop control
+
+#### Scenario: Back with no steam running
+- **WHEN** the Steam page shows its settings and the user taps Back
+- **THEN** the page closes without a stop request
