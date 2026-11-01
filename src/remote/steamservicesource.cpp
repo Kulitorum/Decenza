@@ -27,6 +27,7 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 
@@ -55,25 +56,6 @@ bool readBool(const QVariantMap& map, const QString& key, bool* output)
     return true;
 }
 
-QVariantList pointList(const QVector<QPointF>& points)
-{
-    QVariantList result;
-    result.reserve(points.size());
-    for (const QPointF& point : points)
-        result.append(QVariant::fromValue(QVariantList{point.x(), point.y()}));
-    return result;
-}
-
-QVariantList goalPointList(const QVariantList& points)
-{
-    QVariantList result;
-    result.reserve(points.size());
-    for (const QVariant& value : points) {
-        const QPointF point = value.toPointF();
-        result.append(QVariant::fromValue(QVariantList{point.x(), point.y()}));
-    }
-    return result;
-}
 } // namespace
 
 NativeSteamServiceSource::NativeSteamServiceSource(MainController* controller,
@@ -180,8 +162,10 @@ NativeSteamServiceSource::NativeSteamServiceSource(MainController* controller,
     if (m_graph) {
         connect(m_graph, &SteamDataModel::flushed,
                 this, &NativeSteamServiceSource::scheduleGraphRefresh);
-        connect(m_graph, &SteamDataModel::cleared,
-                this, &NativeSteamServiceSource::scheduleGraphRefresh);
+        connect(m_graph, &SteamDataModel::cleared, this, [this] {
+            m_graphPublisher.reset();
+            scheduleGraphRefresh();
+        });
     }
     refreshSnapshot();
 }
@@ -209,16 +193,9 @@ void NativeSteamServiceSource::scheduleGraphRefresh()
     scheduleRefresh();
 }
 
-QVariantMap NativeSteamServiceSource::captureGraphSnapshot() const
+QVariantMap NativeSteamServiceSource::currentGraphSnapshot()
 {
-    if (!m_graph)
-        return {};
-    return {{QStringLiteral("revision"), m_graph->revision()},
-            {QStringLiteral("rawTime"), m_graph->rawTime()},
-            {QStringLiteral("pressure"), pointList(m_graph->pressureData())},
-            {QStringLiteral("flow"), pointList(m_graph->flowData())},
-            {QStringLiteral("temperature"), pointList(m_graph->temperatureData())},
-            {QStringLiteral("flowGoalPoints"), goalPointList(m_graph->flowGoalPoints())}};
+    return m_graph ? SteamGraphUpdate::capture(*m_graph) : QVariantMap{};
 }
 
 void NativeSteamServiceSource::refreshSnapshot()
@@ -289,12 +266,11 @@ void NativeSteamServiceSource::refreshSnapshot()
     setActiveSteamSession(m_health->activeSession());
     setWarningSnapshot(m_health->warningSnapshot().toJson().toVariantMap());
     setEditorRevision(m_editor->editorRevision());
-    if (m_graphSnapshotDirty && m_graph
-        && m_lastGraphSnapshotRevision != m_graph->revision()) {
-        setGraphSnapshot(captureGraphSnapshot());
-        m_lastGraphSnapshotRevision = m_graph->revision();
+    const bool publishGraph = std::exchange(m_graphSnapshotDirty, false);
+    if (publishGraph && m_graph) {
+        const auto update = m_graphPublisher.next(*m_graph);
+        if (!update.isEmpty()) setGraphUpdate(update);
     }
-    m_graphSnapshotDirty = false;
 }
 
 QVariantMap NativeSteamServiceSource::failure(const QString& message) const

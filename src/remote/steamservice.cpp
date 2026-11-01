@@ -4,6 +4,7 @@
 #include "core/steamcalculations.h"
 #include "core/steampitcherselection.h"
 #include "core/steamgraphvalidation.h"
+#include "core/uiworkstats.h"
 #include "models/steamdatamodel.h"
 #include "network/steamhealthsnapshot.h"
 
@@ -57,11 +58,12 @@ bool readPoints(const QVariant& value, int maximum, QVector<QPointF>* output)
 
 bool readRevision(const QVariant& value, qint64* output)
 {
-    bool ok = false;
-    const qlonglong revision = value.toLongLong(&ok);
-    if (!ok || revision < 0 || revision > SteamGraphValidation::MaximumExactJsonInteger)
+    double revision = 0;
+    if (value.metaType().id() == QMetaType::Bool || value.metaType().id() == QMetaType::QString
+        || !readNumber(value, &revision) || std::trunc(revision) != revision
+        || revision < 0 || revision > SteamGraphValidation::MaximumExactJsonInteger)
         return false;
-    *output = revision;
+    *output = static_cast<qint64>(revision);
     return true;
 }
 
@@ -106,6 +108,7 @@ void SteamService::setNode(QRemoteObjectNode* node)
     const QPointer<SteamService> bindingGuard(this);
     const QPointer<SteamStateReplica> bindingState = m_state;
     const quint64 bindingGeneration = m_generation;
+    resetGraphSync();
     m_graph->clear();
     if (!bindingGuard || bindingState != m_state || bindingGeneration != m_generation) return;
     if (m_state) {
@@ -122,12 +125,19 @@ void SteamService::setNode(QRemoteObjectNode* node)
                 });
         connect(m_state, &SteamStateReplica::editorRevisionChanged,
                 this, &SteamService::stateChanged);
-        connect(m_state, &SteamStateReplica::graphSnapshotChanged,
+        connect(m_state, &SteamStateReplica::graphUpdateChanged,
                 this, &SteamService::applyGraphSnapshot);
         connect(m_state, &SteamStateReplica::warningSnapshotChanged,
                 this, &SteamService::reconcileWarningSnapshot);
         connect(m_state, &SteamStateReplica::hostIdChanged,
                 this, &SteamService::reconcileWarningSnapshot);
+        connect(m_state, &SteamStateReplica::hostIdChanged, this, [this] {
+            if (m_graphHostId == m_state->hostId()) return;
+            resetGraphSync();
+            if (!ready()) return;
+            m_graphHostId = m_state->hostId();
+            if (!m_state->graphUpdate().isEmpty()) requestGraphSnapshot();
+        });
     }
     emit stateChanged();
     if (!bindingGuard || bindingState != m_state || bindingGeneration != m_generation) return;
@@ -278,6 +288,7 @@ void SteamService::onReplicaStateChanged()
     if (!nowReady) {
         failPending(QStringLiteral("Steam session was lost; the operation was not retried."));
         if (!guard || requestedState != m_state || generation != m_generation) return;
+        resetGraphSync();
         m_graph->clear();
     } else {
         applyGraphSnapshot();
@@ -349,38 +360,133 @@ void SteamService::reconcileWarningSnapshot()
     emit warningSnapshotChanged();
 }
 
+void SteamService::resetGraphSync()
+{
+    m_graphInitialized = false;
+    m_graphHostId.clear();
+    m_graphRequestId.clear();
+    m_graphUpdates.clear();
+    m_bufferedGraphPoints = 0;
+}
+
 void SteamService::applyGraphSnapshot()
 {
-    if (!ready() || !m_state)
-        return;
-    const QVariantMap snapshot = m_state->graphSnapshot();
-    if (snapshot.isEmpty())
-        return;
-    qint64 revision = 0;
-    double rawTime = 0.0;
-    QVector<QPointF> pressure;
-    QVector<QPointF> flow;
-    QVector<QPointF> temperature;
-    QVector<QPointF> goals;
-    const bool valid = readRevision(snapshot.value(QStringLiteral("revision")), &revision)
-        && readNumber(snapshot.value(QStringLiteral("rawTime")), &rawTime)
-        && readPoints(snapshot.value(QStringLiteral("pressure")),
-                      SteamGraphValidation::MaximumSamples, &pressure)
-        && readPoints(snapshot.value(QStringLiteral("flow")),
-                      SteamGraphValidation::MaximumSamples, &flow)
-        && readPoints(snapshot.value(QStringLiteral("temperature")),
-                      SteamGraphValidation::MaximumSamples, &temperature)
-        && readPoints(snapshot.value(QStringLiteral("flowGoalPoints")),
-                      SteamGraphValidation::MaximumGoalPoints, &goals)
-        && m_graph->replaceSnapshot(revision, rawTime, pressure, flow, temperature, goals);
-    if (!valid) {
-        const QPointer<SteamService> guard(this);
-        const QPointer<SteamStateReplica> requestedState = m_state;
-        const quint64 generation = m_generation;
-        m_graph->clear();
-        if (!guard || requestedState != m_state || generation != m_generation) return;
-        setErrorMessage(QStringLiteral("The Steam graph snapshot was invalid."));
+    if (!ready() || !m_state) return;
+    if (m_graphHostId != m_state->hostId()) {
+        resetGraphSync();
+        m_graphHostId = m_state->hostId();
     }
+    consumeGraphUpdate(m_state->graphUpdate());
+}
+
+bool SteamService::applyGraphUpdate(const QVariantMap& update, bool append)
+{
+    UiWorkStats::Span work(UiWorkStats::Kind::SteamApply);
+    qint64 revision = 0;
+    qint64 base = 0;
+    double rawTime = 0.0;
+    QVector<QPointF> pressure, flow, temperature, goals;
+    const bool hasGoals = update.contains(QStringLiteral("flowGoalPoints"));
+    if (!readRevision(update.value(QStringLiteral("revision")), &revision)
+        || !readNumber(update.value(QStringLiteral("rawTime")), &rawTime)
+        || !readPoints(update.value(QStringLiteral("pressure")), SteamGraphValidation::MaximumSamples, &pressure)
+        || !readPoints(update.value(QStringLiteral("flow")), SteamGraphValidation::MaximumSamples, &flow)
+        || !readPoints(update.value(QStringLiteral("temperature")), SteamGraphValidation::MaximumSamples, &temperature)
+        || ((!append || hasGoals) && !readPoints(update.value(QStringLiteral("flowGoalPoints")),
+                    SteamGraphValidation::MaximumGoalPoints, &goals))
+        || (append && !readRevision(update.value(QStringLiteral("baseRevision")), &base)))
+        return false;
+    work.items = pressure.size() + flow.size() + temperature.size() + goals.size();
+    work.changes = !append;
+    // Set before notifying: graph listeners may synchronously replace this binding.
+    m_graphInitialized = true;
+    return append ? m_graph->appendSnapshot(base, revision, rawTime, pressure, flow, temperature,
+                                            hasGoals ? &goals : nullptr)
+                  : m_graph->replaceSnapshot(revision, rawTime, pressure, flow, temperature, goals);
+}
+
+void SteamService::rejectGraphUpdate()
+{
+    const QPointer<SteamService> guard(this);
+    const auto state = m_state;
+    const auto generation = m_generation;
+    resetGraphSync();
+    m_graph->clear();
+    if (guard && state == m_state && generation == m_generation)
+        setErrorMessage(QStringLiteral("The Steam graph snapshot was invalid."));
+}
+
+void SteamService::consumeGraphUpdate(const QVariantMap& update)
+{
+    if (update.isEmpty()) return;
+    qint64 revision = 0;
+    if (!readRevision(update.value(QStringLiteral("revision")), &revision)) {
+        rejectGraphUpdate();
+        return;
+    }
+    if (m_graphInitialized && revision <= m_graph->revision()) return;
+    const bool append = update.contains(QStringLiteral("baseRevision"));
+    qint64 base = 0;
+    if (append && !readRevision(update.value(QStringLiteral("baseRevision")), &base)) {
+        rejectGraphUpdate();
+        return;
+    }
+    if (!m_graphRequestId.isEmpty()
+        || (append && (!m_graphInitialized || base != m_graph->revision()))) {
+        const qsizetype points = update.value(QStringLiteral("pressure")).toList().size()
+            + update.value(QStringLiteral("flow")).toList().size()
+            + update.value(QStringLiteral("temperature")).toList().size();
+        // A bounded backlog. If it overflows, a subsequent gap requests a fresh snapshot.
+        if (m_graphUpdates.size() >= 64 || m_bufferedGraphPoints + points > 18000) {
+            m_graphUpdates.clear();
+            m_bufferedGraphPoints = 0;
+        }
+        m_graphUpdates.append(update);
+        m_bufferedGraphPoints += points;
+        if (m_graphRequestId.isEmpty()) requestGraphSnapshot();
+        return;
+    }
+    if (!append) {
+        m_graphRequestId.clear();
+        m_graphUpdates.clear();
+        m_bufferedGraphPoints = 0;
+    }
+    const QPointer<SteamService> guard(this);
+    const auto state = m_state;
+    const auto generation = m_generation;
+    const bool valid = applyGraphUpdate(update, append);
+    if (guard && state == m_state && generation == m_generation && !valid) rejectGraphUpdate();
+}
+
+void SteamService::requestGraphSnapshot()
+{
+    if (!ready() || !m_state || !m_graphRequestId.isEmpty()) return;
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_graphRequestId = id;
+    const auto state = m_state;
+    const auto generation = m_generation;
+    const QString hostId = state->hostId();
+    auto* watcher = new QRemoteObjectPendingCallWatcher(state->currentGraphSnapshot(), this);
+    connect(watcher, &QRemoteObjectPendingCallWatcher::finished, this,
+            [this, watcher, id, state, generation, hostId] {
+        const QVariantMap snapshot = watcher->returnValue().toMap();
+        watcher->deleteLater();
+        if (id != m_graphRequestId || generation != m_generation || state != m_state
+            || !ready() || hostId != m_state->hostId()) return;
+        m_graphRequestId.clear();
+        const auto updates = std::exchange(m_graphUpdates, {});
+        m_bufferedGraphPoints = 0;
+        const QPointer<SteamService> guard(this);
+        const bool valid = applyGraphUpdate(snapshot, false);
+        if (!guard || generation != m_generation || state != m_state
+            || hostId != m_state->hostId()) return;
+        if (!valid) { rejectGraphUpdate(); return; }
+        for (const auto& update : updates) {
+            consumeGraphUpdate(update);
+            if (!guard || generation != m_generation || state != m_state
+                || hostId != m_state->hostId()) return;
+        }
+    });
 }
 
 void SteamService::failPending(const QString& message)
