@@ -566,7 +566,8 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
         "shots.drink_tds, shots.drink_ey, "
         "shots.channeling_detected, shots.grind_issue_detected, "
         "shots.skip_first_frame_detected, shots.pour_truncated_detected, shots.rpm, "
-        "shots.recipe_id, r.name, r.drink_type, r.archived");
+        "shots.recipe_id, r.name, r.drink_type, r.archived, "
+        "shots.portal_mean_ec, shots.portal_integral_ec_g, shots.portal_mean_temp_c, shots.bag_id, shots.portal_estimate_reliable, shots.portal_mounting_mode");
 
     // Recipe identity is resolved HERE, in the list query, and never per row: a
     // RecipeResolver in the delegate (correct on the shot page, which shows one
@@ -648,22 +649,28 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                     } else {
                         while (query.next()) {
                             QVariantMap shot;
-                            shot["id"] = query.value(0).toLongLong();
+                            const qint64 rowShotId = query.value(0).toLongLong();
+                            const double rowFinalWeight = query.value(5).toDouble();
+                            const double rowDoseWeight = query.value(6).toDouble();
+                            const QString rowBeanBrand = query.value(7).toString();
+                            const QString rowBeanType = query.value(8).toString();
+                            const double rowDrinkTds = query.value(15).toDouble();
+                            shot["id"] = rowShotId;
                             shot["uuid"] = query.value(1).toString();
                             shot["timestamp"] = query.value(2).toLongLong();
                             shot["profileName"] = query.value(3).toString();
                             shot["durationSec"] = query.value(4).toDouble();
-                            shot["finalWeightG"] = query.value(5).toDouble();
-                            shot["doseWeightG"] = query.value(6).toDouble();
-                            shot["beanBrand"] = query.value(7).toString();
-                            shot["beanType"] = query.value(8).toString();
+                            shot["finalWeightG"] = rowFinalWeight;
+                            shot["doseWeightG"] = rowDoseWeight;
+                            shot["beanBrand"] = rowBeanBrand;
+                            shot["beanType"] = rowBeanType;
                             shot["enjoyment0to100"] = query.value(9).toInt();
                             shot["hasVisualizerUpload"] = !query.value(10).isNull();
                             shot["grinderSetting"] = query.value(11).toString();
                             shot["temperatureOverrideC"] = query.value(12).toDouble();
                             shot["targetWeightG"] = query.value(13).toDouble();
                             shot["beverageType"] = query.value(14).toString();
-                            shot["drinkTdsPct"] = query.value(15).toDouble();
+                            shot["drinkTdsPct"] = rowDrinkTds;
                             shot["drinkEyPct"] = query.value(16).toDouble();
                             shot["channelingDetected"] = query.value(17).toInt() != 0;
                             shot["grindIssueDetected"] = query.value(18).toInt() != 0;
@@ -682,6 +689,37 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             shot["recipeName"] = query.value(23).toString();
                             shot["recipeDrinkType"] = query.value(24).toString();
                             shot["recipeArchived"] = query.value(25).toInt() != 0;
+
+                            const double portalMeanEc = query.value(26).toDouble();
+                            const double portalIntegralEcG = query.value(27).toDouble();
+                            const double portalMeanTempC = query.value(28).toDouble();
+                            const qint64 rowBagId = query.value(29).isNull() ? -1 : query.value(29).toLongLong();
+                            shot["portalMeanEc"] = portalMeanEc;
+                            shot["portalIntegralEcG"] = portalIntegralEcG;
+                            shot["portalMeanTempC"] = portalMeanTempC;
+                            const bool portalReliable = query.value(30).toBool();
+                            shot["portalEstimateReliable"] = portalReliable;
+                            if (portalMeanEc > 0.0 && portalReliable) {
+                                const auto portalCalPoints = loadPortalCalibrationPointsStatic(db,
+                                    rowBagId, rowBeanBrand, rowBeanType);
+                                PortalTailAnalyzer::Result dummyRes;
+                                dummyRes.valid = true;
+                                dummyRes.estimateReliable = portalReliable;
+                                dummyRes.meanRawEcPerG = portalMeanEc;
+                                dummyRes.integralRawEcG = portalIntegralEcG;
+                                dummyRes.meanTempC = portalMeanTempC;
+                                const auto fit = PortalTailAnalyzer::fitCalibration(
+                                    portalCalPoints, rowBagId, rowBeanBrand, rowBeanType, rowShotId,
+                                    PortalTailAnalyzer::mountingModeFromString(query.value(31).toString()));
+                                PortalTailAnalyzer::applyCalibration(
+                                    &dummyRes, fit, rowFinalWeight, rowDoseWeight, rowDrinkTds);
+                                if (dummyRes.calibrated) {
+                                    shot["portalEstTdsPct"] = dummyRes.estimatedTdsPct;
+                                    shot["portalEstEyPct"] = dummyRes.estimatedEyPct;
+                                    shot["portalCalScope"] = dummyRes.calibrationScope;
+                                    shot["portalEstimateReliable"] = dummyRes.estimateReliable;
+                                }
+                            }
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());

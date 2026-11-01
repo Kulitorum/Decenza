@@ -90,6 +90,12 @@ std::optional<double> ShotTimingController::sensorTime(qint64 receivedAtMs) cons
     return time >= 0 ? std::optional<double>(time) : std::nullopt;
 }
 
+QString ShotTimingController::servingWeightSource() const
+{
+    if (!m_scale || !m_scale->isConnected() || m_scale->isSimulated()) return QStringLiteral("unknown");
+    return m_scale->isFlowScale() ? QStringLiteral("flow_scale_virtual") : QStringLiteral("physical_scale");
+}
+
 void ShotTimingController::setScale(ScaleDevice* scale)
 {
     // Signal connections to scale are managed externally in main.cpp
@@ -311,6 +317,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             return;
         }
 
+        emit weightSourceUsed(servingWeightSource());
         m_weight = weight;
         m_flowRate = flowRate;
         emit weightChanged();
@@ -461,6 +468,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         return;
     }
 
+    emit weightSourceUsed(servingWeightSource());
     m_weight = weight;
     m_flowRateShort = flowRateShort;
 
@@ -475,6 +483,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
     }
     m_flowRate = m_smoothedFlowRate;
 
+    // Preserve measured pre-drip baselines; onShotSample only publishes positive weights.
+    if (weight >= 0.0 && weight < 0.1)
+        emit weightBaselineReady((QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0, weight);
     emit weightChanged();
 
     // Weight is cached here, emitted to graph in onShotSample for perfect timestamp sync.

@@ -165,6 +165,8 @@ QVariantMap ShotProjection::toVariantMap() const
     m["flow"] = flow;
     m["temperature"] = temperature;
     m["temperatureMix"] = temperatureMix;
+    m["weightSource"] = weightSource;
+    m["portalMountingMode"] = portalMountingMode;
     if (!portalSamples.isEmpty()) m["portalSamples"] = portalSamples;
     m["resistance"] = resistance;
     m["conductance"] = conductance;
@@ -185,6 +187,8 @@ QVariantMap ShotProjection::toVariantMap() const
 
     m["summaryLines"] = summaryLines;
     m["detectorResults"] = detectorResults;
+    if (!portalAnalysis.isEmpty())
+        m["portalAnalysis"] = portalAnalysis;
     if (phaseSummaries.isValid())
         m["phaseSummaries"] = phaseSummaries;
     m["phases"] = phases;
@@ -286,6 +290,8 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.flow = m.value("flow").toList();
     p.temperature = m.value("temperature").toList();
     p.temperatureMix = m.value("temperatureMix").toList();
+    p.weightSource = m.value("weightSource").toString();
+    p.portalMountingMode = m.value("portalMountingMode").toString();
     p.portalSamples = PortalSamples::toVariant(PortalSamples::fromVariant(m.value("portalSamples").toList()));
     p.resistance = m.value("resistance").toList();
     p.conductance = m.value("conductance").toList();
@@ -301,6 +307,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
 
     p.summaryLines = m.value("summaryLines").toList();
     p.detectorResults = m.value("detectorResults").toMap();
+    p.portalAnalysis = m.value("portalAnalysis").toMap();
     p.phaseSummaries = m.value("phaseSummaries");
     p.phases = m.value("phases").toList();
     return p;

@@ -969,3 +969,11 @@ External resources that informed the diagnostic patterns:
   resistance, channeling risk scoring, profile compliance).
 - Coffee ad Astra puck resistance study: <https://coffeeadastra.com/2021/01/16/a-study-of-espresso-puck-resistance-and-how-puck-preparation-affects-it/>.
 - Espresso Compass (Barista Hustle): <https://www.baristahustle.com/the-espresso-compass/>.
+
+### PORTAL estimates
+
+PORTAL integrals and tail contributions are relative raw-EC proxies. Estimated
+TDS/EY uses other refractometer shots from the same bag/bean and mounting mode;
+uncertain measurements are excluded from fitting. Fewer than five references
+remain preliminary. Ratio suggestions use explicit taste feedback and comparable
+rated cups, without estimating unmeasured solids or changing machine control.

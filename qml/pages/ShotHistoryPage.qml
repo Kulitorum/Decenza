@@ -931,6 +931,23 @@ T.Page {
                         return TranslationManager.translate("shothistory.metric.grind", "Grind") + " " + grind
                     }
 
+                    function portalText() {
+                        var ec = model.portalMeanEc || 0
+                        if (ec <= 0) return ""
+                        var ey = model.drinkEyPct || 0
+                        var estEy = model.portalEstEyPct || 0
+                        var parts = []
+                        if (ec > 0)
+                            parts.push(TranslationManager.translate("shothistory.portal.ec", "EC %1").arg(ec.toFixed(2)))
+                        if (ey > 0)
+                            parts.push(TranslationManager.translate("shothistory.portal.ey", "EY %1%").arg(ey.toFixed(1)))
+                        else if (estEy > 0)
+                            parts.push(TranslationManager.translate("shothistory.portal.estimatedEy", "~EY %1%").arg(estEy.toFixed(1))
+                                + (model.portalEstimateReliable ? "" : (" (" + TranslationManager.translate(
+                                    "shothistory.portal.uncertain", "uncertain") + ")")))
+                        return parts.join(" \u00b7 ")
+                    }
+
                     Accessible.role: Accessible.Button
                     Accessible.name: {
                         var parts = []
@@ -959,6 +976,8 @@ T.Page {
                         // cannot word it differently.
                         var grindSpoken = shotDelegate.grindText()
                         if (grindSpoken) parts.push(grindSpoken)
+                        var portalSpoken = shotDelegate.portalText()
+                        if (portalSpoken) parts.push(portalSpoken)
                         if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
                         // Same keys the visible QualityBadges use, so the spoken row and the
                         // badges cannot drift apart or disagree in a translated locale. These
@@ -1176,6 +1195,16 @@ T.Page {
                                     text: shotDelegate.grindText()
                                     font: Theme.labelFont
                                     color: Theme.textSecondaryColor
+                                    visible: text !== ""
+                                    Accessible.ignored: true
+                                }
+
+                                Text {
+                                    text: shotDelegate.portalText()
+                                    font: Theme.labelFont
+                                    color: (shotDelegate.model.portalMeanEc || 0) > 0
+                                           ? Theme.portalEcColor
+                                           : Theme.textSecondaryColor
                                     visible: text !== ""
                                     Accessible.ignored: true
                                 }

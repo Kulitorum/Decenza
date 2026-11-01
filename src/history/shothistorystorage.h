@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 47;
+    static constexpr int kCurrentSchemaVersion = 50;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -324,6 +324,14 @@ public:
     // Compute per-phase summaries (avg pressure, flow, weight gained, etc.) from raw curves
     // and phase markers for legacy shots that lack phaseSummariesJson.
     static void computePhaseSummaries(ShotRecord& record);
+
+    // Load paired (PORTAL mass-weighted EC, refractometer TDS%) calibration points
+    // across stored shots where both portal_mean_ec > 0 and drink_tds > 0.
+    static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
+        const QString& beanBrand, const QString& beanType);
+    void requestPortalCalibration(const QString& requestId, qint64 bagId,
+                                  const QString& beanBrand, const QString& beanType,
+                                  PortalTailAnalyzer::MountingMode mountingMode);
 
     // Query observed grinder settings for one equipment package + beverage type.
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
@@ -717,6 +725,8 @@ public:
     [[nodiscard]] std::optional<QSet<qint64>> existingShotIds(const QSet<qint64>& ids) const;
 
 signals:
+    void portalCalibrationReady(const QString& requestId, const QVariantMap& calibration,
+                                const QString& reason);
     void readyChanged();
     void totalShotsChanged();
     void shotSaved(qint64 shotId);

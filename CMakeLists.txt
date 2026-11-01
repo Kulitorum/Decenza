@@ -844,6 +844,7 @@ set(SOURCES
     src/ai/aiconversation.cpp
     src/ai/conductance.cpp
     src/ai/livesteamcoach.cpp
+    src/ai/portaltailanalyzer.cpp
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/ai/shotsummarizer_kb.cpp
@@ -1265,6 +1266,7 @@ set(HEADERS
     src/ai/airequestshape.h
     src/ai/conductance.h
     src/ai/livesteamcoach.h
+    src/ai/portaltailanalyzer.h
     src/ai/shotanalysis.h
     src/ai/shotsummarizer.h
     src/history/shothistory_types.h

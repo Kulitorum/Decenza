@@ -13,6 +13,7 @@
 #include "equipmentstorage.h"
 #include "machine/frameexitreason.h"
 
+#include "ai/portaltailanalyzer.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"   // canonicalNameForKbId
 
@@ -113,6 +114,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.flow = pointsToVariant(record.flow);
     p.temperature = pointsToVariant(record.temperature);
     p.temperatureMix = pointsToVariant(record.temperatureMix);
+    p.weightSource = record.weightSource;
+    p.portalMountingMode = record.portalMountingMode;
     p.portalSamples = PortalSamples::toVariant(record.portalSamples);
     p.resistance = pointsToVariant(record.resistance);
     p.conductance = pointsToVariant(record.conductance);
@@ -126,6 +129,29 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.weight = pointsToVariant(record.weight);
     p.weightFlowRate = pointsToVariant(record.weightFlowRate);
     p.weightFlowRateRaw = pointsToVariant(record.weightFlowRateRaw);
+
+    if (!record.portalSamples.isEmpty()) {
+        PortalTailAnalyzer::Options portalOpts;
+        portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
+        portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
+        portalOpts.doseWeightG = record.summary.doseWeight;
+        portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
+        auto portalRes = PortalTailAnalyzer::analyze(
+            record.portalSamples, record.weight, portalOpts);
+        const auto calFit = PortalTailAnalyzer::fitCalibration(
+            record.portalCalibrationPoints, record.bagId,
+            record.summary.beanBrand, record.summary.beanType, record.summary.id, portalOpts.mountingMode);
+        PortalTailAnalyzer::applyCalibration(
+            &portalRes, calFit, record.summary.finalWeight,
+            record.summary.doseWeight, record.drinkTds, record.drinkEy);
+        PortalTailAnalyzer::evaluateRatioAdvice(
+            &portalRes, record.portalCalibrationPoints, record.summary.id, record.bagId,
+            record.summary.beanBrand, record.summary.beanType,
+            record.summary.doseWeight, record.summary.enjoyment,
+            record.tasteBalance, record.tasteBody, record.espressoNotes,
+            record.equipmentId, record.summary.profileName);
+        p.portalAnalysis = portalRes.toVariantMap();
+    }
 
     p.channelingDetected = record.channelingDetected;
     p.grindIssueDetected = record.grindIssueDetected;

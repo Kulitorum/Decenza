@@ -6,6 +6,7 @@
 #include "ble/scaledeviceproxy.h"
 #include "core/hdsfirmwareupdatecontroller.h"
 #include "core/settings.h"
+#include "history/shothistorystorage.h"
 #include "machine/machinestate.h"
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
@@ -17,6 +18,7 @@
 #include <QMetaType>
 #include <QRegularExpression>
 #include <QVariant>
+#include <QUuid>
 #include <limits>
 
 namespace {
@@ -82,6 +84,20 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
                 ? 1 : m_refractometerRevision + 1;
             refreshSnapshot();
         });
+        if (m_settings->hardware()) {
+            connect(m_settings->hardware(), &SettingsHardware::portalDeviceChanged,
+                    this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+            connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
+                    this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
+            connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
+                    this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        }
+        connect(m_settings->dye(), &SettingsDye::activeBagIdChanged,
+                this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(m_settings->dye(), &SettingsDye::dyeBeanBrandChanged,
+                this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(m_settings->dye(), &SettingsDye::dyeBeanTypeChanged,
+                this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
     }
 
     if (m_bleManager) {
@@ -205,6 +221,46 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
 void NativeSettingsConnectionsServiceSource::refresh()
 {
     refreshSnapshot();
+    refreshPortalCalibration();
+}
+
+void NativeSettingsConnectionsServiceSource::setShotHistory(ShotHistoryStorage* history)
+{
+    if (m_shotHistory) disconnect(m_shotHistory, nullptr, this, nullptr);
+    m_shotHistory = history;
+    if (history) {
+        connect(history, &ShotHistoryStorage::portalCalibrationReady, this,
+            [this](const QString& id, const QVariantMap& calibration, const QString& reason) {
+                if (id != m_portalCalibrationRequestId) return;
+                auto value = calibration;
+                value.insert(QStringLiteral("loading"), false);
+                value.insert(QStringLiteral("error"), reason);
+                setPortalCalibration(value);
+            });
+        connect(history, &ShotHistoryStorage::readyChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotSaved, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotDeleted, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::importedDatabaseChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotMetadataUpdated, this,
+                [this](qint64, bool success) { if (success) refreshPortalCalibration(); });
+    }
+    refreshPortalCalibration();
+}
+
+void NativeSettingsConnectionsServiceSource::refreshPortalCalibration()
+{
+    m_portalCalibrationRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (!m_shotHistory || !m_settings || !m_portalDevice
+        || (!m_portalDevice->owned() && !m_portalDevice->active())) {
+        setPortalCalibration({});
+        return;
+    }
+    setPortalCalibration({{QStringLiteral("loading"), true}});
+    const auto dye = m_settings->dye();
+    const auto mode = m_settings->hardware()->portalMountingMode() == QLatin1String("independent")
+        ? PortalTailAnalyzer::MountingMode::Independent : PortalTailAnalyzer::MountingMode::OnScale;
+    m_shotHistory->requestPortalCalibration(m_portalCalibrationRequestId, dye->activeBagId(),
+        dye->dyeBeanBrand(), dye->dyeBeanType(), mode);
 }
 
 void NativeSettingsConnectionsServiceSource::refreshSnapshot()
@@ -288,6 +344,9 @@ void NativeSettingsConnectionsServiceSource::refreshSnapshot()
             {QStringLiteral("devices"), portal->devices()},
             {QStringLiteral("errorMessage"), portal->errorMessage()},
             {QStringLiteral("syncDisplay"), portal->syncDisplay()},
+            {QStringLiteral("mountingMode"),
+             (settings && settings->hardware()) ? settings->hardware()->portalMountingMode()
+                                                : QStringLiteral("onScale")},
             {QStringLiteral("canControlDisplay"), portal->canControlDisplay()},
             {QStringLiteral("displayCommandStatus"), portal->displayCommandStatus()},
             {QStringLiteral("lastPacket"), portal->lastPacket()},
@@ -443,6 +502,16 @@ void NativeSettingsConnectionsServiceSource::execute(QString requestId,
             reject(QStringLiteral("invalidArguments")); return;
         }
         m_portalDevice->setSyncDisplay(enabled.toBool());
+        requested({{QStringLiteral("dispatched"), true}}); return;
+    }
+    if (operation == QLatin1String("setPortalMountingMode")) {
+        const QString mode = boundedText(arguments, QStringLiteral("mode"), 32);
+        if (!exactArguments(arguments, {QStringLiteral("mode")})
+            || (mode != QLatin1String("onScale") && mode != QLatin1String("independent"))
+            || !m_settings || !m_settings->hardware()) {
+            reject(QStringLiteral("invalidArguments")); return;
+        }
+        m_settings->hardware()->setPortalMountingMode(mode);
         requested({{QStringLiteral("dispatched"), true}}); return;
     }
     if (operation == QLatin1String("setPortalGraphView")) {

@@ -114,7 +114,16 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
     m_flushTimer->start();
 }
 
+void ShotDataModel::recordWeightSource(const QString& source)
+{
+    // Any synthetic or unclassified sample makes the whole curve ineligible.
+    if (m_weightSource.isEmpty() || m_weightSource == QLatin1String("physical_scale"))
+        m_weightSource = source;
+}
+
 void ShotDataModel::clear() {
+    m_weightSource.clear();
+    m_portalMountingMode.clear();
     // Stop timer during clear
     m_flushTimer->stop();
 
@@ -300,6 +309,9 @@ void ShotDataModel::addWeightSample(double time, double weight, double flowRate)
 void ShotDataModel::addWeightSample(double time, double weight) {
     // Ignore near-zero weights (scale noise / pre-drip)
     if (weight < 0.1) {
+        // PORTAL integration needs observed baselines, without changing the plotted curve.
+        if (weight >= 0.0 && !m_portalSamples.isEmpty() && m_weightPoints.isEmpty())
+            m_cumulativeWeightPoints.append(QPointF(time, weight));
         return;
     }
 

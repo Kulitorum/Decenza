@@ -151,12 +151,18 @@ struct ShotSummary {
     // each summarize path, so keep them in sync until those consumers read
     // beanInputs directly and the flat fields can be retired.
     DialingBlocks::CurrentBeanBlockInputs beanInputs;
+
+    // Belka PORTAL mass-space analysis output (from ShotProjection::portalAnalysis
+    // or computed via PortalTailAnalyzer when portalSamples are present). Empty
+    // when no PORTAL samples were recorded.
+    QVariantMap portalAnalysis;
 };
 
 class ShotSummarizer : public QObject {
     Q_OBJECT
 
 public:
+    static QJsonObject buildPortalBlock(const QVariantMap& analysis);
     explicit ShotSummarizer(QObject* parent = nullptr);
 
     // Summarize a shot from its typed database projection. This is the only

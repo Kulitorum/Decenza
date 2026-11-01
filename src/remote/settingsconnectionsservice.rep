@@ -2,6 +2,7 @@ class ConnectionsState
 {
     // Bounded data required by the existing shared SettingsConnectionsTab only.
     PROP(QVariantMap snapshot READONLY)
+    PROP(QVariantMap portalCalibration READONLY)
     PROP(bool ready READONLY)
     SLOT(void refresh())
     SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))

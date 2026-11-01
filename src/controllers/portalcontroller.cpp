@@ -1,5 +1,6 @@
 #include "portalcontroller.h"
 #include "ble/belkaportaldevice.h"
+#include "ble/portallogging.h"
 #include "core/settings_hardware.h"
 #include "machine/machinestate.h"
 #include "controllers/shottimingcontroller.h"
@@ -26,10 +27,13 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     connect(device, &BelkaPortalDevice::syncDisplayChanged, this, [device, settings] {
         settings->setPortalSyncDisplay(device->syncDisplay());
     });
-    connect(timing, &ShotTimingController::extractionClockStarted, this, [this, device, model] {
+    connect(timing, &ShotTimingController::extractionClockStarted, this, [this, device, settings, model] {
         m_captureOpen = true;
         model->markPortalGap();
+        model->setPortalMountingMode(settings->portalMountingMode());
         device->setExtractionActive(true);
+        if (device->active() && settings)
+            PORTAL_INFO(QStringLiteral("Shot capture started (mountingMode=%1)").arg(settings->portalMountingMode()));
     });
     connect(timing, &ShotTimingController::shotProcessingReady, this, [this, device] {
         m_captureOpen = false;

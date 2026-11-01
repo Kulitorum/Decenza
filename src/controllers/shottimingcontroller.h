@@ -117,6 +117,8 @@ signals:
                      double pressureGoal, double flowGoal, double tempGoal,
                      int frameNumber, bool isFlowMode);
     void weightSampleReady(double time, double weight, double flowRate);
+    void weightBaselineReady(double time, double weight);
+    void weightSourceUsed(const QString& source);
 
     // Stop conditions
     void stopAtWeightReached();
@@ -135,6 +137,7 @@ private slots:
     void onSettlingComplete();
 
 private:
+    QString servingWeightSource() const;
     void startSettlingTimer();
     // Ends settling, unless a disturbed reading is still waiting for the sample that
     // would confirm it -- then the scale went quiet mid-disturbance.

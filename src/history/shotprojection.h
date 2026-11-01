@@ -143,6 +143,8 @@ class ShotProjection {
     Q_PROPERTY(bool skipFirstFrameDetected MEMBER skipFirstFrameDetected)
     Q_PROPERTY(bool pourTruncatedDetected MEMBER pourTruncatedDetected)
 
+    Q_PROPERTY(QString weightSource MEMBER weightSource)
+    Q_PROPERTY(QString portalMountingMode MEMBER portalMountingMode)
     Q_PROPERTY(QVariantList portalSamples MEMBER portalSamples)
     Q_PROPERTY(QVariantList pressure MEMBER pressure)
     Q_PROPERTY(QVariantList flow MEMBER flow)
@@ -167,6 +169,7 @@ class ShotProjection {
     // any current consumer site.
     Q_PROPERTY(QVariantList summaryLines MEMBER summaryLines)
     Q_PROPERTY(QVariantMap detectorResults MEMBER detectorResults)
+    Q_PROPERTY(QVariantMap portalAnalysis MEMBER portalAnalysis)
     Q_PROPERTY(QVariant phaseSummaries MEMBER phaseSummaries)
     Q_PROPERTY(QVariantList phases MEMBER phases)
 
@@ -250,6 +253,8 @@ public:
     bool skipFirstFrameDetected = false;
     bool pourTruncatedDetected = false;
 
+    QString weightSource;
+    QString portalMountingMode;
     QVariantList portalSamples;
     QVariantList pressure;
     QVariantList flow;
@@ -271,6 +276,7 @@ public:
 
     QVariantList summaryLines;
     QVariantMap detectorResults;
+    QVariantMap portalAnalysis;
     QVariant phaseSummaries;
     QVariantList phases;
 
