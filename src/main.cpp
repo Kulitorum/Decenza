@@ -2599,6 +2599,7 @@ int main(int argc, char *argv[])
     NativeBackupServiceSource backupServiceSource(&backupManager, settings.app());
     FullBackupRestore fullBackupRestore(&settings, mainController.shotHistory(), &profileStorage,
                                        &screensaverManager, &aiManager, &translationManager);
+    mainController.dataMigration()->setFullBackupRestore(&fullBackupRestore);
     fullBackupRestore.setRestoreAllowed([&backupManager, &machineState] {
         return !backupManager.isBackupInProgress() && !backupManager.isRestoreInProgress()
             && !machineState.isOperating();

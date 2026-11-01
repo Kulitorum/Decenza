@@ -2,6 +2,9 @@
 #include "../src/remote/datamigrationcommandpolicy.h"
 #include "core/datamigrationclient.h"
 #include "core/appsettings.h"
+#include "core/fullbackuprestore.h"
+#include "core/settings.h"
+#include "core/translationmanager.h"
 #include "ai/conversationkey.h"
 #include <QJsonArray>
 #include "remote/datamigrationservice.h"
@@ -21,6 +24,9 @@
 #include <QRunnable>
 #include <QSemaphore>
 #include <QScopeGuard>
+#include <QStandardPaths>
+#include <QtEndian>
+#include "shotrowfixtures.h"
 #include "history/shothistory_types.h"
 #include <memory>
 
@@ -116,6 +122,168 @@ private slots:
         isolated.clear(); // DECENZA_TESTING uses the PID-scoped temporary INI store.
     }
     void cleanup() { AppSettings isolated; isolated.clear(); }
+
+    void replaceAllUsesValidatedBackupAndReplacesRecipes()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString sourcePath = directory.filePath(QStringLiteral("source.db"));
+        const QString destinationPath = directory.filePath(QStringLiteral("destination.db"));
+        ShotHistoryStorage source;
+        ShotRowFixtures::initAndCloseStorage(sourcePath, source);
+        ShotRowFixtures::withRawDb(sourcePath, QStringLiteral("replace_source"), [](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            QVERIFY(query.exec("INSERT INTO recipes (name, profile_title, drink_type, archived) "
+                               "VALUES ('Source', 'P', 'espresso', 0)"));
+        });
+        ShotHistoryStorage destination;
+        QVERIFY(destination.initialize(destinationPath));
+        ShotRowFixtures::withRawDb(destinationPath, QStringLiteral("replace_destination"), [](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            QVERIFY(query.exec("INSERT INTO recipes (name, profile_title, drink_type, archived) "
+                               "VALUES ('Old', 'P', 'espresso', 0)"));
+        });
+        QFile database(sourcePath);
+        QVERIFY(database.open(QIODevice::ReadOnly));
+        const QByteArray bytes = database.readAll();
+        QByteArray archive("DCBK", 4);
+        char number[8];
+        qToLittleEndian<quint32>(1, reinterpret_cast<uchar*>(number));
+        archive.append(number, 4); // version
+        archive.append(number, 4); // one entry
+        const QByteArray name("shots.db");
+        qToLittleEndian<quint32>(static_cast<quint32>(name.size()), reinterpret_cast<uchar*>(number));
+        archive.append(number, 4);
+        archive.append(name);
+        qToLittleEndian<quint64>(static_cast<quint64>(bytes.size()), reinterpret_cast<uchar*>(number));
+        archive.append(number, 8);
+        archive.append(bytes);
+
+        MigrationHttpFixture peer;
+        QVERIFY(peer.listen());
+        peer.setManifest();
+        peer.responses["/api/backup/full"] = {archive, 200, false};
+        MigrationServiceFixture fixture;
+        FullBackupRestore restore(nullptr, &destination, nullptr, nullptr, nullptr, nullptr);
+        fixture.client.setFullBackupRestore(&restore);
+        bool cancellationBlocked = false;
+        connect(&restore, &FullBackupRestore::busyChanged, &fixture.client, [&] {
+            if (!restore.busy()) return;
+            cancellationBlocked = !fixture.client.canCancelImport();
+            fixture.client.cancel();
+            cancellationBlocked = cancellationBlocked && fixture.client.isImporting();
+        });
+        QVERIFY(fixture.initialize());
+        QTRY_VERIFY(fixture.service->ready());
+        QSignalSpy completed(fixture.service, &DataMigrationService::operationCompleted);
+        fixture.service->execute(QStringLiteral("connectToServer"), {{QStringLiteral("serverUrl"), peer.url()}});
+        QTRY_COMPARE(completed.count(), 1);
+        QVERIFY(completed.first().at(2).toBool());
+        const QString id = fixture.service->execute(QStringLiteral("importAll"), {{QStringLiteral("replace"), true}});
+        QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 2, 10000);
+        QCOMPARE(completed.last().at(0).toString(), id);
+        QVERIFY2(completed.last().at(2).toBool(), qPrintable(completed.last().at(4).toString()));
+        QVERIFY(completed.last().at(3).toMap().value(QStringLiteral("replaced")).toBool());
+        QVERIFY(cancellationBlocked);
+        QCOMPARE(peer.count("/api/backup/full"), 1);
+        ShotRowFixtures::withRawDb(destinationPath, QStringLiteral("replace_verify"), [](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            QVERIFY(query.exec("SELECT name FROM recipes"));
+            QVERIFY(query.next());
+            QCOMPARE(query.value(0).toString(), QStringLiteral("Source"));
+            QVERIFY(!query.next());
+        });
+        destination.close();
+        QTRY_VERIFY(destination.isDbWorkIdle());
+    }
+
+    void replaceDownloadCanBeCancelledBeforeRestore()
+    {
+        MigrationHttpFixture peer;
+        QVERIFY(peer.listen());
+        peer.setManifest();
+        peer.responses["/api/backup/full"] = {{}, 200, true};
+        MigrationServiceFixture fixture;
+        FullBackupRestore restore(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        fixture.client.setFullBackupRestore(&restore);
+        QVERIFY(fixture.initialize());
+        QTRY_VERIFY(fixture.service->ready());
+        QSignalSpy completed(fixture.service, &DataMigrationService::operationCompleted);
+        fixture.service->execute(QStringLiteral("connectToServer"), {{QStringLiteral("serverUrl"), peer.url()}});
+        QTRY_COMPARE(completed.count(), 1);
+        const QString id = fixture.service->execute(QStringLiteral("importAll"), {{QStringLiteral("replace"), true}});
+        QTRY_COMPARE(peer.count("/api/backup/full"), 1);
+        QVERIFY(fixture.client.canCancelImport());
+        fixture.service->execute(QStringLiteral("cancel"));
+        QTRY_COMPARE(completed.count(), 3);
+        QCOMPARE(completed.at(1).at(0).toString(), id);
+        QCOMPARE(completed.at(1).at(4).toString(), QStringLiteral("cancelled"));
+        QVERIFY(!restore.busy());
+        peer.release("/api/backup/full", "invalid");
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QVERIFY(!restore.busy());
+    }
+
+    void settingsImportTransfersSelectedLanguageCustomizations_data()
+    {
+        QTest::addColumn<QString>("language");
+        QTest::newRow("english") << QStringLiteral("en");
+        QTest::newRow("british-english") << QStringLiteral("en-GB");
+    }
+
+    void settingsImportTransfersSelectedLanguageCustomizations()
+    {
+        QFETCH(QString, language);
+        QStandardPaths::setTestModeEnabled(true);
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QStringLiteral("/translations");
+        QDir(dir).removeRecursively();
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+        QNetworkAccessManager network;
+        TranslationManager manager(&network, &settings);
+        manager.registerString(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk pitcher"));
+        manager.registerString(QStringLiteral("fixture.local"), QStringLiteral("Local"));
+        manager.setCurrentLanguage(language);
+        manager.setTranslation(QStringLiteral("fixture.local"), QStringLiteral("Keep me"));
+        manager.setCurrentLanguage(QStringLiteral("en"));
+
+        MigrationHttpFixture peer;
+        QVERIFY(peer.listen());
+        peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
+            {QStringLiteral("deviceName"), QStringLiteral("Peer")},
+            {QStringLiteral("hasSettings"), true}}).toJson(), 200, false};
+        peer.responses["/api/backup/settings"] = {"{}", 200, false};
+        peer.responses["/api/backup/extra-settings"] = {QJsonDocument(QJsonObject{
+            {QStringLiteral("language"), language},
+            {QStringLiteral("languageTranslation"), QJsonObject{
+                {QStringLiteral("language"), language},
+                {QStringLiteral("translations"), QJsonObject{
+                    {QStringLiteral("fixture.pitcher"), QStringLiteral("Milk jug")}}}}},
+            {QStringLiteral("languageOverrides"), language == QLatin1String("en")
+                ? QJsonArray{} : QJsonArray{QStringLiteral("fixture.pitcher")}}}).toJson(), 200, false};
+        MigrationServiceFixture fixture;
+        fixture.client.setSettings(&settings);
+        fixture.client.setTranslationManager(&manager);
+        QVERIFY(fixture.initialize());
+        QTRY_VERIFY(fixture.service->ready());
+        QSignalSpy completed(fixture.service, &DataMigrationService::operationCompleted);
+        fixture.service->execute(QStringLiteral("connectToServer"), {{QStringLiteral("serverUrl"), peer.url()}});
+        QTRY_COMPARE(completed.count(), 1);
+        fixture.service->execute(QStringLiteral("importOnlySettings"));
+        QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 2, 10000);
+        QVERIFY2(completed.last().at(2).toBool(), qPrintable(completed.last().at(4).toString()));
+        QCOMPARE(manager.currentLanguage(), language);
+        QCOMPARE(manager.translateString(QStringLiteral("fixture.pitcher"), QStringLiteral("Milk pitcher")), QStringLiteral("Milk jug"));
+        QCOMPARE(manager.translateString(QStringLiteral("fixture.local"), QStringLiteral("Local")), QStringLiteral("Keep me"));
+        if (language != QLatin1String("en")) {
+            QFile overrides(dir + QLatin1Char('/') + language + QStringLiteral("_overrides.json"));
+            QVERIFY(overrides.open(QIODevice::ReadOnly));
+            const QJsonArray keys = QJsonDocument::fromJson(overrides.readAll()).object().value(QStringLiteral("overrides")).toArray();
+            QVERIFY(keys.contains(QStringLiteral("fixture.pitcher")));
+            QVERIFY(keys.contains(QStringLiteral("fixture.local")));
+        }
+    }
 
     void manifestAndImportProgressRoundTripThroughRealQtRO()
     {
@@ -563,6 +731,10 @@ private slots:
             {{QStringLiteral("serverUrl"), QStringLiteral("http://user:pass@example.test")}}));
         QVERIFY(!DataMigrationCommandPolicy::validate(QStringLiteral("importAll"),
             {{QStringLiteral("totpCode"), QStringLiteral("123456")}}));
+        QVERIFY(DataMigrationCommandPolicy::validate(QStringLiteral("importAll"),
+            {{QStringLiteral("replace"), true}}));
+        QVERIFY(!DataMigrationCommandPolicy::validate(QStringLiteral("importAll"),
+            {{QStringLiteral("replace"), QStringLiteral("true")}}));
         QVERIFY(!DataMigrationCommandPolicy::validate(QStringLiteral("forgedOperation"), {}));
     }
 
@@ -571,10 +743,12 @@ private slots:
         const QVariantMap manifest = DataMigrationCommandPolicy::safeManifest({
             {QStringLiteral("deviceName"), QStringLiteral("Kitchen")},
             {QStringLiteral("profileCount"), 7},
+            {QStringLiteral("hasLanguageTranslations"), true},
             {QStringLiteral("sessionToken"), QStringLiteral("secret")},
             {QStringLiteral("settingsSize"), 1234}});
         QCOMPARE(manifest.value(QStringLiteral("deviceName")).toString(), QStringLiteral("Kitchen"));
         QVERIFY(!manifest.contains(QStringLiteral("sessionToken")));
+        QVERIFY(manifest.value(QStringLiteral("hasLanguageTranslations")).toBool());
         QVERIFY(!manifest.contains(QStringLiteral("settingsSize")));
 
         const QVariantList devices = DataMigrationCommandPolicy::safeDevices({QVariantMap{

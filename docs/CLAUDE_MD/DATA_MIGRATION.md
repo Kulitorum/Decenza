@@ -29,7 +29,7 @@ Transfer profiles, shots, settings, media, and AI conversations between devices 
 ### REST Endpoints (on ShotServer)
 - `GET /api/backup/manifest` - List available data (counts, sizes; incl. `recipeCount`/`bagCount`/`equipmentCount`)
 - `GET /api/backup/settings` - Export settings JSON (includes SAW learning; excludes machine flow calibration + mqttPassword on import)
-- `GET /api/backup/extra-settings` - Export extra QSettings (shot-map location, accessibility, language) — LAN parity with the full archive's `extra_settings.json`
+- `GET /api/backup/extra-settings` - Export extra QSettings and the selected language's custom strings — LAN parity with the full archive's `extra_settings.json`
 - `GET /api/backup/profiles` - List profile filenames
 - `GET /api/backup/profile/{category}/{filename}` - Download single profile
 - `GET /api/backup/shots` - List shot IDs
@@ -40,15 +40,17 @@ Transfer profiles, shots, settings, media, and AI conversations between devices 
 - `POST /api/backup/restore` - Restore from backup archive
 
 ### Import Options
-- **Import All**: Settings, profiles, shots, media, AI conversations
+- **Import All**: Settings, profiles, shots, media, AI conversations (merged with existing data)
+- **Replace All**: Downloads a full backup and runs the existing replace restore. A confirmation warns that current data will be replaced; cancellation is unavailable once restore begins.
 - **Individual**: Import only specific data types (Settings, Profiles, Shots, Media, AI Conversations buttons)
 
 ### Coverage parity (finish-recipes-first-class)
-Every durable store is now both exported and imported on **both** paths (LAN device-to-device and `.dcbackup` full archive):
+Coverage on both paths (LAN device-to-device and `.dcbackup` full archive):
 - **SAW learning** (`saw/*` keys) rides `SettingsSerializer` (`sawLearningExport`/`sawLearningImport`), so it lands in the LAN settings **and** the archive `settings.json`. Scale+profile specific and portable — deliberately NOT excluded like the machine-specific flow calibration.
 - **Extra settings** (shot-map location, accessibility, language): the LAN client now fetches `/api/backup/extra-settings` (chained after the settings import), matching what the archive already bundled.
+- **Customized translations** for the selected language travel with settings. Older backups and source devices do not contain them; other languages can be transferred with the Language page's file export and import.
 - **Recipes** are import-side only — they already exported inside `shots.db`; the fix was the missing merge (`importRecipesStatic`).
 - **Flow calibration** and **mqttPassword** remain intentionally excluded on import (machine/broker specific).
 
 ### What rides inside "Shots"
-The Shots import ships the whole `shots.db` file, so several tables travel and are row-remapped during the merge (`ShotHistoryStorage::importDatabaseStatic`), in order: **equipment** (`importEquipmentStatic`) → **coffee bags** (`importBagsStatic`, remaps `equipment_id`) → **recipes** (`importRecipesStatic`, remaps `equipment_id`; finish-recipes-first-class; a legacy-version source's absolute `temp_override_c` is staged and converted to the relative `temp_offset_c` after import, while a current-version source's offset imports verbatim — recipe-relative-temp-offset) → **shots** (remaps `equipment_id`, `bag_id`, `recipe_id`, and carries `steam_json`/`hot_water_json`). These are not separate UI buttons — they fold into "Shots". A backup with **zero shots** skips the whole merge (early-return), so bags/equipment/recipes only transfer alongside shots.
+The Shots import ships the whole `shots.db` file, so several tables travel and are row-remapped during the merge (`ShotHistoryStorage::importDatabaseStatic`), in order: **equipment** (`importEquipmentStatic`) → **coffee bags** (`importBagsStatic`, remaps `equipment_id`) → **recipes** (`importRecipesStatic`, remaps `equipment_id`; a legacy source's absolute `temp_override_c` is staged and converted to a relative `temp_offset_c`) → **shots** (remaps `equipment_id`, `bag_id`, `recipe_id`, and carries `steam_json`/`hot_water_json`). These are not separate UI buttons — they fold into "Shots" and transfer even when the source has no shots.

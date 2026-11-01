@@ -262,7 +262,7 @@ T.Page {
                             var total = LanguageService.uniqueStringCount
                             var untranslated = LanguageService.uniqueUntranslatedCount
                             var translated = total - untranslated
-                            return translated + "/" + total + " (" + Math.round((translated / Math.max(1, total)) * 100) + "%)"
+                            return translated + "/" + total + " (" + Math.floor((translated / Math.max(1, total)) * 100) + "%)"
                         }
                         font: Theme.labelFont
                         color: Theme.textSecondaryColor
@@ -272,7 +272,7 @@ T.Page {
                             var total = LanguageService.uniqueStringCount
                             var untranslated = LanguageService.uniqueUntranslatedCount
                             var translated = total - untranslated
-                            var percent = Math.round((translated / Math.max(1, total)) * 100)
+                            var percent = Math.floor((translated / Math.max(1, total)) * 100)
                             return TranslationManager.translate("stringBrowser.accessible.translationProgress", "Translation progress: %1 percent. %2 of %3 strings translated.").replace("%1", percent).replace("%2", translated).replace("%3", total)
                         }
                     }
@@ -521,7 +521,7 @@ T.Page {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     width: columnHeaders.col1Width
-                    text: TranslationManager.translate("stringBrowser.columnEnglish", "English")
+                    text: TranslationManager.translate("stringBrowser.columnEnglishUs", "English (US)")
                     font.family: Theme.labelFont.family
                     font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true

@@ -2859,18 +2859,24 @@ qt6_add_repc_replicas(tst_aisettingsservicesource ${CMAKE_SOURCE_DIR}/src/remote
 target_include_directories(tst_aisettingsservicesource PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_aisettingsservicesource PRIVATE Qt6::RemoteObjects Qt6::Qml)
 
+add_library(decenza_fullbackuprestoretestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.h)
+set_target_properties(decenza_fullbackuprestoretestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_compile_definitions(decenza_fullbackuprestoretestlib PRIVATE DECENZA_TESTING)
+target_link_libraries(decenza_fullbackuprestoretestlib PUBLIC decenza_testlib)
+
 add_decenza_test(tst_backupoperationpolicy tst_backupoperationpolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.h
     ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.cpp
     ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.h)
 qt6_add_repc_sources(tst_backupoperationpolicy ${CMAKE_SOURCE_DIR}/src/remote/backupservice.rep)
 target_include_directories(tst_backupoperationpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_backupoperationpolicy PRIVATE
     decenza_serviceoperationtestlib decenza_aimanagertestlib decenza_appserviceslib
     decenza_settingsserializerlib decenza_profilelib decenza_shotlib decenza_filebundletestlib
-    decenza_importservicetestlib
+    decenza_importservicetestlib decenza_fullbackuprestoretestlib
     Qt6::RemoteObjects decenza_zip)
 add_decenza_test(tst_debugconversionpolicy tst_debugconversionpolicy.cpp)
 add_library(decenza_filebundletestlib STATIC
@@ -2890,7 +2896,7 @@ qt6_add_repc_sources(tst_datamigrationcommandpolicy ${CMAKE_SOURCE_DIR}/src/remo
 qt6_add_repc_replicas(tst_datamigrationcommandpolicy ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice.rep)
 target_include_directories(tst_datamigrationcommandpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_datamigrationcommandpolicy PRIVATE
-    decenza_aimanagertestlib decenza_appserviceslib decenza_settingsserializerlib
+    decenza_aimanagertestlib decenza_appserviceslib decenza_settingsserializerlib decenza_fullbackuprestoretestlib
     decenza_profilelib decenza_shotlib decenza_serviceoperationtestlib decenza_remoteservicebasetestlib decenza_localnetworktestlib Qt6::RemoteObjects Qt6::Qml)
 
 add_decenza_test(tst_shotserversettingspolicy tst_shotserversettingspolicy.cpp)

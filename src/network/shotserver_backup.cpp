@@ -12,6 +12,7 @@
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
+#include "../core/translationmanager.h"
 #include "../ai/aimanager.h"
 #include "../core/fullbackuprestore.h"
 #include "version.h"
@@ -67,6 +68,7 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
     manifest["deviceName"] = deviceName;
     manifest["platform"] = QSysInfo::productType();
     manifest["appVersion"] = QString(VERSION_STRING);
+    manifest["hasLanguageTranslations"] = !m_translationManager.isNull();
 
     // Settings info
     if (m_settings) {
@@ -256,7 +258,25 @@ QJsonObject ShotServer::buildExtraSettingsObject()
 
 void ShotServer::handleBackupExtraSettings(QTcpSocket* socket)
 {
-    sendJson(socket, QJsonDocument(buildExtraSettingsObject()).toJson(QJsonDocument::Compact));
+    QJsonObject extra = buildExtraSettingsObject();
+    if (!m_translationManager) {
+        sendJson(socket, QJsonDocument(extra).toJson(QJsonDocument::Compact));
+        return;
+    }
+    const auto snapshot = m_translationManager->captureFileSnapshot();
+    QPointer<QTcpSocket> socketGuard(socket);
+    QPointer<ShotServer> serverGuard(this);
+    QCoreApplication* const application = QCoreApplication::instance();
+    if (!application) return;
+    QThread* thread = QThread::create([serverGuard, application, extra, snapshot, socketGuard]() mutable {
+        TranslationManager::addLanguageToBackup(extra, snapshot);
+        const QByteArray payload = QJsonDocument(extra).toJson(QJsonDocument::Compact);
+        QMetaObject::invokeMethod(application, [serverGuard, socketGuard, payload] {
+            if (serverGuard && socketGuard) serverGuard->sendJson(socketGuard, payload);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 void ShotServer::handleBackupProfilesList(QTcpSocket* socket)
@@ -480,15 +500,39 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
     }
     QString mediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
     QString backupDate = QDateTime::currentDateTime().toString("yyyy-MM-dd");
+    const bool hasLanguageSnapshot = m_translationManager;
+    const auto languageSnapshot = hasLanguageSnapshot ? m_translationManager->captureFileSnapshot()
+                                                      : TranslationManager::FileSnapshot{};
 
     // Phase 2: Run file I/O and archive building on background thread
     QPointer<QTcpSocket> socketGuard(socket);
+    QPointer<ShotServer> serverGuard(this);
+    QCoreApplication* const application = QCoreApplication::instance();
     auto destroyed = m_destroyed;
 
     QThread* thread = QThread::create([this, ownedMainThreadEntries = std::move(mainThreadEntries),
-                                       dbPath, profileDirs, mediaDir, backupDate,
-                                       socketGuard, destroyed]() {
+                                       dbPath, profileDirs, mediaDir, backupDate, hasLanguageSnapshot, languageSnapshot,
+                                       socketGuard, serverGuard, application, destroyed]() {
         QList<Entry> entries = ownedMainThreadEntries;
+
+        if (hasLanguageSnapshot) {
+            for (Entry& entry : entries) {
+                if (entry.name != "extra_settings.json") continue;
+                QJsonObject extra = QJsonDocument::fromJson(entry.data).object();
+                TranslationManager::addLanguageToBackup(extra, languageSnapshot);
+                if (extra.value(QStringLiteral("languageTranslationError")).toBool()) {
+                    if (application) QMetaObject::invokeMethod(application, [serverGuard, socketGuard] {
+                        if (!serverGuard) return;
+                        serverGuard->m_backupFullInProgress = false;
+                        if (socketGuard) serverGuard->sendResponse(socketGuard, 500, "text/plain",
+                            "Could not back up language customizations");
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+                entry.data = QJsonDocument(extra).toJson(QJsonDocument::Compact);
+                break;
+            }
+        }
 
         // 2. Shots database (checkpoint via temporary connection, then read file)
         if (!dbPath.isEmpty()) {

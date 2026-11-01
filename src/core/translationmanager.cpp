@@ -15,6 +15,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QSaveFile>
+#include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -53,17 +54,19 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
     // Load language metadata (list of available languages)
     loadLanguageMetadata();
 
-    // Ensure English is always available
-    if (!m_languageMetadata.contains("en")) {
-        m_languageMetadata["en"] = QVariantMap{
-            {"displayName", "English"},
-            {"nativeName", "English"},
-            {"isRtl", false}
+    // Keep the existing "en" identity and file so existing customisations survive.
+    const bool seedLanguageMetadata = !m_languageMetadata.contains("en")
+        || !m_languageMetadata.contains("en-GB");
+    m_languageMetadata["en"] = QVariantMap{
+        {"displayName", "English (US)"}, {"nativeName", "English (US)"}, {"isRtl", false}
+    };
+    if (!m_languageMetadata.contains("en-GB")) {
+        m_languageMetadata["en-GB"] = QVariantMap{
+            {"displayName", "English (UK)"}, {"nativeName", "English (UK)"}, {"isRtl", false}
         };
-        // Tolerable discard: the English entry is re-seeded on every launch, so a failed write
-        // here costs nothing that the next start does not restore. The helper has warned.
-        (void)saveLanguageMetadata();
     }
+    if (seedLanguageMetadata)
+        (void)saveLanguageMetadata(); // Re-seeded on the next launch if saving fails.
 
     // Update available languages list
     m_availableLanguages = m_languageMetadata.keys();
@@ -539,8 +542,8 @@ bool TranslationManager::addLanguage(const QString& langCode, const QString& dis
 
 bool TranslationManager::deleteLanguage(const QString& langCode)
 {
-    if (langCode == "en" || !m_languageMetadata.contains(langCode)) {
-        return false;  // Can't delete English
+    if (langCode == "en" || langCode == "en-GB" || !m_languageMetadata.contains(langCode)) {
+        return false;  // Built-in languages are always available.
     }
 
     const QVariantMap removed = m_languageMetadata.take(langCode);
@@ -572,6 +575,8 @@ bool TranslationManager::deleteLanguage(const QString& langCode)
 
 QString TranslationManager::getLanguageDisplayName(const QString& langCode) const
 {
+    if (langCode == QLatin1String("en")) return QStringLiteral("English (US)");
+    if (langCode == QLatin1String("en-GB")) return QStringLiteral("English (UK)");
     if (m_languageMetadata.contains(langCode)) {
         return m_languageMetadata[langCode]["displayName"].toString();
     }
@@ -580,6 +585,8 @@ QString TranslationManager::getLanguageDisplayName(const QString& langCode) cons
 
 QString TranslationManager::getLanguageNativeName(const QString& langCode) const
 {
+    if (langCode == QLatin1String("en")) return QStringLiteral("English (US)");
+    if (langCode == QLatin1String("en-GB")) return QStringLiteral("English (UK)");
     if (m_languageMetadata.contains(langCode)) {
         return m_languageMetadata[langCode]["nativeName"].toString();
     }
@@ -1118,7 +1125,14 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
     }
 
     QJsonObject root = doc.object();
+    if (!root.value(QStringLiteral("languages")).isArray()) {
+        m_lastError = QStringLiteral("Invalid language list format");
+        emit lastErrorChanged();
+        emit languageListDownloaded(false);
+        return;
+    }
     QJsonArray languages = root["languages"].toArray();
+    QSet<QString> communityLanguages;
 
     for (const QJsonValue& val : languages) {
         QJsonObject lang = val.toObject();
@@ -1126,6 +1140,8 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
         QString displayName = lang["name"].toString();
         QString nativeName = lang["nativeName"].toString();
         bool isRtl = lang["isRtl"].toBool(false);
+
+        if (!code.isEmpty()) communityLanguages.insert(code);
 
         if (!code.isEmpty() && !m_languageMetadata.contains(code)) {
             m_languageMetadata[code] = QVariantMap{
@@ -1136,6 +1152,9 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
             };
         }
     }
+
+    m_communityLanguages = std::move(communityLanguages);
+    m_communityCatalogKnown = true;
 
     // Tolerable discard: this is a cache of the server's language list, refetched on the next
     // visit to the language page. The helper has warned.
@@ -1497,9 +1516,37 @@ bool TranslationManager::isValidLanguageCode(const QString& code)
 TranslationManager::FileSnapshot TranslationManager::captureFileSnapshot() const
 {
     return {m_currentLanguage, m_catalogRevision, translationsDir(), m_stringRegistry, m_translations,
-        m_aiGenerated, {{QStringLiteral("displayName"), getLanguageDisplayName(m_currentLanguage)},
+        m_aiGenerated, m_userOverrides, {{QStringLiteral("displayName"), getLanguageDisplayName(m_currentLanguage)},
                        {QStringLiteral("nativeName"), getLanguageNativeName(m_currentLanguage)},
                        {QStringLiteral("isRtl"), isRtlLanguage(m_currentLanguage)}}, m_translationsLoadFailed};
+}
+
+bool TranslationManager::applyTransferredOverrides(const QStringList& keys, bool replace)
+{
+    if (m_currentLanguage == QLatin1String("en")) return true;
+    const QSet<QString> previous = m_userOverrides;
+    const QSet<QString> previousGenerated = m_aiGenerated;
+    const auto previousAiTranslations = m_aiTranslations;
+    if (replace) {
+        m_userOverrides.clear();
+        m_aiGenerated.clear();
+        m_aiTranslations.clear();
+    }
+    for (const QString& key : keys) {
+        if (m_translations.contains(key)) {
+            m_userOverrides.insert(key);
+            m_aiGenerated.remove(key);
+        }
+    }
+    if (saveUserOverrides() && saveAiTranslations()) {
+        ++m_translationVersion;
+        emit translationsChanged();
+        return true;
+    }
+    m_userOverrides = previous;
+    m_aiGenerated = previousGenerated;
+    m_aiTranslations = previousAiTranslations;
+    return false;
 }
 
 QString TranslationManager::writeTranslationExport(const FileSnapshot& snapshot, const QString& filePath)
@@ -1518,6 +1565,43 @@ QString TranslationManager::writeTranslationExport(const FileSnapshot& snapshot,
     return writeTranslationPayload(filePath, payload);
 }
 
+void TranslationManager::addLanguageToBackup(QJsonObject& backup, const FileSnapshot& snapshot)
+{
+    QTemporaryDir directory;
+    const QString path = directory.filePath(QStringLiteral("language.json"));
+    const QString error = directory.isValid() ? writeTranslationExport(snapshot, path)
+                                               : QStringLiteral("writeFailed");
+    QFile file(path);
+    if (error.isEmpty() && file.open(QIODevice::ReadOnly)) {
+        const QJsonDocument language = QJsonDocument::fromJson(file.readAll());
+        if (language.isObject()) {
+            QJsonArray overrides;
+            for (const QString& key : snapshot.userOverrides)
+                if (snapshot.translations.contains(key)) overrides.append(key);
+            backup.insert(QStringLiteral("language"), snapshot.currentLanguage);
+            backup.insert(QStringLiteral("languageTranslation"), language.object());
+            backup.insert(QStringLiteral("languageOverrides"), overrides);
+        }
+    }
+    if (!backup.contains(QStringLiteral("languageTranslation")))
+        backup.insert(QStringLiteral("languageTranslationError"), true);
+}
+
+bool TranslationManager::readBackupOverrides(const QJsonObject& language, const QJsonValue& value,
+                                             QStringList* keys)
+{
+    if (!keys || !value.isArray()) return false;
+    const QJsonArray array = value.toArray();
+    const QJsonObject translations = language.value(QStringLiteral("translations")).toObject();
+    if (array.size() > TranslationCatalog::MaximumEntries) return false;
+    for (const QJsonValue& item : array) {
+        if (!item.isString() || item.toString().size() > TranslationCatalog::MaximumKeyLength
+            || !translations.contains(item.toString())) return false;
+        keys->append(item.toString());
+    }
+    return true;
+}
+
 bool TranslationManager::exportTranslation(const QString& filePath)
 {
     const QString error = writeTranslationExport(captureFileSnapshot(), filePath);
@@ -1528,7 +1612,7 @@ bool TranslationManager::exportTranslation(const QString& filePath)
 }
 
 TranslationManager::PreparedImport TranslationManager::prepareTranslationImport(
-    const FileSnapshot& snapshot, const QString& filePath, const QString& expectedLanguage)
+    const FileSnapshot& snapshot, const QString& filePath, const QString& expectedLanguage, bool replace)
 {
     PreparedImport prepared;
     prepared.baseLanguage = snapshot.currentLanguage;
@@ -1569,7 +1653,7 @@ TranslationManager::PreparedImport TranslationManager::prepareTranslationImport(
     const QString destPath = snapshot.directory + QLatin1Char('/') + langCode + QStringLiteral(".json");
     QJsonObject merged;
     QFile existing(destPath);
-    if (existing.exists()) {
+    if (!replace && existing.exists()) {
         if (!existing.open(QIODevice::ReadOnly) || existing.size() <= 0
             || existing.size() > TranslationCatalog::MaximumPayloadBytes)
             return refuse(QStringLiteral("existingFileInvalid"));
@@ -1589,7 +1673,7 @@ TranslationManager::PreparedImport TranslationManager::prepareTranslationImport(
         merged.insert(it.key(), it.value());
     prepared.destination = destPath;
     prepared.importedEntries = static_cast<int>(incoming.size());
-    prepared.aiGenerated = snapshot.aiGenerated;
+    prepared.aiGenerated = replace ? QSet<QString>{} : snapshot.aiGenerated;
     prepared.metadata = {{QStringLiteral("displayName"), root.value(QStringLiteral("displayName")).toString(langCode)},
         {QStringLiteral("nativeName"), root.value(QStringLiteral("nativeName")).toString(langCode)},
         {QStringLiteral("isRtl"), root.value(QStringLiteral("isRtl")).toBool(false)},
@@ -1934,6 +2018,19 @@ bool TranslationManager::isRemoteLanguage(const QString& langCode) const
         return m_languageMetadata[langCode]["isRemote"].toBool();
     }
     return false;
+}
+
+bool TranslationManager::communityLanguageAvailable(const QString& langCode) const
+{
+    return !m_communityCatalogKnown || m_communityLanguages.contains(langCode);
+}
+
+bool TranslationManager::needsCommunityDownload(const QString& langCode) const
+{
+    if (langCode == QLatin1String("en")) return false;
+    return isRemoteLanguage(langCode)
+        || (m_communityCatalogKnown && m_communityLanguages.contains(langCode)
+            && !QFile::exists(languageFilePath(langCode)));
 }
 
 int TranslationManager::getTranslationPercent(const QString& langCode) const
@@ -2608,12 +2705,23 @@ bool TranslationManager::canAutoTranslate() const
 
 void TranslationManager::autoTranslate()
 {
+    startAutoTranslate(false);
+}
+
+void TranslationManager::retranslateAll()
+{
+    startAutoTranslate(true);
+}
+
+void TranslationManager::startAutoTranslate(bool retranslate)
+{
     if (!canAutoTranslate()) {
         m_lastError = "AI provider not configured. Set up an AI provider in Settings.";
         emit lastErrorChanged();
         emit autoTranslateFinished(false, m_lastError);
         return;
     }
+    m_retranslatingAll = retranslate;
 
     // Get unique untranslated fallback texts (more efficient - translate once, apply to all keys)
     // Use trimmed fallbacks for comparison to handle whitespace variations
@@ -2634,7 +2742,8 @@ void TranslationManager::autoTranslate()
             }
         }
 
-        if (!hasTranslation && !seenFallbacks.contains(normalizedFallback)) {
+        if ((m_retranslatingAll || !hasTranslation) && !normalizedFallback.isEmpty()
+            && !seenFallbacks.contains(normalizedFallback)) {
             seenFallbacks.insert(normalizedFallback);
             // Use normalized fallback to avoid whitespace issues with AI
             m_stringsToTranslate.append(QVariantMap{
@@ -2802,7 +2911,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
     m_pendingBatchCount++;
     int runId = m_translationRunId;  // Capture current run ID
     QNetworkReply* reply = m_networkManager->post(request, postData);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, runId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, runId, batch]() {
         // Check if this response belongs to the current run
         if (runId != m_translationRunId) {
             DIAG_DEBUG(APP, "TranslationManager") << "Stale response from run" << runId
@@ -2810,7 +2919,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
             reply->deleteLater();
             return;
         }
-        onAutoTranslateBatchReply(reply);
+        onAutoTranslateBatchReply(reply, batch);
     });
 }
 
@@ -2823,22 +2932,32 @@ QString TranslationManager::buildTranslationPrompt(const QVariantList& strings) 
         "Translate the following English strings to %1 (%2).\n"
         "Return ONLY a JSON object with the translations, no explanation.\n"
         "The format must be exactly: {\"key\": \"translated text\", ...}\n"
-        "Keep formatting like %1, %2, \\n exactly as-is.\n"
-        "Be natural and idiomatic in %1.\n\n"
-        "Strings to translate:\n"
+        "Copy every key exactly as given; translate only the values. Return every key.\n"
+        "Be natural and idiomatic in %1.\n"
     ).arg(langName, nativeName);
 
+    prompt += QStringLiteral("Keep formatting like %1, %2, \\n exactly as-is.\n");
+
+    if (m_currentLanguage == QLatin1String("en-GB")) {
+        prompt += QStringLiteral("Use British spelling and natural UK terminology in context; "
+                                 "for example, a milk pitcher is a milk jug. Preserve coffee "
+                                 "terms, placeholders and meaning. Keep text unchanged when "
+                                 "it is already natural in UK English.\n\n");
+    }
+
+    prompt += QStringLiteral("\nStrings to translate:\n");
+
+    QJsonObject input;
     for (const QVariant& v : strings) {
         QVariantMap item = v.toMap();
-        QString key = item["key"].toString();
-        QString fallback = item["fallback"].toString();
-        prompt += QString("\"%1\": \"%2\"\n").arg(key, fallback.replace("\"", "\\\""));
+        input.insert(item["key"].toString(), item["fallback"].toString());
     }
+    prompt += QString::fromUtf8(QJsonDocument(input).toJson(QJsonDocument::Compact));
 
     return prompt;
 }
 
-void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
+void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply, const QVariantList& batch)
 {
     reply->deleteLater();
     m_pendingBatchCount--;
@@ -2874,6 +2993,8 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             if (m_autoTranslateProgress > 0) {
                 DIAG_DEBUG(APP, "TranslationManager") << "Persisting" << m_autoTranslateProgress << "strings applied before the stop";
                 drainSaved = saveTranslations();
+                if (drainSaved && m_retranslatingAll && !saveUserOverrides())
+                    drainSaved = false;
                 if (!drainSaved)
                     m_autoTranslateFatal = true;   // a local failure, same as the completion path
                 // Attempt the AI cache EVEN IF the main save failed: _ai.json is then the only
@@ -2919,6 +3040,15 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         // If this was the last batch, we can finish now
         if (m_pendingBatchCount == 0) {
             DIAG_DEBUG(APP, "TranslationManager") << "Error on last batch, finishing";
+            if (m_autoTranslateProgress > 0) {
+                const bool saved = saveTranslations();
+                if (saved && m_retranslatingAll)
+                    (void)saveUserOverrides();
+                (void)saveAiTranslations();
+                recalculateUntranslatedCount();
+                ++m_translationVersion;
+                emit translationsChanged();
+            }
             m_autoTranslating = false;
             emit autoTranslatingChanged();
             emit autoTranslateFinished(false, m_lastError);
@@ -2929,7 +3059,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
     }
 
     QByteArray data = reply->readAll();
-    if (!parseAutoTranslateResponse(data))
+    if (!parseAutoTranslateResponse(data, batch))
         m_autoTranslateParseFailures++;
 
     // Check if all batches are complete
@@ -2943,7 +3073,9 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         // strings appear on screen — and lost every one of them at restart, having been told
         // "Translated 3429 strings". That is round two's bug reproduced on round three's guard,
         // on the path this branch itself identified as the one users actually take.
-        const bool saved = saveTranslations();
+        bool saved = saveTranslations();
+        if (saved && m_retranslatingAll && !saveUserOverrides())
+            saved = false;
         // Attempt the AI cache EVEN IF the main save failed: _ai.json is then the only record
         // of the paid AI output, and copyAiToFinal can re-apply it once the disk is repaired.
         if (!saveAiTranslations() && saved)
@@ -3026,7 +3158,7 @@ QSet<int> TranslationManager::placeholderSet(const QString& text)
     return found;
 }
 
-bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
+bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data, const QVariantList& batch)
 {
     QString provider = getActiveProvider();
     QString content;
@@ -3076,11 +3208,16 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
     QJsonDocument transDoc = QJsonDocument::fromJson(content.toUtf8());
     if (transDoc.isObject()) {
         QJsonObject translations = transDoc.object();
+        QSet<QString> missing;
+        for (const QVariant& item : batch)
+            missing.insert(item.toMap().value(QStringLiteral("key")).toString());
         int count = 0;
         int appliedCount = 0;
         for (auto it = translations.constBegin(); it != translations.constEnd(); ++it) {
             QString fallbackText = it.key();
             QString translation = it.value().toString().trimmed();
+            if (!batch.isEmpty() && !missing.contains(fallbackText))
+                continue;
 
             // Reject a translation that dropped, added or renumbered a placeholder.
             //
@@ -3103,6 +3240,7 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
             }
 
             if (!translation.isEmpty()) {
+                missing.remove(fallbackText);
                 // Store in AI translations (for display in AI column)
                 m_aiTranslations[fallbackText] = translation;
 
@@ -3114,9 +3252,11 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
                 }
 
                 for (const QString& key : keys) {
-                    if (m_translations.value(key).isEmpty()) {
+                    if (m_retranslatingAll || m_translations.value(key).isEmpty()) {
                         m_translations[key] = translation;
                         m_aiGenerated.insert(key);  // Mark as AI-generated
+                        if (m_retranslatingAll)
+                            m_userOverrides.remove(key);
                         appliedCount++;
                     }
                 }
@@ -3129,11 +3269,11 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
             }
         }
         // Track actual translations applied, not just AI responses
-        m_autoTranslateProgress += appliedCount;
+        m_autoTranslateProgress += batch.isEmpty() ? count : batch.size() - missing.size();
         emit autoTranslateProgressChanged();
 
         DIAG_DEBUG(APP, "TranslationManager") << "AI translated" << count << "unique texts," << appliedCount << "keys applied, progress:" << m_autoTranslateProgress << "/" << m_autoTranslateTotal;
-        return true;
+        return missing.isEmpty();
     }
 
     // The model answered, but not with the JSON object it was asked for — prose, a truncated

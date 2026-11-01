@@ -5,6 +5,7 @@
 #include "core/profilestorage.h"
 #include "core/settings.h"
 #include "core/appsettings.h"
+#include "core/translationmanager.h"
 #include "ai/aimanager.h"
 #include "ai/conversationkey.h"
 #include "history/shothistorystorage.h"
@@ -60,6 +61,138 @@ class tst_BackupOperationPolicy final : public QObject
     }
 
 private slots:
+    void fullRestoreTransfersLanguage_data()
+    {
+        QTest::addColumn<bool>("merge");
+        QTest::newRow("merge") << true;
+        QTest::newRow("replace") << false;
+    }
+
+    void fullRestoreTransfersLanguage()
+    {
+        QFETCH(bool, merge);
+        QStandardPaths::setTestModeEnabled(true);
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+             + QStringLiteral("/translations")).removeRecursively();
+        QTemporaryDir directory;
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+        QNetworkAccessManager network;
+        TranslationManager translations(&network, &settings);
+        translations.registerString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher"));
+        translations.registerString(QStringLiteral("fixture.local"), QStringLiteral("Local"));
+        translations.setTranslation(QStringLiteral("fixture.local"), QStringLiteral("Local edit"));
+        const QJsonObject extra{
+            {QStringLiteral("language"), QStringLiteral("en")},
+            {QStringLiteral("languageTranslation"), QJsonObject{
+                {QStringLiteral("language"), QStringLiteral("en")},
+                {QStringLiteral("translations"), QJsonObject{
+                    {QStringLiteral("fixture.source"), QStringLiteral("Jug")}}}}},
+            {QStringLiteral("languageOverrides"), QJsonArray{}}};
+        const QString path = writeArchive(directory.filePath(QStringLiteral("language.dcbackup")),
+            {{QByteArrayLiteral("extra_settings.json"), QJsonDocument(extra).toJson()}});
+        QVERIFY(!path.isEmpty());
+        FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, &translations);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = merge;
+        options.shots = options.profiles = options.media = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("language"), path, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY2(finished.first().at(1).toBool(), qPrintable(finished.first().at(3).toString()));
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")), QStringLiteral("Jug"));
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.local"), QStringLiteral("Local")),
+                 merge ? QStringLiteral("Local edit") : QStringLiteral("Local"));
+    }
+
+    void zipRestoreTransfersLanguage()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+             + QStringLiteral("/translations")).removeRecursively();
+        QTemporaryDir directory;
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+        QNetworkAccessManager network;
+        TranslationManager translations(&network, &settings);
+        translations.registerString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher"));
+        translations.registerString(QStringLiteral("fixture.local"), QStringLiteral("Local"));
+        translations.setTranslation(QStringLiteral("fixture.local"), QStringLiteral("Local edit"));
+        const QJsonObject backup{
+            {QStringLiteral("languageTranslation"), QJsonObject{
+                {QStringLiteral("language"), QStringLiteral("en")},
+                {QStringLiteral("translations"), QJsonObject{
+                    {QStringLiteral("fixture.source"), QStringLiteral("Jug")}}}}},
+            {QStringLiteral("languageOverrides"), QJsonArray{}}};
+        const QString zipPath = directory.filePath(QStringLiteral("language.zip"));
+        QuaZip writer(zipPath);
+        QVERIFY(writer.open(QuaZip::mdCreate));
+        QVERIFY(ZipArchive::addFile(writer, QStringLiteral("settings.json"), QJsonDocument(backup).toJson()));
+        writer.close();
+        QCOMPARE(writer.getZipError(), UNZ_OK);
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(directory.filePath(QStringLiteral("shots.db"))));
+        DatabaseBackupManager manager(&settings, &storage);
+        manager.setTranslationManager(&translations);
+        QSignalSpy finished(&manager, &DatabaseBackupManager::restoreCompleted);
+        QSignalSpy failed(&manager, &DatabaseBackupManager::restoreFailed);
+        QVERIFY(manager.restoreBackupFile(zipPath, false, false, true, false, false));
+        QTRY_VERIFY_WITH_TIMEOUT(finished.count() + failed.count() == 1, 10000);
+        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")), QStringLiteral("Jug"));
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.local"), QStringLiteral("Local")), QStringLiteral("Local"));
+        manager.m_backupDirectoryForTests = directory.filePath(QStringLiteral("backups"));
+        QVERIFY(QDir().mkpath(manager.m_backupDirectoryForTests));
+        QSignalSpy created(&manager, &DatabaseBackupManager::backupCreated);
+        QVERIFY(manager.createBackup(true));
+        QTRY_COMPARE_WITH_TIMEOUT(created.count(), 1, 10000);
+        const QString extracted = directory.filePath(QStringLiteral("inspect"));
+        QVERIFY(ZipArchive::extract(created.first().first().toString(), extracted));
+        QFile savedSettings(QDir(extracted).filePath(QStringLiteral("settings.json")));
+        QVERIFY(savedSettings.open(QIODevice::ReadOnly));
+        const QJsonObject saved = QJsonDocument::fromJson(savedSettings.readAll()).object();
+        QCOMPARE(saved.value(QStringLiteral("languageTranslation")).toObject()
+                     .value(QStringLiteral("translations")).toObject()
+                     .value(QStringLiteral("fixture.source")).toString(), QStringLiteral("Jug"));
+        storage.close();
+        QTRY_VERIFY(storage.isDbWorkIdle());
+    }
+
+    void olderBackupDoesNotEraseLanguageCustomizations()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+             + QStringLiteral("/translations")).removeRecursively();
+        QTemporaryDir directory;
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+        QNetworkAccessManager network;
+        TranslationManager translations(&network, &settings);
+        translations.registerString(QStringLiteral("fixture.local"), QStringLiteral("Local"));
+        translations.setTranslation(QStringLiteral("fixture.local"), QStringLiteral("Keep me"));
+        const QByteArray extra = QJsonDocument(QJsonObject{
+            {QStringLiteral("language"), QStringLiteral("en")}}).toJson();
+        const QString path = writeArchive(directory.filePath(QStringLiteral("old.dcbackup")),
+            {{QByteArrayLiteral("extra_settings.json"), extra}});
+        FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, &translations);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = false;
+        options.shots = options.profiles = options.media = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("old"), path, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.local"), QStringLiteral("Local")), QStringLiteral("Keep me"));
+        finished.clear();
+        const QString badPath = writeArchive(directory.filePath(QStringLiteral("invalid-language.dcbackup")),
+            {{QByteArrayLiteral("extra_settings.json"), QJsonDocument(QJsonObject{
+                {QStringLiteral("languageTranslationError"), true}}).toJson()}});
+        QVERIFY(restore.restoreFile(QStringLiteral("bad-language"), badPath, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.local"), QStringLiteral("Local")), QStringLiteral("Keep me"));
+    }
+
     void zipStreamsLargeEntries_data()
     {
         QTest::addColumn<int>("level");
