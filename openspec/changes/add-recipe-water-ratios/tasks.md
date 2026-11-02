@@ -38,12 +38,18 @@ This checklist supersedes the earlier implementation checklist after the 2026-11
 - [x] 5.1 Build native and packaged Wasm and run the full suite through Qt Creator, including lint/source/resource and relevant API gates. Record new evidence for this refactor; prior 207-test passes remain historical.
 - [ ] 5.2 After a user-started restart, verify the intended checkout and matching host-served browser: add/edit both modes, custom ratio, selection/unit preservation, active recipe edits, live target changes, failed/stale saves, reconnect without replay and restoration. Restore original settings and remove only owned validation data.
 - [ ] 5.3 Validate both sequence orders in simulation and on available supported DE1 hardware: 40 g / 2.5× → 100 g, 42 g → 105 g, unchanged repeats, delayed starts, changes during water and independent actual-output/history results. Leave hardware or unavailable live checks explicitly held rather than marking them passed.
-- [ ] 5.4 Review the resulting implementation and the latest PR review comments, address actionable findings, rerun affected checks and update PR #2170 with the simplified design, new evidence and honest remaining acceptance.
+- [x] 5.4 Review the resulting implementation and the latest PR review comments, address actionable findings, rerun affected checks and update PR #2170 with the simplified design, new evidence and honest remaining acceptance.
 
 ## Workflow follow-up
 
 - Once implementation, documentation and required review/validation are complete, archive this change with the CLI before a requested merge, following CLAUDE.md. No merge or archive is part of the design revision.
 - Preserve the evidence below as historical results from the earlier implementation.
+
+## PR update — 2026-11-02
+
+- Pushed the reviewed refactor and fixes as 746fadfcf to PR #2170, which remains open and ready for review. Updated its description with current validation and outstanding live/hardware acceptance.
+- GitHub text-invariants run 41541045011 passed on that code commit. All existing inline review threads are resolved; no new Codex review of this commit was available at this check.
+- Restored the original active recipe (92) without rewriting its saved vessel block or performing automatic matching. Verified the original setup: 36 g espresso, wewe selected, 200 g water, 85°C and 4 ml/s; preset list and original shot count match the baseline. No test shots or recipes were created in this live pass. Closed the temporary browser tab and removed the two owned temporary files.
 
 ## Post-refactor review corrections — 2026-11-02
 
