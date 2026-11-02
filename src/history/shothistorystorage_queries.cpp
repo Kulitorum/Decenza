@@ -701,7 +701,7 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             shot["portalIntegralEcG"] = portalIntegralEcG;
                             shot["portalMeanTempC"] = portalMeanTempC;
                             const bool portalReliable = query.value(30).toBool();
-                            // ListModel.set retains omitted roles during an in-place refresh.
+                            // Retained History rows need explicit resets when calibration disappears.
                             shot["portalEstTdsPct"] = 0.0;
                             shot["portalEstEyPct"] = 0.0;
                             shot["portalCalScope"] = QString();

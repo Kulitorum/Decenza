@@ -15,7 +15,7 @@
 
 ## 3. Integration validation
 
-- [x] 3.1 Functional source 7fe70f0a, including main 621853e6, passed [CI 41417048370](https://github.com/janhcla/Decenza/actions/runs/41417048370): Linux 205/205, 205 unique starts with no retries or test failures, QML gate 357/357, Android and Wasm builds passed. APK v3 signature and QtQml build ID were verified. The following documentation-only commit uses these implementation results.
+- [x] 3.1 Functional source 83aec17e passed [CI 41444622052](https://github.com/janhcla/Decenza/actions/runs/41444622052): Linux 205/205, 205 unique starts with no retries or failed tests, QML gate 357/357, Android and Wasm passed. APK v3 signature and QtQml build ID were verified. The following follow-up changes only documentation and one comment.
 - [x] 3.2 [Regression controls 41345407581](https://github.com/janhcla/Decenza/actions/runs/41345407581) passed against source 032a1ae2: six deliberate regressions failed at the intended assertions, with all four owner suites green before and after restoration.
 - [ ] 3.3 Native/browser interaction and physical-sensor acceptance remain unverified. No current build was started on a paired host or installed on the live tablet; perform this manual acceptance before release.
 
@@ -46,7 +46,7 @@
 - [x] 6.3 Gate ratio advice on measurement quality rather than empirical prediction uncertainty; verify advice remains consistent with 0/1/3/5 references. [Six controls on 4dd43776](https://github.com/janhcla/Decenza/actions/runs/41414838994) failed at their intended assertions; all four owner suites passed before/after restoration.
 - [x] 6.4 Share Options assembly across all analysis entry points, including the advisor fallback, and describe PORTAL units/ranges in the shared system prompt.
 - [x] 6.5 Reuse mounting decoding in normalization/validation, finish the tail-window constant cleanup, stamp mounting only during active PORTAL capture, and distinguish missing provenance from virtual-scale data.
-- [x] 6.6 Current platform suite and regression controls passed as linked above. GitHub comments through review 5734030687 were assessed and addressed; the separate automated review of 7fe70f0a was still running at this check. Device acceptance and the rare import-failure path noted below threshold remain outside these automated checks.
+- [x] 6.6 Platform and regression evidence is linked above and in section 8. GitHub comments through review 5734886935 were assessed and addressed. Device acceptance and the rare import-failure path noted below threshold remain outside these automated checks.
 
 ## 7. Additional GitHub findings at 4bc1afcf / 4dd43776
 
@@ -60,8 +60,6 @@
 - [x] 8.1 Move the sample scan and optional index off initialization; persist completion atomically with presence updates on the existing DB worker, preserving recorded references.
 - [x] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it.
 - [x] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. [Six regression controls on functional source 1a5643e3](https://github.com/janhcla/Decenza/actions/runs/41423944384) failed at their intended assertions; dbmigration, belkaportal and shotreviewactions passed before and after restoration.
-- [ ] 8.4 Run current platform/text/OpenSpec validation, update the existing PR and recheck GitHub comments.
-
+- [x] 8.4 Functional source 83aec17e passed the current Linux/Android/Wasm run 41444622052 and QML gate; strict OpenSpec validation passed. The PR records the current evidence and final text-invariants check. GitHub was rechecked before publishing the update.
 - [x] 8.5 Address new GitHub review 5734465691: refresh Shot Review outcomes after Visualizer pulls while preserving the editing form; the existing late-outcome regression now executes the real merge/callback/outcome handlers, rejects stale replies and preserves the draft.
-
-- [ ] 8.6 Address GitHub review 5734886935: explicitly reset History estimate roles when calibration disappears; verify clearing the last paired reference removes a retained estimate.
+- [x] 8.6 Address GitHub review 5734886935: explicitly reset History estimate roles when calibration disappears. [The regression control on 83aec17e](https://github.com/janhcla/Decenza/actions/runs/41444764681) retains 10% instead of zero when the reset is removed; all three owner suites passed before/after restoration.
