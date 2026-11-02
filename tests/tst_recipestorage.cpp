@@ -1216,7 +1216,7 @@ private slots:
     }
 
     void ratioWaterRoundTripAndInvalidPatch() {
-        withRawDb(freshDbPath(), "water_ratio", [](QSqlDatabase& db) {
+        withRawDb(freshDbPath(), "water_ratio", [this](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
             Recipe recipe;
             recipe.name = "Ratio water";
@@ -1233,6 +1233,15 @@ private slots:
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).yieldValue, 40.0);
             QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"profileTitle", QString()}}));
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).profileTitle, recipe.profileTitle);
+            withRawDb(freshDbPath(), "water_ratio_import", [&](QSqlDatabase& destination) {
+                QVERIFY(RecipeStorage::ensureTableStatic(destination));
+                QVERIFY(CoffeeBagStorage::ensureTableStatic(destination));
+                QHash<qint64, qint64> ids;
+                QVERIFY(RecipeStorage::importRecipesStatic(db, destination, false, ids, {}, {}));
+                QVERIFY(ids.contains(id));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destination, ids.value(id)).hotWaterJson,
+                         recipe.hotWaterJson);
+            });
         });
     }
 
