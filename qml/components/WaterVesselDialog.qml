@@ -231,7 +231,7 @@ DecenzaDialog {
                 }
                 RowLayout {
                     Label {
-                        text: TranslationManager.translate("hotwater.label.flowRate", "Flow rate")
+                        text: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
                         color: Theme.textColor
                         font: Theme.bodyFont
                     }
@@ -242,7 +242,7 @@ DecenzaDialog {
                         to: 10
                         stepSize: 0.1
                         suffix: " ml/s"
-                        accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow rate")
+                        accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
                         onValueModified: function(value) { root.flowRate = Math.round(value * 10) }
                     }
                 }
