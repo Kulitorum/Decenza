@@ -122,12 +122,12 @@ The review gate precedes implementation: an independent agent reads the revised 
 - [Preset Save and recipe Save are separate.] → Keep their effects visible, use confirmed request results and preserve drafts on failure.
 - [Imported recipes can lack installed-profile context.] → Represent unknown context explicitly, preserve only structurally valid data and require resolution at activation.
 - [Refactoring a shared flow regresses standalone or espresso editing.] → Retain the ratio chooser/wrappers, cover selection and unit invariants, and inspect matching native/Wasm controls.
-- [Hardware/firmware behavior cannot be proved by simulator tests.] → Preserve existing permissions/timing and retain real-device acceptance as outstanding.
+- [Simulator acceptance does not establish physical firmware behavior.] → The user selected simulator-only acceptance; preserve existing firmware permissions/timing and validate both sequence orders with simulated DE1 and scale inputs. Physical-device acceptance is outside this change’s acceptance gate.
 
 ## Migration Plan
 
 1. Revise these planning artifacts and close independent design-review findings before changing implementation.
 2. Preserve the current JSON/API contract; land canonical parsing/complete-candidate validation and the single state owner with their production-code tests. Remove superseded paths in the same steps.
 3. Simplify editor result handling and connect the one captured plan to existing machine/history boundaries. Keep activation queue and sequence/result join semantics.
-4. Build native/Wasm and run the full suite through Qt Creator. After a user-started restart, validate matching native/browser behavior and restoration; preserve outstanding hardware acceptance honestly.
+4. Build native/Wasm and run the full suite through Qt Creator. After a user-started restart, validate matching native/browser behavior and restoration; complete the agreed simulator-only acceptance and record its results.
 5. No data rewrite or SQL migration. Older binaries cannot interpret ratio recipes reliably; convert to explicit fixed amounts or restore a pre-change backup before downgrading.
