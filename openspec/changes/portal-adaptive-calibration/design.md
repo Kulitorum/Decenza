@@ -12,8 +12,8 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 
 - Each accepted weight packet records its actual serving source through ShotTimingController into ShotDataModel, before UI/control callbacks. Any nonphysical packet makes the shot ineligible, including a manual stop before the next graph sample. Mounting is captured only while PORTAL is active.
 - Save provenance in typed projections, compressed samples and SQLite columns. Replace repeated log scans/read repairs with one migration. Pre-change shots without provenance remain ineligible rather than guessing from log wording.
-- Select only the relevant coffee from the partial PORTAL index. No global 200-shot bound can evict an older coffee. Non-PORTAL rows never load a fit; hidden settings panels never request one.
-- Recompute eligibility on dose/yield edits in the metadata transaction. Shared Options assembly carries corrected cup mass through save/import/review and advisor fallback.
+- Resolve persisted coffee names using one Unicode case-folded key before SQL selects matching identities from the partial PORTAL index. No global 200-shot bound can evict an older coffee. Non-PORTAL rows never load a fit; hidden settings panels never request one.
+- Recompute eligibility on dose/yield edits inside both the metadata and Visualizer-pull transactions. Shared Options assembly carries corrected cup mass through save/import/review and advisor fallback.
 - Keep observed baselines, tolerate at most 0.1 g of baseline noise and count equal-time EC packets once. Measurement quality controls ratio advice; calibration count/extrapolation controls TDS prediction confidence.
 - Translate structured reasons/advice in the shared QML client so language switches and Wasm clients use their own TranslationManager.
 - Assemble one JSON PORTAL block for AI/MCP. Keep user notes untouched.
@@ -21,7 +21,7 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 ## Risks / Trade-offs
 
 - Legacy references become ineligible until new physical-scale measurements are saved.
-- One-time migration reads historical sample blobs; normal reads use the small PORTAL index. Measure realistic history and a multiple before completion.
+- One-time migration reads historical sample blobs; normal reads use the small PORTAL index. The presence-only scan model measured 185.3 ms median / 186.9 ms worst on 1,268 shots (9.74 MB), and 1858.1 / 1869.5 ms at 10x (96.10 MB), five runs with Python SQLite/zlib/JSON on this Mac; these are not Qt startup measurements.
 - Live sensor acceptance and native/browser screen parity require a running paired installation; CI does not prove physical sensor behavior.
 
 ## Migration Plan

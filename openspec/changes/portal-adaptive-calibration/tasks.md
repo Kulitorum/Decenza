@@ -52,4 +52,5 @@
 
 - [ ] 7.1 Share Unicode coffee-name normalization across SQL scope resolution, fitting, advice and the history cache; verify accented names through Settings and History and remeasure the query.
 - [ ] 7.2 Refresh PORTAL eligibility inside the Visualizer pull transaction, preserving clean sync state and rolling back metadata if refresh fails.
-- [ ] 7.3 Validate both new owner-boundary regressions and the current platform build; recheck GitHub before completing the audit.
+- [ ] 7.3 Subscribe Settings calibration to successful Visualizer pulls, including TDS-only changes; native/browser live refresh remains part of manual acceptance.
+- [ ] 7.4 Validate both new owner-boundary regressions and the current platform build; recheck GitHub before completing the audit.

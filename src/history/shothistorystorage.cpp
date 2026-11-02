@@ -2435,6 +2435,10 @@ bool ShotHistoryStorage::runMigrations()
             QSqlQuery invalidate(m_db);
             if (!invalidate.exec("UPDATE shots SET portal_estimate_reliable=0 WHERE portal_estimate_reliable=1"))
                 return false;
+            // M-series Mac, five Python SQLite/zlib/JSON presence-inspection runs
+            // on a real-history copy: 1,268 shots / 9.74 MB median 185.3 ms,
+            // worst 186.9 ms; 10x / 96.10 MB median 1858.1 ms, worst 1869.5 ms.
+            // This measures the scan shape, not Qt's startup latency. Runs once.
             QSqlQuery samples(m_db);
             if (!samples.exec("SELECT shot_id, data_blob FROM shot_samples")) return false;
             while (samples.next()) {

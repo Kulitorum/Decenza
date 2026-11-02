@@ -241,6 +241,7 @@ void NativeSettingsConnectionsServiceSource::setShotHistory(ShotHistoryStorage* 
         connect(history, &ShotHistoryStorage::shotSaved, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
         connect(history, &ShotHistoryStorage::shotDeleted, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
         connect(history, &ShotHistoryStorage::importedDatabaseChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        connect(history, &ShotHistoryStorage::shotPulledFromVisualizer, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
         connect(history, &ShotHistoryStorage::shotMetadataUpdated, this,
                 [this](qint64, bool success) { if (success) refreshPortalCalibration(); });
     }
