@@ -4,12 +4,14 @@
 #include <QVariantMap>
 #include <QVector>
 #include <cmath>
+#include <optional>
 
 struct PortalSample {
     double time;
     double ecRaw;
     double temperatureC;
     bool breakBefore;
+    std::optional<double> auxiliaryTemperatureRaw = std::nullopt; // Wire field; physical meaning/units unverified.
 };
 
 namespace PortalSamples {
@@ -37,9 +39,13 @@ inline QVariantList toVariant(const QVector<PortalSample>& samples)
 {
     QVariantList result;
     result.reserve(samples.size());
-    for (const auto& sample : samples)
-        result.append(QVariantMap{{"time", sample.time}, {"ecRaw", sample.ecRaw},
-            {"temperatureC", sample.temperatureC}, {"breakBefore", sample.breakBefore}});
+    for (const auto& sample : samples) {
+        QVariantMap map{{"time", sample.time}, {"ecRaw", sample.ecRaw},
+            {"temperatureC", sample.temperatureC}, {"breakBefore", sample.breakBefore}};
+        if (sample.auxiliaryTemperatureRaw && std::isfinite(*sample.auxiliaryTemperatureRaw))
+            map["auxiliaryTemperatureRaw"] = *sample.auxiliaryTemperatureRaw;
+        result.append(map);
+    }
     return result;
 }
 
@@ -62,6 +68,9 @@ inline QVector<PortalSample> fromVariant(const QVariantList& values, int* droppe
             if (dropped) ++*dropped;
             continue;
         }
+        bool auxiliaryOk = false;
+        const double auxiliary = map.value("auxiliaryTemperatureRaw").toDouble(&auxiliaryOk);
+        if (auxiliaryOk && std::isfinite(auxiliary)) sample.auxiliaryTemperatureRaw = auxiliary;
         sample.breakBefore = sample.breakBefore || gap;
         result.append(sample);
         gap = false;

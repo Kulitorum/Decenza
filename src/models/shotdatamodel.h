@@ -101,7 +101,8 @@ public slots:
     void setPortalMountingMode(const QString& mode) { m_portalMountingMode = mode; }
     void clear();
     void clearWeightData();  // Clear only weight samples (call when tare completes)
-    void addPortalSample(double time, double ecRaw, double temperatureC);
+    void addPortalSample(double time, double ecRaw, double temperatureC,
+                         std::optional<double> auxiliaryTemperatureRaw = std::nullopt);
     void markPortalGap() { m_portalGap = true; }
 
     // Data ingestion - vector append, chart update deferred to 33ms timer

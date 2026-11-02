@@ -19,6 +19,8 @@ struct MassKnot {
     double timeSec = 0.0;
     double massG = 0.0;
     std::optional<double> ecRaw;
+    double temperatureC = 0.0;
+    std::optional<double> auxiliaryTemperatureRaw;
     double cumulativeIntegral = 0.0;
     double cumulativeCoveredMass = 0.0;
     qsizetype segmentIndex = -1;
@@ -120,7 +122,7 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
     return segments;
 }
 
-// Evaluates EC at query time `tQuery` across contiguous PORTAL segments.
+// Evaluates sensor fields at query time `tQuery` across contiguous PORTAL segments.
 // - Inside a segment: linear interpolation (or exact value for 1-point segment).
 // - Within `kBoundaryClampSeconds` before the first segment or after the last
 //   segment: clamps to the nearest boundary sample (handles minor SAW settling
@@ -128,7 +130,7 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
 //   the last BLE notification from PORTAL).
 // - Inside an internal gap between segments, or outside `kBoundaryClampSeconds`:
 //   returns std::nullopt so the mass step is counted as uncovered.
-std::optional<double> evaluatePortalEcAtTime(const QVector<PortalSegment>& segments, double tQuery,
+std::optional<PortalSample> evaluatePortalAtTime(const QVector<PortalSegment>& segments, double tQuery,
                                             qsizetype* segmentIndex)
 {
     *segmentIndex = -1;
@@ -139,7 +141,7 @@ std::optional<double> evaluatePortalEcAtTime(const QVector<PortalSegment>& segme
     if (tQuery < firstSeg.startTime()) {
         if (firstSeg.startTime() - tQuery <= PortalTailAnalyzer::kBoundaryClampSeconds) {
             *segmentIndex = 0;
-            return firstSeg.samples.first().ecRaw;
+            return firstSeg.samples.first();
         }
         return std::nullopt;
     }
@@ -148,7 +150,7 @@ std::optional<double> evaluatePortalEcAtTime(const QVector<PortalSegment>& segme
     if (tQuery > lastSeg.endTime()) {
         if (tQuery - lastSeg.endTime() <= PortalTailAnalyzer::kBoundaryClampSeconds) {
             *segmentIndex = segments.size() - 1;
-            return lastSeg.samples.last().ecRaw;
+            return lastSeg.samples.last();
         }
         return std::nullopt;
     }
@@ -162,25 +164,30 @@ std::optional<double> evaluatePortalEcAtTime(const QVector<PortalSegment>& segme
 
         const auto& pts = seg.samples;
         if (pts.size() == 1)
-            return pts.first().ecRaw;
+            return pts.first();
 
         auto it = std::lower_bound(
             pts.begin(), pts.end(), tQuery,
             [](const PortalSample& s, double t) { return s.time < t; });
 
-        if (it == pts.begin())
-            return it->ecRaw;
+        if (it == pts.begin() || (it != pts.end() && it->time == tQuery))
+            return *it;
         if (it == pts.end())
-            return pts.last().ecRaw;
+            return pts.last();
 
         const PortalSample& right = *it;
         const PortalSample& left = *(it - 1);
         const double dt = right.time - left.time;
         if (dt <= 1e-9)
-            return right.ecRaw;
+            return right;
 
         const double alpha = (tQuery - left.time) / dt;
-        return left.ecRaw + alpha * (right.ecRaw - left.ecRaw);
+        PortalSample value{tQuery, left.ecRaw + alpha * (right.ecRaw - left.ecRaw),
+            left.temperatureC + alpha * (right.temperatureC - left.temperatureC), false, std::nullopt};
+        if (left.auxiliaryTemperatureRaw && right.auxiliaryTemperatureRaw)
+            value.auxiliaryTemperatureRaw = *left.auxiliaryTemperatureRaw
+                + alpha * (*right.auxiliaryTemperatureRaw - *left.auxiliaryTemperatureRaw);
+        return value;
     }
 
     // tQuery fell strictly between two segments (an internal BLE gap > kGapSplitSeconds).
@@ -414,6 +421,10 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     m["mainPeakMassG"] = mainPeakMassG;
     m["finalRawEc"] = finalRawEc;
     m["meanTempC"] = meanTempC;
+    m["massWeightedTempC"] = massWeightedTempC;
+    if (massWeightedAuxiliaryTemperatureRaw)
+        m["massWeightedAuxiliaryTemperatureRaw"] = *massWeightedAuxiliaryTemperatureRaw;
+    m["temperatureCompensation"] = QStringLiteral("unverified_device_output");
 
     m["integralRawEcG"] = integralRawEcG;
     m["activeIntegralRawEcG"] = activeIntegralRawEcG;
@@ -453,7 +464,11 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     m["bestHistoricalEnjoyment"] = bestHistoricalEnjoyment;
 
     m["calibrated"] = calibrated;
+    m["predictionAvailable"] = predictionAvailable;
     if (calibrated) {
+        m["calibrationHasCrossValidation"] = calibrationHasCrossValidation;
+        if (calibrationHasCrossValidation)
+            m["calibrationBaselineLoocvRmseTdsPct"] = calibrationBaselineLoocvRmseTdsPct;
         m["calibrationScope"] = calibrationScope;
         m["calibrationShotCount"] = calibrationShotCount;
         m["calibrationSlopeK"] = calibrationSlopeK;
@@ -464,14 +479,18 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
         }
         m["calibrationMaeTdsPct"] = calibrationMaeTdsPct;
         m["calibrationRmseTdsPct"] = calibrationRmseTdsPct;
-        m["calibrationLoocvMaeTdsPct"] = calibrationLoocvMaeTdsPct;
-        m["calibrationLoocvRmseTdsPct"] = calibrationLoocvRmseTdsPct;
+        if (calibrationHasCrossValidation) {
+            m["calibrationLoocvMaeTdsPct"] = calibrationLoocvMaeTdsPct;
+            m["calibrationLoocvRmseTdsPct"] = calibrationLoocvRmseTdsPct;
+        }
         m["calibrationTempCorrR"] = calibrationTempCorrR;
         m["calibrationTempSlopePctPerC"] = calibrationTempSlopePctPerC;
-        m["estimatedTdsPct"] = estimatedTdsPct;
-        m["estimatedEyPct"] = estimatedEyPct;
+        if (predictionAvailable) {
+            m["estimatedTdsPct"] = estimatedTdsPct;
+            m["estimatedEyPct"] = estimatedEyPct;
+        }
         m["hasValidationReading"] = hasValidationReading;
-        if (hasValidationReading) {
+        if (hasValidationReading && predictionAvailable) {
             m["validationResidualTdsPct"] = validationResidualTdsPct;
             m["validationResidualEyPct"] = validationResidualEyPct;
         }
@@ -589,9 +608,15 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     std::stable_sort(knots.begin(), knots.end(), [](const MassKnot& a, const MassKnot& b) {
         return a.timeSec < b.timeSec;
     });
-    for (auto& knot : knots)
-        knot.ecRaw = evaluatePortalEcAtTime(segments, knot.timeSec + options.lagOffsetSec,
-                                          &knot.segmentIndex);
+    for (auto& knot : knots) {
+        const auto value = evaluatePortalAtTime(segments, knot.timeSec + options.lagOffsetSec,
+                                               &knot.segmentIndex);
+        if (value) {
+            knot.ecRaw = value->ecRaw;
+            knot.temperatureC = value->temperatureC;
+            knot.auxiliaryTemperatureRaw = value->auxiliaryTemperatureRaw;
+        }
+    }
 
     out.totalMassG = runningMaxMass;
     if (out.totalMassG < kMinTailMassG || knots.size() < 2) {
@@ -603,6 +628,9 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     double totalIntegral = 0.0;
     double activeIntegral = 0.0;
     double coveredMass = 0.0;
+    double temperatureIntegral = 0.0;
+    double auxiliaryIntegral = 0.0;
+    double auxiliaryCoveredMass = 0.0;
     const bool hasActiveStop = options.activeStopTimeSec > 0.0 && std::isfinite(options.activeStopTimeSec);
 
     knots[0].cumulativeIntegral = 0.0;
@@ -614,6 +642,12 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
             const double stepIntegral = ecMid * dm;
             totalIntegral += stepIntegral;
             coveredMass += dm;
+            temperatureIntegral += 0.5 * (knots[i - 1].temperatureC + knots[i].temperatureC) * dm;
+            if (knots[i - 1].auxiliaryTemperatureRaw && knots[i].auxiliaryTemperatureRaw) {
+                auxiliaryIntegral += 0.5 * (*knots[i - 1].auxiliaryTemperatureRaw
+                    + *knots[i].auxiliaryTemperatureRaw) * dm;
+                auxiliaryCoveredMass += dm;
+            }
             if (!hasActiveStop || knots[i].timeSec <= options.activeStopTimeSec)
                 activeIntegral += stepIntegral;
         }
@@ -621,6 +655,11 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         knots[i].cumulativeCoveredMass = coveredMass;
     }
 
+    if (coveredMass > 0.0) {
+        out.massWeightedTempC = temperatureIntegral / coveredMass;
+        if (std::abs(auxiliaryCoveredMass - coveredMass) < 1e-6)
+            out.massWeightedAuxiliaryTemperatureRaw = auxiliaryIntegral / coveredMass;
+    }
     out.coveredMassG = coveredMass;
     out.coverageRatio = out.totalMassG > 0.0 ? (coveredMass / out.totalMassG) : 0.0;
     out.integralRawEcG = totalIntegral;
@@ -813,7 +852,7 @@ PortalTailAnalyzer::Options PortalTailAnalyzer::optionsForShot(
 
 double PortalTailAnalyzer::CalibrationFit::predictTdsPct(double meanRawEcPerG) const
 {
-    if (!calibrated || !std::isfinite(meanRawEcPerG) || meanRawEcPerG <= 0.0)
+    if (!predictionSupported || !std::isfinite(meanRawEcPerG) || meanRawEcPerG <= 0.0)
         return 0.0;
     double pred = 0.0;
     if (activeModel == QLatin1String("affine") && affineValid)
@@ -845,6 +884,10 @@ QStringList PortalTailAnalyzer::CalibrationFit::predictionUncertainty(
     QStringList reasons;
     if (shotCount < 5)
         reasons.append(QStringLiteral("preliminary_calibration"));
+    if (!hasCrossValidation)
+        reasons.append(QStringLiteral("unvalidated_calibration"));
+    else if (!predictionSupported)
+        reasons.append(QStringLiteral("inconsistent_calibration"));
     const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
     if (shotCount >= 2 && ((minMeanRawEc > 0.0 && (meanRawEcPerG < minMeanRawEc - 1e-6
                                                || meanRawEcPerG > maxMeanRawEc + 1e-6))
@@ -858,6 +901,9 @@ QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
 {
     QVariantMap m;
     m["calibrated"] = calibrated;
+    m["hasCrossValidation"] = hasCrossValidation;
+    m["predictionSupported"] = predictionSupported;
+    if (hasCrossValidation) m["baselineLoocvRmseTdsPct"] = baselineLoocvRmseTdsPct;
     m["activeModel"] = activeModel;
     m["scope"] = scope;
     m["shotCount"] = shotCount;
@@ -871,8 +917,10 @@ QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
     m["proportionalMaeTdsPct"] = proportionalMaeTdsPct;
     m["proportionalRmseTdsPct"] = proportionalRmseTdsPct;
     m["proportionalBiasTdsPct"] = proportionalBiasTdsPct;
-    m["proportionalLoocvMaeTdsPct"] = proportionalLoocvMaeTdsPct;
-    m["proportionalLoocvRmseTdsPct"] = proportionalLoocvRmseTdsPct;
+    if (hasCrossValidation) {
+        m["proportionalLoocvMaeTdsPct"] = proportionalLoocvMaeTdsPct;
+        m["proportionalLoocvRmseTdsPct"] = proportionalLoocvRmseTdsPct;
+    }
     m["affineValid"] = affineValid;
     if (affineValid) {
         m["affineSlopeA"] = affineSlopeA;
@@ -880,8 +928,11 @@ QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
         m["affineMaeTdsPct"] = affineMaeTdsPct;
         m["affineRmseTdsPct"] = affineRmseTdsPct;
         m["affineBiasTdsPct"] = affineBiasTdsPct;
-        m["affineLoocvMaeTdsPct"] = affineLoocvMaeTdsPct;
-        m["affineLoocvRmseTdsPct"] = affineLoocvRmseTdsPct;
+        m["affineHasCrossValidation"] = affineHasCrossValidation;
+        if (affineHasCrossValidation) {
+            m["affineLoocvMaeTdsPct"] = affineLoocvMaeTdsPct;
+            m["affineLoocvRmseTdsPct"] = affineLoocvRmseTdsPct;
+        }
     }
     m["tempCorrelationR"] = tempCorrelationR;
     m["tempSlopePctPerC"] = tempSlopePctPerC;
@@ -1025,6 +1076,7 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
     double propSumErr = 0.0;
     double propLoocvAbs = 0.0;
     double propLoocvSq = 0.0;
+    double baselineLoocvSq = 0.0;
     int propLoocvCount = 0;
 
     for (const auto& p : selected) {
@@ -1036,6 +1088,8 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
         propSumErr += err;
 
         if (n >= 2) {
+            const double baselineError = (sy - y) / static_cast<double>(n - 1) - y;
+            baselineLoocvSq += baselineError * baselineError;
             const double denom = sxx - x * x;
             if (denom > 1e-9) {
                 const double kLeaveOut = (sxy - x * y) / denom;
@@ -1054,6 +1108,10 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
         fit.proportionalLoocvMaeTdsPct = propLoocvAbs / static_cast<double>(propLoocvCount);
         fit.proportionalLoocvRmseTdsPct = std::sqrt(propLoocvSq / static_cast<double>(propLoocvCount));
     }
+
+    fit.hasCrossValidation = n >= 2 && propLoocvCount == n;
+    if (fit.hasCrossValidation)
+        fit.baselineLoocvRmseTdsPct = std::sqrt(baselineLoocvSq / static_cast<double>(n));
 
     // 2. Affine model: y_hat = a * x + b (when n >= 3 and EC range >= 0.5 raw-EC)
     const double nd = static_cast<double>(n);
@@ -1092,6 +1150,8 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
                     const double aSub = (nSub * sxySub - sxSub * sySub) / denomSub;
                     const double bSub = (sySub - aSub * sxSub) / nSub;
                     const double loocvErr = (aSub * x + bSub) - y;
+                    if (!std::isfinite(loocvErr) || !std::isfinite(aSub) || aSub <= 0.0)
+                        continue;
                     affLoocvAbs += std::abs(loocvErr);
                     affLoocvSq += loocvErr * loocvErr;
                     ++affLoocvCount;
@@ -1101,7 +1161,8 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
             fit.affineMaeTdsPct = affSumAbs / nd;
             fit.affineRmseTdsPct = std::sqrt(affSumSq / nd);
             fit.affineBiasTdsPct = affSumErr / nd;
-            if (affLoocvCount > 0) {
+            fit.affineHasCrossValidation = affLoocvCount == n;
+            if (fit.affineHasCrossValidation) {
                 fit.affineLoocvMaeTdsPct = affLoocvAbs / static_cast<double>(affLoocvCount);
                 fit.affineLoocvRmseTdsPct = std::sqrt(affLoocvSq / static_cast<double>(affLoocvCount));
             }
@@ -1113,6 +1174,13 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
             }
         }
     }
+
+    // A model must add held-out predictive value over the other references' mean.
+    // This is a model-selection policy, not a physical EC-to-TDS validity threshold.
+    const double activeRmse = fit.activeModel == QLatin1String("affine")
+        ? fit.affineLoocvRmseTdsPct : fit.proportionalLoocvRmseTdsPct;
+    fit.predictionSupported = fit.hasCrossValidation && (nd * sxy - sx * sy) > 1e-9
+        && std::isfinite(activeRmse) && activeRmse < fit.baselineLoocvRmseTdsPct;
 
     // 3. Empirical temperature dependence check across paired shots
     if (n >= 3) {
@@ -1167,8 +1235,12 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
                                           double measuredTdsPct,
                                           double measuredEyPct)
 {
-    if (!result || !result->valid || !fit.calibrated)
-        return;
+    if (!result) return;
+    result->predictionAvailable = false;
+    result->estimatedTdsPct = result->estimatedEyPct = 0.0;
+    result->hasValidationReading = std::isfinite(measuredTdsPct) && measuredTdsPct > 0.1;
+    if (!result->valid || !fit.calibrated) return;
+    const bool measurementReliable = result->estimateReliable;
     const auto reasons = fit.predictionUncertainty(result->meanRawEcPerG, finalWeightG, doseWeightG);
     if (!reasons.isEmpty()) {
         result->estimateReliable = false;
@@ -1176,6 +1248,8 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
     }
 
     result->calibrated = true;
+    result->calibrationHasCrossValidation = fit.hasCrossValidation;
+    result->calibrationBaselineLoocvRmseTdsPct = fit.baselineLoocvRmseTdsPct;
     result->calibrationMode = fit.activeModel == QLatin1String("affine")
         ? QStringLiteral("refractometer_affine")
         : QStringLiteral("refractometer_proportional");
@@ -1196,6 +1270,9 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
     result->calibrationTempCorrR = fit.tempCorrelationR;
     result->calibrationTempSlopePctPerC = fit.tempSlopePctPerC;
 
+    if (!measurementReliable || !fit.predictionSupported
+        || reasons.contains(QStringLiteral("outside_calibration_range"))) return;
+    result->predictionAvailable = true;
     const double effectiveWeightG = (std::isfinite(finalWeightG) && finalWeightG > 0.0)
         ? finalWeightG : result->totalMassG;
     result->estimatedTdsPct = fit.predictTdsPct(result->meanRawEcPerG);

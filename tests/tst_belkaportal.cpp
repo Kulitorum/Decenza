@@ -492,6 +492,8 @@ private slots:
         transport->notify(sample);
         QCOMPARE(model.portalSampleCount(), 1);
         QVERIFY(model.portalSamples().first().time < 1.0);
+        QVERIFY(model.portalSamples().first().auxiliaryTemperatureRaw.has_value());
+        QCOMPARE(*model.portalSamples().first().auxiliaryTemperatureRaw, 25.0);
         portal.expireReading(PortalSamples::StaleAfterMs + 1);
         transport->notify(sample);
         QCOMPARE(model.portalSampleCount(), 2);
@@ -1293,6 +1295,108 @@ private slots:
         const QString prose = promptObj.value(QStringLiteral("shotAnalysis")).toString();
         QVERIFY(!prose.contains(QStringLiteral("Belka PORTAL")));
     }
+    void unsupportedCalibrationDoesNotPublishTds() {
+        using Analyzer = PortalTailAnalyzer;
+        QVector<Analyzer::CalibrationPoint> references;
+        for (int i = 0; i < 5; ++i) {
+            Analyzer::CalibrationPoint p;
+            p.shotId = i + 1;
+            p.bagId = 7;
+            p.estimateReliable = true;
+            p.mountingMode = Analyzer::MountingMode::OnScale;
+            p.doseWeightG = 16;
+            p.finalWeightG = 24 + 2 * i;
+            p.meanRawEcPerG = 6 + i;
+            p.measuredTdsPct = 12 - i;
+            references.append(p);
+        }
+        // More references cannot rescue a relationship that predicts in the wrong direction.
+        for (int count : {1, 2, 5}) {
+            const auto fit = Analyzer::fitCalibration(references.mid(0, count), 7, {}, {}, 99,
+                                                      Analyzer::MountingMode::OnScale);
+            QVERIFY(fit.calibrated);
+            QVERIFY(!fit.predictionSupported);
+            QCOMPARE(fit.hasCrossValidation, count >= 2);
+            Analyzer::Result result;
+            result.valid = result.estimateReliable = result.calibrationEligible = true;
+            result.meanRawEcPerG = 6.5;
+            Analyzer::applyCalibration(&result, fit, 26, 16, 11.5);
+            QVERIFY(!result.predictionAvailable);
+            QVERIFY(result.calibrationEligible);
+            const auto payload = result.toVariantMap();
+            QVERIFY(!payload.contains("estimatedTdsPct"));
+            QVERIFY(!payload.contains("estimatedEyPct"));
+            QVERIFY(!payload.contains("validationResidualTdsPct"));
+            ShotSummary summary;
+            summary.portalAnalysis = payload;
+            const auto aiPortal = ShotSummarizer().buildUserPromptObject(summary)
+                .value("shot").toObject().value("portal").toObject();
+            QVERIFY(aiPortal.value("calibrated").toBool());
+            QVERIFY(!aiPortal.contains("estimatedTdsPct"));
+            QVERIFY(!aiPortal.contains("estimatedEyPct"));
+            if (count == 1) QVERIFY(!aiPortal.contains("calibrationLoocvMaeTdsPct"));
+            QVERIFY(result.uncertaintyReasons.contains(count == 1
+                ? QStringLiteral("unvalidated_calibration") : QStringLiteral("inconsistent_calibration")));
+            if (count == 1) QVERIFY(!fit.toVariantMap().contains("proportionalLoocvRmseTdsPct"));
+        }
+        const QVector<double> noisyTds{10, 9, 12, 9, 11};
+        for (qsizetype i = 0; i < references.size(); ++i)
+            references[i].measuredTdsPct = noisyTds[i];
+        const auto noisyFit = Analyzer::fitCalibration(references, 7, {}, {}, 99,
+                                                      Analyzer::MountingMode::OnScale);
+        QVERIFY(noisyFit.hasCrossValidation);
+        QVERIFY(noisyFit.proportionalLoocvRmseTdsPct > noisyFit.baselineLoocvRmseTdsPct);
+        QVERIFY(!noisyFit.predictionSupported);
+        for (auto& p : references) p.measuredTdsPct = p.meanRawEcPerG * 1.25;
+        const auto fit = Analyzer::fitCalibration(references, 7, {}, {}, 99,
+                                                 Analyzer::MountingMode::OnScale);
+        QVERIFY(fit.predictionSupported);
+        QVERIFY(fit.baselineLoocvRmseTdsPct > 1.0);
+        Analyzer::Result result;
+        result.valid = result.estimateReliable = result.calibrationEligible = true;
+        result.meanRawEcPerG = 8;
+        Analyzer::applyCalibration(&result, fit, 28, 16);
+        QVERIFY(result.predictionAvailable);
+        QCOMPARE(result.estimatedTdsPct, 10.0);
+        for (int condition : {0, 1, 2}) {
+            auto blocked = result;
+            if (condition == 0) blocked.estimateReliable = false;
+            if (condition == 1) blocked.meanRawEcPerG = 11;
+            Analyzer::applyCalibration(&blocked, fit, condition == 2 ? 100 : 28, 16);
+            QVERIFY(!blocked.predictionAvailable);
+            QVERIFY(!blocked.toVariantMap().contains("estimatedTdsPct"));
+        }
+    }
+
+    void temperatureDiagnosticsUseCoveredMassAndPreserveUnknownAuxiliaryField() {
+        using Analyzer = PortalTailAnalyzer;
+        QVector<PortalSample> samples;
+        for (int i = 0; i <= 50; ++i) {
+            const double t = i * 0.1;
+            const double temp = t < 2 ? 20 : t <= 3 ? 40 + 20 * (t - 2) : 60;
+            samples.append({t, 8, temp, i == 0, 25.0 + t});
+        }
+        const QVector<QPointF> weight{{0, 0}, {2, 0}, {3, 10}, {5, 10}};
+        Analyzer::Options options;
+        options.weightSource = Analyzer::WeightSource::PhysicalScale;
+        options.mountingMode = Analyzer::MountingMode::OnScale;
+        const auto result = Analyzer::analyze(samples, weight, options);
+        QVERIFY(result.valid);
+        QVERIFY(std::abs(result.massWeightedTempC - 50.0) < 1e-8);
+        QVERIFY(result.massWeightedAuxiliaryTemperatureRaw.has_value());
+        QVERIFY(std::abs(*result.massWeightedAuxiliaryTemperatureRaw - 27.5) < 1e-8);
+        // The optional diagnostic is not a fabricated zero on legacy samples.
+        const auto legacy = PortalSamples::fromVariant({QVariantMap{
+            {"time", 0.0}, {"ecRaw", 8.0}, {"temperatureC", 20.0}}});
+        QCOMPARE(legacy.size(), 1);
+        QVERIFY(!legacy.first().auxiliaryTemperatureRaw.has_value());
+        QVERIFY(!PortalSamples::toVariant(legacy).first().toMap().contains("auxiliaryTemperatureRaw"));
+        samples[20].auxiliaryTemperatureRaw.reset();
+        const auto partial = Analyzer::analyze(samples, weight, options);
+        QVERIFY(!partial.massWeightedAuxiliaryTemperatureRaw.has_value());
+        QCOMPARE(partial.integralRawEcG, result.integralRawEcG);
+    }
+
     void portalMountingAndRefractometerCalibration()
     {
         // Mounting geometry setting
@@ -1427,7 +1531,7 @@ private slots:
             }
             for (int i = 0; i <= 250; ++i) {
                 const double t = i * 0.1;
-                rec.portalSamples.append(PortalSample{t, ecLevel, 61.5, i == 0});
+                rec.portalSamples.append(PortalSample{t, ecLevel, 61.5, i == 0, 25.0 + t});
             }
             return rec;
         };
@@ -1503,6 +1607,10 @@ private slots:
                 Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip);
             QVERIFY(exportRecord.portalCalibrationPoints.isEmpty());
             QCOMPARE(exportRecord.portalSamples.size(), loaded4.portalSamples.size());
+            QVERIFY(exportRecord.portalSamples.at(100).auxiliaryTemperatureRaw.has_value());
+            QCOMPARE(*exportRecord.portalSamples.at(100).auxiliaryTemperatureRaw, 35.0);
+            const auto sampleMap = ShotHistoryStorage::convertShotRecord(loaded4).portalSamples.at(100).toMap();
+            QCOMPARE(sampleMap.value("auxiliaryTemperatureRaw").toDouble(), 35.0);
             const auto hotLoaded = ShotHistoryStorage::loadShotRecordStatic(db, hotId);
             QCOMPARE(hotLoaded.espressoNotes, QStringLiteral("My tasting notes"));
             QSqlQuery notes(db);
@@ -1670,6 +1778,10 @@ private slots:
         unicodeReference.summary.beanType = QStringLiteral("ÅBØ");
         const qint64 unicodeId = storage.importShotRecord(unicodeReference, true);
         QVERIFY(unicodeId > 0);
+        auto secondUnicodeReference = makePortalRecord(QStringLiteral("unicode-reference-2"), 1700001120, 32.0, 9.0, 11.25);
+        secondUnicodeReference.summary.beanBrand = unicodeReference.summary.beanBrand;
+        secondUnicodeReference.summary.beanType = unicodeReference.summary.beanType;
+        QVERIFY(storage.importShotRecord(secondUnicodeReference, true) > 0);
         auto unicodeTarget = unicodeReference;
         unicodeTarget.summary.uuid = QStringLiteral("unicode-target");
         unicodeTarget.summary.timestamp += 60;
@@ -1681,7 +1793,7 @@ private slots:
             QStringLiteral("Café"), QStringLiteral("åbø"), PortalTailAnalyzer::MountingMode::OnScale);
         QTRY_COMPARE(calibrationReady.size(), 3);
         const auto unicodeFit = calibrationReady.last().at(1).toMap();
-        QCOMPARE(unicodeFit.value("shotCount").toInt(), 1);
+        QCOMPARE(unicodeFit.value("shotCount").toInt(), 2);
         QVERIFY(std::abs(unicodeFit.value("proportionalK").toDouble() - 1.25) < 0.001);
         storage.requestShotsFiltered({{QStringLiteral("beanBrand"), QStringLiteral("café")}}, 0, 50);
         QTRY_COMPARE(listed.size(), 2);

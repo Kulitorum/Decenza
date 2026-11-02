@@ -2637,7 +2637,7 @@ T.Page {
                                                  ? postShotReviewPage.editDrinkWeight
                                                  : (postShotReviewPage.editShotData.finalWeightG || 0)
                 readonly property double liveTds: postShotReviewPage.editDrinkTds || 0
-                readonly property bool isCalibrated: Boolean(pa.calibrated)
+                readonly property bool isCalibrated: Boolean(pa.predictionAvailable)
                 readonly property double estTdsPct: isCalibrated ? (pa.estimatedTdsPct || 0) : 0
                 readonly property double estEyPct: (estTdsPct > 0 && doseG > 0 && yieldG > 0)
                                                    ? (estTdsPct * yieldG) / doseG : 0
@@ -2657,8 +2657,12 @@ T.Page {
                         warnings.push(TranslationManager.translate("postshotreview.portal.mountingWarning", "Mounting geometry was not recorded."))
                     if (reasons.indexOf("preliminary_calibration") >= 0)
                         warnings.push(TranslationManager.translate("postshotreview.portal.preliminaryWarning", "Fewer than five independent refractometer shots: preliminary calibration."))
+                    if (reasons.indexOf("unvalidated_calibration") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.unvalidated", "TDS/EY withheld: independent prediction error cannot be checked from one reference."))
+                    if (reasons.indexOf("inconsistent_calibration") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.inconsistent", "TDS/EY withheld: EC does not predict the reference TDS better than their average."))
                     if (reasons.indexOf("outside_calibration_range") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.rangeWarning", "Outside the measured EC or ratio range: extrapolated estimate."))
+                        warnings.push(TranslationManager.translate("postshotreview.portal.rangeWarning", "Outside the measured EC or ratio range: TDS/EY withheld."))
                     return warnings.join(" ")
                 }
                 readonly property string completionSummary: (pa.massAt90PctIntegralG || 0) > 0
@@ -2690,7 +2694,7 @@ T.Page {
                         "postshotreview.portal.unavailable", "PORTAL analysis needs a physical scale and complete EC/weight data.")
                     if (!pa.calibrationEligible) return TranslationManager.translate(
                         "postshotreview.portal.excludedCalibration", "Excluded from calibration: measurement warnings. Estimates, when available, are uncertain.")
-                    if (isCalibrated) {
+                    if (pa.calibrated) {
                         var affine = String(pa.calibrationMode || "").indexOf("affine") >= 0
                         var modelStr = affine
                             ? TranslationManager.translate("postshotreview.portal.affineFormula", "TDS = %1 × EC %2 %3")
@@ -2704,11 +2708,11 @@ T.Page {
                             : TranslationManager.translate("postshotreview.portal.scopeBean", "coffee")
                         var nStr = TranslationManager.translate("postshotreview.portal.referenceCount", "%1 shots (%2)")
                             .arg(pa.calibrationShotCount || 0).arg(scope)
-                        var loocv = (pa.calibrationLoocvMaeTdsPct || 0) > 0
+                        var loocv = pa.calibrationHasCrossValidation
                             ? " · " + TranslationManager.translate("postshotreview.portal.loocv", "LOOCV MAE %1%")
                                 .arg(Number(pa.calibrationLoocvMaeTdsPct).toFixed(2)) : ""
                         var resStr = ""
-                        if (liveTds > 0) {
+                        if (liveTds > 0 && isCalibrated) {
                             var diff = estTdsPct - liveTds
                             resStr = " · " + TranslationManager.translate("postshotreview.portal.residual", "ΔTDS vs refr. %1%")
                                 .arg((diff >= 0 ? "+" : "") + diff.toFixed(2))

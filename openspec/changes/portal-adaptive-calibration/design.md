@@ -18,6 +18,21 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 - Translate structured reasons/advice in the shared QML client so language switches and Wasm clients use their own TranslationManager.
 - Assemble one JSON PORTAL block for AI/MCP. Keep user notes untouched.
 
+## Evidence-based extension
+
+See `docs/PORTAL_EVIDENCE.md` for primary sources and applicability limits.
+Withhold predictions without complete leave-one-out evaluation, positive EC/TDS
+association and improvement over the leave-one-out reference-mean baseline.
+Keep fitted coefficients available for inspection; absence of validation is not
+zero error. Preliminary count and existing thermal/coverage limits remain
+engineering policies, not universal scientific validity boundaries.
+
+Persist the optional auxiliary BLE float without assigning physical units or
+using it for temperature correction. Compute diagnostic temperature means only
+on covered positive mass increments; retain the legacy sample-temperature mean
+and its stored projection unchanged. No database migration is needed: the
+optional field travels in the existing sample JSON/blob and shared projection.
+
 ## Risks / Trade-offs
 
 - Legacy references become ineligible until new physical-scale measurements are saved.

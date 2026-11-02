@@ -63,3 +63,12 @@
 - [x] 8.4 Functional source 83aec17e passed the current Linux/Android/Wasm run 41444622052 and QML gate; strict OpenSpec validation passed. The PR records the current evidence and final text-invariants check. GitHub was rechecked before publishing the update.
 - [x] 8.5 Address new GitHub review 5734465691: refresh Shot Review outcomes after Visualizer pulls while preserving the editing form; the existing late-outcome regression now executes the real merge/callback/outcome handlers, rejects stale replies and preserves the draft.
 - [x] 8.6 Address GitHub review 5734886935: explicitly reset History estimate roles when calibration disappears. [The regression control on 83aec17e](https://github.com/janhcla/Decenza/actions/runs/41444764681) retains 10% instead of zero when the reset is removed; all three owner suites passed before/after restoration.
+
+## 9. Scientific validity and temperature diagnostics
+
+- [x] 9.1 Review primary EC/TDS and espresso-kinetics literature; document scope, error sources and the distinction between engineering policies and scientific limits.
+- [x] 9.2 Preserve optional auxiliary BLE values through capture/storage/projections and add mass-weighted temperature diagnostics without a guessed correction.
+- [x] 9.3 Require demonstrated held-out predictive value, omit unavailable error/estimate values and share the behavior across review/history/AI/Settings.
+- [ ] 9.4 Verify capture/storage, analytic temperature weighting and unsupported-model regressions, including deliberate regression controls; run required platform/text checks.
+- [x] 9.5 Prepare the updated manual in the separate wiki checkout (commit 8abe130 in `/tmp/decenza-portal-scientific-wiki`). Upstream reports `push: false`; publication remains blocked under task 2.3.
+- [ ] 9.6 Commit and push to Kulitorum/Decenza PR #2164 and report validation and remaining device acceptance honestly.

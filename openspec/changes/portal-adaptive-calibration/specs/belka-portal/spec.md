@@ -111,3 +111,42 @@ Calibration references SHALL record the actual serving weight source, mounting m
 - **AND** legacy missing provenance SHALL remain ineligible for calibration
 - **AND** a completed pass SHALL NOT run again after restart
 - **AND** a failed pass SHALL roll back its updates and remain retryable
+
+### Requirement: Empirical models demonstrate predictive value
+
+Fitted coefficients SHALL remain inspectable independently of prediction support.
+Missing cross-validation SHALL NOT be reported as zero error. TDS/EY predictions
+SHALL require complete leave-one-out evaluation, positive EC/TDS association and
+lower RMSE than the leave-one-out reference-mean baseline. Predictions SHALL be
+withheld on measurement warnings or outside the measured EC/ratio envelope.
+
+#### Scenario: Only one independent reference exists
+
+- **WHEN** a coefficient can be fitted but independent prediction error is unavailable
+- **THEN** review, history and structured payloads SHALL withhold estimated TDS/EY
+- **AND** measured refractometer data and relative EC metrics SHALL remain available
+
+#### Scenario: More EC accompanies less measured TDS
+
+- **WHEN** paired measurements fail the positive-association or held-out baseline comparison
+- **THEN** the calibration SHALL report inconsistent prediction support rather than a reliable estimate
+- **AND** measurement eligibility and measurement-based ratio advice SHALL remain independent of that result
+
+### Requirement: Preserve uninterpreted temperature evidence
+
+The auxiliary BLE float SHALL be retained optionally as `auxiliaryTemperatureRaw`
+through capture, compressed storage, import/export and shared shot projections.
+Its meaning and units SHALL NOT be assumed or used for a correction. Temperature
+diagnostics SHALL use the same covered positive mass increments as EC integration,
+without changing the legacy sample-temperature mean or its persisted column.
+
+#### Scenario: Loading a recording without the auxiliary field
+
+- **WHEN** an old sample has no auxiliary value
+- **THEN** its EC and primary temperature SHALL remain usable
+- **AND** the auxiliary value SHALL remain absent rather than becoming zero
+
+#### Scenario: Temperature changes while no coffee mass arrives
+
+- **WHEN** the scale remains on a plateau before, during or after the pour
+- **THEN** that interval SHALL contribute no weight to the mass-temperature diagnostics

@@ -99,7 +99,9 @@ public:
         double mainPeakRawEc = 0.0; // Peak EC at cumulative mass >= kActivePeakMinMassG
         double mainPeakMassG = 0.0;
         double finalRawEc = 0.0;
-        double meanTempC = 0.0;
+        double meanTempC = 0.0; // Legacy time-sample mean, including dry/plateau periods.
+        double massWeightedTempC = 0.0;
+        std::optional<double> massWeightedAuxiliaryTemperatureRaw;
 
         // Mass-space integrals (raw-EC * g and normalized relative proxies)
         double integralRawEcG = 0.0;
@@ -141,6 +143,9 @@ public:
 
         // Empirical refractometer calibration (Atago PAL / drink_tds paired shots)
         bool calibrated = false;
+        bool predictionAvailable = false;
+        bool calibrationHasCrossValidation = false;
+        double calibrationBaselineLoocvRmseTdsPct = 0.0;
         QString calibrationScope;       // "bag" | "bean" | ""
         int calibrationShotCount = 0;
         double calibrationSlopeK = 0.0; // Proportional model: TDS% = k * meanRawEcPerG
@@ -187,6 +192,9 @@ public:
 
     struct CalibrationFit {
         bool calibrated = false;
+        bool hasCrossValidation = false;
+        bool predictionSupported = false;
+        double baselineLoocvRmseTdsPct = 0.0;
         QString activeModel = QStringLiteral("none"); // "proportional" | "affine" | "none"
         QString scope = QStringLiteral("none");       // fitCalibration resolves to "bag" or "bean", even without references
         int shotCount = 0;
@@ -207,6 +215,7 @@ public:
 
         // Model 2: Affine with intercept (TDS% = a * meanRawEcPerG + b)
         bool affineValid = false;
+        bool affineHasCrossValidation = false;
         double affineSlopeA = 0.0;
         double affineInterceptB = 0.0;
         double affineMaeTdsPct = 0.0;

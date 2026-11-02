@@ -143,7 +143,7 @@ ColumnLayout {
                     .arg(panel.calibration.shotCount || 0).arg(panel.calibration.excludedShotCount || 0)
                   + ((panel.calibration.shotCount || 0) < 5
                      ? " · " + TranslationManager.translate("portal.calibration.preliminary", "Preliminary: fewer than five reference shots") : "")
-                  + ((panel.calibration.shotCount || 0) >= 2
+                  + (panel.calibration.hasCrossValidation
                      ? "\n" + TranslationManager.translate("portal.calibration.errorTds", "Leave-one-out error: %1 TDS percentage points")
                          .arg(Number(panel.calibration.activeModel === "affine"
                                      ? panel.calibration.affineLoocvMaeTdsPct
@@ -152,6 +152,15 @@ ColumnLayout {
                       .arg(Number(panel.calibration.minRatio || 0).toFixed(2))
                       .arg(Number(panel.calibration.maxRatio || 0).toFixed(2))
             color: Theme.textSecondaryColor
+            wrapMode: Text.Wrap
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: Boolean(panel.calibration.calibrated) && !panel.calibration.predictionSupported
+            text: panel.calibration.hasCrossValidation
+                ? TranslationManager.translate("postshotreview.portal.inconsistent", "TDS/EY withheld: EC does not predict the reference TDS better than their average.")
+                : TranslationManager.translate("postshotreview.portal.unvalidated", "TDS/EY withheld: independent prediction error cannot be checked from one reference.")
+            color: Theme.warningColor
             wrapMode: Text.Wrap
         }
         Text {

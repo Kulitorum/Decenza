@@ -42,10 +42,10 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     });
     connect(device, &BelkaPortalDevice::readingInterrupted, model, &ShotDataModel::markPortalGap);
     connect(device, &BelkaPortalDevice::measurementReceived, this,
-            [this, timing, model](double ecRaw, double temperatureC) {
+            [this, timing, model](double ecRaw, double temperatureC, double auxiliaryTemperatureRaw) {
         if (!m_captureOpen) return;
         const auto time = timing->sensorTime(QDateTime::currentMSecsSinceEpoch());
-        if (time) model->addPortalSample(*time, ecRaw, temperatureC);
+        if (time) model->addPortalSample(*time, ecRaw, temperatureC, auxiliaryTemperatureRaw);
     });
     const auto updateMachine = [this, machine, device, model] {
         const auto phase = machine->phase();

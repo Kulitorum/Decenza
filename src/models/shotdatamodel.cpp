@@ -538,7 +538,8 @@ QVariantList ShotDataModel::portalEcBounds(const QVariantList& samples) const {
     return {bounds.minimum, bounds.maximum};
 }
 
-void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatureC) {
+void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatureC,
+                                   std::optional<double> auxiliaryTemperatureRaw) {
     if (!PortalSamples::valid(time, ecRaw, temperatureC,
             m_portalSamples.isEmpty() ? -1 : m_portalSamples.last().time)) {
         markPortalGap();
@@ -547,7 +548,7 @@ void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatur
     // A stalled event loop may deliver the next packet before the freshness timer runs.
     const bool silentGap = !m_portalSamples.isEmpty() && time - m_portalSamples.last().time > PortalSamples::StaleAfterSeconds;
     const bool breakBefore = m_portalGap || silentGap;
-    m_portalSamples.append({time, ecRaw, temperatureC, breakBefore});
+    m_portalSamples.append({time, ecRaw, temperatureC, breakBefore, auxiliaryTemperatureRaw});
     m_portalEcBounds.add(ecRaw);
     emit portalSampleAdded(time, ecRaw, temperatureC, breakBefore);
     m_portalGap = false;

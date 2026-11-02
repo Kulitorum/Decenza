@@ -615,14 +615,18 @@ QJsonObject ShotSummarizer::buildPortalBlock(const QVariantMap& pa)
         portal["maxDipProminenceRawEc"] = round2(pa.value(QStringLiteral("maxDipProminenceRawEc")).toDouble());
     const bool calibrated = pa.value(QStringLiteral("calibrated")).toBool();
     portal["calibrated"] = calibrated;
+    portal["predictionAvailable"] = pa.value(QStringLiteral("predictionAvailable")).toBool();
     if (calibrated) {
         portal["calibrationScope"] = pa.value(QStringLiteral("calibrationScope")).toString();
         portal["calibrationModel"] = pa.value(QStringLiteral("calibrationMode")).toString();
         portal["calibrationShotCount"] = pa.value(QStringLiteral("calibrationShotCount")).toInt();
-        portal["calibrationLoocvMaeTdsPct"] = round3(pa.value(QStringLiteral("calibrationLoocvMaeTdsPct")).toDouble());
-        portal["estimatedTdsPct"] = round2(pa.value(QStringLiteral("estimatedTdsPct")).toDouble());
-        if (pa.value(QStringLiteral("estimatedEyPct")).toDouble() > 0.0)
-            portal["estimatedEyPct"] = round2(pa.value(QStringLiteral("estimatedEyPct")).toDouble());
+        if (pa.value(QStringLiteral("calibrationHasCrossValidation")).toBool())
+            portal["calibrationLoocvMaeTdsPct"] = round3(pa.value(QStringLiteral("calibrationLoocvMaeTdsPct")).toDouble());
+        if (pa.value(QStringLiteral("predictionAvailable")).toBool()) {
+            portal["estimatedTdsPct"] = round2(pa.value(QStringLiteral("estimatedTdsPct")).toDouble());
+            if (pa.value(QStringLiteral("estimatedEyPct")).toDouble() > 0.0)
+                portal["estimatedEyPct"] = round2(pa.value(QStringLiteral("estimatedEyPct")).toDouble());
+        }
     }
     return portal;
 }
@@ -1097,7 +1101,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 
 Treat these JSON payload fields as gates on your advice:
 
-**Optional `portal` block** (on `shot` or historical shots such as `bestRecentShot`): raw EC is device-unit conductivity, not TDS or coffee solids. `M2` and `M5` are mean raw EC over the last 2 g and 5 g; `T5` is the last-5-g slope in raw EC/g; `R5` is unitless M5/main-peak EC and may exceed 1. `peakRawEc`, `mainPeakRawEc`, `finalRawEc` and `meanRawEcPerG` are raw EC units. `integralRawEcG`, `activeIntegralRawEcG` and `settlingIntegralRawEcG` are raw EC × g; `doseNormalizedIntegral` divides that integral by dose grams. `coverageRatio`, `recentContributionShare5g` and `post1to2ContributionShare` are fractions from 0 to 1. Mass fields ending in G are grams. Calibrated TDS/EY fields ending in Pct are percentages; error fields ending in TdsPct are TDS percentage points. Read `uncertaintyReasons`: preliminary or extrapolated calibration does not make raw tail evidence unreliable. Ratio advice requires reliable measurements and explicit feedback on the current cup; it suggests an experiment, not an optimum.
+**Optional `portal` block** (on `shot` or historical shots such as `bestRecentShot`): raw EC is device-unit conductivity, not TDS or coffee solids. `M2` and `M5` are mean raw EC over the last 2 g and 5 g; `T5` is the last-5-g slope in raw EC/g; `R5` is unitless M5/main-peak EC and may exceed 1. `peakRawEc`, `mainPeakRawEc`, `finalRawEc` and `meanRawEcPerG` are raw EC units. `integralRawEcG`, `activeIntegralRawEcG` and `settlingIntegralRawEcG` are raw EC × g; `doseNormalizedIntegral` divides that integral by dose grams. `coverageRatio`, `recentContributionShare5g` and `post1to2ContributionShare` are fractions from 0 to 1. Mass fields ending in G are grams. Calibrated TDS/EY fields ending in Pct are percentages; error fields ending in TdsPct are TDS percentage points. Use estimated TDS/EY only when `predictionAvailable` is true; a fitted model alone does not support prediction, and missing estimates or cross-validation errors are unavailable rather than zero. Read `uncertaintyReasons`: calibration uncertainty does not make raw tail evidence unreliable. Ratio advice requires reliable measurements and explicit feedback on the current cup; it suggests an experiment, not an optimum.
 
 **`result.profile`**: the canonical source for profile metadata — `filename`, `title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` (when set). Read profile intent and frame steps here. The `shotAnalysis` prose carries shot-VARIABLE data only (dose, yield, duration, grind setting, extraction, peaks, phase data, detector observations); profile, bean and grinder identity come only from the structured blocks.
 

@@ -82,7 +82,7 @@ signals:
     void readingChanged();
     void devicesChanged();
     void machineBusyChanged();
-    void measurementReceived(double ecRaw, double temperatureC);
+    void measurementReceived(double ecRaw, double temperatureC, double auxiliaryTemperatureRaw);
     void readingInterrupted();
     void savedDeviceChanged();
     void syncDisplayChanged();

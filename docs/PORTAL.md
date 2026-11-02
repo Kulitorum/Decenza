@@ -9,9 +9,15 @@ leave-one-out prediction error. Saving, correcting or deleting TDS measurements
 updates the fit automatically; each reviewed shot excludes itself from its estimate.
 Keep the same sensor, water and mounting mode. EC dips, missing data
 and high-temperature warnings exclude a reference; fewer than five independent
-references and predictions outside the measured range remain uncertain.
+references remain preliminary.
 EC cannot measure remaining coffee solids or determine taste: ratio advice is
 experimental and never stops or changes a brew.
 
 Sensor calibration with Belka's supplied solution is a separate device procedure;
 this fork does not add an unverified calibration command.
+
+TDS/EY is withheld when independent prediction error is unavailable, the model
+fails to outperform the reference mean, or the shot lies outside its measured
+EC/ratio range. The fitted factor remains visible in Settings. Temperature
+diagnostics retain an unverified auxiliary sensor field without applying a
+correction; see [research and validity limits](PORTAL_EVIDENCE.md).

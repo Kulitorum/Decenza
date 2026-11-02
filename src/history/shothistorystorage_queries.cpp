@@ -722,7 +722,9 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                                     cached = portalFits.insert(key, std::move(fit));
                                 }
                                 const auto& fit = cached.value();
-                                if (fit.calibrated) {
+                                if (fit.predictionSupported && !fit.predictionUncertainty(
+                                        portalMeanEc, rowFinalWeight, rowDoseWeight).contains(
+                                            QStringLiteral("outside_calibration_range"))) {
                                     shot["portalEstTdsPct"] = fit.predictTdsPct(portalMeanEc);
                                     shot["portalEstEyPct"] = fit.predictEyPct(portalMeanEc, rowFinalWeight, rowDoseWeight);
                                     shot["portalCalScope"] = fit.scope;
