@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <cstdint>
 
 #include <QObject>
@@ -285,6 +286,7 @@ public slots:
     void startEspresso();
     void startSteam();
     void startHotWater();
+    void setHotWaterStartGuard(std::function<QString()> guard) { m_hotWaterStartGuard = std::move(guard); }
     // Start HotWater or Espresso with no one at the machine: a recipe's second
     // step. On hardware this is the same BLE request as startHotWater/
     // startEspresso, and a GHC machine accepts it only inside the firmware's
@@ -516,6 +518,7 @@ protected:
     void customEvent(QEvent* event) override;
 
 private:
+    std::function<QString()> m_hotWaterStartGuard;
     enum class StateWrite { Normal, Urgent };
 
     // The one place REQUESTED_STATE is written. Three callers reach it

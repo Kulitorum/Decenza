@@ -1581,6 +1581,11 @@ void DE1Device::startSteam() {
 }
 
 void DE1Device::startHotWater() {
+    const QString error = m_hotWaterStartGuard ? m_hotWaterStartGuard() : QString();
+    if (!error.isEmpty()) {
+        emit errorOccurred(error);
+        return;
+    }
     writeMMR(DE1::MMR::GHC_MODE, 1, QStringLiteral("startHotWater"));
 
     if (m_state != DE1::State::Idle) {

@@ -1384,3 +1384,9 @@ After this proposal landed, additional phases added scale tools, device tools, M
 - `shots_get_detail` / `shots_compare` emit a parsed `beanBase` object (the shot's stored snapshot) when the shot's bean was linked; omitted otherwise.
 - `shots_update` accepts a `beanBase` object — a full entry replaces the shot's snapshot, `{}` clears it (fix shots recorded against the wrong bean).
 - The Bean Base API key is a sensitive credential and is NOT exposed via settings_get/settings_set.
+
+Recipe hot-water amounts support `amountMode: "ratio"` with a positive
+`waterToEspressoRatio` (added-water grams / target-espresso grams), mutually
+exclusive with fixed `volumeMl`. Ratio water requires an espresso target and
+resolves to 10–500 g; fixed weight/volume fields retain their existing meaning.
+The ratio is saved on the recipe snapshot and never edits the shared fixed preset.

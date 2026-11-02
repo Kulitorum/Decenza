@@ -124,6 +124,7 @@ void DrinkSequenceController::onFlowStarted(int phase)
 
     m_activeCaptureId = ++m_nextCaptureId;
     m_waterCaptures.insert(m_activeCaptureId, {});
+    m_waterCaptures[m_activeCaptureId].waterSpec = recipe.value(QStringLiteral("hotWaterJson")).toString();
     if (next == Step::HotWater)
         associateEspresso(m_activeCaptureId);
     else
@@ -285,7 +286,7 @@ void DrinkSequenceController::associateEspresso(quint64 captureId)
     if (it == m_waterCaptures.end() || it->espressoOperation > 0 || !m_espressoOperation) return;
     it->espressoOperation = m_espressoOperation();
     if (it->espressoOperation <= 0) return;
-    emit waterEspressoAssociated(it->espressoOperation);
+    emit waterEspressoAssociated(it->espressoOperation, it->waterSpec);
     publishWaterResult(captureId);
 }
 

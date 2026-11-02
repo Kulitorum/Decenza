@@ -33,6 +33,13 @@ class tst_RecipePromotion : public QObject {
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void promotionPreservesCustomWaterRatio() {
+        auto record = sampleShotRecord();
+        record.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.7,"resolvedTargetG":108,"mode":"weight"})";
+        const auto fields = RecipePromotion::fieldsFromShotRecord(record, "Water recipe", std::nullopt, QString());
+        QCOMPARE(fields.value("hotWaterJson").toString(), record.hotWaterJson);
+    }
+
     // The shot's bag becomes the recipe's hard bag link (recipes link a
     // specific bag); a pre-bag shot (bagId <= 0) stores no link — the bean
     // identity fields still carry as the relink matching key.

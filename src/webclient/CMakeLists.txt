@@ -93,7 +93,7 @@ set(shared_qml_files
     EquipmentInfoDialog.qml EquipmentSummary.qml FavoritesListView.qml GrindField.qml GrindPickerDialog.qml
     GrindRowSource.qml GrindCalibrationSection.qml HideKeyboardButton.qml KbDerivedFromLabel.qml ProfileCard.qml ProfileDialInDiffBlock.qml
     ProfileFavoritesOrderDialog.qml ProfileGraph.qml ProfileInfoButton.qml ProfileKnowledgeDialog.qml ProfilePicker.qml
-    ProfilePreviewPopup.qml RatioPresetDialog.qml RecipeDrinkCard.qml SearchField.qml ShotPlanText.qml
+    ProfilePreviewPopup.qml RatioPresetDialog.qml RatioChoiceDialog.qml WaterRatioDialog.qml WaterVesselDialog.qml RecipeDrinkCard.qml SearchField.qml ShotPlanText.qml
     SortControls.qml StyledComboBox.qml StyledIconButton.qml StyledTextField.qml SwitchEquipmentDialog.qml
     UnsavedChangesDialog.qml BagLifecycleLabels.qml ComparisonText.qml
     BeanBaseDetailsRow.qml

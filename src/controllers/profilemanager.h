@@ -279,6 +279,7 @@ public:
     // falling back to the profile's target_weight. Always returns plain
     // grams — a ratio never crosses MachineState.
     double targetWeight() const;
+    double configuredTargetWeight() const;
     void setTargetWeight(double weight);
     // True iff the session anchor's mode is "ratio" — read from the stored
     // mode, never inferred by comparing grams against the profile target.

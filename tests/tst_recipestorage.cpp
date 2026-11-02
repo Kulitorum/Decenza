@@ -90,6 +90,34 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void waterAmountResolution_data() {
+        QTest::addColumn<QByteArray>("json");
+        QTest::addColumn<double>("target");
+        QTest::addColumn<int>("expected");
+        const QByteArray ratio = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})";
+        QTest::newRow("ratio") << ratio << 40.0 << 100;
+        QTest::newRow("round") << ratio << 41.0 << 103;
+        QTest::newRow("missing-target") << ratio << 0.0 << 0;
+        QTest::newRow("too-large") << ratio << 300.0 << 0;
+        QTest::newRow("too-small") << ratio << 1.0 << 0;
+        QTest::newRow("fixed-volume") << QByteArray(R"({"hasWater":true,"volume":150,"mode":"volume"})") << 40.0 << 150;
+        QTest::newRow("conflict") << QByteArray(R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5,"volume":100})") << 40.0 << 0;
+        QTest::newRow("negative") << QByteArray(R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":-1})") << 40.0 << 0;
+        QTest::newRow("unknown") << QByteArray(R"({"hasWater":true,"amountMode":"unknown"})") << 40.0 << 0;
+    }
+
+    void waterAmountResolution() {
+        QFETCH(QByteArray, json);
+        QFETCH(double, target);
+        QFETCH(int, expected);
+        const auto water = QJsonDocument::fromJson(json).object();
+        const auto result = WaterAmount::resolve(water, target);
+        QCOMPARE(result.amount, expected);
+        QCOMPARE(result.valid(), expected > 0);
+        if (WaterAmount::isRatio(water))
+            QVERIFY(!WaterAmount::definitionError(water, false).isEmpty());
+    }
+
     // --- variant map round-trip ---
 
     void variantMapRoundTrip() {
@@ -1184,6 +1212,27 @@ private slots:
             // Update round-trips through the kCols update map; empty clears to NULL.
             QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"hotWaterJson", QString()}}));
             QVERIFY(RecipeStorage::loadRecipeStatic(db, id).hotWaterJson.isEmpty());
+        });
+    }
+
+    void ratioWaterRoundTripAndInvalidPatch() {
+        withRawDb(freshDbPath(), "water_ratio", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe;
+            recipe.name = "Ratio water";
+            recipe.profileTitle = "Espresso";
+            recipe.yieldMode = "absolute";
+            recipe.yieldValue = 40;
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.7,"mode":"weight"})";
+            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).hotWaterJson, recipe.hotWaterJson);
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"name", "Renamed"}}));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).hotWaterJson, recipe.hotWaterJson);
+            QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"yieldValue", 300.0}}));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).yieldValue, 40.0);
+            QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"profileTitle", QString()}}));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).profileTitle, recipe.profileTitle);
         });
     }
 

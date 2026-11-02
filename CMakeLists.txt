@@ -1739,7 +1739,7 @@ set(QML_FILES
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
     qml/components/PortalStatusIndicator.qml
-    qml/components/RatioPresetDialog.qml
+    qml/components/RatioPresetDialog.qml qml/components/RatioChoiceDialog.qml qml/components/WaterRatioDialog.qml qml/components/WaterVesselDialog.qml
     qml/components/TempPickerDialog.qml
     qml/components/GrindField.qml
     qml/components/GrindPickerDialog.qml

@@ -339,6 +339,12 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
             return;
         }
+        const QString waterError = RecipeEditFields::waterError(fields.value("profileTitle").toString(),
+            fields.value("hotWaterJson").toString());
+        if (!waterError.isEmpty()) {
+            respondJson(QJsonObject{{"error", waterError}}, 400);
+            return;
+        }
         if (!Recipe::saveValidationPasses(fields.value("name").toString(),
                                           fields.value("profileTitle").toString(),
                                           fields.value("hotWaterJson").toString())) {
@@ -876,6 +882,7 @@ QString ShotServer::generateRecipesPage() const
     html += WEB_JS_GRIND_DATALIST;
     html += R"HTML(
         let editingId = null;
+        let editingWater = {};
         let recipes = [];          // full list (active + archived), as fetched
         let bags = [];
         let bagsLoaded = false;
@@ -1208,6 +1215,7 @@ QString ShotServer::generateRecipesPage() const
             el('fSteamFlow').value = steam.flow || '';
             el('fSteamTemp').value = steam.temperatureC || '';
             const water = r.hotWater || {};
+            editingWater = Object.assign({}, water);
             el('fHasWater').checked = !!water.hasWater;
             el('fVessel').value = water.vesselName || '';
             el('fWaterOrder').value = water.order === 'before' ? 'before' : 'after';
@@ -1242,9 +1250,9 @@ QString ShotServer::generateRecipesPage() const
                 const stemp = parseFloat(el('fSteamTemp').value);
                 if (stemp > 0) steam.temperatureC = stemp;
             }
-            const hotWater = {};
-            if (hasWater) hotWater.hasWater = true;
             const vessel = el('fVessel').value.trim();
+            const hotWater = vessel === editingWater.vesselName ? Object.assign({}, editingWater) : {};
+            hotWater.hasWater = hasWater;
             if (vessel) hotWater.vesselName = vessel;
             hotWater.order = el('fWaterOrder').value === 'before' ? 'before' : 'after';
             const bodyData = {

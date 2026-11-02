@@ -297,6 +297,16 @@ T.Page {
     property bool fHasWater: false
     property string fVesselName: ""
     property int fVesselVolume: 0
+    property string fWaterAmountMode: "fixed"
+    property real fWaterRatio: 2.5
+    readonly property real waterEspressoTargetG: {
+        let bag = {}
+        for (let i = 0; i < _bags.length; ++i)
+            if (_bags[i].id === fBagId) bag = _bags[i]
+        return RecipeContext.recipeYieldPreview({yieldMode: fYieldMode,
+            yieldValue: fYieldMode === "ratio" ? (parseFloat(ratioField.text) || 0) : (parseFloat(yieldField.text) || 0),
+            doseG: parseFloat(doseField.text) || 0}, bag, fProfileYieldG)
+    }
     property string fVesselMode: "weight"
     property int fVesselFlowRate: 40
     property real fVesselTemperatureC: 0
@@ -398,6 +408,8 @@ T.Page {
         return _existingRecipeNames.indexOf(n) >= 0
     }
     readonly property bool canSave: RecipeService.ready && !RecipeService.busy
+        && (!fHasWater || fWaterAmountMode !== "ratio" || RecipeContext.waterAmountPreview(
+            Object.assign({hasWater: true, vesselName: fVesselName}, recipeVesselSnapshot()), waterEspressoTargetG).valid)
         && !_saveConflict
         && RecipeService.isSaveValid(recipeNameEditor.text, fProfileTitle, buildHotWaterJson())
         && !nameInUse
@@ -704,6 +716,7 @@ T.Page {
         fHasWater = false; fVesselName = ""; fVesselVolume = 0
         fVesselMode = "weight"; fVesselFlowRate = 40; fVesselTemperatureC = 0
         fWaterOrder = "after"
+        fWaterAmountMode = "fixed"; fWaterRatio = 2.5
         if (!json || json === "")
             return
         try {
@@ -711,6 +724,8 @@ T.Page {
             fHasWater = !!w.hasWater
             fVesselName = w.vesselName || ""
             fVesselVolume = w.volume || 0
+            fWaterAmountMode = w.amountMode || "fixed"
+            fWaterRatio = Number(w.waterToEspressoRatio ?? 2.5)
             fVesselMode = w.mode || "weight"
             fVesselFlowRate = w.flowRate || 40
             fVesselTemperatureC = w.temperatureC || 0
@@ -726,7 +741,9 @@ T.Page {
         var w = { hasWater: fHasWater, order: fWaterOrder }
         if (fVesselName !== "") {
             w.vesselName = fVesselName
-            w.volume = fVesselVolume
+            w.amountMode = fWaterAmountMode
+            if (fWaterAmountMode === "ratio") w.waterToEspressoRatio = fWaterRatio
+            else w.volume = fVesselVolume
             w.mode = fVesselMode
             w.flowRate = fVesselFlowRate
             w.temperatureC = fVesselTemperatureC
@@ -1277,15 +1294,35 @@ T.Page {
     // preset index): presets can be renamed, reordered or deleted after the
     // recipe is saved, and an index would then silently point at someone else's
     // vessel. Called by the hot-water window's tiles.
+    function recipeVesselSnapshot() {
+        const vessel = {name: fVesselName, amountMode: fWaterAmountMode, mode: fVesselMode,
+            flowRate: fVesselFlowRate, temperature: fVesselTemperatureC}
+        if (fWaterAmountMode === "ratio") vessel.waterToEspressoRatio = fWaterRatio
+        else vessel.volume = fVesselVolume
+        return vessel
+    }
+
+    function editRecipeVessel(addNew) {
+        const presets = RecipeContext.preferences.waterVesselPresets || []
+        let index = -1
+        if (!addNew) {
+            for (let i = 0; i < presets.length; ++i)
+                if (String(presets[i].name).toLowerCase() === fVesselName.toLowerCase()) index = i
+        }
+        recipeVesselEditor.openFor(addNew ? {} : recipeVesselSnapshot(), index)
+    }
+
     function selectVessel(preset) {
         fVesselName = preset.name || ""
         fVesselVolume = preset.volume || 0
+        fWaterAmountMode = preset.amountMode || "fixed"
+        fWaterRatio = Number(preset.waterToEspressoRatio ?? 2.5)
         fVesselMode = preset.mode || "weight"
         // `!== undefined`, not `|| 40`: a preset really set to 0 must survive
         // rather than being silently rewritten to the default (the same idiom
         // HotWaterPage uses when reading these presets).
         fVesselFlowRate = preset.flowRate !== undefined ? preset.flowRate : 40
-        fVesselTemperatureC = preset.temperature || 0
+        fVesselTemperatureC = preset.temperatureC ?? preset.temperature ?? 0
     }
 
     // Set the water order, keeping the drink TYPE honest with it. Americano and
@@ -1311,13 +1348,12 @@ T.Page {
         var arr = []
         var found = false
         for (let i = 0; i < presets.length; ++i) {
-            arr.push(presets[i])
+            arr.push((presets[i].name || "") === fVesselName ? recipeVesselSnapshot() : presets[i])
             if ((presets[i].name || "") === fVesselName)
                 found = true
         }
         if (!found && fVesselName !== "") {
-            arr.push({ name: fVesselName, volume: fVesselVolume, mode: fVesselMode,
-                       flowRate: fVesselFlowRate, temperature: fVesselTemperatureC })
+            arr.push(recipeVesselSnapshot())
         }
         return arr
     }
@@ -1333,7 +1369,9 @@ T.Page {
     // the middle one: absent artwork reads as "unknown", whereas a mug on a
     // 0-volume preset reads as a normal vessel and hides the problem.
     function vesselTileIcon(preset) {
-        var v = preset.volume || 0
+        var v = preset.amountMode === "ratio"
+            ? RecipeContext.waterAmountPreview(Object.assign({hasWater: true, vesselName: preset.name}, preset), waterEspressoTargetG).amountG
+            : (preset.volume || 0)
         if (v <= 0) return ""
         if (v <= 250) return "qrc:/icons/cup.svg"
         if (v <= 400) return "qrc:/icons/mug.svg"
@@ -1346,6 +1384,11 @@ T.Page {
     // Temperature renders in the user's unit via Theme.formatTemperature.
     function vesselTileMeta(preset) {
         var parts = []
+        if (preset.amountMode === "ratio") {
+            const preview = RecipeContext.waterAmountPreview(Object.assign({hasWater: true, vesselName: preset.name}, preset), waterEspressoTargetG)
+            parts.push(Number(preset.waterToEspressoRatio).toFixed(1) + "×")
+            if (preview.valid) parts.push(preview.amountG + "g")
+        }
         if ((preset.volume || 0) > 0)
             parts.push(preset.volume + (preset.mode === "volume" ? "ml" : "g"))
         if ((preset.temperature || 0) > 0)
@@ -1458,7 +1501,8 @@ T.Page {
         var yieldG = parseFloat(yieldField.text) || 0
         var ratioV = parseFloat(ratioField.text) || 0
         if (isHotWaterTea) {
-            if (fVesselVolume > 0)
+            if (fWaterAmountMode === "ratio") parts.push(vesselTileMeta(recipeVesselSnapshot()))
+            else if (fVesselVolume > 0)
                 parts.push(fVesselVolume + (fVesselMode === "volume" ? "ml" : "g"))
         } else if (fYieldMode === "ratio" && ratioV > 0) {
             parts.push(dose > 0
@@ -3440,6 +3484,19 @@ T.Page {
                                 Accessible.role: Accessible.StaticText
                                 Accessible.name: text
                             }
+                            RowLayout {
+                                AccessibleButton {
+                                    text: TranslationManager.translate("water.vessel.add", "Add vessel")
+                                    accessibleName: text
+                                    onClicked: wizardPage.editRecipeVessel(true)
+                                }
+                                AccessibleButton {
+                                    visible: wizardPage.fVesselName !== ""
+                                    text: TranslationManager.translate("water.vessel.edit", "Edit vessel")
+                                    accessibleName: text
+                                    onClicked: wizardPage.editRecipeVessel(false)
+                                }
+                            }
                             // The vessel presets as inline, tap-to-select tiles
                             // (like the pitchers on the steam window): the chosen
                             // one is highlighted, and picking one moves on.
@@ -3472,8 +3529,7 @@ T.Page {
                                 visible: (RecipeContext.preferences.waterVesselPresets || []).length === 0
                                 Layout.fillWidth: true
                                 text: TranslationManager.translate("recipes.wizard.noVessels",
-                                      "No water vessels saved yet — add one on the Hot Water page "
-                                      + "and it will show up here.")
+                                      "No water vessels saved yet — use Add vessel to create one.")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -3706,7 +3762,9 @@ T.Page {
                                 var parts = []
                                 if (wizardPage.fVesselName !== "")
                                     parts.push(wizardPage.fVesselName)
-                                if (wizardPage.fVesselVolume > 0)
+                                if (wizardPage.fWaterAmountMode === "ratio")
+                                    parts.push(wizardPage.vesselTileMeta(wizardPage.recipeVesselSnapshot()))
+                                else if (wizardPage.fVesselVolume > 0)
                                     parts.push(wizardPage.fVesselVolume
                                         + (wizardPage.fVesselMode === "volume" ? "ml" : "g"))
                                 if (!wizardPage.isHotWaterTea)
@@ -3813,6 +3871,17 @@ T.Page {
     BottomBar {
         barColor: "transparent"
         onBackClicked: wizardPage.goBackOneStep()
+    }
+
+    WaterVesselDialog {
+        id: recipeVesselEditor
+        recipeEditing: true
+        allowRatio: !wizardPage.isHotWaterTea
+        espressoTargetG: wizardPage.waterEspressoTargetG
+        onSaved: function(vessel, index) {
+            wizardPage.selectVessel(vessel)
+            wizardPage._detailsUserEdited = true
+        }
     }
 
     // The named-ratio chooser (Ristretto / Normale / Lungo), opened from the

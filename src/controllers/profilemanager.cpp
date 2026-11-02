@@ -533,9 +533,10 @@ double ProfileManager::targetWeight() const {
     //
     // The deliberate mid-shot +10 g bump is unaffected — it writes
     // MachineState::setTargetWeight() directly and never comes through here.
-    if (m_shotLatched)
-        return m_latchedTargetG;
+    return m_shotLatched ? m_latchedTargetG : configuredTargetWeight();
+}
 
+double ProfileManager::configuredTargetWeight() const {
     if (!brewOverridesApply())
         return m_currentProfile.targetWeight();
 
@@ -547,7 +548,7 @@ double ProfileManager::targetWeight() const {
     if (m_settings) {
         SettingsBrew* brew = m_settings->brew();
         return YieldSpec::resolveGrams(brew->brewYieldMode(), brew->brewYieldOverride(),
-                                       brewByRatioDose(), m_currentProfile.targetWeight());
+                                       m_settings->dye()->dyeBeanWeight(), m_currentProfile.targetWeight());
     }
     return m_currentProfile.targetWeight();
 }

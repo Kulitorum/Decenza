@@ -44,7 +44,8 @@ class SerialDbWorker;
 // selects a water vessel; the vessel's own values ride the recipe. Like
 // the steam pitcher the vessel is snapshotted BY VALUE (never a preset-list
 // reference); activation re-selects it by name and recreates it from the
-// snapshot if the preset was deleted. There is no separate per-recipe amount.
+// snapshot if the preset was deleted. A recipe-only amountMode="ratio" stores
+// waterToEspressoRatio in place of volume; shared presets remain fixed.
 // Returned by the recipes-using-a-profile count when the count could not be
 // taken at all. Distinct from 0 on purpose — see countRecipesUsingProfile.
 inline constexpr int kRecipeCountUnknown = -1;
@@ -312,6 +313,9 @@ public:
     // dbPath must be the shot history database (table lives there).
     void initialize(const QString& dbPath);
     QString databasePath() const { return m_dbPath; }
+    void setProfileYieldSnapshotProvider(std::function<QHash<QString, double>()> provider) {
+        m_profileYieldSnapshot = std::move(provider);
+    }
 
     // Async queries — results via signals (QVariantList of toVariantMap()).
     // QML-visible view of Recipe::saveValidationPasses (the wizard's Save gate).
@@ -640,6 +644,7 @@ signals:
     void recipesChanged();
 
 private:
+    std::function<QHash<QString, double>()> m_profileYieldSnapshot;
     void requestUpdateRecipeImpl(qint64 recipeId, const QVariantMap& fields,
                                  QObject* completionContext,
                                  RecipeUpdateCompletion completion,

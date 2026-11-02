@@ -2436,6 +2436,7 @@ private slots:
         // 1. A dose write (scale capture, MCP, settings import).
         f.settings.dye()->setDyeBeanWeight(20.0);
         QCOMPARE(f.profileManager.targetWeight(), 45.0);
+        QCOMPARE(f.profileManager.configuredTargetWeight(), 50.0);
 
         // 2. An anchor CLEAR — what a bean switch does (the real-world bug).
         f.settings.brew()->clearAllBrewOverrides();
@@ -2444,6 +2445,7 @@ private slots:
         // 3. An anchor WRITE (recipe activation, MCP/web edit).
         f.settings.brew()->setBrewYieldOverride(80.0);
         QCOMPARE(f.profileManager.targetWeight(), 45.0);
+        QCOMPARE(f.profileManager.configuredTargetWeight(), 80.0);
 
         // 4. A ratio anchor write.
         f.settings.brew()->setBrewRatioAnchor(1.0);

@@ -1,4 +1,23 @@
 #include "recipecontextservice.h"
+#include "core/wateramount.h"
+#include "core/brewbaseline.h"
+
+double RecipeContextService::recipeYieldPreview(const QVariantMap& recipe, const QVariantMap& bag,
+                                               double profileTargetG) const
+{
+    const auto yield = BrewBaseline::resolveYield(recipe, bag.value(QStringLiteral("yieldMode")).toString(),
+        bag.value(QStringLiteral("yieldValue")).toDouble(), profileTargetG);
+    const double dose = recipe.value(QStringLiteral("doseG")).toDouble();
+    return YieldSpec::resolveGrams(yield.mode, yield.value,
+        dose > 0 ? dose : bag.value(QStringLiteral("doseWeightG")).toDouble(), profileTargetG);
+}
+
+QVariantMap RecipeContextService::waterAmountPreview(const QVariantMap& water, double espressoTargetG) const
+{
+    const auto result = WaterAmount::resolve(QJsonObject::fromVariantMap(water), espressoTargetG);
+    return {{QStringLiteral("valid"), result.valid()}, {QStringLiteral("amountG"), result.amount},
+            {QStringLiteral("error"), result.error}};
+}
 
 #include <QMetaObject>
 #include <QJSEngine>

@@ -102,6 +102,41 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void invalidRecipeWaterBlocksManualAndSequencedStarts() {
+        SequenceFixture f("after");
+        f.device.setHotWaterStartGuard([] { return QStringLiteral("Water target is invalid"); });
+        QSignalSpy errors(&f.device, &DE1Device::errorOccurred);
+        f.device.startHotWater();
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(f.requested().isEmpty());
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        f.sequence.onShotSettled();
+        QTRY_COMPARE(errors.count(), 2);
+        QVERIFY(f.requested().isEmpty());
+        f.sequence.skip();
+        f.device.setHotWaterStartGuard({});
+        f.device.startHotWater();
+        QTRY_VERIFY(f.requested().contains(SequenceFixture::one(DE1::State::HotWater)));
+    }
+
+    void waterResultRetainsTargetSeparateFromMeasurement() {
+        TestFixture f;
+        f.settings.brew()->setWaterVolumeMode("weight");
+        f.settings.brew()->setWaterVolume(105);
+        f.scale.mockSetConnected(true);
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.scale.mockSetWeight(107);
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(result.count(), 1);
+        const auto water = ShotWaterResult::fromMap(result.first().at(1).toMap());
+        QCOMPARE(water.targetWeightG.value_or(0), 105.0);
+        QCOMPARE(water.weightG.value_or(0), 107.0);
+        QCOMPARE(ShotWaterResult::fromJson(water.toJson()).targetWeightG.value_or(0), 105.0);
+    }
+
     void waterCaptureMeasuresNetFinalDropsAndIgnoresCupLift() {
         TestFixture f;
         f.settings.brew()->setWaterVolumeMode("volume");

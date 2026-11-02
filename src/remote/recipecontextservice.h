@@ -31,6 +31,9 @@ public:
     void setNode(QRemoteObjectNode* node) override;
 
     Q_INVOKABLE QString newRequestId() const;
+    Q_INVOKABLE QVariantMap waterAmountPreview(const QVariantMap& water, double espressoTargetG) const;
+    Q_INVOKABLE double recipeYieldPreview(const QVariantMap& recipe, const QVariantMap& bag,
+                                         double profileTargetG) const;
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void setPreference(const QString& requestId, const QString& name,
                                    const QVariant& value, quint64 expectedRevision);

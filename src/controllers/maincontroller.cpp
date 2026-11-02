@@ -2,6 +2,7 @@
 #include "core/settings_app.h"
 #include "core/appsettings.h"
 #include "maincontroller.h"
+#include "core/wateramount.h"
 #include "history/shotwaterresult.h"
 #include <QScopeGuard>
 #include "steamautoflushcontroller.h"
@@ -103,6 +104,9 @@
 // text embeds the resend count, so keying on it would open a run per count
 // value and close none of them.
 namespace {
+QJsonObject parseHotWaterBlock(const QString& json);
+QString compactJson(const QJsonObject& object);
+
 constexpr auto kDriftGiveUpLogKey = QLatin1String("shotSettingsDriftGiveUp");
 constexpr int kMaxDriftResendAttempts = 3;
 
@@ -237,8 +241,29 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_drinkSequence = new DrinkSequenceController(m_device, m_machineState,
                                                   [this] { return activeRecipe(); }, this);
     m_drinkSequence->setEspressoOperationProvider([this] { return m_espressoOperationId; });
+    m_device->setHotWaterStartGuard([this] { return recipeWaterStartError(); });
+    connect(this, &MainController::activeRecipeChanged, this, [this] {
+        QMetaObject::invokeMethod(this, &MainController::refreshRecipeWater, Qt::QueuedConnection);
+    });
+    connect(m_profileManager, &ProfileManager::targetWeightChanged,
+            this, &MainController::refreshRecipeWater);
+    connect(m_machineState, &MachineState::targetWeightChanged, this, [this] {
+        if (m_device->state() == DE1::State::Espresso) {
+            if (m_machineState->targetWeight() != m_profileManager->targetWeight())
+                m_recipeWaterBumpedYieldG = m_machineState->targetWeight();
+            refreshRecipeWater();
+        }
+    });
+    connect(m_machineState, &MachineState::phaseChanged, this, &MainController::refreshRecipeWater);
+    connect(m_drinkSequence, &DrinkSequenceController::activeChanged,
+            this, &MainController::refreshRecipeWater);
     connect(m_drinkSequence, &DrinkSequenceController::waterEspressoAssociated, this,
-            [this](qint64 operation) { m_waterResultJoin.expect(operation); });
+            [this](qint64 operation, const QString& waterSpec) {
+        m_waterResultJoin.expect(operation);
+        auto spec = parseHotWaterBlock(waterSpec);
+        if (WaterAmount::isRatio(spec)) spec.insert(QStringLiteral("resolvedTargetG"), m_recipeWaterTargetG);
+        m_shotWaterSpecs.insert(operation, compactJson(spec));
+    });
     connect(m_drinkSequence, &DrinkSequenceController::waterResultReady, this,
             [this](qint64 operation, const QVariantMap& result) {
         persistWaterResult(m_waterResultJoin.result(operation, result));
@@ -667,6 +692,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // override reset that follows a bag change cannot be stamped onto a
     // recipe the user is in the act of leaving (add-recipes).
     m_recipeStorage = new RecipeStorage(this);
+    m_recipeStorage->setProfileYieldSnapshotProvider([this] {
+        QHash<QString, double> targets;
+        const auto snapshot = m_profileManager->recipeProfileDisplaySnapshot();
+        for (auto it = snapshot.cbegin(); it != snapshot.cend(); ++it)
+            if (it->valid) targets.insert(it.key(), it->yieldG);
+        return targets;
+    });
     m_recipeStorage->initialize(m_shotHistory->databasePath());
     // Migration 31's deferred temp-offset conversion must be queued on the
     // serialized recipe worker BEFORE setupRecipeConnections() — whose tail
@@ -1785,19 +1817,8 @@ QJsonObject parseSteamBlock(const QString& json) {
     return QJsonDocument::fromJson(json.toUtf8()).object();
 }
 
-// The recipe hot-water block's JSON shape, shared by activation, the shot-save
-// snapshot, the composer prefill, MCP, and the web UI. Hot water is opt-in and
-// the selected water vessel carries the values (there is no separate per-recipe
-// amount), so the block is a by-value vessel snapshot plus the on/off flag and
-// a pour-order flag:
-//   { "hasWater": bool, "vesselName": s, "volume": n, "mode": "weight"|"volume",
-//     "flowRate": n, "temperatureC": n, "order": "before"|"after" }
-// order is the drink intent: "before" = water first (a long black), "after" =
-// water last (an Americano, the default). Field names mirror the steam block
-// (name->vesselName, temperature->temperatureC) while keeping the vessel's native
-// volume/mode/flowRate so a snapshot round-trips straight through SettingsBrew's
-// water-vessel preset API. The order is guidance (surfaced in the UI), not a
-// scripted two-stage pour.
+// Fixed blocks carry volume/mode; ratio blocks carry waterToEspressoRatio.
+// Both retain the vessel snapshot and before/after order by value.
 QJsonObject parseHotWaterBlock(const QString& json) {
     if (json.isEmpty())
         return QJsonObject();
@@ -2630,11 +2651,12 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // pre-warm — so a milk-less hot-water recipe never lit the steam heater
         // (the branch above already ran applySteamSettings for it).
         const QJsonObject water = parseHotWaterBlock(recipe.value("hotWaterJson").toString());
+        const bool ratioWater = WaterAmount::isRatio(water);
         // Require a vessel: hasWater with no vessel is an incomplete block (the
         // user toggled it on but never picked one) — applying it would push a
         // 0-volume hot-water target. Leave the live settings at the user's
         // baseline instead.
-        if (water.value("hasWater").toBool() && !water.value("vesselName").toString().isEmpty()) {
+        if (!ratioWater && water.value("hasWater").toBool() && !water.value("vesselName").toString().isEmpty()) {
             auto* brew = m_settings->brew();
             const QString vesselName = water.value("vesselName").toString();
             // Block values are the snapshot (composer). A name-only block (the
@@ -2717,6 +2739,8 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     // a UI navigating on this signal shows the recipe's dose, not the
     // profile default.
     QMetaObject::invokeMethod(this, [this, recipeId]() {
+        if (activeRecipeId() != recipeId) return;
+        refreshRecipeWater();
         emit recipeActivated(recipeId, true);
     }, Qt::QueuedConnection);
 }
@@ -3077,6 +3101,11 @@ QString MainController::currentHotWaterSpecJson() const {
     const QJsonObject active = parseHotWaterBlock(m_recipeWiring.activeRecipe().value("hotWaterJson").toString());
     if (!active.value("hasWater").toBool())
         return QString();
+    if (WaterAmount::isRatio(active)) {
+        QJsonObject water = active;
+        water.insert(QStringLiteral("resolvedTargetG"), m_recipeWaterTargetG);
+        return compactJson(water);
+    }
     o.insert("hasWater", true);
     // order (before/after) is declared intent, not derivable from live settings
     // — carry it over from the active recipe's block (default "after").
@@ -3473,6 +3502,16 @@ void MainController::selectSteamPitcher(int index, double milkFallbackG) {
 bool MainController::selectWaterVessel(int index) {
     if (!m_settings || !m_settings->brew() || !m_settings->hardware())
         return false;
+    const auto water = parseHotWaterBlock(activeRecipe().value("hotWaterJson").toString());
+    const auto preset = m_settings->brew()->getWaterVesselPreset(index);
+    if (WaterAmount::isRatio(water) && water.value("hasWater").toBool()
+        && !preset.isEmpty() && preset.value("name").toString().compare(
+            water.value("vesselName").toString(), Qt::CaseInsensitive) == 0) {
+        m_settings->brew()->setSelectedWaterCup(index);
+        refreshRecipeWater();
+        applyResolvedRecipeWater();
+        return true;
+    }
     return MachineControlPresets::selectWaterVessel(
         m_settings->brew(), m_settings->hardware(), index,
         [this] { applyHotWaterSettings(); });
@@ -3703,6 +3742,78 @@ void MainController::applyHotWaterSettings() {
         m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE,
                            m_settings->hardware()->hotWaterFlowRate(),
                            QStringLiteral("applyHotWaterSettings"));
+}
+
+QString MainController::recipeWaterStartError() const
+{
+    return WaterAmount::isRatio(parseHotWaterBlock(activeRecipe().value(QStringLiteral("hotWaterJson")).toString()))
+        ? m_recipeWaterError : QString();
+}
+
+void MainController::refreshRecipeWater()
+{
+    if (!m_settings || !m_profileManager || m_applyingRecipe)
+        return;
+    const auto water = parseHotWaterBlock(activeRecipe().value(QStringLiteral("hotWaterJson")).toString());
+    if (!water.value(QStringLiteral("hasWater")).toBool() || !WaterAmount::isRatio(water)) {
+        m_recipeWaterInputs = {};
+        m_recipeWaterError.clear();
+        m_recipeWaterTargetG = 0;
+        m_recipeWaterBumpedYieldG = -1;
+        m_recipeWaterConfiguredYieldG = -1;
+        return;
+    }
+    // The water step owns its target once it starts, including a long black's
+    // already completed water while its espresso is still running.
+    if (m_machineState->phase() == MachineState::Phase::HotWater
+        || (drinkSequenceActive() && water.value(QStringLiteral("order")).toString() == QLatin1String("before")))
+        return;
+    double target = m_profileManager->configuredTargetWeight();
+    if (target != m_recipeWaterConfiguredYieldG) {
+        m_recipeWaterConfiguredYieldG = target;
+        m_recipeWaterBumpedYieldG = -1;
+    }
+    if (!drinkSequenceActive() && m_device->state() != DE1::State::Espresso)
+        m_recipeWaterBumpedYieldG = -1;
+    if (m_recipeWaterBumpedYieldG > 0) target = m_recipeWaterBumpedYieldG;
+    if (water == m_recipeWaterInputs && target == m_recipeWaterYieldG)
+        return;
+    m_recipeWaterInputs = water;
+    m_recipeWaterYieldG = target;
+    const auto resolved = WaterAmount::resolve(water, target);
+    m_recipeWaterError = resolved.error;
+    m_recipeWaterTargetG = resolved.amount;
+    if (!resolved.valid())
+        return;
+    applyResolvedRecipeWater();
+}
+
+void MainController::applyResolvedRecipeWater()
+{
+    if (m_recipeWaterTargetG <= 0 || !m_recipeWaterError.isEmpty()) return;
+    const auto& water = m_recipeWaterInputs;
+    auto* brew = m_settings->brew();
+    const QString vesselName = water.value(QStringLiteral("vesselName")).toString();
+    const auto presets = brew->waterVesselPresets();
+    int selected = -1;
+    for (int i = 0; i < presets.size(); ++i) {
+        if (presets.at(i).toMap().value(QStringLiteral("name")).toString().compare(vesselName, Qt::CaseInsensitive) == 0) {
+            selected = i;
+            break;
+        }
+    }
+    const int flow = water.value(QStringLiteral("flowRate")).toInt(40);
+    const double temperature = water.value(QStringLiteral("temperatureC")).toDouble(brew->waterTemperature());
+    if (selected < 0) {
+        brew->addWaterVesselPreset(vesselName, m_recipeWaterTargetG, QStringLiteral("weight"), flow, temperature);
+        selected = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+    }
+    brew->setSelectedWaterCup(selected);
+    brew->setWaterVolume(m_recipeWaterTargetG);
+    brew->setWaterVolumeMode(QStringLiteral("weight"));
+    brew->setWaterTemperature(temperature);
+    m_settings->hardware()->setHotWaterFlowRate(flow);
+    applyHotWaterSettings();
 }
 
 void MainController::applyFlushSettings() {
@@ -4858,10 +4969,7 @@ std::optional<ShotReviewSetup> MainController::currentShotReviewSetup() const {
     // targetWeight() can still expose a previous cycle's latch while an
     // asynchronous shot completion is settling. Resolve the live setup from
     // its inputs so this snapshot belongs to the cycle that just started.
-    setup.targetG = Profile::isMaintenanceBeverageType(m_profileManager->currentProfile().beverageType())
-        ? setup.brew.profileTargetWeightG
-        : YieldSpec::resolveGrams(setup.brew.yieldMode, setup.brew.yieldValue,
-                                  setup.brew.doseG, setup.brew.profileTargetWeightG);
+    setup.targetG = m_profileManager->configuredTargetWeight();
     return setup;
 }
 
@@ -4916,6 +5024,7 @@ void MainController::onEspressoCycleStarted() {
     constexpr qint64 MaxSafeQmlInteger = 9007199254740991LL;
     m_espressoOperationId = m_espressoOperationId >= MaxSafeQmlInteger
         ? 1 : m_espressoOperationId + 1;
+    m_shotWaterSpecs.insert(m_espressoOperationId, currentHotWaterSpecJson());
     if (const auto setup = currentShotReviewSetup())
         m_shotReviewBaselines.started(m_espressoOperationId, *setup);
     emit espressoOperationIdChanged();
@@ -5048,6 +5157,7 @@ void MainController::onShotEnded() {
     const qint64 completedOperationId = m_processingEspressoOperations.isEmpty()
         ? 0 : m_processingEspressoOperations.dequeue().operationId;
     const auto reviewSetup = m_shotReviewBaselines.take(completedOperationId);
+    const QString waterSpec = m_shotWaterSpecs.take(completedOperationId);
     bool waterSaveDispatched = false;
     const auto discardUnsavedWater = qScopeGuard([this, completedOperationId, &waterSaveDispatched] {
         if (waterSaveDispatched) return;
@@ -5224,6 +5334,7 @@ void MainController::onShotEnded() {
     // Build metadata for history. The sticky DYE fields come from the shared
     // helper; what follows is what only THIS shot can supply.
     ShotMetadata metadata = buildShotMetadataFromSettings();
+    metadata.hotWaterJson = waterSpec;
     metadata.hotWaterResultJson = ShotWaterResult::fromMap(m_waterResultJoin.result(completedOperationId)).toJson();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
     // The yield is NOT set here: saveShot() takes it as the finalWeight

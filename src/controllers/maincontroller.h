@@ -519,6 +519,7 @@ public slots:
 
     void applySteamSettings() override;  // also satisfies SideEffectPort
     void applyHotWaterSettings();
+    QString recipeWaterStartError() const;
     void applyFlushSettings();
 
     // Real-time hot water setting updates
@@ -857,6 +858,15 @@ private:
     SteamAutoFlushController* m_steamAutoFlush = nullptr;
     DrinkSequenceController* m_drinkSequence = nullptr;
     ShotWaterJoin m_waterResultJoin;
+    QJsonObject m_recipeWaterInputs;
+    double m_recipeWaterYieldG = -1;
+    int m_recipeWaterTargetG = 0;
+    QString m_recipeWaterError;
+    double m_recipeWaterBumpedYieldG = -1;
+    double m_recipeWaterConfiguredYieldG = -1;
+    QHash<qint64, QString> m_shotWaterSpecs;
+    void refreshRecipeWater();
+    void applyResolvedRecipeWater();
     void persistWaterResult(const std::optional<ShotWaterJoin::Write>& write);
     SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;

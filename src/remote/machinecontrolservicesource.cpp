@@ -985,6 +985,11 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
                        : applyReason);
             return;
         }
+        const QString waterError = m_controller->recipeWaterStartError();
+        if (!waterError.isEmpty()) {
+            finish(requestId, operation, false, waterError);
+            return;
+        }
         m_device->startHotWater();
         finish(requestId, operation, true, {}, {{QStringLiteral("dispatched"), true}});
         return;

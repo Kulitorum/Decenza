@@ -193,6 +193,23 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void waterPreviewUsesRecipeYieldRatherThanSession() {
+        Fixture f;
+        const QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.0}, {"doseG", 18.0}};
+        const QVariantMap bag{{"yieldMode", "absolute"}, {"yieldValue", 50.0}};
+        const double target = f.service->recipeYieldPreview(recipe, bag, 42.0);
+        QCOMPARE(target, 36.0);
+        const QVariantMap water{{"hasWater", true}, {"vesselName", "Cup"},
+            {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+        const auto preview = f.service->waterAmountPreview(water, target);
+        QVERIFY(preview.value("valid").toBool());
+        QCOMPARE(preview.value("amountG").toInt(), 90);
+        auto unnamed = water;
+        unnamed.remove("vesselName");
+        QCOMPARE(f.service->waterAmountPreview(unnamed, target).value("amountG").toInt(), 90);
+        QCOMPARE(f.service->recipeYieldPreview({}, bag, 42), 50.0);
+        QVERIFY(!f.service->waterAmountPreview(water, 0).value("valid").toBool());
+    }
     void shotBaselineIsOneCorrelatedRevisionGuardedOperation()
     {
         Fixture f;

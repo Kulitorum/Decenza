@@ -12,6 +12,7 @@ struct ShotWaterResult {
     std::optional<double> weightG;
     std::optional<double> volumeMl;
     std::optional<double> temperatureC;
+    std::optional<double> targetWeightG;
 
     bool isRecorded() const {
         return status == QLatin1String("dispensed") || status == QLatin1String("interrupted")
@@ -23,6 +24,8 @@ struct ShotWaterResult {
         if (!isRecorded()) return {};
         QVariantMap result{{QStringLiteral("status"), status},
                            {QStringLiteral("amountSource"), QStringLiteral("unavailable")}};
+        if (targetWeightG && std::isfinite(*targetWeightG) && *targetWeightG > 0)
+            result.insert(QStringLiteral("targetWeightG"), *targetWeightG);
         if (status == QLatin1String("notDispensed")) return result;
         const auto validAmount = [](const std::optional<double>& value) {
             return value && std::isfinite(*value) && *value >= 0;
@@ -54,6 +57,7 @@ struct ShotWaterResult {
         result.weightG = number("weightG");
         result.volumeMl = number("volumeMl");
         result.temperatureC = number("temperatureC");
+        result.targetWeightG = number("targetWeightG");
         return result;
     }
     static ShotWaterResult fromJson(const QString& json) {
