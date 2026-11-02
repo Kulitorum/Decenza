@@ -2280,10 +2280,7 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
-    // Migrations that only add columns: added in one transaction with the
-    // version stamp. Columns are schema facts (readers select them by name), so
-    // the bump is gated on every one being present. `extraStatements` (triggers)
-    // run in the same transaction and gate the bump too.
+    // Columns, trigger statements and required backfill share the version-stamp transaction.
     struct NewColumn { QString table, name, type; };
     auto addColumns = [&](int version, const char* label, const QList<NewColumn>& columns,
                           const char* untilComplete, const QStringList& extraStatements = {},
@@ -2435,25 +2432,17 @@ bool ShotHistoryStorage::runMigrations()
             // PORTAL previews used version 47 before main assigned it to added water.
             {QStringLiteral("shots"), QStringLiteral("hot_water_result_json"), QStringLiteral("TEXT")},
         }, "PORTAL provenance is unavailable until it completes", {}, [&] {
+            QSqlQuery invalidate(m_db);
+            if (!invalidate.exec("UPDATE shots SET portal_estimate_reliable=0 WHERE portal_estimate_reliable=1"))
+                return false;
             QSqlQuery samples(m_db);
             if (!samples.exec("SELECT shot_id, data_blob FROM shot_samples")) return false;
             while (samples.next()) {
-                ShotRecord record;
-                decompressSampleData(samples.value(1).toByteArray(), &record);
-                PortalTailAnalyzer::Options opts;
-                opts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
-                opts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
-                const auto result = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, opts);
+                const auto document = QJsonDocument::fromJson(qUncompress(samples.value(1).toByteArray()));
+                if (document.object().value(QStringLiteral("portalSamples")).toArray().isEmpty())
+                    continue;
                 QSqlQuery update(m_db);
-                update.prepare("UPDATE shots SET portal_present=:present, weight_source=:source, "
-                               "portal_mounting_mode=:mounting, portal_mean_ec=:ec, portal_integral_ec_g=:integral, "
-                               "portal_mean_temp_c=:temp, portal_estimate_reliable=0 WHERE id=:id");
-                update.bindValue(":present", !record.portalSamples.isEmpty());
-                update.bindValue(":source", record.weightSource);
-                update.bindValue(":mounting", record.portalMountingMode);
-                update.bindValue(":ec", result.meanRawEcPerG);
-                update.bindValue(":integral", result.integralRawEcG);
-                update.bindValue(":temp", result.meanTempC);
+                update.prepare("UPDATE shots SET portal_present=1, portal_estimate_reliable=0 WHERE id=:id");
                 update.bindValue(":id", samples.value(0));
                 if (!update.exec()) return false;
             }
@@ -2782,12 +2771,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         decenza::applyBadgesToTarget(data, analysis.detectors);
 
         if (!shotData->portalSamples().isEmpty()) {
-            PortalTailAnalyzer::Options portalOpts;
-            portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(data.weightSource);
-            portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(data.portalMountingMode);
-            portalOpts.doseWeightG = data.doseWeight;
-            portalOpts.finalWeightG = data.finalWeight;
-            portalOpts.activeStopTimeSec = shotData->pressureData().isEmpty() ? 0.0 : shotData->pressureData().last().x();
+            const auto portalOpts = PortalTailAnalyzer::optionsForShot(data.weightSource, data.portalMountingMode,
+                data.doseWeight, data.finalWeight, shotData->pressureData());
             const auto portalRes = PortalTailAnalyzer::analyze(
                 shotData->portalSamples(), tmpRecord.weight, portalOpts);
             if (portalRes.valid) {
@@ -4838,13 +4823,9 @@ bool ShotHistoryStorage::updateShotMetadataInTransaction(QSqlDatabase& db, qint6
         if (samples.next()) {
             ShotRecord record;
             decompressSampleData(samples.value(0).toByteArray(), &record);
-            PortalTailAnalyzer::Options opts;
-            opts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
-            opts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
-            opts.doseWeightG = samples.value(1).toDouble();
-            opts.finalWeightG = samples.value(2).toDouble();
+            const auto opts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
+                samples.value(1).toDouble(), samples.value(2).toDouble(), record.pressure);
             samples.finish();
-            opts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
             const auto result = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, opts);
             QSqlQuery update(db);
             update.prepare("UPDATE shots SET portal_estimate_reliable=:reliable WHERE id=:id");
@@ -6386,12 +6367,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     double portalMeanTempC = 0.0;
     bool portalReliable = false;
     if (!record.portalSamples.isEmpty()) {
-        PortalTailAnalyzer::Options portalOpts;
-        portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
-        portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
-        portalOpts.doseWeightG = record.summary.doseWeight;
-        portalOpts.finalWeightG = record.summary.finalWeight;
-        portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
+        const auto portalOpts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
+            record.summary.doseWeight, record.summary.finalWeight, record.pressure);
         const auto portalRes = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, portalOpts);
         if (portalRes.valid) {
             portalMeanEc = portalRes.meanRawEcPerG;

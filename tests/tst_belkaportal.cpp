@@ -472,6 +472,12 @@ private slots:
         auto* transport = new PortalTransport;
         BelkaPortalDevice portal(transport);
         PortalController controller(&portal, hardware, &machine, &timing, &model);
+        timing.startShot();
+        ShotSample ordinary;
+        timing.onShotSample(ordinary, 9.0, 2.0, 93.0, 2, false);
+        QVERIFY(model.portalMountingMode().isEmpty());
+        timing.endShot();
+        model.clear();
         start(portal, transport);
         portal.setSyncDisplay(true);
         emit transport->characteristicDiscovered(QBluetoothUuid(quint16(0x7400)),
@@ -900,6 +906,7 @@ private slots:
             portal.append({i / 10.0, 20.0 - i / 10.0, 55.0, i == 0});
         PortalTailAnalyzer::Options opts;
         opts.weightSource = PortalTailAnalyzer::WeightSource::PhysicalScale;
+        opts.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
         const auto plateau = PortalTailAnalyzer::analyze(portal, {{0, 0}, {5, 0}, {10, 10}}, opts);
         QVERIFY(plateau.valid);
         QVERIFY(std::abs(plateau.integralRawEcG - 125.0) < 1e-6);
@@ -910,6 +917,11 @@ private slots:
         QVERIFY(std::abs(linear.integralRawEcG - 450.0) < 1e-6);
         QVERIFY(std::abs(linear.activeIntegralRawEcG - 262.5) < 1e-6);
         QVERIFY(std::abs(linear.tailMean5g - (10.0 + 5.0 / 6.0)) < 1e-6);
+        portal.insert(50, portal.at(50));
+        const auto duplicate = PortalTailAnalyzer::analyze(portal, {{0, 0}, {10, 30}}, opts);
+        QVERIFY(duplicate.calibrationEligible);
+        QCOMPARE(duplicate.gapCount, 0);
+        QVERIFY(std::abs(duplicate.integralRawEcG - 450.0) < 1e-6);
         opts.lagOffsetSec = std::numeric_limits<double>::quiet_NaN();
         QVERIFY(!PortalTailAnalyzer::analyze(portal, {{0, 0}, {10, 30}}, opts).valid);
     }
@@ -970,6 +982,7 @@ private slots:
         PortalTailAnalyzer::Result result;
         result.valid = true;
         result.estimateReliable = true;
+        result.calibrationEligible = true;
         result.totalMassG = 24;
         result.tailRatio5g = 0.5;
         PortalTailAnalyzer::CalibrationPoint other;
@@ -1076,6 +1089,9 @@ private slots:
         const auto flowRes = PortalTailAnalyzer::analyze(portal, weight, flowOpts);
         QVERIFY(!flowRes.valid);
         QCOMPARE(flowRes.status, PortalTailAnalyzer::Status::RequiresPhysicalScale);
+        flowOpts.weightSource = PortalTailAnalyzer::WeightSource::Unknown;
+        const auto unknownRes = PortalTailAnalyzer::analyze(portal, weight, flowOpts);
+        QCOMPARE(unknownRes.status, PortalTailAnalyzer::Status::MissingWeightProvenance);
 
         // 2. Total mass < 5.0 g must be rejected
         PortalTailAnalyzer::Options shortOpts;
@@ -1130,6 +1146,13 @@ private slots:
             QCOMPARE(corrected.calibrationEligible, cupMass == 25.0 || cupMass == 25.05);
             QCOMPARE(corrected.uncertaintyReasons.contains(QStringLiteral("cup_mass_mismatch")),
                      cupMass != 25.0 && cupMass != 25.05);
+        }
+        shortOpts.finalWeightG = 25.0;
+        for (double baseline : {-0.03, 0.03, 0.1, 0.2}) {
+            const auto noisy = PortalTailAnalyzer::analyze(completePortal, {{10.0, baseline}, {10.2, 25.0}}, shortOpts);
+            QVERIFY(noisy.valid);
+            QCOMPARE(noisy.calibrationEligible, baseline <= 0.1);
+            QVERIFY(std::abs(noisy.coveredMassG - (25.0 - std::max(0.0, baseline))) < 1e-6);
         }
     }
 
@@ -1242,6 +1265,15 @@ private slots:
 
         // AI ShotSummarizer structured JSON & prose
         ShotSummarizer summarizer;
+        auto correctedRecord = portalRecord;
+        correctedRecord.weight.prepend({5.0, 0.0});
+        correctedRecord.summary.finalWeight = 40.0;
+        auto fallbackProjection = ShotHistoryStorage::convertShotRecord(correctedRecord);
+        fallbackProjection.portalAnalysis.clear();
+        const auto fallbackSummary = summarizer.summarizeFromHistory(fallbackProjection);
+        QVERIFY(!fallbackSummary.portalAnalysis.value("calibrationEligible").toBool());
+        QVERIFY(fallbackSummary.portalAnalysis.value("uncertaintyReasons").toStringList()
+                    .contains(QStringLiteral("cup_mass_mismatch")));
         const ShotSummary aiSummary = summarizer.summarizeFromHistory(portalProj);
         QVERIFY(!aiSummary.portalAnalysis.isEmpty());
         const QJsonObject promptObj = summarizer.buildUserPromptObject(aiSummary);
@@ -1731,6 +1763,16 @@ private slots:
             QCOMPARE(sRes.possibleUnderExtraction, true);
             QCOMPARE(sRes.ratioAdvice, QStringLiteral("try_longer"));
             QCOMPARE(sRes.bestHistoricalWeightG, 32.5);
+            for (int count : {0, 1, 3, 5}) {
+                auto advised = sRes;
+                const auto calibration = PortalTailAnalyzer::fitCalibration(calPoints.mid(0, count), 7,
+                    QStringLiteral("La Cabra"), QStringLiteral("Cerro Azul"), 1001,
+                    PortalTailAnalyzer::MountingMode::OnScale);
+                PortalTailAnalyzer::applyCalibration(&advised, calibration, 24.0, 16.0);
+                PortalTailAnalyzer::evaluateRatioAdvice(&advised, {}, 1001, 7, {}, {}, 16.0,
+                    QStringLiteral("sour"), QStringLiteral("thin"));
+                QCOMPARE(advised.ratioAdvice, QStringLiteral("try_longer"));
+            }
         }
 
     }

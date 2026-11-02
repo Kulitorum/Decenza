@@ -38,3 +38,12 @@
 - [ ] 5.4 Expose mounting selection to accessibility, use Theme fonts and reconcile stale comments/unused advice parameters and the tail coverage constant.
 - [ ] 5.5 Recheck all 20 findings, run the full suite/platform/QML/text gates and publish the audit in the existing PR. Wiki publication remains blocked under task 2.3 until a maintainer grants access.
 - [ ] 5.6 Address the additional GitHub findings: use the decoder in Settings, exclude cup/curve mass mismatches beyond the 0.1 g editing step and transact metadata plus eligibility together, including the MCP-owned transaction path.
+
+## 6. GitHub review at 4bc1afcf
+
+- [ ] 6.1 Reduce the original atomic migration to legacy PORTAL-presence backfill only: no curve reconstruction or EC analysis, and no per-shot update for non-PORTAL rows. Moving this work to first attachment is a conflicting recommendation awaiting the user's preference; retain the original migration requirement meanwhile.
+- [ ] 6.2 Accept baseline noise within 0.1 g while retaining observed mass, preserve small negative baselines, and drop equal-time EC duplicates without inventing a gap.
+- [ ] 6.3 Gate ratio advice on measurement quality rather than empirical prediction uncertainty; verify advice remains consistent with 0/1/3/5 references.
+- [ ] 6.4 Share Options assembly across all analysis entry points, including the advisor fallback, and describe PORTAL units/ranges in the shared system prompt.
+- [ ] 6.5 Reuse mounting decoding in normalization/validation, finish the tail-window constant cleanup, stamp mounting only during active PORTAL capture, and distinguish missing provenance from virtual-scale data.
+- [ ] 6.6 Run the current platform suite and regression controls and recheck GitHub comments. Device acceptance and the rare import-failure path noted below threshold remain outside these automated checks.

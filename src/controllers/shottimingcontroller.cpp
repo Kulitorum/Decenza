@@ -8,6 +8,7 @@
 #include "../profile/profile.h"
 #include <QDebug>
 #include <QScopeGuard>
+#include <cmath>
 
 using namespace Settling;
 
@@ -484,7 +485,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
     m_flowRate = m_smoothedFlowRate;
 
     // Preserve measured pre-drip baselines; onShotSample only publishes positive weights.
-    if (weight >= 0.0 && weight < 0.1)
+    if (std::abs(weight) < 0.1)
         emit weightBaselineReady((QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0, weight);
     emit weightChanged();
 

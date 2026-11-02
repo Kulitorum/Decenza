@@ -2,6 +2,7 @@
 #include "shotdatamodel.h"
 #include "machine/frameexitreason.h"
 #include "ai/conductance.h"
+#include "ai/portaltailanalyzer.h"
 #include "rendering/fastlinerenderer.h"
 #include <QDebug>
 
@@ -307,10 +308,9 @@ void ShotDataModel::addWeightSample(double time, double weight, double flowRate)
 }
 
 void ShotDataModel::addWeightSample(double time, double weight) {
-    // Ignore near-zero weights (scale noise / pre-drip)
+    // Keep pre-drip baselines for PORTAL exports without drawing them on the graph.
     if (weight < 0.1) {
-        // PORTAL integration needs observed baselines, without changing the plotted curve.
-        if (weight >= 0.0 && !m_portalSamples.isEmpty() && m_weightPoints.isEmpty())
+        if (weight >= -PortalTailAnalyzer::kCupMassToleranceG && !m_portalSamples.isEmpty() && m_weightPoints.isEmpty())
             m_cumulativeWeightPoints.append(QPointF(time, weight));
         return;
     }

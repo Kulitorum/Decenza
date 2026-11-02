@@ -1,5 +1,6 @@
 #include "settings_hardware.h"
 #include "settings.h"
+#include "ai/portaltailanalyzer.h"
 
 // For the [Bluetooth][ConnectionPriority] marker on the two persist-failure warnings
 // below. They are the failure half of a story whose other half is in
@@ -18,9 +19,9 @@ constexpr auto portalMountingModeKey = "portal/mountingMode";
 
 QString normalizePortalMountingMode(const QString& mode)
 {
-    if (mode.compare(QLatin1String("independent"), Qt::CaseInsensitive) == 0)
-        return QStringLiteral("independent");
-    return QStringLiteral("onScale");
+    const auto decoded = PortalTailAnalyzer::mountingModeFromString(mode, Qt::CaseInsensitive);
+    return PortalTailAnalyzer::mountingModeToString(decoded == PortalTailAnalyzer::MountingMode::Unknown
+        ? PortalTailAnalyzer::MountingMode::OnScale : decoded);
 }
 }
 

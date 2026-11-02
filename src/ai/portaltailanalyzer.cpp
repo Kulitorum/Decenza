@@ -51,6 +51,11 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
     double maxTempC = 0.0;
     bool interrupted = false;
     for (auto s : rawSamples) {
+        if (!cleaned.isEmpty() && isFinitePortalSample(s) && s.ecRaw >= 0.0
+            && s.time == cleaned.last().time) {
+            interrupted = interrupted || s.breakBefore;
+            continue;
+        }
         if (isFinitePortalSample(s) && s.ecRaw >= 0.0
             && (cleaned.isEmpty() || s.time > cleaned.last().time)) {
             s.breakBefore = s.breakBefore || interrupted;
@@ -522,7 +527,8 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     }
 
     if (options.weightSource != WeightSource::PhysicalScale) {
-        out.status = Status::RequiresPhysicalScale;
+        out.status = options.weightSource == WeightSource::Unknown
+            ? Status::MissingWeightProvenance : Status::RequiresPhysicalScale;
         return out;
     }
 
@@ -670,10 +676,10 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     const double mEnd = out.totalMassG;
     const double iEnd = uniqueKnots.last().cumulativeIntegral;
     const double iMinus2 = interpolateIntegralAtMass(uniqueKnots, mEnd - 2.0);
-    const double iMinus5 = interpolateIntegralAtMass(uniqueKnots, mEnd - 5.0);
+    const double iMinus5 = interpolateIntegralAtMass(uniqueKnots, mEnd - kMinTailMassG);
 
     out.tailMean2g = (iEnd - iMinus2) / 2.0;
-    out.tailMean5g = (iEnd - iMinus5) / 5.0;
+    out.tailMean5g = (iEnd - iMinus5) / kMinTailMassG;
     if (out.mainPeakRawEc > 0.0)
         out.tailRatio5g = out.tailMean5g / out.mainPeakRawEc;
     if (iEnd > 0.0)
@@ -681,7 +687,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
 
     // Linear least-squares slope T5 = dEC/dm over uniform 51-point mass grid in [M_end - 5, M_end]
     constexpr int kGridPoints = 51;
-    const double mStart5 = mEnd - 5.0;
+    const double mStart5 = mEnd - kMinTailMassG;
     double sumM = 0.0;
     double sumEc = 0.0;
     double sumMM = 0.0;
@@ -689,7 +695,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     int validGridCount = 0;
 
     for (int idx = 0; idx < kGridPoints; ++idx) {
-        const double m = mStart5 + (5.0 * static_cast<double>(idx)) / static_cast<double>(kGridPoints - 1);
+        const double m = mStart5 + (kMinTailMassG * static_cast<double>(idx)) / static_cast<double>(kGridPoints - 1);
         const std::optional<double> ecAtM = interpolateEcAtMass(uniqueKnots, m);
         if (!ecAtM.has_value())
             continue;
@@ -721,7 +727,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     if (out.thermalDriftWarning)
         out.uncertaintyReasons.append(QStringLiteral("thermal_drift"));
 
-    if (out.gapCount > 0 || out.coverageRatio < 0.999999)
+    if (out.gapCount > 0 || out.totalMassG - out.coveredMassG > kCupMassToleranceG + 1e-6)
         out.uncertaintyReasons.append(QStringLiteral("incomplete_coverage"));
     if (options.finalWeightG > 0.0 && std::isfinite(options.finalWeightG)
         && std::abs(options.finalWeightG - out.totalMassG) > kCupMassToleranceG + 1e-6)
@@ -792,11 +798,24 @@ PortalTailAnalyzer::WeightSource PortalTailAnalyzer::weightSourceFromString(cons
     return WeightSource::Unknown;
 }
 
-PortalTailAnalyzer::MountingMode PortalTailAnalyzer::mountingModeFromString(const QString& mode)
+PortalTailAnalyzer::MountingMode PortalTailAnalyzer::mountingModeFromString(const QString& mode, Qt::CaseSensitivity casing)
 {
-    if (mode == QLatin1String("onScale")) return MountingMode::OnScale;
-    if (mode == QLatin1String("independent")) return MountingMode::Independent;
+    if (mode.compare(QLatin1String("onScale"), casing) == 0) return MountingMode::OnScale;
+    if (mode.compare(QLatin1String("independent"), casing) == 0) return MountingMode::Independent;
     return MountingMode::Unknown;
+}
+
+PortalTailAnalyzer::Options PortalTailAnalyzer::optionsForShot(
+    const QString& weightSource, const QString& mountingMode, double doseWeightG,
+    double finalWeightG, const QVector<QPointF>& pressure)
+{
+    Options options;
+    options.weightSource = weightSourceFromString(weightSource);
+    options.mountingMode = mountingModeFromString(mountingMode);
+    options.doseWeightG = doseWeightG;
+    options.finalWeightG = finalWeightG;
+    options.activeStopTimeSec = pressure.isEmpty() ? 0.0 : pressure.last().x();
+    return options;
 }
 
 double PortalTailAnalyzer::CalibrationFit::predictTdsPct(double meanRawEcPerG) const
@@ -1237,7 +1256,7 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
     const bool sour = currentTasteBalance.compare(QLatin1String("sour"), Qt::CaseInsensitive) == 0;
     const bool bitterOrThin = currentTasteBalance.compare(QLatin1String("bitter"), Qt::CaseInsensitive) == 0
         || currentTasteBody.compare(QLatin1String("thin"), Qt::CaseInsensitive) == 0;
-    if (!result->estimateReliable) {
+    if (!result->calibrationEligible) {
         result->ratioAdvice = QStringLiteral("uncertain");
         return;
     }
@@ -1258,6 +1277,8 @@ QString PortalTailAnalyzer::statusToString(Status status)
         return QStringLiteral("valid");
     case Status::NoPortalData:
         return QStringLiteral("no_portal_data");
+    case Status::MissingWeightProvenance:
+        return QStringLiteral("missing_weight_provenance");
     case Status::RequiresPhysicalScale:
         return QStringLiteral("requires_physical_scale");
     case Status::InsufficientWeightData:

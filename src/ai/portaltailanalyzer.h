@@ -48,6 +48,7 @@ public:
     enum class Status {
         Valid,
         NoPortalData,
+        MissingWeightProvenance,
         RequiresPhysicalScale,
         InsufficientWeightData,
         InsufficientCoverage
@@ -242,6 +243,10 @@ public:
                           const QVector<QPointF>& cumulativeWeight,
                           const Options& options);
 
+    static Options optionsForShot(const QString& weightSource, const QString& mountingMode,
+                                  double doseWeightG, double finalWeightG,
+                                  const QVector<QPointF>& pressure);
+
     static CalibrationFit fitCalibration(const QVector<CalibrationPoint>& points,
                                          qint64 targetBagId = -1,
                                          const QString& targetBeanBrand = QString(),
@@ -279,7 +284,8 @@ public:
     static QVector<double> defaultLagOffsetsSec();
 
     static WeightSource weightSourceFromString(const QString& source);
-    static MountingMode mountingModeFromString(const QString& mode);
+    static MountingMode mountingModeFromString(const QString& mode,
+                                               Qt::CaseSensitivity casing = Qt::CaseSensitive);
 
     static QString statusToString(Status status);
     static QString weightSourceToString(WeightSource source);

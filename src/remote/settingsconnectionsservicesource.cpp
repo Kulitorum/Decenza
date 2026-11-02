@@ -506,7 +506,7 @@ void NativeSettingsConnectionsServiceSource::execute(QString requestId,
     if (operation == QLatin1String("setPortalMountingMode")) {
         const QString mode = boundedText(arguments, QStringLiteral("mode"), 32);
         if (!exactArguments(arguments, {QStringLiteral("mode")})
-            || (mode != QLatin1String("onScale") && mode != QLatin1String("independent"))
+            || PortalTailAnalyzer::mountingModeFromString(mode) == PortalTailAnalyzer::MountingMode::Unknown
             || !m_settings || !m_settings->hardware()) {
             reject(QStringLiteral("invalidArguments")); return;
         }

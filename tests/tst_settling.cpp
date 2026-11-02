@@ -2,6 +2,7 @@
 #include <QSignalSpy>
 #include <QRegularExpression>
 #include <QStringList>
+#include <cmath>
 
 #include "models/shotdatamodel.h"
 #include "ai/portaltailanalyzer.h"
@@ -175,7 +176,17 @@ private slots:
         QCOMPARE(model.weightSource(), QStringLiteral("unknown"));
     }
 
+    void portalCaptureRetainsMeasuredBaselineWithoutChangingOrdinaryCurves_data() {
+        QTest::addColumn<double>("baseline");
+        QTest::addColumn<double>("coveredMass");
+        QTest::newRow("zero") << 0.0 << 6.0;
+        QTest::newRow("negative-tare-noise") << -0.03 << 6.0;
+        QTest::newRow("positive-tare-noise") << 0.03 << 5.97;
+    }
+
     void portalCaptureRetainsMeasuredBaselineWithoutChangingOrdinaryCurves() {
+        QFETCH(double, baseline);
+        QFETCH(double, coveredMass);
         DE1Device device;
         ShotTimingController tc(&device);
         MockScaleDevice scale;
@@ -190,23 +201,23 @@ private slots:
         ShotSample sample;
         tc.startShot();
         tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
-        tc.onWeightSample(0.0, 0.0, 0.0);
+        tc.onWeightSample(baseline, 0.0, 0.0);
         QVERIFY(model.cumulativeWeightData().isEmpty());
         QVERIFY(model.weightData().isEmpty());
         QVERIFY(model.weightFlowRateData().isEmpty());
 
         model.addPortalSample(0.0, 8.0, 55.0);
-        tc.onWeightSample(0.0, 0.0, 0.0);
+        tc.onWeightSample(baseline, 0.0, 0.0);
         QCOMPARE(model.cumulativeWeightData().size(), 1);
-        QCOMPARE(model.cumulativeWeightData().first().y(), 0.0);
+        QCOMPARE(model.cumulativeWeightData().first().y(), baseline);
         QVERIFY(model.weightData().isEmpty());
         for (int i = 1; i <= 12; ++i)
             model.addPortalSample(i * 0.1, 8.0, 55.0);
         tc.m_displayTimeBase -= 1000;
-        tc.onWeightSample(5.0, 5.0, 5.0);
+        tc.onWeightSample(6.0, 6.0, 6.0);
         tc.onShotSample(sample, 9.0, 2.0, 93.0, 2, false);
         QCOMPARE(model.cumulativeWeightData().size(), 2);
-        QCOMPARE(model.cumulativeWeightData().last().y(), 5.0);
+        QCOMPARE(model.cumulativeWeightData().last().y(), 6.0);
         QVERIFY(model.cumulativeWeightData().first().x() < model.cumulativeWeightData().last().x());
         QVERIFY(model.weightData().first().x() > model.cumulativeWeightData().first().x());
         PortalTailAnalyzer::Options opts;
@@ -215,7 +226,7 @@ private slots:
         const auto result = PortalTailAnalyzer::analyze(model.portalSamples(), model.cumulativeWeightData(), opts);
         QVERIFY(result.valid);
         QVERIFY(result.calibrationEligible);
-        QCOMPARE(result.coveredMassG, 5.0);
+        QVERIFY(std::abs(result.coveredMassG - coveredMass) < 1e-6);
         tc.endShot();
     }
 

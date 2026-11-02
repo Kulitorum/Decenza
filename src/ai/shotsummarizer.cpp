@@ -268,11 +268,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     } else if (!shotData.portalSamples.isEmpty()) {
         const QVector<PortalSample> portalVec = PortalSamples::fromVariant(shotData.portalSamples);
         if (!portalVec.isEmpty()) {
-            PortalTailAnalyzer::Options portalOpts;
-            portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(shotData.weightSource);
-            portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(shotData.portalMountingMode);
-            portalOpts.doseWeightG = summary.doseWeight;
-            portalOpts.activeStopTimeSec = summary.pressureCurve.isEmpty() ? 0.0 : summary.pressureCurve.last().x();
+            const auto portalOpts = PortalTailAnalyzer::optionsForShot(shotData.weightSource, shotData.portalMountingMode,
+                summary.doseWeight, summary.finalWeight, summary.pressureCurve);
             summary.portalAnalysis = PortalTailAnalyzer::analyze(
                 portalVec, summary.weightCurve, portalOpts).toVariantMap();
         }
@@ -1099,6 +1096,8 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 ## How to Read Structured Fields
 
 Treat these JSON payload fields as gates on your advice:
+
+**Optional `portal` block** (on `shot` or historical shots such as `bestRecentShot`): raw EC is device-unit conductivity, not TDS or coffee solids. `M2` and `M5` are mean raw EC over the last 2 g and 5 g; `T5` is the last-5-g slope in raw EC/g; `R5` is unitless M5/main-peak EC and may exceed 1. `peakRawEc`, `mainPeakRawEc`, `finalRawEc` and `meanRawEcPerG` are raw EC units. `integralRawEcG`, `activeIntegralRawEcG` and `settlingIntegralRawEcG` are raw EC × g; `doseNormalizedIntegral` divides that integral by dose grams. `coverageRatio`, `recentContributionShare5g` and `post1to2ContributionShare` are fractions from 0 to 1. Mass fields ending in G are grams. Calibrated TDS/EY fields ending in Pct are percentages; error fields ending in TdsPct are TDS percentage points. Read `uncertaintyReasons`: preliminary or extrapolated calibration does not make raw tail evidence unreliable. Ratio advice requires reliable measurements and explicit feedback on the current cup; it suggests an experiment, not an optimum.
 
 **`result.profile`**: the canonical source for profile metadata — `filename`, `title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` (when set). Read profile intent and frame steps here. The `shotAnalysis` prose carries shot-VARIABLE data only (dose, yield, duration, grind setting, extraction, peaks, phase data, detector observations); profile, bean and grinder identity come only from the structured blocks.
 
