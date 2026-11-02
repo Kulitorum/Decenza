@@ -1,3 +1,4 @@
+#include "core/machinecontrolpresets.h"
 // MCP tools for steam-pitcher and hot-water-vessel preset CRUD + selection.
 //
 // Units follow the MCP data conventions (see docs/CLAUDE_MD/MCP_SERVER.md):
@@ -108,15 +109,11 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     // Likewise for a hot water vessel.
     auto applyWaterVessel = [settings, mainController](int index) {
         if (!settings) return;
-        const QVariantMap p = settings->brew()->getWaterVesselPreset(index);
-        if (p.isEmpty()) return;  // out-of-range index returns an empty map
-        settings->brew()->setWaterVolume(p.value("volume").toInt());
-        settings->brew()->setWaterVolumeMode(p.contains("mode") ? p.value("mode").toString()
-                                                                 : QStringLiteral("weight"));
-        settings->hardware()->setHotWaterFlowRate(p.contains("flowRate") ? p.value("flowRate").toInt() : 40);
-        settings->brew()->setWaterTemperature(p.contains("temperature")
-            ? p.value("temperature").toDouble() : settings->brew()->waterTemperature());
-        if (mainController) mainController->applyHotWaterSettings();
+        if (mainController) {
+            (void)mainController->selectWaterVessel(index);
+        } else {
+            (void)MachineControlPresets::selectWaterVessel(settings->brew(), settings->hardware(), index, {});
+        }
     };
 
     // ---------------------------------------------------------------------
@@ -351,7 +348,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             return result;
         }),
         McpRegistryHelpers::syncAction("update", "settings",
-        [settings, applyWaterVessel](const QJsonObject& args) -> QJsonObject {
+        [settings, applyWaterVessel, mainController](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             if (missingIndex(args, QStringLiteral("update"), result)) return result;
@@ -382,7 +379,10 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             settings->brew()->updateWaterVesselPreset(index, name, volume, mode, flowRate, temp);
             // If we edited the active vessel, re-apply so the live hot water settings
             // (and the machine) reflect the change immediately.
-            if (index == settings->brew()->selectedWaterVessel()) applyWaterVessel(index);
+            if (index == settings->brew()->selectedWaterVessel()) {
+                if (mainController) mainController->applySelectedWaterVessel();
+                else applyWaterVessel(index);
+            }
             result["success"] = true;
             return result;
         }),

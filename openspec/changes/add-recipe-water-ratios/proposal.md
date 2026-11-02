@@ -12,6 +12,7 @@ The recipe editor can select a water vessel but cannot add or edit one without a
 - Store the water ratio on the recipe's by-value vessel snapshot. Shared vessel presets remain fixed amounts, and standalone Hot Water editing remains fixed-only, with 100 g as the default for newly added vessels.
 - Resolve ratio water on recipe activation and when the current effective espresso target changes, including dose changes that move a ratio-based target. Repeated drinks at the same target and actual shot output do not cause recalculation.
 - Show the ratio and derived added-water grams together. Preserve recipe snapshots, fixed-volume support, and request-scoped conflict handling across native and Wasm clients.
+- Simplify ownership: one host water plan serves fixed and ratio recipes, explicit preset edits preserve live selection, and the captured pour plan supplies both machine control and history. Validate complete recipe candidates through one canonical path.
 
 ## Capabilities
 
@@ -27,7 +28,7 @@ The recipe editor can select a water vessel but cannot add or edit one without a
 ## Impact
 
 - QML: `RecipeWizardPage.qml`, `HotWaterPage.qml`, `RatioPresetDialog.qml`, shared vessel/ratio controls, and recipe summaries.
-- Host: hot-water activation, active-recipe refresh, target-change notifications, preset selection, and shot setup capture in `MainController`, `ProfileManager`, and recipe wiring.
+- Host: a small testable recipe-water state owner with a single settings adapter, replacing parallel fixed/ratio caches and settings-send repair callbacks; hot-water activation, active-recipe refresh, explicit target-change actions, preset selection, and shot setup capture in `MainController`, `ProfileManager`, and recipe wiring.
 - Shared services: `RecipeContext` preset operations and `RecipeService` recipe edits; existing revision/precondition protections apply in both shells.
 - Persistence/API: additive fields inside `hot_water_json`; MCP conversion/schema, HTTP recipe JSON, promotion and backup/transfer must preserve the amount specification. No new table or column is expected. Legacy HTML editing must preserve fields, without a second new UI implementation.
 - Tests: extend existing recipe storage, wiring, promotion, machine-control, context-service and profile/target tests; verify native/Wasm interactions. Update `RECIPES.md` and the wiki manual.

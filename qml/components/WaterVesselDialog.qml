@@ -34,10 +34,10 @@ DecenzaDialog {
     property string capturedName: ""
     property var capturedPreset: ({})
     property string vesselName: ""
-    property string amountMode: "fixed"
-    property real waterRatio: 2.5
-    property int fixedAmount: 100
-    property string measureMode: "weight"
+    property alias amountMode: amountModeSelector.amountMode
+    property alias waterRatio: amountModeSelector.waterRatio
+    property alias fixedAmount: amountModeSelector.fixedAmount
+    property alias measureMode: amountModeSelector.measureMode
     property real temperatureC: 90
     property int flowRate: 40
     property string saveError: ""
@@ -48,7 +48,7 @@ DecenzaDialog {
     readonly property bool validAmount: amountMode === "ratio" ? preview.valid : fixedAmount >= 10
         && fixedAmount <= (measureMode === "volume" ? 255 : 500)
 
-    signal saved(var vessel, int index)
+    signal saved(var vessel, int index, var preset, bool added)
     signal removed()
 
     function snapshot() {
@@ -110,8 +110,8 @@ DecenzaDialog {
                 root.close()
                 return
             }
-            const index = operation === "add" ? writer.presets.length - 1 : root.presetIndex
-            root.saved(root.submittedSnapshot, index)
+            const index = Number(writer.savedPresetResult.index)
+            root.saved(root.submittedSnapshot, index, writer.savedPresetResult.preset, operation === "add")
             root.close()
         }
     }
@@ -154,24 +154,11 @@ DecenzaDialog {
                     color: Theme.warningColor
                     font: Theme.captionFont
                 }
-                RowLayout {
+                WaterAmountModeSelector {
+                    id: amountModeSelector
                     visible: root.allowRatio
-                    AccessibleButton {
-                        text: TranslationManager.translate("water.amount.fixed", "Fixed amount")
-                        accessibleName: text
-                        primary: root.amountMode === "fixed"
-                        onClicked: {
-                            if (root.amountMode === "ratio" && root.preview.valid) root.fixedAmount = root.preview.amountG
-                            root.amountMode = "fixed"
-                            root.measureMode = "weight"
-                        }
-                    }
-                    AccessibleButton {
-                        text: TranslationManager.translate("water.amount.ratio", "Ratio to espresso")
-                        accessibleName: text
-                        primary: root.amountMode === "ratio"
-                        onClicked: root.amountMode = "ratio"
-                    }
+                    previewValid: root.preview.valid
+                    previewAmountG: Number(root.preview.amountG || 0)
                 }
                 AccessibleButton {
                     visible: root.allowRatio && root.amountMode === "ratio"

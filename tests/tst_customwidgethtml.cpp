@@ -117,7 +117,6 @@ private slots:
     void sharedPresetDraftUsesCapturedRevisionAndExplicitReload();
     void vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts();
     void recipeWaterEditorPreservesLegacyValuesAndConvertsTea();
-    void espressoTargetBumpReturnsToBaseline();
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
     void hotWaterAndFlushInputsStayBoundToSharedDrafts();
     void grindDialInUsesOneCombinedPreferenceRequest();
@@ -1415,34 +1414,6 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
     }
 }
 
-void TestCustomWidgetHtml::espressoTargetBumpReturnsToBaseline()
-{
-    const auto source = readSource(QStringLiteral("/src/controllers/maincontroller.cpp"));
-    auto handler = liftFunction(source, QStringLiteral(
-        "connect(m_machineState, &MachineState::targetWeightChanged, this, [this]"));
-    QVERIFY(!handler.isEmpty());
-    handler = handler.mid(handler.indexOf(QLatin1Char('{')) + 1);
-    handler.chop(1);
-    handler.replace(QStringLiteral("->"), QStringLiteral("."));
-    handler.replace(QStringLiteral("DE1::State::Espresso"), QStringLiteral("espressoState"));
-    QJSEngine engine;
-    const auto result = engine.evaluate(QStringLiteral(R"JS(
-        var espressoState = 4, phase = 4, live = 40, baseline = 40;
-        var m_recipeWaterBumpedYieldG = -1, applied = [];
-        var m_device = {state: function() {return phase;}};
-        var m_machineState = {targetWeight: function() {return live;}};
-        var m_profileManager = {targetWeight: function() {return baseline;}};
-        function refreshRecipeWater() {applied.push(m_recipeWaterBumpedYieldG > 0 ? m_recipeWaterBumpedYieldG : baseline);}
-        function changed() {%1}
-        live = 45; changed();
-        live = 40; changed();
-        phase = 7; live = 50; changed();
-        applied.length === 2 && applied[0] === 45 && applied[1] === 40;
-    )JS").arg(handler));
-    QVERIFY2(!result.isError(), qPrintable(result.toString()));
-    QVERIFY(result.toBool());
-}
-
 void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts()
 {
     const auto source = readSource(SrcPath::kWaterVesselDialog);
@@ -1469,7 +1440,7 @@ void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts(
             capturedPreset: {volume: 200, mode: "weight"}, capturedName: "Cup", capturedRevision: 4,
             preview: {valid: true, amountG: 108}, emitted: null,
             saved: function(value) {this.emitted = value;}, close: function() {}, open: function() {}};
-        var writer = {pending: false, presets: [{}],
+        var writer = {pending: false, presets: [{}], savedPresetResult: {index: 0, preset: {}},
             presetAt: function(index) {return index < 0 ? {} : {name: "Cup", volume: 200, mode: "weight"};},
             submit: function(op, fields) {this.fields = fields; this.pending = true;}};
         %1

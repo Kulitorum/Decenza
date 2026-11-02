@@ -54,6 +54,15 @@ While a ratio-water recipe is active, its added-water target SHALL update when i
 - **WHEN** the active recipe's ratio is explicitly edited from 2.5 to 3 with the espresso target staying at 40 g
 - **THEN** its added-water target becomes 120 g without requiring reactivation
 
+#### Scenario: Edit fixed water on the active recipe
+- **WHEN** an active recipe's fixed amount is edited from 100 g to 150 g while no drink is in progress
+- **THEN** the same recipe-water application path applies 150 g without reactivation
+
+#### Scenario: Temporary espresso bumps are scoped to one drink
+- **WHEN** an Americano targets 40 g, the user deliberately bumps to 42 g and then back to 40 g before water
+- **THEN** its 2.5× water target follows 100 g, 105 g and 100 g
+- **AND** the adjustment ends with that drink on completion or abort and never leaks into a replacement recipe's setup
+
 #### Scenario: Restore after restart
 - **WHEN** a ratio-water recipe is restored as active after restart
 - **THEN** its water target is initialized from the restored effective espresso target rather than a stale cached water amount
@@ -68,6 +77,16 @@ Ratio-water calculation SHALL use the current intended espresso target, never me
 #### Scenario: Repeat an unchanged drink
 - **WHEN** another drink starts with the same 40 g target and 2.5× water specification
 - **THEN** it reuses 100 g water without recomputing or rewriting the preset merely because a drink started
+
+#### Scenario: Target changes before actual water entry
+- **WHEN** an Americano's water request has been made but the device has not entered HotWater and its intended espresso target is edited from 40 g to 42 g
+- **THEN** the pending 2.5× water plan may update from 100 g to 105 g
+- **AND** actual water entry freezes the effective plan used by both machine control and history
+
+#### Scenario: Standalone request never starts water
+- **WHEN** a standalone water request does not enter HotWater
+- **THEN** no recipe-water request hold remains latched
+- **AND** the existing sequenced-start refusal policy is unchanged
 
 #### Scenario: Yield changes during water dispensing
 - **WHEN** the water is already dispensing toward 100 g and the configured espresso target changes to 42 g
@@ -93,6 +112,22 @@ Automatic ratio updates SHALL affect only the active recipe's effective water se
 - **THEN** the recipe stays active and its effective added water stays 100 g
 
 #### Scenario: Select a different standalone vessel
-- **WHEN** the user selects a different vessel while a ratio-water recipe is active
+- **WHEN** the user selects a different vessel while a ratio-water recipe is active and no drink is in progress
 - **THEN** the recipe deactivates and the selected vessel's fixed settings apply
 - **AND** later espresso target changes do not change that standalone vessel's amount
+
+#### Scenario: Saving a preset cannot replace the active recipe plan
+- **WHEN** a standalone preset save would overwrite live settings while a recipe owns water
+- **THEN** the cached recipe plan remains the effective water setup without recalculating an unchanged ratio
+- **AND** the shared preset still stores its explicitly saved fixed values
+
+#### Scenario: Long black retains its completed water step
+- **WHEN** a long black has already started its 100 g water step and espresso configuration or recipe settings change
+- **THEN** that drink's water capture remains 100 g and its espresso latch is unchanged
+- **AND** the latest setup applies after the drink completes
+
+#### Scenario: Select another vessel during an existing drink
+- **WHEN** a drink owns a pending or pouring water step and the user selects a different vessel or replaces/deactivates the recipe
+- **THEN** the next setup records that selection with the existing deactivation semantics
+- **AND** that drink retains its specification and pending plan or captured target until completion or abort
+- **AND** the next setup's water settings apply only after the current drink releases them

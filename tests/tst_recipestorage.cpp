@@ -1,3 +1,4 @@
+#include <QJsonArray>
 #include <QtTest>
 #include <QRegularExpression>
 #include <QSqlDatabase>
@@ -1242,6 +1243,76 @@ private slots:
                 QCOMPARE(RecipeStorage::loadRecipeStatic(destination, ids.value(id)).hotWaterJson,
                          recipe.hotWaterJson);
             });
+        });
+    }
+
+    void waterValidationContextAndDerivedTargets() {
+        withRawDb(freshDbPath(), "water_context", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe;
+            recipe.name = "Unavailable inherited target";
+            recipe.profileTitle = "Not installed here";
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5,"resolvedTargetG":999})";
+            const auto imported = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(imported > 0);
+            QVERIFY(!QJsonDocument::fromJson(RecipeStorage::loadRecipeStatic(db, imported).hotWaterJson.toUtf8()).object().contains("resolvedTargetG"));
+            recipe.name = "Known missing target";
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, recipe, {true, std::nullopt}) < 0);
+            recipe.profileJson = R"({"target_weight":40})";
+            recipe.name = "Embedded fallback";
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, recipe, {true, std::nullopt}) > 0);
+            recipe.name = "Known zero installed target";
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, recipe, {true, 0.0}) < 0);
+            recipe.yieldMode = "absolute";
+            recipe.yieldValue = 300;
+            recipe.name = "Known invalid explicit target";
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, recipe) < 0);
+        });
+    }
+
+    void enabledWaterRequiresAVesselOnEveryWrite() {
+        withRawDb(freshDbPath(), "water_required_vessel", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe;
+            recipe.name = "Explicit vessel";
+            recipe.profileTitle = "Espresso";
+            recipe.yieldMode = "absolute";
+            recipe.yieldValue = 40;
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","volume":100})";
+            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+            for (const auto& json : {
+                QStringLiteral(R"({"hasWater":true})"),
+                QStringLiteral(R"({"hasWater":true,"vesselName":" ","volume":100,"amountMode":"fixed"})"),
+                QStringLiteral(R"({"hasWater":true,"amountMode":"ratio","waterToEspressoRatio":2.5})")}) {
+                QVERIFY(!Recipe::saveValidationPasses(recipe.name, recipe.profileTitle, json));
+                QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"hotWaterJson", json}}));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).hotWaterJson, recipe.hotWaterJson);
+                auto invalid = recipe;
+                invalid.hotWaterJson = json;
+                QVERIFY(RecipeStorage::insertRecipeStatic(db, invalid) < 0);
+            }
+        });
+    }
+
+    void malformedWaterModesNeverPersist() {
+        withRawDb(freshDbPath(), "water_discriminator", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe;
+            recipe.name = "Strict water mode";
+            recipe.profileTitle = "Espresso";
+            QJsonObject water{{"hasWater", true}, {"vesselName", "Cup"}, {"volume", 150}, {"mode", "volume"}};
+            recipe.hotWaterJson = QString::fromUtf8(QJsonDocument(water).toJson(QJsonDocument::Compact));
+            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+            for (const auto& mode : QJsonArray{17, true, QJsonValue(QJsonValue::Null), QJsonObject{}, QJsonArray{}, "", "unknown"}) {
+                water.insert("amountMode", mode);
+                const auto json = QString::fromUtf8(QJsonDocument(water).toJson(QJsonDocument::Compact));
+                QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"hotWaterJson", json}, {"name", "Must not save"}}));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).name, recipe.name);
+                recipe.hotWaterJson = json;
+                QVERIFY(RecipeStorage::insertRecipeStatic(db, recipe) < 0);
+            }
         });
     }
 

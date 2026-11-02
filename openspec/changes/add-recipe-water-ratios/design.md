@@ -2,103 +2,132 @@
 
 ## Context
 
-See `proposal.md` for motivation and the three delta specs for behavior.
+See proposal.md for the feature scope. This revision replaces the implementation's growing collection of water caches and repair callbacks with explicit ownership. The current branch supports the requested editors and amount calculation, but review repeatedly found disagreements between preset selection, active-recipe refresh, queued activation and history capture.
 
-- `RecipeWizardPage.qml` snapshots vessels by value in `fVessel*` fields and `hotWaterJson`, but its water window only selects tiles. It currently directs users to Hot Water to add vessels.
-- `HotWaterPage.qml` creates fixed 200 g presets; its name dialogs and main amount/temperature/flow controls are separate. `SharedPresetDraft` submits revision-checked `RecipeContext` preset operations. The host validates weight targets at 10–500 g, volume targets at 10–255 ml, temperature at 40–100°C and flow at 5–100 in native tenths of ml/s.
-- `RatioPresetDialog.qml` already supports pick-only use, but also owns espresso preset preferences, Ristretto/Normale/Lungo content, help and live anchor writes. Copying it would duplicate UI and mixing water into its preset settings would change espresso behavior.
-- `applyActivatedRecipe()` currently applies hot water before the queued dose/yield step completes. `ProfileManager` publishes target changes and freezes its espresso target during a shot; `brewSettingsSnapshot()` supplies live inputs without accidentally reading an old shot latch. Deliberate mid-shot espresso bumps use `MachineState` directly.
-- `currentHotWaterSpecJson()` currently reads the shared fixed vessel, so it cannot describe a recipe-specific ratio or its resolved target. MCP conversion explicitly enumerates hot-water fields and would drop a new ratio unless extended. The retained HTML form rebuilds a name-only water block on save.
-- Native and Wasm must use the same controls and services. The existing one-tap sequence is separate work; its controller requests hot water directly from the device and therefore needs the same invalid-water guard as user-driven starts.
+Keep the existing JSON representation, shared QML/service path, activation queue, drink sequencer and operation/UUID-keyed water-result join. MainController already has an explicit espresso-target adjustment action; infer neither user intent nor water targets from measured weight notifications.
 
 ## Goals / Non-Goals
 
-**Goals:** Keep shared presets useful without a recipe, keep each recipe's dilution independent, reuse the ratio chooser UI, and resolve from the intended espresso target using existing host events.
+**Goals:** One amount contract, one owner of active recipe-water state, one application path for fixed and ratio water, explicit editor effects, and history derived from the same pour target as machine control. Make transitions directly testable.
 
-**Non-Goals:** Ratios on standalone presets; water derived from measured output; a new global water-ratio preset preference system; ratio water for profile-less tea; changing drink sequencing or firmware policy; duplicating the new controls in legacy HTML.
+**Non-Goals:** A new workflow framework, new remote object, new global ratio preferences, ratios on standalone presets, SQL migrations, changes to firmware permissions or sequence timing, or a rewrite of the espresso chooser. Retain the existing shared ratio presentation and both wrappers.
 
 ## Decisions
 
-### D1. An additive amount specification inside the recipe snapshot
+### D1. One parsed water specification and one candidate validator
 
-Keep shared vessel records unchanged. Extend the recipe's hot-water JSON:
+Keep the additive recipe JSON:
 
-```json
-{"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5,"mode":"weight","flowRate":40,"temperatureC":90,"order":"after"}
-```
+    {"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5,"mode":"weight","flowRate":40,"temperatureC":90,"order":"after"}
 
-Fixed snapshots retain `volume` and `mode` (`weight` or `volume`); `amountMode: "fixed"` is optional for legacy compatibility. Ratio snapshots require a finite positive `waterToEspressoRatio`, use weight mode, and have no authoritative `volume`. Distinguish the water amount mode from the existing weight/volume measurement mode. Do not reuse espresso's dose multiplier or its bounds as a water-ratio definition.
+WaterAmount owns parsing/normalization and resolution. Its parsed amount is explicitly disabled, fixed weight, fixed volume, ratio, or unresolved legacy preset reference. Callers do not independently interpret amountMode or decide whether a volume overrides a ratio. Existing snapshot fields and API names stay unchanged; use a small value representation, without replacing recipe maps across the application.
 
-Put normalization, validation and `qRound(ratio * espressoTargetG)` in one small core helper used by host paths and preview projection. Validate the rounded result against the existing 10–500 g water range, with no silent clipping. A ratio needs a usable espresso target; saving a profile-less ratio recipe is invalid. Unsupported or unresolvable runtime results are explicit failures rather than stale cached amounts.
+Only an absent amountMode receives legacy fixed semantics. A supplied discriminator must be a string with value fixed or ratio; null, numeric, boolean, object, array, empty or unknown values fail. Ratio must be finite and positive, use weight mode and contain no authoritative fixed amount. Derived resolvedTargetG is read/history data and is never accepted as an amount input. Every enabled recipe water block requires a nonblank vesselName, for fixed and ratio water. Preserve compatible legacy name-only lookup; a block without a vessel is invalid and must be corrected explicitly, never matched to the current selection automatically. Unsaved editor previews may calculate before a name is entered; saving and applying require it. Full snapshots remain independent of later preset edits.
 
-Fixed legacy and name-only blocks retain their existing behavior. Unknown modes and conflicting authoritative fixed/ratio fields fail. No SQL schema migration is needed because the snapshot is already JSON.
+Resolution is pure: a parsed specification and an explicit espresso target produce a complete WaterPlan or an explanatory error. A WaterPlan contains the normalized snapshot, amount, measurement mode, temperature and flow; ratio plans also retain their espresso target and ratio. Round with qRound and validate 10–500 g; fixed volume retains 10–255 ml. No clipping or stale-plan fallback. Preview and host call this same function.
 
-*Alternative:* Put ratio mode in shared presets. Rejected because standalone editing must remain fixed-only and different recipes can use the same vessel at different ratios.
+Recipe storage owns one validation entry for the complete resulting recipe. Create, merged update, clone, promotion and import pass through it before a write, within the existing transaction/conflict handling. Validate every candidate, so changing bagId or profileJson cannot bypass water validation merely because hotWaterJson was untouched. Adapters translate field names and return the validator's error; they do not rebuild validation ladders.
 
-### D2. Shared vessel fields with context-owned drafts and persistence
+Build validation context from the candidate's linked bag and the installed profile target captured before background work, falling back to embedded profile JSON only when the installed profile is absent. Reuse BrewBaseline and YieldSpec. Distinguish unavailable profile context from a known nonpositive target: normal live writes with complete context reject unusable ratios; static import without an installed-profile catalog may preserve a structurally valid ratio whose inherited target is unavailable. It must still reject a known invalid explicit target, dose or ratio, and activation must resolve before enabling water. Carry this exception in an explicit context value rather than negative-number sentinels and transient recipe fields. Existing missing-profile handling remains authoritative.
 
-Extract one vessel editor/field component for name, amount, temperature and flow. Recipe context enables Fixed/Ratio and seeds a newly added espresso vessel at 2.5×; standalone context offers fixed weight/volume and seeds 100 g. Existing edits always seed from their saved values. Profile-less tea starts fixed at 100 g.
+Alternative: keep partial validators in adapters and enumerate fields that trigger revalidation. Rejected because new write paths or yield dependencies repeatedly bypass that approach.
 
-The recipe editor opens from visible Add/Edit controls, seeds edits from its snapshot rather than a potentially changed global preset, and retains ratio metadata in its tile model and summary. Mode changes are explicit; switching to fixed seeds the resolved grams and switching to ratio offers 2.5×. Offer the existing amount stepper/text entry alongside the ratio chooser. Show `2.5× espresso yield · 100 g added water`, with temperature/flow in the shared fields. A ratio preview uses the draft's resolved target, including its dose/yield and existing fallback ladder, rather than the active machine's unrelated recipe.
+### D2. Preset editing and vessel selection are different actions
 
-Host preset writes continue through revision-checked `RecipeContext` operations. Add a full-row update helper to `SharedPresetDraft` or extract its applicable submission behavior so both callers share request tracking. Do not call `selectWaterVessel()` merely to design a recipe: the wizard updates its local draft after the preset operation succeeds.
+Keep WaterVesselDialog and the shared ratio chooser. Simplify the editor contract to a local draft, a captured preset/revision, and one frozen submitted snapshot. The shared editor performs a revision-checked preset save and returns its confirmed result; the caller decides what to select or update.
 
-When explicitly saving from a recipe:
+| Action | Shared preset | Recipe draft | Live selection/settings |
+| --- | --- | --- | --- |
+| Cancel before vessel Save | Unchanged | Unchanged | Unchanged |
+| Save a recipe vessel | Explicitly add/update fixed row | Replace from submitted snapshot after success | Unchanged |
+| Add on standalone Hot Water | Add fixed row, default 100 g | None | Select the confirmed new row, as before |
+| Edit an unselected standalone vessel | Update that row | None | Preserve current selection and effective settings |
+| Edit the selected standalone vessel | Update that row | None | Apply the edited row when no recipe owns water; otherwise retain the recipe plan |
+| Explicitly select another vessel | Unchanged | None | Existing recipe-deactivation and fixed-preset application |
 
-- New vessel: create a fixed shared preset at the entered fixed amount or the ratio's current resolved grams, then select a full snapshot in the recipe draft.
-- Existing vessel: save name/temperature/flow and an explicitly edited fixed amount through the shared preset operation. In ratio mode retain the existing preset's fixed amount/mode; save the ratio only in the recipe draft. Seed untouched preset fields from the captured preset, not default values.
-- Missing shared preset: explicitly create it as a fixed preset from the edited snapshot's resolved amount, then attach the recipe-specific snapshot.
+The table's selection/application effects are immediate only when no current drink owns water. Otherwise record the selection in the next setup and defer its water-settings writes under D3, even if the current drink's recipe has since been deactivated. Preset persistence and recipe-draft updates can still complete immediately.
 
-Explain that Save saves the vessel; the enclosing recipe still needs its normal Save. Cancelling before this operation changes neither; cancelling the recipe afterwards keeps the explicitly saved preset. Preset failure/staleness leaves the editor draft open. Keep duplicate-name, keyboard commit, accessibility and disconnect behavior from the existing flow. Renaming or editing never rewrites other recipes' snapshots.
+Recipe edits seed from the recipe snapshot, not the global row. New espresso-recipe vessels start at editable 2.5×; profile-less tea and standalone additions start fixed at 100 g. Existing fixed weight/volume or ratio settings remain unchanged until explicitly edited. Clicking an already selected amount mode is a no-op. Converting ratio to fixed seeds resolved grams and weight mode; selecting fixed when already fixed must preserve ml versus g. Reopening or selecting ratio retains an existing custom draft ratio, defaulting to 2.5 only if none exists.
 
-*Alternative:* Update only a private recipe vessel without adding/editing the shared preset. Rejected because the requested actions manage vessels and should make a newly added vessel available outside the recipe as well.
+For ratio saves to an existing shared vessel, preserve its captured fixed amount/mode and update explicitly edited name/temperature/flow. For a new or missing shared vessel, create a fixed row at the draft's resolved amount. Ratio stays only in the recipe draft. Save the enclosing recipe separately; cancelling it does not undo an explicitly saved preset. No automatic rewrite of other recipes.
 
-### D3. Extract a reusable ratio chooser with two thin hosts
+Pending writes disable editing and dismissal, correlate replies by request, and use the submitted snapshot on success. Failure/conflict keeps the draft available; disconnect terminates pending work without replay. Confirmed new-row identity must come from the admitted save result or its revision-checked confirmation, not an unrelated list's last index. Preserve duplicate-name checks, keyboard commit and accessible focus.
 
-Extract the common dialog/card/selection/stepper presentation from `RatioPresetDialog.qml` into a parameterized shared control (for example `RatioChoiceDialog.qml`). Its API takes a title, explanatory content, a choices model, current ratio, validation bounds and choice/custom-edit signals. It owns UI state only, not preference writes or brew changes. Extract only the controls the two hosts actually use; retain espresso-only help in the espresso host.
+Alternative: have the shared editor select its saved vessel or apply machine settings. Rejected because recipe design and editing another preset must have no such side effects.
 
-The existing `RatioPresetDialog` remains the espresso wrapper, supplying its configured named presets and existing pick-only/live-apply behavior. A water wrapper supplies initial 2.0, 2.5 and 3.0 choices (Less water / Default / More water), water-specific explanation and a custom numeric field with 0.1 steps. Its selection updates the vessel draft only. Water quick-choice values are initial choices, not a new saved global preset collection. Highlight by numeric equality; a custom 2.7 must not highlight 2.5.
+### D3. One host state owner and one settings adapter
 
-This is shared presentation with different data and effects; neither wrapper copies the chooser body. Register extracted QML in both native and Wasm source lists and update the active shared-UI inventory. Translation, Theme, focus order and screen-reader controls apply to both.
+Introduce a small host-side RecipeWaterState value object. It has no QML, storage, BLE or event-loop dependencies. It owns three explicitly separate values: the latest next-setup inputs/plan or error; the current drink's immutable water specification, intended espresso target and pending plan; and an optional water-cycle capture. A temporary espresso adjustment belongs to that drink only. MainController supplies events and applies the returned plan; it no longer owns parallel fixed/ratio caches or inference flags.
 
-*Alternative:* Add many water-specific branches and preference paths inside the existing dialog. Rejected because the independent settings behavior is easier to preserve with a pure shared control and small wrappers.
+The coherent setup input is recipe identity, normalized water snapshot and the configured espresso target. Include changes to fixed snapshots as well as ratios. Activation submits this input only after the existing RecipeApplyQueue has established dose/yield and completed its current generation. Start readiness remains blocked while activation is pending; superseded generations finish with failure and cannot publish a plan or write into a newer setup. Restoration and committed active-recipe edits use the same transition.
 
-### D4. Resolve after activation and on effective target changes
+Resolve only when normalized water or its relevant target changes. Recipe identity changes replace next-setup ownership even if the numeric plan is equal; they do not erase a running drink or its capture. A drink begins by retaining the existing plan and specification, without recomputing an unchanged ratio. Starting another unchanged drink reuses the setup plan. A missing preset is recreated once as fixed at the resolved amount. Legacy name-only references are expanded with the current named preset before comparison; full snapshots never inherit later preset edits.
 
-Add one host-owned recipe-water application path, called after activation's queued dose and yield anchor are established, on active-recipe restoration/edit, and on effective target changes. Reuse the existing yield resolution logic; expose/share the live setup projection already needed by `currentShotReviewSetup()` rather than implementing another recipe/bag/profile ladder or reading an old shot latch.
+MachineControlPresets (or its existing settings-only helper) is the sole adapter from a WaterPlan into live settings. The state owner retains failed application as a readiness error until a successful retry; a resolved number alone does not prove application succeeded. Fixed and ratio water use it equally. Applying settings is downstream of resolution; sending settings must not call back into resolution to repair ownership. Existing preset commits explicitly request reapplication of the active recipe's cached plan when that recipe owns water. Applying that cached plan performs no multiplication and does not overwrite the preset. While a drink owns water settings, preset saves and next-setup changes cannot write around this adapter into those effective settings.
 
-Track only the last normalized recipe-water inputs, recipe identity and effective espresso target needed to avoid duplicate work. Resolve initially, when the water specification changes, and when the numerical target changes. Reapplying cached settings when another operation changed machine configuration is permitted; starting another unchanged drink does not recompute the multiplier. Do not create a polling timer or write the derived number back into the recipe/global preset.
+Same-vessel re-selection retains the recipe plan. With no current drink, explicit different-vessel selection releases recipe ownership and applies the fixed preset. During a drink, vessel selection, recipe replacement/deactivation and recipe edits change the next setup only; machine application is deferred until that drink releases its water settings. Preserve its frozen specification, intended target and capture independently of whether its recipe is still active. Clear only next-setup readiness/overrides on next-setup deactivation. The current drink's adjustment/capture ends on that operation's completion or abort, with captured history values retained by the join.
 
-Use `ProfileManager` target-change events for ordinary overrides, dose-driven changes and profile edits. Include deliberate `MachineState` espresso-target bumps when they change the intended target for the pending water step. Actual weight, tare, settling and hot-water target bump signals are not ratio inputs. Changes while water is already pouring do not alter that pour; use existing phase/sequence completion events to apply the latest configured target for the next drink. For a long black whose water already ran, do not retroactively alter that completed step or modify the in-progress espresso latch.
+Alternative: move the existing MainController methods unchanged into another class. Rejected: the reduction comes from one plan and explicit transitions, not from relocating competing caches.
 
-Activation must not mark its water setup complete using the prior recipe's target. Keep terminal activation semantics after the new water target is configured. A change to just the water ratio also refreshes live water after a committed recipe edit even if yield stayed equal. Re-selecting the same vessel uses the active recipe's water spec, while selecting a different vessel deactivates the recipe as today.
+### D4. Explicit target events and a captured water step
 
-An invalid result withdraws recipe-water readiness and supplies a clear error; neither a manual start nor the sequencer's direct device path may use the previous target. Share that guard at the host water-start boundary reached by both. Do not change firmware permission policy or add retries.
+Ordinary target changes use ProfileManager's configured target, not its in-shot latch. Deliberate live espresso bumps enter RecipeWaterState from the accepted bumpTargetWeight action, scoped to the current espresso operation. Do not subscribe to generic MachineState target notifications as evidence of an intentional edit.
 
-*Alternative:* Resolve at every brew start or in QML. Rejected because the user requested target-change updates, and GHC/MCP/browser operation must share host behavior.
+A live bump affects an Americano's pending water only. The latest accepted bump wins, including a bump back to the original value. A later configured-target edit for the same current drink replaces that temporary adjustment. Whole-setup replacements (activation/restoration), stored water-spec edits and target notifications belonging to a replacement recipe affect the next setup, not the current drink. Supply that event context explicitly instead of inferring it from the new target number. Clear the drink adjustment on its completion or abort; deactivation/replacement must not leak it into the new setup or erase the current drink's retained value. For a long black whose water has already started, later espresso changes do not rewrite that step or alter the in-progress espresso latch.
 
-### D5. Keep effective settings, presets and history distinct
+| Transition | Water behavior |
+| --- | --- |
+| Stable setup or committed recipe edit | Resolve current fixed/ratio plan and apply when no current drink step holds it |
+| Accepted espresso target change before water | Replace pending water plan using the intended target |
+| Actual espresso output, tare or settling | No plan transition |
+| Water starts | Freeze the complete plan used for that water cycle |
+| Stored water-spec edit, recipe replacement or different-vessel selection during a drink | Update next setup; keep this drink's specification/pending plan or capture |
+| Target changes during water or after a long black's water | Retain latest next-setup inputs; keep this drink's capture/settings |
+| Water/drink completes or aborts | Release capture for machine application and apply latest setup when the drink no longer holds water settings |
+| Start refused locally | Return failure immediately and terminate pending sequence intent |
 
-Apply resolved grams to the existing live water settings, leaving fixed shared preset data untouched. Standalone editing reads preset values; effective recipe readouts show resolved values. A preset recreated during ratio activation is fixed at that activation's resolved grams; later target changes do not rewrite it.
+Freeze the water-step plan at actual HotWater entry, before entry/phase callbacks can apply next-setup updates. Its amount, mode, temperature and flow serve machine control and history. Before actual entry, eligible intended-target edits may update the pending plan; accepting a request does not freeze it or create a water-settings hold. This preserves the original in-progress-pour promise without adding a standalone request lifecycle. A physical water start uses the same entry capture.
 
-Change `currentHotWaterSpecJson()` and start-of-drink capture to use the recipe's amount specification and effective target rather than reconstructing from the shared preset. Record `resolvedTargetG` for ratio water separately from `waterToEspressoRatio` and measured water results. Freeze the ratio specification at drink setup and the target used at the water step's start: an explicit espresso-target change before an Americano's water can legitimately change that target. Extend the existing operation/UUID-keyed water-result join to deliver this target alongside the water outcome even when the espresso row was saved first; do not attach by recency. A long black captures its target before espresso, and skipped water retains the planned target without claiming it was dispensed. Later edits cannot rewrite either capture. Clone and promotion carry the ratio, not one inferred from measurements. Browsing recipe cards resolve against that recipe's seed/fallback context; active views use its effective target.
+Keep the sequencer's existing AwaitingStart/refusal timeout unchanged. Local start refusal ends its existing intent immediately. Do not add a timer or route standalone/first-step long-black starts through AwaitingStart: that would interfere with first-step arming. No recipe-water pending-request flag can remain latched after a silent standalone refusal.
 
-Extend explicit MCP field conversions and schema with `amountMode` and `waterToEspressoRatio`; expose `resolvedTargetG` only as derived read/history data, never as a competing authoritative amount. HTTP/native JSON use the same semantics; existing fixed `volumeMl` MCP compatibility remains. Update tool documentation and surface version with the schema change. Legacy HTML must merge/preserve the loaded ratio block on unrelated edits instead of replacing it with name-only water; new ratio UI lives in shared QML.
+The device's existing common start guard checks the relevant plan's readiness for manual and sequenced starts: a current drink's pending water plan when it owns the step, otherwise the current setup. Invalid ratio inputs keep the old numeric settings from being treated as a usable recipe plan; no dispatch is allowed until corrected. Explicitly switching to a standalone fixed vessel releases recipe ownership and remains usable.
 
-*Alternative:* Keep history as only resolved grams. Rejected because editing, cloning or promotion would flatten the user's chosen ratio.
+Alternative: recalculate on every drink/start or repair amounts during settings sends. Rejected because it obscures ownership and violates target-change-only calculation.
+
+### D5. Use the same capture for history, keep the existing join
+
+Keep the operation/UUID-keyed ShotWaterJoin and existing ShotWaterResult codec. The state owner's water-step capture supplies resolvedTargetG and the ratio specification; actual scale weight/flow estimate remains a separate result. Consumers never reconstruct the target from current settings, a shared preset, measured output or the current recipe after the step.
+
+Freeze the drink's recipe water specification at drink setup in RecipeWaterState, before water begins, independently of the latest active recipe. An espresso-target change before an Americano's water may change its resolved target using that frozen specification. Stored water-spec edits during a drink belong to the next setup and must not replace the current drink's specification; target edits obey D4's explicit event context. A long black captures water before espresso. A skipped step retains the planned target but records notDispensed; a refused/failed step must not claim an actual pour.
+
+If the espresso row is saved first, the existing narrow late update writes the captured water result and resolved target together under shot ID/UUID. If water finishes first, initial save uses the same capture. Capture survives releasing the live water hold because the join retains its value for the associated operation. Later recipe edits never rewrite it. Clone, promotion and backup retain the designed ratio. Full normalized fixed snapshots remain independent of shared preset edits.
+
+HTTP/native JSON and MCP keep the current field mappings and error code, including fixed volumeMl compatibility. Strip/ignore supplied derived targets when shaping a writable candidate; reads/history may expose them. Legacy HTML preserves the loaded ratio on unrelated edits; add no second ratio UI.
+
+Alternative: maintain a second history-specific water-target cache. Rejected because it creates another authority to synchronize after target changes.
+
+### D6. Verify transitions through production code
+
+Use focused tests of WaterAmount, complete-candidate validation and RecipeWaterState, then at least one integration fixture exercising the production event/settings/start/history wiring. Do not rely on regex-extracted function bodies or copied handler logic as the sole proof of those transitions. Existing handler checks may remain supplementary.
+
+Cover activation A→B, restoration, active fixed/ratio edits, preset saves/reselection, unchanged repeats, configured target changes, accepted bump up/down, invalid-to-valid recovery, both sequence orders, target edits before actual water entry, changes while pouring, abort/refusal, and water result arriving before/after shot save. Use real shared editor instances or existing QML interaction fixtures for editing an unselected vessel, clicking an already selected mode, and a custom ratio round trip.
+
+The review gate precedes implementation: an independent agent reads the revised proposal/specs/design/tasks against current call paths, reports actionable gaps, and reviews any resulting corrections. Run OpenSpec validation. Existing green builds/tests are historical evidence, not validation of this refactor.
 
 ## Risks / Trade-offs
 
-- [Preset Save and recipe Save are separate commits.] -> Name the two effects in the editor; preserve drafts on failed requests and test cancellation after successful preset creation.
-- [An old fixed preset can share a name with a recipe's different snapshot.] -> Seed recipe edits from the snapshot, keep the captured global fixed fields for ratio saves, and use expected revision/name checks.
-- [Yield notifications can arrive before activation finishes or carry a shot latch.] -> Resolve from established live inputs after the queued activation step; test switching from a different yield and restoring after restart.
-- [A large ratio can exceed the water range.] -> Show the computed result/error and prevent that recipe's water from starting; never silently clamp or retain an obsolete usable target.
-- [Refactoring a widely used espresso chooser can regress espresso behavior.] -> Keep its existing wrapper API and verify widget, Brew Settings and recipe-wizard callers, including preset editing and pick-only behavior.
-- [The active one-tap change shares controller and water-page files.] -> Integrate with its existing sequencer and add a focused guard test; do not rewrite its timing/firmware rules or held validation tasks.
+- [A new state object merely relocates complexity.] → Remove the old parallel caches/repair callbacks as it lands; test explicit transitions and keep the object free of framework dependencies.
+- [A water request may never enter HotWater.] → Freeze at actual entry; preserve the sequencer's existing refusal handling and introduce no standalone request hold. Test eligible target edits before entry and a silent standalone non-start.
+- [Next setup changes while another drink still owns water.] → Retain that drink's pending plan/cycle capture independently, defer all next-setup water writes through the adapter and test replacement/deactivation during espresso and water.
+- [Preset Save and recipe Save are separate.] → Keep their effects visible, use confirmed request results and preserve drafts on failure.
+- [Imported recipes can lack installed-profile context.] → Represent unknown context explicitly, preserve only structurally valid data and require resolution at activation.
+- [Refactoring a shared flow regresses standalone or espresso editing.] → Retain the ratio chooser/wrappers, cover selection and unit invariants, and inspect matching native/Wasm controls.
+- [Hardware/firmware behavior cannot be proved by simulator tests.] → Preserve existing permissions/timing and retain real-device acceptance as outstanding.
 
 ## Migration Plan
 
-1. Add tolerant reads for old fixed/name-only blocks and validated writes for the new ratio variant. Leave stored presets and existing recipes untouched.
-2. Ship the shared UI/service changes and host amount resolution together; native/Wasm package matching already prevents mixed client versions.
-3. Verify ratio JSON through storage, MCP/HTTP, promotion and backup/transfer. No table rebuild or bulk conversion is planned.
-4. Rollback to a version without ratio support is not transparent: old hosts can ignore the new ratio fields. Before downgrading, explicitly convert ratio recipes to their resolved fixed amount or restore the pre-change backup; never claim old binaries preserve ratio behavior.
+1. Revise these planning artifacts and close independent design-review findings before changing implementation.
+2. Preserve the current JSON/API contract; land canonical parsing/complete-candidate validation and the single state owner with their production-code tests. Remove superseded paths in the same steps.
+3. Simplify editor result handling and connect the one captured plan to existing machine/history boundaries. Keep activation queue and sequence/result join semantics.
+4. Build native/Wasm and run the full suite through Qt Creator. After a user-started restart, validate matching native/browser behavior and restoration; preserve outstanding hardware acceptance honestly.
+5. No data rewrite or SQL migration. Older binaries cannot interpret ratio recipes reliably; convert to explicit fixed amounts or restore a pre-change backup before downgrading.

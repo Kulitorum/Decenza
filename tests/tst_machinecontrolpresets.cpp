@@ -2,9 +2,11 @@
 
 #include <limits>
 #include <QVariantList>
+#include <QJsonArray>
 
 #include "core/machinecontrolpresets.h"
 #include "core/settings.h"
+#include "controllers/recipewaterstate.h"
 
 class tst_MachineControlPresets : public QObject
 {
@@ -12,6 +14,9 @@ class tst_MachineControlPresets : public QObject
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void waterAmountModeTypesAreStrict();
+    void waterStateKeepsDrinkAndNextSetupSeparate();
+    void waterStateFixedEditsAndReadiness();
     void recipeWaterRepairsDisplacedSettings();
     void recipeWaterSwitchesToFixedAndResolvesLegacyName();
     void missingRatioVesselUsesResolvedGrams();
@@ -22,6 +27,68 @@ private slots:
     void presetSnapshotsRejectStaleEditsAndReordering();
     void recipeIdsRequireExactPositiveIntegers();
 };
+
+void tst_MachineControlPresets::waterAmountModeTypesAreStrict()
+{
+    const QJsonArray malformed{17, true, QJsonValue(QJsonValue::Null), QJsonObject{}, QJsonArray{}, "", "other"};
+    for (const auto& mode : malformed) {
+        QJsonObject water{{"hasWater", true}, {"vesselName", "Cup"}, {"volume", 150}, {"amountMode", mode}};
+        QVERIFY(!WaterAmount::parse(water).error.isEmpty());
+        QVERIFY(!WaterAmount::resolve(water, 40).valid());
+    }
+    const auto fixed = WaterAmount::parse({{"hasWater", true}, {"volume", 150}, {"mode", "volume"}});
+    QCOMPARE(fixed.kind, WaterAmount::Kind::FixedVolume);
+    QCOMPARE(WaterAmount::resolve(fixed, 0).amount, 150);
+    QCOMPARE(WaterAmount::parse({{"hasWater", true}, {"vesselName", "Cup"}}).kind, WaterAmount::Kind::LegacyPreset);
+}
+
+void tst_MachineControlPresets::waterStateKeepsDrinkAndNextSetupSeparate()
+{
+    RecipeWaterState state;
+    QJsonObject water{{"hasWater", true}, {"vesselName", "Cup"}, {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+    QVERIFY(state.setup(1, water, 40));
+    QVERIFY(!state.setup(1, water, 40));
+    state.bindEspresso(42);
+    QVERIFY(state.startError(true).isEmpty());
+    state.espressoTargetEdited(42, 45);
+    QCOMPARE(state.effectivePlan().result.amount, 113);
+    state.espressoTargetEdited(42, 40);
+    QCOMPARE(state.effectivePlan().result.amount, 100);
+    water.insert("waterToEspressoRatio", 3);
+    state.setup(1, water, 40);
+    QCOMPARE(state.setupPlan().result.amount, 120);
+    QCOMPARE(state.effectivePlan().result.amount, 100);
+    state.setup(1, water, 42, true);
+    QCOMPARE(state.effectivePlan().result.amount, 105);
+    state.waterStarted(7, {});
+    state.setup(2, water, 44);
+    state.espressoTargetEdited(42, 60);
+    QCOMPARE(state.effectivePlan().result.amount, 105);
+    QCOMPARE(state.historySnapshot().value("waterToEspressoRatio").toDouble(), 2.5);
+    state.endDrink();
+    QCOMPARE(state.effectivePlan().result.amount, 132);
+    state.bindEspresso(43);
+    state.espressoTargetEdited(42, 60);
+    QCOMPARE(state.effectivePlan().result.amount, 132);
+}
+
+void tst_MachineControlPresets::waterStateFixedEditsAndReadiness()
+{
+    RecipeWaterState state;
+    QJsonObject fixed{{"hasWater", true}, {"vesselName", "Cup"}, {"volume", 100}, {"mode", "weight"}};
+    state.setup(1, fixed, 40);
+    fixed.insert("volume", 150);
+    state.setup(1, fixed, 40);
+    QCOMPARE(state.effectivePlan().result.amount, 150);
+    QJsonObject ratio{{"hasWater", true}, {"vesselName", "Cup"}, {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+    state.setup(1, ratio, 300);
+    QVERIFY(!state.startError(false).isEmpty());
+    QVERIFY(!state.effectivePlan().valid());
+    state.setup(1, ratio, 40);
+    QVERIFY(state.startError(false).isEmpty());
+    QVERIFY(!state.startError(true).isEmpty());
+    QCOMPARE(state.effectivePlan().result.amount, 100);
+}
 
 void tst_MachineControlPresets::recipeWaterRepairsDisplacedSettings()
 {
@@ -34,17 +101,17 @@ void tst_MachineControlPresets::recipeWaterRepairsDisplacedSettings()
     const auto preset = brew->getWaterVesselPreset(index);
     int applies = 0;
     const auto apply = [&] { ++applies; };
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, apply));
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 40), apply));
     QCOMPARE(brew->waterVolume(), 100);
     QCOMPARE(brew->waterVolumeMode(), QStringLiteral("weight"));
     QCOMPARE(applies, 1);
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, apply));
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 40), apply));
     QCOMPARE(applies, 1);
     // A standalone commit uses this same fixed-preset path. The recipe must
     // repair its effective settings even though its ratio/yield did not change.
     QVERIFY(MachineControlPresets::selectWaterVessel(brew, settings.hardware(), index, {}));
     QCOMPARE(brew->waterVolume(), 200);
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, apply));
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 40), apply));
     QCOMPARE(brew->waterVolume(), 100);
     QCOMPARE(brew->waterTemperature(), 90.0);
     QCOMPARE(settings.hardware()->hotWaterFlowRate(), 40);
@@ -58,16 +125,17 @@ void tst_MachineControlPresets::recipeWaterSwitchesToFixedAndResolvesLegacyName(
     auto* brew = settings.brew();
     brew->addWaterVesselPreset("Recipe fixed transition", 200, "volume", 31, 85);
     const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
-    QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe fixed transition"}, {"amountMode", "ratio"}};
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, {}));
+    QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe fixed transition"}, {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 40), {}));
     water.insert("amountMode", "fixed");
+    water.remove("waterToEspressoRatio");
     water.insert("volume", 150);
     water.insert("mode", "weight");
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 0, {}));
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 0), {}));
     QCOMPARE(brew->waterVolume(), 150);
     QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 200);
     const QJsonObject legacy{{"hasWater", true}, {"vesselName", "Recipe fixed transition"}};
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), legacy, 0, {}));
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(WaterAmount::withPresetFallback(legacy, QJsonObject::fromVariantMap(brew->getWaterVesselPreset(index))), 0), {}));
     QCOMPARE(brew->waterVolume(), 200);
     QCOMPARE(brew->waterVolumeMode(), QStringLiteral("volume"));
     QCOMPARE(brew->waterTemperature(), 85.0);
@@ -77,11 +145,11 @@ void tst_MachineControlPresets::missingRatioVesselUsesResolvedGrams()
 {
     Settings settings;
     auto* brew = settings.brew();
-    const QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe missing ratio"}, {"amountMode", "ratio"}};
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 90, {}));
+    const QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe missing ratio"}, {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 36), {}));
     const int index = brew->selectedWaterVessel();
     QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 90);
-    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 105, {}));
+    QVERIFY(MachineControlPresets::applyWaterPlan(brew, settings.hardware(), WaterAmount::plan(water, 42), {}));
     QCOMPARE(brew->waterVolume(), 105);
     QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 90);
 }

@@ -30,10 +30,18 @@ For recipes with an espresso target, the vessel editor SHALL offer Fixed amount 
 - **WHEN** a recipe's vessel stores 150 g fixed water and the user edits its name
 - **THEN** the editor retains 150 g and Fixed amount until the user explicitly changes them
 
+#### Scenario: Clicking the selected amount mode preserves units
+- **WHEN** a fixed 150 ml recipe vessel is edited and the user clicks its already selected Fixed amount button
+- **THEN** it remains fixed 150 ml in volume mode
+
+#### Scenario: Revisit a custom ratio in the same draft
+- **WHEN** a user changes a 2.7× vessel to Fixed amount and then returns to Ratio
+- **THEN** the custom 2.7× value remains available instead of being reset to a suggested choice
+
 #### Scenario: Switch amount modes deliberately
 - **WHEN** a user switches a ratio vessel to Fixed amount
 - **THEN** the resolved grams seed the fixed field and can be edited
-- **AND** switching to Ratio offers an editable 2.5× default without changing the shared preset's fixed amount automatically
+- **AND** switching to Ratio retains an existing custom draft ratio or offers an editable 2.5× default without changing the shared preset's fixed amount automatically
 
 ### Requirement: Water ratio chooser offers presets and a custom value
 The water ratio chooser SHALL use the same interaction and control presentation as the espresso ratio chooser. It SHALL initially offer 2×, 2.5× and 3×, highlight the selected value, and allow a custom ratio with decimal precision. Water-specific labels SHALL describe espresso yield to added water; choosing or editing one SHALL NOT change espresso ratio settings or presets.
@@ -49,7 +57,7 @@ The water ratio chooser SHALL use the same interaction and control presentation 
 - **AND** no quick choice is incorrectly marked as selected
 
 ### Requirement: Standalone vessels keep fixed amounts
-The standalone Hot Water page SHALL offer only fixed weight or volume amounts for vessel creation and editing. Newly added vessels SHALL default to 100 g. Editing SHALL preserve the preset's existing settings. Recipe ratio choices SHALL NOT appear in this editor or replace the shared preset's fixed amount.
+The standalone Hot Water page SHALL offer only fixed weight or volume amounts for vessel creation and editing. Newly added vessels SHALL default to 100 g. Editing SHALL preserve the preset's existing settings and SHALL NOT select an unselected vessel. Recipe ratio choices SHALL NOT appear in this editor or replace the shared preset's fixed amount.
 
 #### Scenario: Add on the standalone page
 - **WHEN** a user adds a vessel from the standalone Hot Water page
@@ -59,6 +67,15 @@ The standalone Hot Water page SHALL offer only fixed weight or volume amounts fo
 - **WHEN** a 200 g shared vessel is used in a recipe at 2.5× and its espresso target changes from 40 g to 42 g
 - **THEN** opening the shared vessel for standalone editing still shows its fixed 200 g
 - **AND** the recipe's added water is 105 g
+
+#### Scenario: Edit another standalone vessel
+- **WHEN** Cup is selected and a user long-presses Mug, edits its name or settings and saves
+- **THEN** Cup remains selected with its effective settings unchanged
+- **AND** any active recipe remains active
+
+#### Scenario: Edit the selected vessel while a recipe owns water
+- **WHEN** a shared 200 g vessel is selected by a recipe using 100 g of ratio water and its shared preset is edited to 180 g
+- **THEN** the shared preset stores 180 g while the recipe remains active at 100 g
 
 ### Requirement: Ratio requires an espresso target
 Profile-less hot-water tea SHALL use fixed amounts. A recipe with no usable positive espresso target SHALL show why ratio water cannot yet be resolved and SHALL NOT save an unusable ratio amount. Fixed amounts SHALL remain available.
@@ -85,3 +102,8 @@ Vessel editing SHALL have explicit Save and Cancel behavior and reject blank or 
 #### Scenario: Save a vessel before cancelling the recipe
 - **WHEN** a user explicitly saves a new shared vessel and later discards the enclosing recipe
 - **THEN** the saved vessel remains available but no recipe is created or updated
+
+#### Scenario: Save result belongs to the submitted editor
+- **WHEN** a pending vessel save succeeds while another client also changes the preset list
+- **THEN** the caller uses the confirmed saved row and frozen submitted snapshot for that request
+- **AND** it does not select an unrelated row based on the current list's last index

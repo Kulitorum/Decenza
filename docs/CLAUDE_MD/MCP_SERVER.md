@@ -1390,3 +1390,5 @@ Recipe hot-water amounts support `amountMode: "ratio"` with a positive
 exclusive with fixed `volumeMl`. Ratio water requires an espresso target and
 resolves to 10–500 g; fixed weight/volume fields retain their existing meaning.
 The ratio is saved on the recipe snapshot and never edits the shared fixed preset.
+
+Supplied water amount modes must be string `fixed` or `ratio`; omit the field for legacy fixed semantics. `resolvedTargetG` is derived read/history data and is ignored on recipe writes. Validation checks the complete resulting recipe, including bag/profile changes.

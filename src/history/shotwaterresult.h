@@ -72,7 +72,7 @@ struct ShotWaterResult {
     QString specWithCapturedTarget(const QString& spec) const {
         const auto captured = toMap();
         const double target = captured.value(QStringLiteral("targetWeightG")).toDouble();
-        if (status == QLatin1String("notDispensed") || target <= 0) return spec;
+        if (target <= 0) return spec;
         auto water = QJsonDocument::fromJson(spec.toUtf8()).object();
         if (!WaterAmount::isRatio(water)
             || water.value(QStringLiteral("resolvedTargetG")).toDouble() == target) return spec;

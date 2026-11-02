@@ -15,6 +15,8 @@
 QVariantList AIManager::availableModels(const QString&) const { return {}; }
 void MainController::applySteamSettings() {}
 void MainController::applyHotWaterSettings() {}
+void MainController::applySelectedWaterVessel() {}
+bool MainController::selectWaterVessel(int) { return true; }
 void MainController::turnOffSteamHeater() {}
 
 // Implemented in src/mcp/mcptools_presets.cpp.

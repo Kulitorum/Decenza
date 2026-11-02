@@ -77,6 +77,7 @@ class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
+class RecipeWaterController;
 class TranslationManager;
 class ScaleDeviceProxy;
 class SteamAutoFlushController;
@@ -520,7 +521,8 @@ public slots:
 
     void applySteamSettings() override;  // also satisfies SideEffectPort
     void applyHotWaterSettings();
-    QString recipeWaterStartError() const;
+    void applySelectedWaterVessel();
+    QString recipeWaterStartError();
     void applyFlushSettings();
 
     // Real-time hot water setting updates
@@ -860,18 +862,10 @@ private:
     DrinkSequenceController* m_drinkSequence = nullptr;
     ShotWaterJoin m_waterResultJoin;
     RecipeApplyQueue m_recipeApplyQueue;
-    bool m_applyingRecipeWater = false;
+    RecipeWaterController* m_recipeWater = nullptr;
     void queueRecipeBrewWrite(std::function<void(Settings*)> write);
-    void applyFixedRecipeWater(const QJsonObject& water);
-    QJsonObject m_recipeWaterInputs;
-    double m_recipeWaterYieldG = -1;
-    int m_recipeWaterTargetG = 0;
-    QString m_recipeWaterError;
-    double m_recipeWaterBumpedYieldG = -1;
-    double m_recipeWaterConfiguredYieldG = -1;
     QHash<qint64, QString> m_shotWaterSpecs;
-    void refreshRecipeWater();
-    void applyResolvedRecipeWater();
+    void refreshRecipeWater(bool targetEdited = false);
     void persistWaterResult(const std::optional<ShotWaterJoin::Write>& write);
     SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;

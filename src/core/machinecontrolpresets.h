@@ -15,15 +15,12 @@
 // the machine-apply callback so callers do not duplicate preset field mapping.
 namespace MachineControlPresets {
 
-// Apply recipe values without changing an existing shared vessel's fixed row.
-// Reusing a resolved ratio amount here also repairs settings displaced by a
-// standalone preset commit, without recomputing the multiplier.
-inline bool applyRecipeWater(SettingsBrew* brew, SettingsHardware* hardware,
-                             const QJsonObject& snapshot, int ratioAmountG,
-                             const std::function<void()>& apply, bool forceApply = false)
+// Apply one resolved plan without rewriting an existing shared fixed row.
+inline bool applyWaterPlan(SettingsBrew* brew, SettingsHardware* hardware,
+                           const WaterAmount::Plan& plan, const std::function<void()>& apply)
 {
-    if (!brew || !hardware || !snapshot.value(QStringLiteral("hasWater")).toBool()) return false;
-    const QString name = snapshot.value(QStringLiteral("vesselName")).toString();
+    if (!brew || !hardware || !plan.enabled() || !plan.valid()) return false;
+    const QString name = plan.spec.snapshot.value(QStringLiteral("vesselName")).toString();
     if (name.trimmed().isEmpty()) return false;
     int index = -1;
     const auto presets = brew->waterVesselPresets();
@@ -33,30 +30,20 @@ inline bool applyRecipeWater(SettingsBrew* brew, SettingsHardware* hardware,
             break;
         }
     }
-    const auto water = WaterAmount::withPresetFallback(snapshot,
-        QJsonObject::fromVariantMap(brew->getWaterVesselPreset(index)));
-    const bool ratio = WaterAmount::isRatio(water);
-    const int amount = ratio ? ratioAmountG : water.value(QStringLiteral("volume")).toInt();
-    if (amount <= 0) return false;
-    const QString mode = ratio ? QStringLiteral("weight")
-        : water.value(QStringLiteral("mode")).toString(QStringLiteral("weight"));
-    const int flow = water.value(QStringLiteral("flowRate")).toInt(40);
-    const double temperature = water.value(QStringLiteral("temperatureC")).toDouble(brew->waterTemperature());
     if (index < 0) {
-        brew->addWaterVesselPreset(name, amount, mode, flow, temperature);
-        const auto added = brew->waterVesselPresets();
-        if (added.size() != presets.size() + 1) return false;
-        index = static_cast<int>(added.size()) - 1;
+        brew->addWaterVesselPreset(name, plan.result.amount, plan.mode, plan.flowRate, plan.temperatureC);
+        if (brew->waterVesselPresets().size() != presets.size() + 1) return false;
+        index = static_cast<int>(presets.size());
     }
-    const bool changed = brew->selectedWaterVessel() != index || brew->waterVolume() != amount
-        || brew->waterVolumeMode() != mode || brew->waterTemperature() != temperature
-        || hardware->hotWaterFlowRate() != flow;
+    const bool changed = brew->selectedWaterVessel() != index || brew->waterVolume() != plan.result.amount
+        || brew->waterVolumeMode() != plan.mode || brew->waterTemperature() != plan.temperatureC
+        || hardware->hotWaterFlowRate() != plan.flowRate;
     brew->setSelectedWaterCup(index);
-    brew->setWaterVolume(amount);
-    brew->setWaterVolumeMode(mode);
-    brew->setWaterTemperature(temperature);
-    hardware->setHotWaterFlowRate(flow);
-    if ((changed || forceApply) && apply) apply();
+    brew->setWaterVolume(plan.result.amount);
+    brew->setWaterVolumeMode(plan.mode);
+    brew->setWaterTemperature(plan.temperatureC);
+    hardware->setHotWaterFlowRate(plan.flowRate);
+    if (changed && apply) apply();
     return true;
 }
 

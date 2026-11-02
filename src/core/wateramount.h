@@ -4,6 +4,7 @@
 #include <QString>
 #include <QtGlobal>
 #include <cmath>
+#include <optional>
 
 namespace WaterAmount {
 
@@ -44,8 +45,12 @@ inline QString definitionError(const QJsonObject& water, bool hasProfile, bool r
     if (!water.value(QStringLiteral("hasWater")).toBool())
         return {};
     const QString amountMode = water.value(QStringLiteral("amountMode")).toString();
-    if (!amountMode.isEmpty() && amountMode != QLatin1String("fixed") && amountMode != QLatin1String("ratio"))
+    if (water.contains(QStringLiteral("amountMode"))
+        && (!water.value(QStringLiteral("amountMode")).isString()
+            || (amountMode != QLatin1String("fixed") && amountMode != QLatin1String("ratio"))))
         return QStringLiteral("Unknown water amount mode.");
+    if (requireVessel && water.value(QStringLiteral("vesselName")).toString().trimmed().isEmpty())
+        return QStringLiteral("Choose a vessel for added water.");
     if (!isRatio(water))
         return water.contains(QStringLiteral("waterToEspressoRatio"))
             ? QStringLiteral("Choose either a fixed water amount or a water ratio.") : QString();
@@ -58,9 +63,42 @@ inline QString definitionError(const QJsonObject& water, bool hasProfile, bool r
         return QStringLiteral("Choose either a fixed water amount or a water ratio.");
     if (water.value(QStringLiteral("mode")).toString(QStringLiteral("weight")) != QLatin1String("weight"))
         return QStringLiteral("Ratio water uses weight in grams.");
-    if (requireVessel && water.value(QStringLiteral("vesselName")).toString().trimmed().isEmpty())
-        return QStringLiteral("Choose a vessel for ratio water.");
     return {};
+}
+
+struct ValidationContext {
+    bool catalogAvailable = false;
+    std::optional<double> installedTargetG;
+};
+
+enum class Kind { Disabled, LegacyPreset, FixedWeight, FixedVolume, Ratio };
+
+struct Specification {
+    Kind kind = Kind::Disabled;
+    QJsonObject snapshot;
+    QString error;
+    bool ratio() const { return kind == Kind::Ratio; }
+};
+
+inline QJsonObject writableSnapshot(QJsonObject water)
+{
+    water.remove(QStringLiteral("resolvedTargetG"));
+    if (water.value(QStringLiteral("vesselName")).isString())
+        water.insert(QStringLiteral("vesselName"), water.value(QStringLiteral("vesselName")).toString().trimmed());
+    return water;
+}
+
+inline Specification parse(const QJsonObject& water, bool hasProfile = true, bool requireVessel = false)
+{
+    Specification spec;
+    spec.snapshot = writableSnapshot(water);
+    spec.error = definitionError(water, hasProfile, requireVessel);
+    if (!spec.error.isEmpty() || !water.value(QStringLiteral("hasWater")).toBool()) return spec;
+    if (isRatio(water)) spec.kind = Kind::Ratio;
+    else if (water.value(QStringLiteral("volume")).toInt() <= 0) spec.kind = Kind::LegacyPreset;
+    else spec.kind = water.value(QStringLiteral("mode")).toString() == QLatin1String("volume")
+        ? Kind::FixedVolume : Kind::FixedWeight;
+    return spec;
 }
 
 struct Result {
@@ -69,20 +107,60 @@ struct Result {
     bool valid() const { return error.isEmpty() && amount > 0; }
 };
 
-inline Result resolve(const QJsonObject& water, double espressoTargetG)
+inline Result resolve(const Specification& spec, double espressoTargetG)
 {
-    const QString error = definitionError(water, true, false);
-    if (!error.isEmpty())
-        return {0, error};
-    if (!isRatio(water))
-        return {water.value(QStringLiteral("volume")).toInt(), {}};
+    if (!spec.error.isEmpty()) return {0, spec.error};
+    if (spec.kind == Kind::Disabled) return {};
+    if (spec.kind == Kind::LegacyPreset)
+        return {0, QStringLiteral("Choose a vessel with a supported fixed water amount.")};
+    if (!spec.ratio()) {
+        const int amount = spec.snapshot.value(QStringLiteral("volume")).toInt();
+        const int maximum = spec.kind == Kind::FixedVolume ? 255 : 500;
+        if (amount < 10 || amount > maximum)
+            return {0, QStringLiteral("Fixed water amount is outside the supported range.")};
+        return {amount, {}};
+    }
     if (!std::isfinite(espressoTargetG) || espressoTargetG <= 0)
         return {0, QStringLiteral("Set a positive espresso target yield to use ratio water.")};
-    const double grams = water.value(QStringLiteral("waterToEspressoRatio")).toDouble() * espressoTargetG;
-    // Bound before converting, including overflow from a finite multiplier.
+    const double grams = spec.snapshot.value(QStringLiteral("waterToEspressoRatio")).toDouble() * espressoTargetG;
     if (!std::isfinite(grams) || grams < 9.5 || grams >= 500.5)
         return {0, QStringLiteral("Added water must resolve to 10–500 g. Adjust the ratio or espresso target.")};
     return {qRound(grams), {}};
+}
+
+inline Result resolve(const QJsonObject& water, double espressoTargetG)
+{
+    return resolve(parse(water), espressoTargetG);
+}
+
+struct Plan {
+    Specification spec;
+    Result result;
+    double espressoTargetG = 0;
+    QString mode;
+    double temperatureC = 90;
+    int flowRate = 40;
+
+    bool enabled() const { return spec.snapshot.value(QStringLiteral("hasWater")).toBool(); }
+    bool valid() const { return result.valid(); }
+    QJsonObject historySnapshot() const {
+        auto water = spec.snapshot;
+        if (spec.ratio() && valid()) water.insert(QStringLiteral("resolvedTargetG"), result.amount);
+        return water;
+    }
+};
+
+inline Plan plan(const QJsonObject& water, double espressoTargetG)
+{
+    Plan value;
+    value.spec = parse(water, true, true);
+    value.result = resolve(value.spec, espressoTargetG);
+    value.espressoTargetG = espressoTargetG;
+    value.mode = value.spec.ratio() ? QStringLiteral("weight")
+        : water.value(QStringLiteral("mode")).toString(QStringLiteral("weight"));
+    value.temperatureC = water.value(QStringLiteral("temperatureC")).toDouble(90);
+    value.flowRate = water.value(QStringLiteral("flowRate")).toInt(40);
+    return value;
 }
 
 } // namespace WaterAmount

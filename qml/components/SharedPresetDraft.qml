@@ -27,6 +27,7 @@ QtObject {
     property string pendingRequestId: ""
     property string pendingOperation: ""
     property string errorMessage: ""
+    property var savedPresetResult: ({})
 
     Component.onCompleted: begin(selectedIndex)
 
@@ -45,6 +46,7 @@ QtObject {
                 || operation !== root.pendingOperation)
                 return
 
+            root.savedPresetResult = success ? (preferences.presetEditResult || ({})) : ({})
             const completedOperation = root.pendingOperation
             root.pending = false
             root.pendingRequestId = ""

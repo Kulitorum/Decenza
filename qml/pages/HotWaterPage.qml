@@ -1083,8 +1083,12 @@ T.Page {
         id: waterVesselEditor
         allowDelete: true
         onRemoved: page.applySelection()
-        onSaved: function(vessel, index) {
-            page.selectVessel(index, presetDraft.presetAt(index))
+        onSaved: function(vessel, index, preset, added) {
+            if (added) page.selectVessel(index, preset)
+            else if (index === presetDraft.selectedIndex) {
+                page.pendingPageActionId = MachineControlService.applyHotWaterSettings(SteamService.state.controlContextId)
+                page.pendingPageAction = "apply"
+            }
         }
     }
 

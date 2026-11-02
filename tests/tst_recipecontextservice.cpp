@@ -574,6 +574,10 @@ private slots:
         QCOMPARE(settings.brew()->getWaterVesselPreset(waterIndex).value(QStringLiteral("volume")).toInt(),
                  230);
 
+        const int beforeWaterAmount = settings.brew()->waterVolume();
+        const auto beforeWaterMode = settings.brew()->waterVolumeMode();
+        const auto beforeWaterTemperature = settings.brew()->waterTemperature();
+        const int beforeWaterFlow = settings.hardware()->hotWaterFlowRate();
         const QString waterCommitId = request();
         QSignalSpy commitPreferencesChanged(&source,
                                             &RecipeContextStateSimpleSource::preferencesChanged);
@@ -587,10 +591,13 @@ private slots:
         QCOMPARE(commitRevisionChanged.count(), 1);
         QCOMPARE(applySpy.count(), 1);
         QCOMPARE(applySpy.first().at(0).toString(), QStringLiteral("waterVessel"));
-        QCOMPARE(settings.brew()->waterVolume(), 245);
-        QCOMPARE(settings.brew()->waterVolumeMode(), QStringLiteral("volume"));
-        QCOMPARE(settings.hardware()->hotWaterFlowRate(), 55);
-        QCOMPARE(settings.brew()->waterTemperature(), 94.0);
+        QCOMPARE(settings.brew()->waterVolume(), beforeWaterAmount);
+        QCOMPARE(settings.brew()->waterVolumeMode(), beforeWaterMode);
+        QCOMPARE(settings.hardware()->hotWaterFlowRate(), beforeWaterFlow);
+        QCOMPARE(settings.brew()->waterTemperature(), beforeWaterTemperature);
+        const auto confirmed = completed.last().at(5).toMap().value("presetEditResult").toMap();
+        QCOMPARE(confirmed.value("index").toInt(), waterIndex);
+        QCOMPARE(confirmed.value("preset").toMap().value("volume").toInt(), 245);
 
         QVariantMap malformedWater = updateWater;
         malformedWater.insert(QStringLiteral("surprise"), true);
@@ -697,8 +704,9 @@ private slots:
                                  legacyEdit, source.revision());
         QCOMPARE(completed.count(), beforeLegacy + 1);
         QVERIFY(completed.last().at(3).toBool());
-        QCOMPARE(hardware->hotWaterFlowRate(), 5);
-        QCOMPARE(brew->waterTemperature(), 86.0);
+        const auto legacyConfirmed = completed.last().at(5).toMap().value("presetEditResult").toMap().value("preset").toMap();
+        QCOMPARE(legacyConfirmed.value("flowRate").toInt(), 5);
+        QCOMPARE(legacyConfirmed.value("temperature").toDouble(), 86.0);
         const QVariantMap stored = QJsonDocument::fromJson(settings.value(
             QStringLiteral("water/vesselPresets")).toByteArray()).array().at(1).toObject().toVariantMap();
         QCOMPARE(stored.value(QStringLiteral("mode")).toString(), QStringLiteral("weight"));
