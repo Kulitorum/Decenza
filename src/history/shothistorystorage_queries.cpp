@@ -701,7 +701,11 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             shot["portalIntegralEcG"] = portalIntegralEcG;
                             shot["portalMeanTempC"] = portalMeanTempC;
                             const bool portalReliable = query.value(30).toBool();
-                            shot["portalEstimateReliable"] = portalReliable;
+                            // ListModel.set retains omitted roles during an in-place refresh.
+                            shot["portalEstTdsPct"] = 0.0;
+                            shot["portalEstEyPct"] = 0.0;
+                            shot["portalCalScope"] = QString();
+                            shot["portalEstimateReliable"] = false;
                             if (portalMeanEc > 0.0 && rowDrinkTds > 0.0 && shot["drinkEyPct"].toDouble() <= 0.0)
                                 shot["drinkEyPct"] = PortalTailAnalyzer::extractionYieldPct(
                                     rowDrinkTds, rowFinalWeight, rowDoseWeight);

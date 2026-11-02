@@ -85,6 +85,7 @@ Calibration references SHALL record the actual serving weight source, mounting m
 
 - **WHEN** a dose correction makes a reference thermally unreliable
 - **THEN** it SHALL be excluded from subsequent calibration immediately after the write
+- **AND** an open Shot Review SHALL refresh its saved outcome after a Visualizer metadata pull without replacing the editing form
 
 #### Scenario: History contains no PORTAL data
 

@@ -21,7 +21,7 @@
 
 ## 4. Review follow-up
 
-- [x] 4.1 Reuse the mounting-mode decoder in both database readers; retain the existing independent performance-index creation after migration 50.
+- [x] 4.1 Reuse the mounting-mode decoder in both database readers; create the optional index after the deferred presence pass (section 8).
 - [x] 4.2 Reject simulated serving scales, leave initial cup mass uncovered, retain actually measured pre-drip baselines and derive the ratio envelope only from finite positive reference ratios. [Four regression controls](https://github.com/janhcla/Decenza/actions/runs/41348913871) against source 949fd637 failed at the intended assertions; both owner suites passed before and after restoration.
 - [x] 4.3 Render both review-card warning icons through the shared emoji image helper.
 - [x] 4.4 Full Linux suite, Android/Wasm builds and QML passed in CI 41348885569; [text invariants](https://github.com/janhcla/Decenza/actions/runs/41348888596) passed on source 949fd637.
@@ -57,9 +57,11 @@
 
 ## 8. Deferred legacy presence backfill
 
-- [ ] 8.1 Move the sample scan and optional index off initialization; persist completion atomically with presence updates on the existing DB worker, preserving recorded references.
-- [ ] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it.
-- [ ] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. Prove credible regressions fail.
+- [x] 8.1 Move the sample scan and optional index off initialization; persist completion atomically with presence updates on the existing DB worker, preserving recorded references.
+- [x] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it.
+- [x] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. [Six regression controls on functional source 1a5643e3](https://github.com/janhcla/Decenza/actions/runs/41423944384) failed at their intended assertions; dbmigration, belkaportal and shotreviewactions passed before and after restoration.
 - [ ] 8.4 Run current platform/text/OpenSpec validation, update the existing PR and recheck GitHub comments.
 
-- [ ] 8.5 Address new GitHub review 5734465691: refresh Shot Review outcomes after Visualizer pulls while preserving the editing form; extend the existing late-outcome regression.
+- [x] 8.5 Address new GitHub review 5734465691: refresh Shot Review outcomes after Visualizer pulls while preserving the editing form; the existing late-outcome regression now executes the real merge/callback/outcome handlers, rejects stale replies and preserves the draft.
+
+- [ ] 8.6 Address GitHub review 5734886935: explicitly reset History estimate roles when calibration disappears; verify clearing the last paired reference removes a retained estimate.

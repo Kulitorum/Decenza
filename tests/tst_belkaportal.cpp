@@ -1473,10 +1473,10 @@ private slots:
                 QVERIFY(std::abs(row.value("portalEstTdsPct").toDouble() - expectedTds) < 0.01);
                 QVERIFY(!row.value("portalEstimateReliable").toBool());
             } else if (id == independentTarget || id == otherTarget) {
-                QVERIFY(!row.contains("portalEstTdsPct"));
+                QCOMPARE(row.value("portalEstTdsPct").toDouble(), 0.0);
             } else if (id == id1) {
                 QCOMPARE(row.value("drinkEyPct").toDouble(), 17.5);
-                QVERIFY(!row.contains("portalEstTdsPct"));
+                QCOMPARE(row.value("portalEstTdsPct").toDouble(), 0.0);
             }
         }
 
@@ -1688,6 +1688,21 @@ private slots:
         const auto unicodeRows = listed.last().at(0).toList();
         QCOMPARE(unicodeRows.size(), 1);
         QVERIFY(std::abs(unicodeRows.first().toMap().value("portalEstTdsPct").toDouble() - 10.0) < 0.01);
+
+        auto retainedHistoryRow = unicodeRows.first().toMap();
+        QVERIFY(retainedHistoryRow.value("portalEstEyPct").toDouble() > 0.0);
+        storage.requestUpdateShotMetadata(unicodeId, {{QStringLiteral("drinkTds"), 0.0}});
+        QTRY_COMPARE(metadataSaved.size(), 7);
+        QVERIFY(metadataSaved.last().at(1).toBool());
+        storage.requestShotsFiltered({{QStringLiteral("beanBrand"), QStringLiteral("café")}}, 0, 50);
+        QTRY_COMPARE(listed.size(), 3);
+        const auto clearedRows = listed.last().at(0).toList();
+        QCOMPARE(clearedRows.size(), 1);
+        retainedHistoryRow.insert(clearedRows.first().toMap());
+        QCOMPARE(retainedHistoryRow.value("portalEstTdsPct").toDouble(), 0.0);
+        QCOMPARE(retainedHistoryRow.value("portalEstEyPct").toDouble(), 0.0);
+        QVERIFY(retainedHistoryRow.value("portalCalScope").toString().isEmpty());
+        QVERIFY(!retainedHistoryRow.value("portalEstimateReliable").toBool());
 
         auto mismatched = makePortalRecord(QStringLiteral("unobserved-cup-tail"), 1700001000, 25.0, 8.0, 10.0);
         mismatched.summary.beanBrand = QStringLiteral("Other roaster");
