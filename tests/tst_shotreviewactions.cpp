@@ -114,7 +114,7 @@ private slots:
             onShotWaterResultUpdated(7,{status:"dispensed",amountSource:"scale",weightG:103.2});
             completeShotOutcome("old",true,{shotId:7,version:1});
             var ignoredOld=shotOutcome.version===undefined;
-            completeShotOutcome("new",true,{shotId:7,version:2});
+            completeShotOutcome("new",true,{shotId:7,version:2,portalAnalysis:{calibrationEligible:true,thermalDriftWarning:false}});
             var reloads=0; loadShotForEditing=function(){++reloads;};
             var editDoseWeight=16, _reviewOpeningValues={doseWeight:16,notes:"saved note"};
             var _undoStack=[], _committedState={doseWeight:16,notes:"saved note"};

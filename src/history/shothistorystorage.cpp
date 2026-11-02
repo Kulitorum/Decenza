@@ -4049,8 +4049,8 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
 {
     // M-series Mac, 31 SQLite reads including name resolution on a real-history
     // copy with synthetic PORTAL fields (Python casefold models Qt key matching):
-    // 1,268 shots / 9.74 MB: median 0.071 ms, worst 0.471 ms;
-    // 10x (12,680 / 96.10 MB): median 2.098 ms, worst 8.047 ms.
+    // 1,268 shots / 9.74 MB: median 0.071 ms, worst 0.252 ms;
+    // 10x (12,680 / 96.27 MB): median 2.055 ms, worst 3.179 ms.
     // No logs or sample blobs enter either worker read.
     QVector<PortalTailAnalyzer::CalibrationPoint> out;
     // Resolve Unicode-equivalent names with the same Qt policy used by fitting.
