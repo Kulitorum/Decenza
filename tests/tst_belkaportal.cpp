@@ -1672,6 +1672,7 @@ private slots:
         QVERIFY(unicodeId > 0);
         auto unicodeTarget = unicodeReference;
         unicodeTarget.summary.uuid = QStringLiteral("unicode-target");
+        unicodeTarget.summary.timestamp += 60;
         unicodeTarget.summary.beanBrand = QStringLiteral("café");
         unicodeTarget.summary.beanType = QStringLiteral(" åbø ");
         unicodeTarget.drinkTds = unicodeTarget.drinkEy = 0.0;
