@@ -8,7 +8,7 @@ PORTAL conductivity needs mass-weighted interpretation and independent refractom
 
 - Analyze EC against recorded cup mass and expose relative integral/tail metrics.
 - Fit the same coffee and mounting geometry from independent physical-scale references.
-- Persist actual serving weight source, mounting and sensor presence; backfill legacy data once during migration and exclude unknown provenance.
+- Persist actual serving weight source, mounting and sensor presence; backfill legacy presence once on the database worker after a PORTAL is owned/active and exclude unknown provenance.
 - Show translated review/history/settings results on shared native/Wasm surfaces, without changing user notes or general shot verdicts.
 - Send one structured PORTAL block to the advisor and document calibration in the separate wiki.
 

@@ -11,7 +11,7 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 ## Decisions
 
 - Each accepted weight packet records its actual serving source through ShotTimingController into ShotDataModel, before UI/control callbacks. Any nonphysical packet makes the shot ineligible, including a manual stop before the next graph sample. Mounting is captured only while PORTAL is active.
-- Save provenance in typed projections, compressed samples and SQLite columns. Replace repeated log scans/read repairs with one migration. Pre-change shots without provenance remain ineligible rather than guessing from log wording.
+- Save provenance in typed projections, compressed samples and SQLite columns. Keep schema migration separate from the one-time background presence scan; normal reads never repair rows. Pre-change shots without provenance remain ineligible rather than guessing from log wording.
 - Resolve persisted coffee names using one Unicode case-folded key before SQL selects matching identities from the partial PORTAL index. No global 200-shot bound can evict an older coffee. Non-PORTAL rows never load a fit; hidden settings panels never request one.
 - Recompute eligibility on dose/yield edits inside both the metadata and Visualizer-pull transactions. Shared Options assembly carries corrected cup mass through save/import/review and advisor fallback.
 - Keep observed baselines, tolerate at most 0.1 g of baseline noise and count equal-time EC packets once. Measurement quality controls ratio advice; calibration count/extrapolation controls TDS prediction confidence.
@@ -21,9 +21,9 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 ## Risks / Trade-offs
 
 - Legacy references become ineligible until new physical-scale measurements are saved.
-- One-time migration reads historical sample blobs; normal reads use the small PORTAL index. The presence-only scan model measured 185.3 ms median / 186.9 ms worst on 1,268 shots (9.74 MB), and 1858.1 / 1869.5 ms at 10x (96.10 MB), five runs with Python SQLite/zlib/JSON on this Mac; these are not Qt startup measurements.
+- The first owned/active PORTAL schedules a one-time sample-blob scan on the existing database worker; users without PORTAL never schedule it. Normal reads use the small PORTAL index. The presence-only scan model measured 185.3 ms median / 186.9 ms worst on 1,268 shots (9.74 MB), and 1858.1 / 1869.5 ms at 10x (96.10 MB), five runs with Python SQLite/zlib/JSON on this Mac; these are not Qt startup measurements.
 - Live sensor acceptance and native/browser screen parity require a running paired installation; CI does not prove physical sensor behavior.
 
 ## Migration Plan
 
-Migration 50 adds all PORTAL columns and backfills legacy sensor presence in the schema-stamp transaction. Legacy references remain ineligible; backfill does no curve reconstruction or EC analysis. The optional index is created after the stamp. The later first-attachment/background recommendation was not adopted because it conflicts with the original explicit one-time migration requirement.
+Migration 51 consolidates the unmerged PORTAL schema and adds a database-local completion marker, including upgrades from previews 48-50. It does not scan shots or sample blobs. The shared Settings source requests the presence scan only for an owned/active PORTAL and queues calibration behind it. A session flag coalesces requests; the persisted marker prevents a new scan after restart. Presence updates and completion commit together, so a failed pass remains retryable. The optional index is created after completion and cannot invalidate the pass. Recorded physical-scale references keep their quality flag; legacy missing provenance is excluded even before the scan completes.

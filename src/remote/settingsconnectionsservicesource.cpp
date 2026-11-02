@@ -194,6 +194,7 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
 #endif
     if (m_portalDevice) {
         connect(m_portalDevice, &BelkaPortalDevice::stateChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
+        connect(m_portalDevice, &BelkaPortalDevice::stateChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
         connect(m_portalDevice, &BelkaPortalDevice::devicesChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
         connect(m_portalDevice, &BelkaPortalDevice::machineBusyChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
         connect(m_portalDevice, &BelkaPortalDevice::savedDeviceChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
@@ -256,6 +257,7 @@ void NativeSettingsConnectionsServiceSource::refreshPortalCalibration()
         setPortalCalibration({});
         return;
     }
+    m_shotHistory->requestPortalPresenceBackfill();
     setPortalCalibration({{QStringLiteral("loading"), true}});
     const auto dye = m_settings->dye();
     const auto mode = PortalTailAnalyzer::mountingModeFromString(m_settings->hardware()->portalMountingMode());

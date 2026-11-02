@@ -168,6 +168,7 @@ void ShotHistoryStorage::close()
 
 bool ShotHistoryStorage::initialize(const QString& dbPath)
 {
+    m_portalPresenceBackfillRequested = false;
     m_dbPath = dbPath;
     if (m_dbPath.isEmpty()) {
         QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -2280,11 +2281,10 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
-    // Columns, trigger statements and required backfill share the version-stamp transaction.
+    // Columns and required schema statements share the version-stamp transaction.
     struct NewColumn { QString table, name, type; };
     auto addColumns = [&](int version, const char* label, const QList<NewColumn>& columns,
-                          const char* untilComplete, const QStringList& extraStatements = {},
-                          const std::function<bool()>& backfill = {}) {
+                          const char* untilComplete, const QStringList& extraStatements = {}) {
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, label, 1);
         if (!txn.ok()) {
@@ -2315,8 +2315,6 @@ bool ShotHistoryStorage::runMigrations()
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration" << version << "statement failed -"
                                                          << query.lastError().text();
         }
-        if (ok && backfill)
-            ok = backfill();
         if (ok)
             ok = query.exec("DELETE FROM schema_version")
                  && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (%1)").arg(version));
@@ -2419,9 +2417,9 @@ bool ShotHistoryStorage::runMigrations()
         }, "Until it completes, added-water results are unavailable");
     }
 
-    // One PORTAL migration; versions 48/49 existed only in contributor previews.
-    if (currentVersion >= 47 && currentVersion < 50) {
-        addColumns(50, "migration 50 portal measurements", {
+    // One PORTAL migration; versions 48-50 existed only in contributor previews.
+    if (currentVersion >= 47 && currentVersion < 51) {
+        addColumns(51, "migration 51 portal measurements", {
             {QStringLiteral("shots"), QStringLiteral("portal_mean_ec"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_integral_ec_g"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_mean_temp_c"), QStringLiteral("REAL")},
@@ -2431,29 +2429,11 @@ bool ShotHistoryStorage::runMigrations()
             {QStringLiteral("shots"), QStringLiteral("portal_present"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
             // PORTAL previews used version 47 before main assigned it to added water.
             {QStringLiteral("shots"), QStringLiteral("hot_water_result_json"), QStringLiteral("TEXT")},
-        }, "PORTAL provenance is unavailable until it completes", {}, [&] {
-            QSqlQuery invalidate(m_db);
-            if (!invalidate.exec("UPDATE shots SET portal_estimate_reliable=0 WHERE portal_estimate_reliable=1"))
-                return false;
-            // M-series Mac, five Python SQLite/zlib/JSON presence-inspection runs
-            // on a real-history copy: 1,268 shots / 9.74 MB median 185.3 ms,
-            // worst 186.9 ms; 10x / 96.10 MB median 1858.1 ms, worst 1869.5 ms.
-            // This measures the scan shape, not Qt's startup latency. Runs once.
-            QSqlQuery samples(m_db);
-            if (!samples.exec("SELECT shot_id, data_blob FROM shot_samples")) return false;
-            while (samples.next()) {
-                const auto document = QJsonDocument::fromJson(qUncompress(samples.value(1).toByteArray()));
-                if (document.object().value(QStringLiteral("portalSamples")).toArray().isEmpty())
-                    continue;
-                QSqlQuery update(m_db);
-                update.prepare("UPDATE shots SET portal_present=1, portal_estimate_reliable=0 WHERE id=:id");
-                update.bindValue(":id", samples.value(0));
-                if (!update.exec()) return false;
-            }
-            return true;
+        }, "PORTAL provenance is unavailable until it completes", {
+            QStringLiteral("CREATE TABLE IF NOT EXISTS portal_presence_backfill ("
+                           "id INTEGER PRIMARY KEY CHECK(id=1), completed INTEGER NOT NULL DEFAULT 0)"),
+            QStringLiteral("INSERT OR IGNORE INTO portal_presence_backfill(id, completed) VALUES(1,0)")
         });
-        if (currentVersion == 50 && !query.exec("CREATE INDEX IF NOT EXISTS idx_shots_portal ON shots(portal_present) WHERE portal_present=1"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL index unavailable:" << query.lastError().text();
     }
 
     m_schemaVersion = currentVersion;
@@ -3979,6 +3959,64 @@ void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
         QJsonDocument(phasesArray).toJson(QJsonDocument::Compact));
 }
 
+void ShotHistoryStorage::requestPortalPresenceBackfill()
+{
+    if (!m_ready || m_portalPresenceBackfillRequested) return;
+    m_portalPresenceBackfillRequested = true;
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, destroyed] {
+        bool success = false;
+        bool changed = false;
+        withTempDb(dbPath, "shs_portal_presence", [&](QSqlDatabase& db) {
+            QSqlQuery state(db);
+            if (!state.exec("SELECT completed FROM portal_presence_backfill WHERE id=1") || !state.next())
+                return;
+            if (state.value(0).toBool()) {
+                success = true;
+                return;
+            }
+            state.finish();
+            DbWriteTxn txn = DbWriteTxn::begin(db, "PORTAL presence backfill");
+            if (!txn.ok()) return;
+            // M-series Mac, five Python SQLite/zlib/JSON scan-model runs:
+            // 1,268 shots / 9.74 MB: median 185.3 ms, worst 186.9 ms;
+            // 10x / 96.10 MB: median 1858.1 ms, worst 1869.5 ms.
+            // No curve reconstruction or analysis; this runs on the DB worker.
+            QSqlQuery samples(db);
+            if (!samples.exec("SELECT shot_id, data_blob FROM shot_samples")) return;
+            while (samples.next()) {
+                const auto root = QJsonDocument::fromJson(qUncompress(samples.value(1).toByteArray())).object();
+                if (root.value(QStringLiteral("portalSamples")).toArray().isEmpty()) continue;
+                const bool known = PortalTailAnalyzer::weightSourceFromString(root.value(QStringLiteral("weightSource")).toString())
+                        == PortalTailAnalyzer::WeightSource::PhysicalScale
+                    && PortalTailAnalyzer::mountingModeFromString(root.value(QStringLiteral("portalMountingMode")).toString())
+                        != PortalTailAnalyzer::MountingMode::Unknown;
+                QSqlQuery update(db);
+                update.prepare("UPDATE shots SET portal_present=1, "
+                               "portal_estimate_reliable=CASE WHEN :known THEN portal_estimate_reliable ELSE 0 END WHERE id=:id");
+                update.bindValue(":known", known);
+                update.bindValue(":id", samples.value(0));
+                if (!update.exec()) return;
+                changed = true;
+            }
+            samples.finish();
+            if (!state.exec("UPDATE portal_presence_backfill SET completed=1 WHERE id=1")) return;
+            success = txn.commit();
+            if (success && !state.exec("CREATE INDEX IF NOT EXISTS idx_shots_portal ON shots(portal_present) WHERE portal_present=1"))
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL index unavailable:" << state.lastError().text();
+        });
+        if (!success)
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL presence backfill incomplete - retry on the next PORTAL refresh";
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, dbPath, success, changed, destroyed] {
+            if (*destroyed || m_dbPath != dbPath) return;
+            m_portalPresenceBackfillRequested = success;
+            if (success && changed) emit historyDataChanged();
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ShotHistoryStorage::requestPortalCalibration(const QString& requestId, qint64 bagId,
                                                   const QString& beanBrand, const QString& beanType,
                                                   PortalTailAnalyzer::MountingMode mountingMode)
@@ -4046,6 +4084,7 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
                portal_estimate_reliable, portal_mounting_mode, equipment_id, profile_name
         FROM shots
         WHERE portal_present = 1
+          AND weight_source = 'physical_scale'
           AND (COALESCE(drink_tds, 0) > 0 OR COALESCE(enjoyment, 0) > 0)
           AND (%1)
         ORDER BY CASE WHEN COALESCE(portal_mean_ec, 0) > 0 AND COALESCE(drink_tds, 0) > 0 THEN 0

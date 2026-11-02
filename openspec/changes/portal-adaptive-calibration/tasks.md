@@ -4,7 +4,7 @@
 
 - [x] 1.1 Implement mass integration, gap and scale safeguards; retain existing analyzer tests.
 - [x] 1.2 Record serving-source and mounting provenance; remove log inference, slow-onset detectors and note injection; extend storage/capture regressions.
-- [x] 1.3 Move backfill to one migration, scope read-only calibration and refresh eligibility on dose edits; extend migration/storage coverage.
+- [x] 1.3 Separate the schema migration from the deferred background presence scan, scope read-only calibration and refresh eligibility on dose edits; extend migration/storage coverage.
 - [x] 1.4 Measure realistic and multiplied database costs and record them at the query call site.
 
 ## 2. Shared presentation
@@ -32,7 +32,7 @@
 
 ## 5. Complete 20-point review audit
 
-- [x] 5.1 Consolidate all unmerged PORTAL schema/backfill work in migration 50; test atomic failure and retry from main 47 and previews 48/49. Main's added-water migration 47 remains independent.
+- [x] 5.1 Consolidate unmerged PORTAL schema in migration 51; deferred scan behavior supersedes the earlier migration-50 backfill design. Test upgrades from main 47 and previews 48/49/50. Main's added-water migration 47 remains independent.
 - [x] 5.2 Reuse one fit per coffee/mounting in each history request for unmeasured shots, display measured EY on paired rows, share prediction safeguards and skip reference reads for bulk export/flow calibration and invalid provenance. Scoped History assertions pass. In the eight-row fixture, source 4bc1afcf reduced fits/pool loads from 7/7 to 3/3; Unicode resolution now uses two small SQL reads per pool load, measured at the query call site.
 - [x] 5.3 Recompute yield-dependent thermal eligibility using corrected metadata; prove the cache and review agree after a yield edit.
 - [x] 5.4 Expose mounting selection to accessibility, use Theme fonts and reconcile stale comments/unused advice parameters and the tail coverage constant.
@@ -41,7 +41,7 @@
 
 ## 6. GitHub review at 4bc1afcf
 
-- [x] 6.1 Reduce the original atomic migration to legacy PORTAL-presence backfill only: no curve reconstruction or EC analysis, and no per-shot update for non-PORTAL rows. The later first-attachment recommendation conflicts with the original explicit migration requirement, which remains the chosen behavior.
+- [x] 6.1 The user accepted the later GitHub recommendation: schema-only migration with presence backfill once in the background after PORTAL ownership/attachment. The earlier startup placement is superseded by section 8.
 - [x] 6.2 Accept baseline noise within 0.1 g while retaining observed mass, preserve small negative baselines, and drop equal-time EC duplicates without inventing a gap.
 - [x] 6.3 Gate ratio advice on measurement quality rather than empirical prediction uncertainty; verify advice remains consistent with 0/1/3/5 references. [Six controls on 4dd43776](https://github.com/janhcla/Decenza/actions/runs/41414838994) failed at their intended assertions; all four owner suites passed before/after restoration.
 - [x] 6.4 Share Options assembly across all analysis entry points, including the advisor fallback, and describe PORTAL units/ranges in the shared system prompt.
@@ -54,3 +54,10 @@
 - [x] 7.2 Refresh PORTAL eligibility inside the Visualizer pull transaction, preserving clean sync state and rolling back metadata if refresh fails.
 - [x] 7.3 Subscribe Settings calibration to successful Visualizer pulls, including TDS-only changes; native/browser live refresh remains part of manual acceptance.
 - [x] 7.4 Both owner-boundary regressions passed, and each deliberate defect failed at its intended assertion in CI 41417057187. Full platform validation passed on 7fe70f0a; final text-invariants results are linked in the PR. GitHub was rechecked before publishing the audit.
+
+## 8. Deferred legacy presence backfill
+
+- [ ] 8.1 Move the sample scan and optional index off initialization; persist completion atomically with presence updates on the existing DB worker, preserving recorded references.
+- [ ] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it.
+- [ ] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. Prove credible regressions fail.
+- [ ] 8.4 Run current platform/text/OpenSpec validation, update the existing PR and recheck GitHub comments.

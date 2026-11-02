@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 50;
+    static constexpr int kCurrentSchemaVersion = 51;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -330,6 +330,8 @@ public:
     // Read paired or rated PORTAL measurements for this bag/bean; no logs or sample blobs.
     static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
         const QString& beanBrand, const QString& beanType);
+    // Called only for an owned/active PORTAL; one persisted scan per database.
+    void requestPortalPresenceBackfill();
     void requestPortalCalibration(const QString& requestId, qint64 bagId,
                                   const QString& beanBrand, const QString& beanType,
                                   PortalTailAnalyzer::MountingMode mountingMode);
@@ -964,6 +966,7 @@ private:
     QSqlDatabase m_db;
     QString m_dbPath;
     bool m_ready = false;
+    bool m_portalPresenceBackfillRequested = false;
     int m_totalShots = 0;
     int m_schemaVersion = 1;
     int m_schemaVersionAtStart = 1;  // schema version on open, before this run's migrations (crossedSchemaVersion)
