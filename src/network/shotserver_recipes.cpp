@@ -19,6 +19,7 @@
 #include "../core/settings_network.h"
 #include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
+#include "../core/wateramount.h"
 #include "../history/coffeebagstorage.h"
 #include "../profile/profile.h"  // profileJsonToDouble — tolerant string/number parse
 #include "../history/recipepromotion.h"
@@ -378,6 +379,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 if (recipeId <= 0) {
                     if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                    else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                        respondJson(waterFailure, 400);
                     else
                         respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                 } else {
@@ -436,6 +439,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         if (recipeId <= 0) {
                             if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                                 respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                            else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                                respondJson(waterFailure, 400);
                             else
                                 respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                         } else {
@@ -577,6 +582,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         } else if (reason == QLatin1String("nameInUse")) {
                             respondJson(QJsonObject{{"code", "nameInUse"},
                                                     {"error", "That name is already in use by another active recipe"}}, 409);
+                        } else if (const auto waterFailure = WaterAmount::validationResponse(reason); !waterFailure.isEmpty()) {
+                            respondJson(waterFailure, 400);
                         } else if (reason == QLatin1String("invalidPrecondition")) {
                             respondJson(QJsonObject{{"error", "expectedName is only valid with a name-only update"}}, 400);
                         } else {
@@ -605,6 +612,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         respondJson(QJsonObject{{"updated", true}, {"recipeId", recipeId}});
                     else if (*failReason == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respondJson(waterFailure, 400);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found or update failed"}}, 404);
                 });
@@ -640,6 +649,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     if (newId <= 0) {
                         if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                             respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                        else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                            respondJson(waterFailure, 400);
                         else
                             respondJson(QJsonObject{{"error", "Clone failed"}}, 500);
                     } else {
@@ -697,6 +708,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     else if (*failReason == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "An active recipe already uses this name — "
                                                           "rename that one first"}}, 409);
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respondJson(waterFailure, 400);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found"}}, 404);
                 });

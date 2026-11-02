@@ -75,6 +75,8 @@ The host resolves ratio water after activation's dose/yield step and when the ef
 
 `hot_water_json` retains the ratio specification and its planned `resolvedTargetG`; the operation-keyed `hot_water_result_json.targetWeightG` captures the target used by the water step separately from its measured water. Clone and promotion preserve the ratio. Ratio resolution and use do not rewrite shared presets or other recipes; a deleted preset is recreated as fixed at the resolved amount. Legacy fixed and name-only blocks keep their existing interpretation.
 
+HTTP recipe writes report unsupported resolved water amounts as `400` with `code: "invalidWaterAmount"` and the validator message; MCP returns the same code/message. Clone validation captures the installed profile target just like create/update.
+
 ## Recipe identity in shot history (history-recipe-identity)
 
 - **Reference, not snapshot, on every listing surface.** A shot stores only `recipe_id`; the name, drink type and archived flag are resolved by a `LEFT JOIN recipes` in the list query itself, so renaming a recipe relabels its whole history. Safe because a recipe with linked shots can only be archived, never hard-deleted. This extends the rule `shot-recipe-card` already applied to the shot page.

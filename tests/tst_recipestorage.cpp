@@ -1270,12 +1270,58 @@ private slots:
         QVERIFY(created.last().at(0).toLongLong() > 0);
         QCOMPARE(created.last().at(1).toMap().value("hotWaterJson").toString(), water);
         storage.setProfileYieldSnapshotProvider([] { return QHash<QString, double>{{"Installed profile", 300.0}}; });
+        storage.requestCloneRecipe(id, "Invalid profile fallback clone");
+        QTRY_COMPARE(created.count(), 3);
+        QVERIFY(created.last().at(0).toLongLong() <= 0);
+        const auto cloneError = WaterAmount::validationResponse(created.last().at(1).toMap().value("error").toString());
+        QCOMPARE(cloneError.value("code").toString(), QStringLiteral("invalidWaterAmount"));
         storage.requestUpdateRecipe(id, {{"yieldValue", 2.2}});
         QTRY_COMPARE(updated.count(), 2);
         QVERIFY(!updated.last().at(1).toBool());
         QTRY_VERIFY(storage.isDbWorkIdle());
         withRawDb(path, "water_profile_verify", [&](QSqlDatabase& db) {
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).yieldValue, 2.1);
+        });
+    }
+
+    void ratioWaterValidationFailuresRetainClientMessage() {
+        const auto path = freshDbPath();
+        withRawDb(path, "water_error_seed", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy created(&storage, &RecipeStorage::recipeCreated);
+        const QVariantMap fields{{"name", "Water validation"}, {"profileTitle", "Espresso"},
+            {"yieldMode", "absolute"}, {"yieldValue", 300.0}, {"requestToken", "water-error"},
+            {"hotWaterJson", R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.0})"}};
+        storage.requestCreateRecipe(fields);
+        QTRY_COMPARE(created.count(), 1);
+        QVERIFY(created.first().at(0).toLongLong() <= 0);
+        const auto failed = created.first().at(1).toMap();
+        QCOMPARE(failed.value("requestToken").toString(), QStringLiteral("water-error"));
+        const auto expected = WaterAmount::validationResponse(failed.value("error").toString());
+        QCOMPARE(expected.value("code").toString(), QStringLiteral("invalidWaterAmount"));
+        QVERIFY(expected.value("error").toString().contains(QStringLiteral("10–500 g")));
+        QVERIFY(WaterAmount::validationResponse(QStringLiteral("nameInUse")).isEmpty());
+        auto valid = fields;
+        valid["yieldValue"] = 40.0;
+        storage.requestCreateRecipe(valid);
+        QTRY_COMPARE(created.count(), 2);
+        const auto id = created.last().at(0).toLongLong();
+        QVERIFY(id > 0);
+        QSignalSpy failedUpdate(&storage, &RecipeStorage::recipeUpdateFailed);
+        QSignalSpy updated(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{"yieldValue", 300.0}, {"name", "Must not be saved"}});
+        QTRY_COMPARE(updated.count(), 1);
+        QVERIFY(!updated.first().at(1).toBool());
+        QCOMPARE(failedUpdate.count(), 1);
+        QCOMPARE(WaterAmount::validationResponse(failedUpdate.first().at(1).toString()), expected);
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        withRawDb(path, "water_error_verify", [&](QSqlDatabase& db) {
+            const auto recipe = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(recipe.name, QStringLiteral("Water validation"));
+            QCOMPARE(recipe.yieldValue, 40.0);
         });
     }
 

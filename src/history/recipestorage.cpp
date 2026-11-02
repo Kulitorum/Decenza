@@ -695,7 +695,7 @@ void RecipeStorage::requestCreateRecipeImpl(const QVariantMap& recipeMap,
             }
             const QString waterError = recipeWaterError(db, recipe, hasProfileSnapshot ? profileTargets.value(recipe.profileTitle) : -1);
             if (!waterError.isEmpty()) {
-                created->insert(QStringLiteral("error"), waterError);
+                created->insert(QStringLiteral("error"), WaterAmount::validationFailure(waterError));
                 return;
             }
             *newId = insertRecipeStatic(db, recipe, hasProfileSnapshot ? profileTargets.value(recipe.profileTitle) : -1);
@@ -885,7 +885,7 @@ void RecipeStorage::requestUpdateRecipeImpl(
             const QString waterError = recipeWaterError(db, candidate,
                 hasProfileSnapshot ? profileTargets.value(candidate.profileTitle) : -1);
             if (!waterError.isEmpty()) {
-                *failReason = waterError;
+                *failReason = WaterAmount::validationFailure(waterError);
                 return;
             }
             *success = updateRecipeFieldsStatic(db, recipeId, mergedFields,
@@ -1035,8 +1035,9 @@ void RecipeStorage::requestCloneRecipeImpl(qint64 sourceId, const QString& newNa
     auto created = std::make_shared<QVariantMap>();
     if (!requestToken.isEmpty())
         created->insert(QStringLiteral("requestToken"), requestToken);
+    const auto profileTargets = m_profileYieldSnapshot ? m_profileYieldSnapshot() : QHash<QString, double>();
     runAsync("recipes_clone",
-        [sourceId, newName, newId, created, requestToken](QSqlDatabase& db) {
+        [sourceId, newName, newId, created, requestToken, profileTargets](QSqlDatabase& db) {
             Recipe source = loadRecipeStatic(db, sourceId);
             if (!source.isValid()) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "clone source" << sourceId << "not found";
@@ -1057,7 +1058,13 @@ void RecipeStorage::requestCloneRecipeImpl(qint64 sourceId, const QString& newNa
                 created->insert(QStringLiteral("error"), QStringLiteral("nameInUse"));
                 return;  // *newId stays -1
             }
-            *newId = insertRecipeStatic(db, copy);
+            const double profileTarget = profileTargets.value(copy.profileTitle);
+            const QString waterError = recipeWaterError(db, copy, profileTarget);
+            if (!waterError.isEmpty()) {
+                created->insert(QStringLiteral("error"), WaterAmount::validationFailure(waterError));
+                return;
+            }
+            *newId = insertRecipeStatic(db, copy, profileTarget);
             if (*newId > 0) {
                 *created = loadRecipeStatic(db, *newId).toVariantMap();
                 if (!requestToken.isEmpty())

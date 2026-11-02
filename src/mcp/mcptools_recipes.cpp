@@ -21,6 +21,7 @@
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../core/yieldspec.h"
+#include "../core/wateramount.h"
 #include "../history/shothistorystorage.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/recipestorage.h"
@@ -528,6 +529,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     if (recipeId <= 0) {
                         if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                             respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                        else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                            respond(waterFailure);
                         else
                             respond(QJsonObject{{"error", "Could not create the recipe"}});
                         return;
@@ -648,6 +651,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                         respond(QJsonObject{{"updated", true}, {"recipeId", recipeId}});
                     else if (*failReason == QLatin1String("nameInUse"))
                         respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respond(waterFailure);
                     else
                         respond(QJsonObject{{"error", QString("Recipe %1 not found or update failed").arg(recipeId)}});
                 });
@@ -724,6 +729,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                             if (recipeId <= 0) {
                                 if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                                     respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                                else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                                    respond(waterFailure);
                                 else
                                     respond(QJsonObject{{"error", "Could not create the recipe"}});
                                 return;
@@ -774,6 +781,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     if (recipeId <= 0) {
                         if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                             respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                        else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                            respond(waterFailure);
                         else
                             respond(QJsonObject{{"error", "Clone failed (source recipe not found?)"}});
                         return;
@@ -861,6 +870,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     else if (*failReason == QLatin1String("nameInUse"))
                         respond(QJsonObject{{"error", QString("Recipe %1 cannot be restored: an active "
                             "recipe already uses its name — rename that one first").arg(recipeId)}});
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respond(waterFailure);
                     else
                         respond(QJsonObject{{"error", QString("Recipe %1 not found").arg(recipeId)}});
                 });

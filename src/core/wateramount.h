@@ -7,6 +7,19 @@
 
 namespace WaterAmount {
 
+inline QString validationFailure(const QString& message)
+{
+    return QStringLiteral("invalidWaterAmount:") + message;
+}
+
+inline QJsonObject validationResponse(const QString& reason)
+{
+    const QString prefix = validationFailure({});
+    if (!reason.startsWith(prefix)) return {};
+    return {{QStringLiteral("code"), QStringLiteral("invalidWaterAmount")},
+            {QStringLiteral("error"), reason.mid(prefix.size())}};
+}
+
 inline bool isRatio(const QJsonObject& water)
 {
     return water.value(QStringLiteral("amountMode")).toString() == QLatin1String("ratio");
