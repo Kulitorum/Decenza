@@ -104,6 +104,8 @@ private slots:
 
     void invalidRecipeWaterBlocksManualAndSequencedStarts() {
         SequenceFixture f("after");
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        QSignalSpy results(&f.sequence, &DrinkSequenceController::waterResultReady);
         f.device.setHotWaterStartGuard([] { return QStringLiteral("Water target is invalid"); });
         QCOMPARE(f.device.hotWaterStartError(), QStringLiteral("Water target is invalid"));
         QSignalSpy errors(&f.device, &DE1Device::errorOccurred);
@@ -115,7 +117,9 @@ private slots:
         f.sequence.onShotSettled();
         QTRY_COMPARE(errors.count(), 2);
         QVERIFY(f.requested().isEmpty());
-        f.sequence.skip();
+        QVERIFY(!f.sequence.isActive());
+        QCOMPARE(results.count(), 1);
+        QCOMPARE(results.first().at(1).toMap().value("status").toString(), QStringLiteral("notDispensed"));
         f.device.setHotWaterStartGuard({});
         QVERIFY(f.device.hotWaterStartError().isEmpty());
         f.device.startHotWater();

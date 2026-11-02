@@ -220,7 +220,8 @@ void DrinkSequenceController::fireIfReady()
         DIAG_INFO(RECIPES, "DrinkSequenceController").noquote()
             << QStringLiteral("'%1': requesting %2").arg(m_recipeName, stepName(step));
     }
-    m_device->startUnattended(stateFor(step));
+    if (!m_device->startUnattended(stateFor(step)))
+        drop(QStringLiteral("the start was refused locally"));
 }
 
 void DrinkSequenceController::skip()

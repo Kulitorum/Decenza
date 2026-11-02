@@ -285,7 +285,7 @@ public slots:
     void requestState(DE1::State state);
     void startEspresso();
     void startSteam();
-    void startHotWater();
+    bool startHotWater();
     void setHotWaterStartGuard(std::function<QString()> guard) { m_hotWaterStartGuard = std::move(guard); }
     QString hotWaterStartError() const { return m_hotWaterStartGuard ? m_hotWaterStartGuard() : QString(); }
     // Start HotWater or Espresso with no one at the machine: a recipe's second
@@ -293,7 +293,8 @@ public slots:
     // startEspresso, and a GHC machine accepts it only inside the firmware's
     // post-step window. In simulation with the GHC active, the simulator applies
     // that rule, since the app's own controls stand in for GHC taps there.
-    void startUnattended(DE1::State state);
+    // True means requested; false means locally refused, before firmware acts.
+    bool startUnattended(DE1::State state);
     // The firmware's steam-wand purge (SteamRinse). It ends by itself, and a GHC
     // machine accepts it without a tap.
     void startSteamPurge();
