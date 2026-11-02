@@ -61,3 +61,5 @@
 - [ ] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it.
 - [ ] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. Prove credible regressions fail.
 - [ ] 8.4 Run current platform/text/OpenSpec validation, update the existing PR and recheck GitHub comments.
+
+- [ ] 8.5 Address new GitHub review 5734465691: refresh Shot Review outcomes after Visualizer pulls while preserving the editing form; extend the existing late-outcome regression.

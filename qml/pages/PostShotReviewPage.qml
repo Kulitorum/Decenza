@@ -1006,8 +1006,9 @@ T.Page {
             }
         }
         function onShotPulledFromVisualizer(shotId, previous, written) {
-            if (shotId === postShotReviewPage.editShotId && postShotReviewPage._editLoaded)
-                postShotReviewPage.mergePulledChanges(previous, written)
+            if (shotId !== postShotReviewPage.editShotId || !postShotReviewPage._editLoaded) return
+            postShotReviewPage.mergePulledChanges(previous, written)
+            postShotReviewPage.refreshShotOutcome(shotId)
         }
         function onHistoryDataChanged() {
             if (postShotReviewPage._baristaHistoryLoaded)
