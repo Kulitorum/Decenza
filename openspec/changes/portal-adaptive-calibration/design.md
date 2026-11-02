@@ -26,4 +26,4 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 
 ## Migration Plan
 
-Migration 50 adds all PORTAL columns and backfills legacy sensor presence in the schema-stamp transaction. Legacy references remain ineligible; backfill does no curve reconstruction or EC analysis. The optional index is created after the stamp. Moving backfill to first attachment conflicts with the original migration requirement and awaits the user's preference.
+Migration 50 adds all PORTAL columns and backfills legacy sensor presence in the schema-stamp transaction. Legacy references remain ineligible; backfill does no curve reconstruction or EC analysis. The optional index is created after the stamp. The later first-attachment/background recommendation was not adopted because it conflicts with the original explicit one-time migration requirement.
