@@ -1581,7 +1581,7 @@ void DE1Device::startSteam() {
 }
 
 void DE1Device::startHotWater() {
-    const QString error = m_hotWaterStartGuard ? m_hotWaterStartGuard() : QString();
+    const QString error = hotWaterStartError();
     if (!error.isEmpty()) {
         emit errorOccurred(error);
         return;

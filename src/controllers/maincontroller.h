@@ -1,5 +1,6 @@
 #pragma once
 
+#include "recipeapplyqueue.h"
 #include "history/shotwaterjoin.h"
 
 #include <QHash>
@@ -858,6 +859,10 @@ private:
     SteamAutoFlushController* m_steamAutoFlush = nullptr;
     DrinkSequenceController* m_drinkSequence = nullptr;
     ShotWaterJoin m_waterResultJoin;
+    RecipeApplyQueue m_recipeApplyQueue;
+    bool m_applyingRecipeWater = false;
+    void queueRecipeBrewWrite(std::function<void(Settings*)> write);
+    void applyFixedRecipeWater(const QJsonObject& water);
     QJsonObject m_recipeWaterInputs;
     double m_recipeWaterYieldG = -1;
     int m_recipeWaterTargetG = 0;

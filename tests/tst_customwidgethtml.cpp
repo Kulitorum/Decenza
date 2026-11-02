@@ -115,6 +115,8 @@ private slots:
     void everyGestureHandlerCanActuallyFire();
     void compiledSleepTileFollowsItsOptions();
     void sharedPresetDraftUsesCapturedRevisionAndExplicitReload();
+    void vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts();
+    void recipeWaterEditorPreservesLegacyValuesAndConvertsTea();
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
     void hotWaterAndFlushInputsStayBoundToSharedDrafts();
     void grindDialInUsesOneCombinedPreferenceRequest();
@@ -160,6 +162,8 @@ const auto kCustomEditor    = QStringLiteral("/qml/components/layout/CustomEdito
 const auto kReadoutOptions  = QStringLiteral("/qml/components/layout/ReadoutOptionsPopup.qml");
 const auto kItemDelegate    = QStringLiteral("/qml/components/layout/LayoutItemDelegate.qml");
 const auto kShotHistoryPage = QStringLiteral("/qml/pages/ShotHistoryPage.qml");
+const auto kWaterVesselDialog = QStringLiteral("/qml/components/WaterVesselDialog.qml");
+const auto kRecipeWizard = QStringLiteral("/qml/pages/RecipeWizardPage.qml");
 const auto kSharedPresetDraft = QStringLiteral("/qml/components/SharedPresetDraft.qml");
 const auto kBrewDialog = QStringLiteral("/qml/components/BrewDialog.qml");
 const auto kWebLayout       = QStringLiteral("/src/network/shotserver_layout.cpp");
@@ -1408,6 +1412,100 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
         QVERIFY2(!literalDefault.match(reader).hasMatch(),
                  qPrintable(rel + " hard-codes a Sleep option default"));
     }
+}
+
+void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts()
+{
+    const auto source = readSource(SrcPath::kWaterVesselDialog);
+    QString methods;
+    for (const auto* name : {"snapshot", "openFor", "saveVessel"}) {
+        const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
+        QVERIFY(!method.isEmpty());
+        methods += method + QLatin1Char('\n');
+    }
+    const auto completed = liftHandler(source, "SharedPresetDraft {", "onCompleted:", "finishSave");
+    QVERIFY(!completed.isEmpty());
+    QJSEngine engine;
+    auto result = engine.evaluate(QStringLiteral(R"JS(
+        var RecipeContext = {revision: 4, preferences: {waterTemperature: 90},
+            waterAmountPreview: function(v, target) {
+                return {valid: v.hasWater === true && v.amountMode === "ratio" && target > 0,
+                        amountG: Math.round((v.waterToEspressoRatio || 0) * target)};
+            }};
+        var Keyboard = {commit: function() {}};
+        var nameField = {text: "Cup"};
+        var root = {allowRatio: true, espressoTargetG: 40, validName: true, validAmount: true,
+            vesselName: "Cup", amountMode: "ratio", waterRatio: 2.7, measureMode: "weight",
+            flowRate: 40, temperatureC: 90, fixedAmount: 100, presetIndex: 0,
+            capturedPreset: {volume: 200, mode: "weight"}, capturedName: "Cup", capturedRevision: 4,
+            preview: {valid: true, amountG: 108}, emitted: null,
+            saved: function(value) {this.emitted = value;}, close: function() {}, open: function() {}};
+        var writer = {pending: false, presets: [{}],
+            presetAt: function(index) {return index < 0 ? {} : {name: "Cup", volume: 200, mode: "weight"};},
+            submit: function(op, fields) {this.fields = fields; this.pending = true;}};
+        %1
+        %2
+        root.snapshot = snapshot;
+        saveVessel();
+        root.vesselName = "Later edit";
+        root.temperatureC = 99;
+        finishSave("update", true, "");
+        var frozen = root.emitted.name === "Cup" && root.emitted.temperatureC === 90
+            && root.emitted.waterToEspressoRatio === 2.7 && writer.fields.volume === 200;
+        writer.pending = false;
+        root.allowRatio = false;
+        openFor({name: "Cup", hasWater: true, amountMode: "ratio", waterToEspressoRatio: 2.7}, 0);
+        var fixed = snapshot();
+        var fixedOnly = fixed.amountMode === "fixed" && fixed.volume === 108
+            && fixed.waterToEspressoRatio === undefined;
+        openFor({}, -1);
+        frozen && fixedOnly && root.amountMode === "fixed" && root.fixedAmount === 100;
+    )JS").arg(methods, completed));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
+void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea()
+{
+    const auto source = readSource(SrcPath::kRecipeWizard);
+    QString methods;
+    for (const auto* name : {"recipeVesselSnapshot", "buildHotWaterJson", "vesselTileModel", "selectDrinkType"}) {
+        const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
+        QVERIFY(!method.isEmpty());
+        methods += method + QLatin1Char('\n');
+    }
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var fHasWater = true, fVesselName = "Cup", fWaterAmountMode = "fixed", fWaterRatio = 2.5;
+        var fVesselMode = "weight", fVesselVolume = 0, fVesselFlowRate = 40, fVesselTemperatureC = 0;
+        var fWaterOrder = "after", fDrinkType = "americano", waterEspressoTargetG = 40;
+        var templates = {americano: {bagKind: "coffee", water: true}, tea_hotwater: {bagKind: "tea", water: true}};
+        var RecipeService = {requestLastEquipmentForDrinkType: function() {}};
+        function suggestName() {}
+        function stepDone() {}
+        // The facade's real fixed/ratio projection is covered by RecipeContextServiceTest.
+        // These fixture values check the shipping editor's selection/save wiring.
+        var RecipeContext = {preferences: {waterVesselPresets: [{name: "Cup", volume: 200,
+                mode: "volume", temperature: 85, flowRate: 31}]},
+            waterVesselSnapshot: function(v, preset) {
+                return v.amountMode !== "ratio" && !v.volume ? Object.assign({}, v,
+                    {volume: preset.volume, mode: preset.mode, temperatureC: preset.temperature, flowRate: preset.flowRate}) : v;
+            },
+            waterAmountPreview: function() {return {valid: true, amountG: 100};}};
+        %1
+        var water = JSON.parse(buildHotWaterJson());
+        var tile = vesselTileModel()[0];
+        var legacy = water.volume === 200 && water.temperatureC === 85 && water.mode === "volume"
+            && tile.volume === 200 && tile.temperature === 85;
+        fWaterAmountMode = "ratio";
+        fVesselTemperatureC = 85;
+        selectDrinkType("tea_hotwater");
+        var tea = JSON.parse(buildHotWaterJson());
+        legacy && tea.amountMode === "fixed" && tea.volume === 100 && tea.mode === "weight"
+            && tea.waterToEspressoRatio === undefined;
+    )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
 }
 
 void TestCustomWidgetHtml::sharedPresetDraftUsesCapturedRevisionAndExplicitReload()

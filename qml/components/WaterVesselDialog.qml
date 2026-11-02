@@ -42,6 +42,7 @@ DecenzaDialog {
     property int flowRate: 40
     property string saveError: ""
     property string initialSnapshot: ""
+    property var submittedSnapshot: ({})
     readonly property var preview: RecipeContext.waterAmountPreview(root.snapshot(), root.espressoTargetG)
     readonly property bool validName: vesselName.trim().length > 0 && !writer.nameTaken(vesselName, presetIndex)
     readonly property bool validAmount: amountMode === "ratio" ? preview.valid : fixedAmount >= 10
@@ -65,9 +66,10 @@ DecenzaDialog {
         root.capturedPreset = writer.presetAt(index)
         root.capturedName = String(root.capturedPreset.name || "")
         root.vesselName = String(vessel.name || vessel.vesselName || "")
-        root.amountMode = vessel.amountMode || (index < 0 && root.allowRatio ? "ratio" : "fixed")
+        root.amountMode = root.allowRatio ? (vessel.amountMode || (index < 0 ? "ratio" : "fixed")) : "fixed"
         root.waterRatio = Number(vessel.waterToEspressoRatio ?? 2.5)
-        root.fixedAmount = Number(vessel.volume ?? 100)
+        const incomingPreview = RecipeContext.waterAmountPreview(vessel, root.espressoTargetG)
+        root.fixedAmount = Number(vessel.volume ?? (incomingPreview.valid ? incomingPreview.amountG : 100))
         root.measureMode = String(vessel.mode || "weight")
         root.temperatureC = Number(vessel.temperatureC ?? vessel.temperature ?? RecipeContext.preferences.waterTemperature ?? 90)
         root.flowRate = Number(vessel.flowRate ?? 40)
@@ -81,6 +83,7 @@ DecenzaDialog {
         Keyboard.commit()
         root.vesselName = nameField.text
         if (!root.validName || !root.validAmount || writer.pending) return
+        root.submittedSnapshot = root.snapshot()
         const fields = {name: root.vesselName.trim(), temperature: root.temperatureC, flowRate: root.flowRate,
             volume: root.amountMode === "ratio" ? Number(root.capturedPreset.volume ?? root.preview.amountG) : root.fixedAmount,
             mode: root.amountMode === "ratio" ? String(root.capturedPreset.mode || "weight") : root.measureMode}
@@ -108,7 +111,7 @@ DecenzaDialog {
                 return
             }
             const index = operation === "add" ? writer.presets.length - 1 : root.presetIndex
-            root.saved(root.snapshot(), index)
+            root.saved(root.submittedSnapshot, index)
             root.close()
         }
     }
@@ -126,6 +129,7 @@ DecenzaDialog {
             ScrollBar.vertical: ScrollBar {}
             ColumnLayout {
                 id: form
+                enabled: !writer.pending
                 width: parent.width
                 spacing: Theme.spacingMedium
                 Label {
@@ -170,7 +174,7 @@ DecenzaDialog {
                     }
                 }
                 AccessibleButton {
-                    visible: root.amountMode === "ratio"
+                    visible: root.allowRatio && root.amountMode === "ratio"
                     text: Number(root.waterRatio).toFixed(1) + "×"
                     accessibleName: TranslationManager.translate("water.ratio.edit", "Edit added-water ratio")
                     onClicked: waterRatioPicker.open()
@@ -199,7 +203,7 @@ DecenzaDialog {
                     }
                 }
                 Label {
-                    visible: root.amountMode === "ratio"
+                    visible: root.allowRatio && root.amountMode === "ratio"
                     Layout.fillWidth: true
                     text: root.preview.valid ? TranslationManager.translate("water.ratio.preview", "%1× espresso yield · %2 g added water")
                         .arg(Number(root.waterRatio).toFixed(1)).arg(root.preview.amountG)

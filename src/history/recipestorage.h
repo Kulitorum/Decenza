@@ -439,7 +439,9 @@ public:
 
     // Stores recipe.equipmentId as its live package (see liveEquipmentId in
     // the .cpp); updateRecipeFieldsStatic does the same for an equipmentId key.
-    static qint64 insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe);
+    // Carry the captured profile target through nested validation. -1 defers
+    // unavailable installed-profile fallback for imports; 0 means known missing.
+    static qint64 insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe, double profileTargetHint = -1);
     // Migration 41: repoint recipes still linked to a package a grinder edit
     // retired (edits used to move bags but not recipes). *healed = rows moved.
     static bool healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed = nullptr);
@@ -465,7 +467,8 @@ public:
     // comparison is exact.
     static int countRecipesUsingProfileStatic(QSqlDatabase& db, const QString& profileTitle);
     // Update only the columns named in `fields` (camelCase Recipe keys).
-    static bool updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields);
+    static bool updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields,
+                                        double profileTargetHint = -1);
 
     // Resolve the recipe's bean identity to the current open bag: beanbase_id
     // match first, else case-insensitive roaster+coffee identity; in-inventory

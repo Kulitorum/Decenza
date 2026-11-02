@@ -698,7 +698,7 @@ void RecipeStorage::requestCreateRecipeImpl(const QVariantMap& recipeMap,
                 created->insert(QStringLiteral("error"), waterError);
                 return;
             }
-            *newId = insertRecipeStatic(db, recipe);
+            *newId = insertRecipeStatic(db, recipe, hasProfileSnapshot ? profileTargets.value(recipe.profileTitle) : -1);
             if (*newId > 0) {
                 *created = loadRecipeStatic(db, *newId).toVariantMap();
                 if (!requestToken.isEmpty())
@@ -888,7 +888,8 @@ void RecipeStorage::requestUpdateRecipeImpl(
                 *failReason = waterError;
                 return;
             }
-            *success = updateRecipeFieldsStatic(db, recipeId, mergedFields);
+            *success = updateRecipeFieldsStatic(db, recipeId, mergedFields,
+                hasProfileSnapshot ? profileTargets.value(candidate.profileTitle) : -1);
             if (!*success)
                 return;  // txn rolls back on the way out
             const Recipe updated = loadRecipeStatic(db, recipeId);
@@ -1258,14 +1259,14 @@ QString recipeWaterError(QSqlDatabase& db, const Recipe& recipe, double profileT
     const double target = YieldSpec::resolveGrams(yield.mode, yield.value,
         recipe.doseG > 0 ? recipe.doseG : bag.doseWeightG, profileTarget);
     // Title-only legacy recipes resolve their installed profile on activation.
-    if (target <= 0 && profileTargetHint < 0 && recipe.yieldMode == QLatin1String("none") && recipe.profileJson.isEmpty()) return {};
+    if (target <= 0 && profileTargetHint < 0 && recipe.profileJson.isEmpty()) return {};
     return WaterAmount::resolve(water, target).error;
 }
 }
 
-qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input)
+qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input, double profileTargetHint)
 {
-    if (!recipeWaterError(db, input).isEmpty()) return -1;
+    if (!recipeWaterError(db, input, profileTargetHint).isEmpty()) return -1;
     Recipe recipe = input;
     recipe.equipmentId = liveEquipmentId(db, recipe.equipmentId);
 
@@ -1501,14 +1502,15 @@ QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bo
     return recipes;
 }
 
-bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields)
+bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields,
+                                             double profileTargetHint)
 {
     if (fields.contains(QStringLiteral("hotWaterJson")) || fields.contains(QStringLiteral("profileTitle"))
         || fields.contains(QStringLiteral("yieldMode")) || fields.contains(QStringLiteral("yieldValue"))
         || fields.contains(QStringLiteral("doseG"))) {
         auto merged = loadRecipeStatic(db, recipeId).toVariantMap();
         for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
-        if (!recipeWaterError(db, Recipe::fromVariantMap(merged)).isEmpty()) return false;
+        if (!recipeWaterError(db, Recipe::fromVariantMap(merged), profileTargetHint).isEmpty()) return false;
     }
     const QHash<QString, const RecipeCol*>& kColumnFor = recipeColumnForKey();
 

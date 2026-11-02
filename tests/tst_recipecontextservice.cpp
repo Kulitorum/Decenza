@@ -193,6 +193,22 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void legacyVesselSnapshotUsesPresetButFullSnapshotsStayIndependent() {
+        Fixture f;
+        const QVariantMap preset{{"name", "Cup"}, {"volume", 200}, {"mode", "volume"},
+            {"temperature", 85.0}, {"flowRate", 31}};
+        const QVariantMap legacy{{"hasWater", true}, {"vesselName", "Cup"}, {"volume", 0},
+            {"temperatureC", 0}, {"flowRate", 40}};
+        const auto resolved = f.service->waterVesselSnapshot(legacy, preset);
+        QCOMPARE(resolved.value("volume").toInt(), 200);
+        QCOMPARE(resolved.value("temperatureC").toDouble(), 85.0);
+        QCOMPARE(resolved.value("flowRate").toInt(), 31);
+        QCOMPARE(resolved.value("mode").toString(), QStringLiteral("volume"));
+        const QVariantMap fixed{{"volume", 150}, {"temperatureC", 90.0}};
+        QCOMPARE(f.service->waterVesselSnapshot(fixed, preset), fixed);
+        const QVariantMap ratio{{"amountMode", "ratio"}, {"waterToEspressoRatio", 2.7}};
+        QCOMPARE(f.service->waterVesselSnapshot(ratio, preset), ratio);
+    }
     void waterPreviewUsesRecipeYieldRatherThanSession() {
         Fixture f;
         const QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.0}, {"doseG", 18.0}};

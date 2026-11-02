@@ -12,6 +12,9 @@ class tst_MachineControlPresets : public QObject
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void recipeWaterRepairsDisplacedSettings();
+    void recipeWaterSwitchesToFixedAndResolvesLegacyName();
+    void missingRatioVesselUsesResolvedGrams();
     void waterVesselSelectionAppliesFullPreset();
     void invalidWaterVesselDoesNotMutateOrApply();
     void flushPresetSelectionAppliesFullPreset();
@@ -19,6 +22,69 @@ private slots:
     void presetSnapshotsRejectStaleEditsAndReordering();
     void recipeIdsRequireExactPositiveIntegers();
 };
+
+void tst_MachineControlPresets::recipeWaterRepairsDisplacedSettings()
+{
+    Settings settings;
+    auto* brew = settings.brew();
+    brew->addWaterVesselPreset("Recipe ratio repair", 200, "volume", 31, 85);
+    const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+    const QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe ratio repair"},
+        {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}, {"temperatureC", 90}, {"flowRate", 40}};
+    const auto preset = brew->getWaterVesselPreset(index);
+    int applies = 0;
+    const auto apply = [&] { ++applies; };
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, apply));
+    QCOMPARE(brew->waterVolume(), 100);
+    QCOMPARE(brew->waterVolumeMode(), QStringLiteral("weight"));
+    QCOMPARE(applies, 1);
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, apply));
+    QCOMPARE(applies, 1);
+    // A standalone commit uses this same fixed-preset path. The recipe must
+    // repair its effective settings even though its ratio/yield did not change.
+    QVERIFY(MachineControlPresets::selectWaterVessel(brew, settings.hardware(), index, {}));
+    QCOMPARE(brew->waterVolume(), 200);
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, apply));
+    QCOMPARE(brew->waterVolume(), 100);
+    QCOMPARE(brew->waterTemperature(), 90.0);
+    QCOMPARE(settings.hardware()->hotWaterFlowRate(), 40);
+    QCOMPARE(brew->getWaterVesselPreset(index), preset);
+    QCOMPARE(applies, 2);
+}
+
+void tst_MachineControlPresets::recipeWaterSwitchesToFixedAndResolvesLegacyName()
+{
+    Settings settings;
+    auto* brew = settings.brew();
+    brew->addWaterVesselPreset("Recipe fixed transition", 200, "volume", 31, 85);
+    const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+    QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe fixed transition"}, {"amountMode", "ratio"}};
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 100, {}));
+    water.insert("amountMode", "fixed");
+    water.insert("volume", 150);
+    water.insert("mode", "weight");
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 0, {}));
+    QCOMPARE(brew->waterVolume(), 150);
+    QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 200);
+    const QJsonObject legacy{{"hasWater", true}, {"vesselName", "Recipe fixed transition"}};
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), legacy, 0, {}));
+    QCOMPARE(brew->waterVolume(), 200);
+    QCOMPARE(brew->waterVolumeMode(), QStringLiteral("volume"));
+    QCOMPARE(brew->waterTemperature(), 85.0);
+}
+
+void tst_MachineControlPresets::missingRatioVesselUsesResolvedGrams()
+{
+    Settings settings;
+    auto* brew = settings.brew();
+    const QJsonObject water{{"hasWater", true}, {"vesselName", "Recipe missing ratio"}, {"amountMode", "ratio"}};
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 90, {}));
+    const int index = brew->selectedWaterVessel();
+    QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 90);
+    QVERIFY(MachineControlPresets::applyRecipeWater(brew, settings.hardware(), water, 105, {}));
+    QCOMPARE(brew->waterVolume(), 105);
+    QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 90);
+}
 
 void tst_MachineControlPresets::waterVesselSelectionAppliesFullPreset()
 {

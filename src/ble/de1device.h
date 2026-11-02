@@ -287,6 +287,7 @@ public slots:
     void startSteam();
     void startHotWater();
     void setHotWaterStartGuard(std::function<QString()> guard) { m_hotWaterStartGuard = std::move(guard); }
+    QString hotWaterStartError() const { return m_hotWaterStartGuard ? m_hotWaterStartGuard() : QString(); }
     // Start HotWater or Espresso with no one at the machine: a recipe's second
     // step. On hardware this is the same BLE request as startHotWater/
     // startEspresso, and a GHC machine accepts it only inside the firmware's

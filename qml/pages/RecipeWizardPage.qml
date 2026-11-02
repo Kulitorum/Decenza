@@ -740,13 +740,14 @@ T.Page {
             return ""
         var w = { hasWater: fHasWater, order: fWaterOrder }
         if (fVesselName !== "") {
+            const vessel = recipeVesselSnapshot()
             w.vesselName = fVesselName
-            w.amountMode = fWaterAmountMode
-            if (fWaterAmountMode === "ratio") w.waterToEspressoRatio = fWaterRatio
-            else w.volume = fVesselVolume
-            w.mode = fVesselMode
-            w.flowRate = fVesselFlowRate
-            w.temperatureC = fVesselTemperatureC
+            w.amountMode = vessel.amountMode
+            if (vessel.amountMode === "ratio") w.waterToEspressoRatio = vessel.waterToEspressoRatio
+            else w.volume = vessel.volume
+            w.mode = vessel.mode
+            w.flowRate = vessel.flowRate
+            w.temperatureC = vessel.temperatureC
         }
         return JSON.stringify(w)
     }
@@ -1055,6 +1056,13 @@ T.Page {
 
     function selectDrinkType(type) {
         var was = fDrinkType
+        if (type === "tea_hotwater" && fWaterAmountMode === "ratio") {
+            const preview = RecipeContext.waterAmountPreview(
+                Object.assign({hasWater: true}, recipeVesselSnapshot()), waterEspressoTargetG)
+            fVesselVolume = preview.valid ? preview.amountG : 100
+            fWaterAmountMode = "fixed"
+            fVesselMode = "weight"
+        }
         fDrinkType = type
         var t = templates[type]
         // Block pre-seeds. Only when the type actually changed — re-visiting
@@ -1295,11 +1303,17 @@ T.Page {
     // recipe is saved, and an index would then silently point at someone else's
     // vessel. Called by the hot-water window's tiles.
     function recipeVesselSnapshot() {
-        const vessel = {name: fVesselName, amountMode: fWaterAmountMode, mode: fVesselMode,
-            flowRate: fVesselFlowRate, temperature: fVesselTemperatureC}
+        const vessel = {name: fVesselName, vesselName: fVesselName, amountMode: fWaterAmountMode, mode: fVesselMode,
+            flowRate: fVesselFlowRate, temperatureC: fVesselTemperatureC}
         if (fWaterAmountMode === "ratio") vessel.waterToEspressoRatio = fWaterRatio
         else vessel.volume = fVesselVolume
-        return vessel
+        const presets = RecipeContext.preferences.waterVesselPresets || []
+        let preset = {}
+        for (let i = 0; i < presets.length; ++i)
+            if (String(presets[i].name).toLowerCase() === fVesselName.toLowerCase()) preset = presets[i]
+        const result = RecipeContext.waterVesselSnapshot(vessel, preset)
+        result.temperature = result.temperatureC
+        return result
     }
 
     function editRecipeVessel(addNew) {

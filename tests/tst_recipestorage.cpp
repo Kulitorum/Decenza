@@ -1236,6 +1236,40 @@ private slots:
         });
     }
 
+    void ratioWaterKeepsProfileFallbackThroughAsyncWritesAndClone() {
+        const auto path = freshDbPath();
+        withRawDb(path, "water_profile_seed", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        storage.setProfileYieldSnapshotProvider([] { return QHash<QString, double>{{"Installed profile", 40.0}}; });
+        QSignalSpy created(&storage, &RecipeStorage::recipeCreated);
+        const QString water = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})";
+        // No recipe/bag dose: the installed profile supplies the fallback.
+        storage.requestCreateRecipe({{"name", "Profile fallback water"}, {"profileTitle", "Installed profile"},
+            {"yieldMode", "ratio"}, {"yieldValue", 2.0}, {"hotWaterJson", water}});
+        QTRY_COMPARE(created.count(), 1);
+        const qint64 id = created.first().at(0).toLongLong();
+        QVERIFY(id > 0);
+        QSignalSpy updated(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{"yieldValue", 2.1}});
+        QTRY_COMPARE(updated.count(), 1);
+        QVERIFY(updated.first().at(1).toBool());
+        storage.requestCloneRecipe(id, "Cloned profile fallback water");
+        QTRY_COMPARE(created.count(), 2);
+        QVERIFY(created.last().at(0).toLongLong() > 0);
+        QCOMPARE(created.last().at(1).toMap().value("hotWaterJson").toString(), water);
+        storage.setProfileYieldSnapshotProvider([] { return QHash<QString, double>{{"Installed profile", 300.0}}; });
+        storage.requestUpdateRecipe(id, {{"yieldValue", 2.2}});
+        QTRY_COMPARE(updated.count(), 2);
+        QVERIFY(!updated.last().at(1).toBool());
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        withRawDb(path, "water_profile_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).yieldValue, 2.1);
+        });
+    }
+
     // Only the dial-in values write through to the active recipe. A live
     // steam or hot-water change is a per-brew choice and must never reach the
     // recipe row (#1895: an americano poured at 140 ml for someone else

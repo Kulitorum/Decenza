@@ -2,6 +2,12 @@
 #include "core/wateramount.h"
 #include "core/brewbaseline.h"
 
+QVariantMap RecipeContextService::waterVesselSnapshot(const QVariantMap& water, const QVariantMap& preset) const
+{
+    return WaterAmount::withPresetFallback(QJsonObject::fromVariantMap(water),
+        QJsonObject::fromVariantMap(preset)).toVariantMap();
+}
+
 double RecipeContextService::recipeYieldPreview(const QVariantMap& recipe, const QVariantMap& bag,
                                                double profileTargetG) const
 {

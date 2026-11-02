@@ -71,6 +71,8 @@ The recipe Hot Water window offers Add/Edit vessel with fixed water or a ratio t
 
 The host resolves ratio water after activation's dose/yield step and when the effective espresso target changes (including a dose change under an espresso ratio). Changing the water ratio also refreshes the result. Repeated drinks with the same inputs reuse the resolved amount; actual espresso output, tare and settling are not inputs. An in-progress water pour keeps its target, with later configuration applying after the drink ends. Invalid results make recipe water unavailable rather than silently clipping the ratio or using a stale target.
 
+`RecipeApplyQueue` keeps water resolution pending until the queued activation writes finish; superseded activations report failure and cannot write into the newer setup. Applying a standalone preset can reapply the cached recipe amount without recalculating it. Switching an active recipe from ratio to fixed water applies the fixed snapshot through the same settings helper. Legacy name-only snapshots resolve from the preset in both the host and editor; full snapshots keep their own settings.
+
 `hot_water_json` retains the ratio specification and its planned `resolvedTargetG`; the operation-keyed `hot_water_result_json.targetWeightG` captures the target used by the water step separately from its measured water. Clone and promotion preserve the ratio. Ratio resolution and use do not rewrite shared presets or other recipes; a deleted preset is recreated as fixed at the resolved amount. Legacy fixed and name-only blocks keep their existing interpretation.
 
 ## Recipe identity in shot history (history-recipe-identity)

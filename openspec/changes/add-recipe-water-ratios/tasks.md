@@ -47,3 +47,16 @@
 - Wiki manual edits are prepared in the separate local wiki checkout; they are not part of this repository's PR or published yet.
 - Remaining acceptance includes the final rebuilt dialog appearance, the full espresso-picker regression matrix, host activation/restoration and target-change observations, disconnect/reconnect with an unsaved draft, and simulated/hardware Americano and long black sequences. API/HTML and history paths also need the complete end-to-end matrix specified above. No dispensing was started during the live UI checks; the local session reported simulation mode.
 - Tasks whose implementation is present but whose complete verification is outstanding remain unchecked. Keep the PR in draft and retain this change unarchived until those obligations are reconciled.
+
+## Review corrections — 2026-11-02
+
+All nine findings from the read-only review have been addressed:
+
+- Cached recipe water is reapplied after fixed preset commits without rewriting the preset or repeating the ratio calculation. Ratio-to-fixed edits apply the fixed snapshot immediately.
+- Activation dose/yield writes share a generation and keep ratio resolution pending until completion. Superseded activations receive a failure result and their queued writes cannot alter the newer setup.
+- Storage keeps the installed-profile target through async and static validation; clone/import can defer a profile fallback that is unavailable to the static reader.
+- Legacy name-only editor snapshots use the same preset fallback as the host. Pending vessel saves freeze the submitted snapshot and disable form editing. Switching to profile-less tea converts water to fixed grams, and fixed-only dialogs cannot retain ratio mode.
+- Long-black starts check the same device guard before arming sequence intent or reporting success.
+- Qt Creator native/Wasm build `1793559335097` passed. Full test run `1793559335333` passed all 207 tests with no failures, skips or test warnings (42.53 s). Targeted storage, preset, device, activation-queue and shipping QML-handler regressions pass, including frozen save values, legacy tiles/save JSON and tea conversion.
+- The first new activation-queue test exposed that its previously event-free test executable had no application event loop; it now uses `QTEST_GUILESS_MAIN` and the queued callbacks execute normally. No assertion was relaxed.
+- A user-started restart has been requested for the updated app. No new live UI, reconnect, simulated dispensing or hardware acceptance result is claimed here; the broader outstanding acceptance above remains pending.

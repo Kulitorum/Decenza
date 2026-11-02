@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "controllers/recipeselectionmodel.h"
+#include "controllers/recipeapplyqueue.h"
 
 // Unit tests for the pure selection/deferred-start state machine behind
 // MainController::selectedRecipeId (add-recipes, PR Kulitorum/Decenza#1470). Extracted from
@@ -14,6 +15,36 @@ class tst_RecipeSelectionModel : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void activationWaitsForDoseAndYieldAndCompletesSupersededRequests() {
+        QObject owner;
+        RecipeApplyQueue queue;
+        QStringList replies;
+        double dose = 20, ratio = 2.5;
+        QList<double> waterTargets;
+        const auto observe = [&] {
+            if (!queue.pending()) waterTargets.append(dose * ratio * 2.5);
+        };
+        const auto first = queue.begin();
+        queue.writeLater(&owner, [&] { dose = 25; observe(); });
+        queue.finishLater(&owner, first, [&](bool current) {
+            QVERIFY(!current);
+            QVERIFY(queue.pending());
+            replies.append("first canceled");
+        });
+        const auto second = queue.begin();
+        queue.writeLater(&owner, [&] { dose = 18; observe(); });
+        queue.writeLater(&owner, [&] { ratio = 2; observe(); });
+        queue.finishLater(&owner, second, [&](bool current) {
+            QVERIFY(current);
+            QVERIFY(!queue.pending());
+            observe();
+            replies.append("second applied");
+        });
+        QCOMPARE(dose, 20.0);
+        QTRY_COMPARE(replies.size(), 2);
+        QCOMPARE(replies, (QStringList{"first canceled", "second applied"}));
+        QCOMPARE(waterTargets, QList<double>{90.0});
+    }
     void defaultsToNone() {
         RecipeSelectionModel m;
         QCOMPARE(m.selected(), qint64(-1));
@@ -139,5 +170,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(tst_RecipeSelectionModel)
+QTEST_GUILESS_MAIN(tst_RecipeSelectionModel)
 #include "tst_recipeselectionmodel.moc"

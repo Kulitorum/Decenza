@@ -12,6 +12,20 @@ inline bool isRatio(const QJsonObject& water)
     return water.value(QStringLiteral("amountMode")).toString() == QLatin1String("ratio");
 }
 
+inline QJsonObject withPresetFallback(const QJsonObject& water, const QJsonObject& preset)
+{
+    if (isRatio(water) || water.value(QStringLiteral("volume")).toInt() > 0)
+        return water;
+    auto result = water;
+    for (const auto* key : {"volume", "mode", "flowRate"}) {
+        const auto name = QLatin1String(key);
+        if (preset.contains(name)) result.insert(name, preset.value(name));
+    }
+    if (preset.contains(QStringLiteral("temperature")))
+        result.insert(QStringLiteral("temperatureC"), preset.value(QStringLiteral("temperature")));
+    return result;
+}
+
 inline QString definitionError(const QJsonObject& water, bool hasProfile, bool requireVessel = true)
 {
     if (!water.value(QStringLiteral("hasWater")).toBool())
