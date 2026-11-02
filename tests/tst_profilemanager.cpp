@@ -4408,11 +4408,12 @@ private slots:
 
         // Renaming Z to something alphabetically first must re-sort immediately —
         // alpha mode resorts "whenever a favorite is added or renamed".
-        QVERIFY(f.profileManager.renameProfile("alpha_fav_z", "Aardvark"));
+        // Avoid "Aa", which collates as "Å" in Danish.
+        QVERIFY(f.profileManager.renameProfile("alpha_fav_z", "Abacus"));
 
         const QSet<QString> ours = {"alpha_fav_z", "alpha_fav_a"};
         const QStringList order = favoriteFilenamesAmong(f.settings.app()->favoriteProfiles(), ours);
-        QCOMPARE(order, (QStringList{"alpha_fav_z", "alpha_fav_a"}));  // "Aardvark" now sorts first
+        QCOMPARE(order, (QStringList{"alpha_fav_z", "alpha_fav_a"}));  // "Abacus" now sorts first
 
         removeFavoriteIfPresent(f, "alpha_fav_z");
         removeFavoriteIfPresent(f, "alpha_fav_a");

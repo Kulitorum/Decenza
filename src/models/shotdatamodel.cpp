@@ -2,6 +2,7 @@
 #include "shotdatamodel.h"
 #include "machine/frameexitreason.h"
 #include "ai/conductance.h"
+#include "ai/portaltailanalyzer.h"
 #include "rendering/fastlinerenderer.h"
 #include <QDebug>
 
@@ -114,7 +115,17 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
     m_flushTimer->start();
 }
 
+void ShotDataModel::recordWeightSource(const QString& source)
+{
+    // Any synthetic or unclassified sample makes the whole curve ineligible.
+    if (m_weightSource.isEmpty()
+        || PortalTailAnalyzer::weightSourceFromString(m_weightSource) == PortalTailAnalyzer::WeightSource::PhysicalScale)
+        m_weightSource = source;
+}
+
 void ShotDataModel::clear() {
+    m_weightSource.clear();
+    m_portalMountingMode.clear();
     // Stop timer during clear
     m_flushTimer->stop();
 
@@ -298,8 +309,10 @@ void ShotDataModel::addWeightSample(double time, double weight, double flowRate)
 }
 
 void ShotDataModel::addWeightSample(double time, double weight) {
-    // Ignore near-zero weights (scale noise / pre-drip)
+    // A pre-drip baseline feeds PORTAL mass integration but is not drawn.
     if (weight < 0.1) {
+        if (weight >= -PortalTailAnalyzer::kCupMassToleranceG && !m_portalSamples.isEmpty() && m_weightPoints.isEmpty())
+            m_cumulativeWeightPoints.append(QPointF(time, weight));
         return;
     }
 
@@ -526,7 +539,8 @@ QVariantList ShotDataModel::portalEcBounds(const QVariantList& samples) const {
     return {bounds.minimum, bounds.maximum};
 }
 
-void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatureC) {
+void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatureC,
+                                   std::optional<double> auxiliaryTemperatureRaw) {
     if (!PortalSamples::valid(time, ecRaw, temperatureC,
             m_portalSamples.isEmpty() ? -1 : m_portalSamples.last().time)) {
         markPortalGap();
@@ -535,7 +549,7 @@ void ShotDataModel::addPortalSample(double time, double ecRaw, double temperatur
     // A stalled event loop may deliver the next packet before the freshness timer runs.
     const bool silentGap = !m_portalSamples.isEmpty() && time - m_portalSamples.last().time > PortalSamples::StaleAfterSeconds;
     const bool breakBefore = m_portalGap || silentGap;
-    m_portalSamples.append({time, ecRaw, temperatureC, breakBefore});
+    m_portalSamples.append({time, ecRaw, temperatureC, breakBefore, auxiliaryTemperatureRaw});
     m_portalEcBounds.add(ecRaw);
     emit portalSampleAdded(time, ecRaw, temperatureC, breakBefore);
     m_portalGap = false;

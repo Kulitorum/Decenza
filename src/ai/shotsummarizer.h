@@ -151,12 +151,16 @@ struct ShotSummary {
     // each summarize path, so keep them in sync until those consumers read
     // beanInputs directly and the flat fields can be retired.
     DialingBlocks::CurrentBeanBlockInputs beanInputs;
+
+    // PORTAL analysis/status from the shared projection; includes invalid measurements.
+    QVariantMap portalAnalysis;
 };
 
 class ShotSummarizer : public QObject {
     Q_OBJECT
 
 public:
+    static QJsonObject buildPortalBlock(const QVariantMap& analysis);
     explicit ShotSummarizer(QObject* parent = nullptr);
 
     // Summarize a shot from its typed database projection. This is the only

@@ -232,6 +232,8 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
                                                                 qint64 clockEpoch)
 {
     ParseResult result;
+    result.record.weightSource = shotJson.value("decenza_weight_source").toString();
+    result.record.portalMountingMode = shotJson.value("decenza_portal_mounting_mode").toString();
     result.record.portalSamples = PortalSamples::fromVariant(
         shotJson["decenza_portal_samples"].toArray().toVariantList());
 

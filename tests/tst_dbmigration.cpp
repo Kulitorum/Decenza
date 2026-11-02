@@ -377,6 +377,93 @@ private slots:
     // Fresh DB: full schema at v12
     // ==========================================
 
+    void portalMigrationIsSchemaOnlyFromMain_data() {
+        QTest::addColumn<int>("previousVersion");
+        QTest::newRow("main-47") << 47;
+        QTest::newRow("preview-48") << 48;
+        QTest::newRow("preview-49") << 49;
+        QTest::newRow("preview-50") << 50;
+    }
+
+    void portalMigrationIsSchemaOnlyFromMain() {
+        QFETCH(int, previousVersion);
+        QTemporaryDir dir;
+        const QString path = dir.filePath("portal-migration.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+        ShotRecord legacy;
+        legacy.summary.uuid = QStringLiteral("legacy-portal");
+        legacy.summary.timestamp = 1700000000;
+        legacy.summary.profileName = QStringLiteral("Espresso");
+        legacy.summary.duration = 25.0;
+        legacy.summary.beanBrand = QStringLiteral("Roaster");
+        legacy.summary.beanType = QStringLiteral("Coffee");
+        legacy.drinkTds = 10.0;
+        legacy.portalSamples = {{1.0, 8.0, 60.0, true}, {2.0, 7.0, 60.0, false}};
+        const qint64 legacyId = storage.importShotRecord(legacy, true);
+        QVERIFY(legacyId > 0);
+        auto recorded = legacy;
+        recorded.summary.uuid = QStringLiteral("recorded-portal");
+        recorded.summary.timestamp += 60;
+        recorded.summary.doseWeight = 16.0;
+        recorded.summary.finalWeight = 10.0;
+        recorded.weightSource = QStringLiteral("physical_scale");
+        recorded.portalMountingMode = QStringLiteral("onScale");
+        recorded.portalSamples.clear();
+        for (int i = 0; i <= 50; ++i) {
+            recorded.portalSamples.append({1.0 + i * 0.1, 8.0, 60.0, i == 0});
+            recorded.weight.append({1.0 + i * 0.1, i * 0.2});
+        }
+        const qint64 recordedId = storage.importShotRecord(recorded, true);
+        QVERIFY(recordedId > 0);
+        auto ordinary = legacy;
+        ordinary.summary.uuid = QStringLiteral("ordinary-refractometer");
+        ordinary.summary.timestamp += 120;
+        ordinary.portalSamples.clear();
+        const qint64 ordinaryId = storage.importShotRecord(ordinary, true);
+        QVERIFY(ordinaryId > 0);
+        storage.close();
+
+        // Main's version 47 has added water and no PORTAL columns; the previews
+        // had the PORTAL summary columns without a presence flag or added water.
+        const bool fromMain = previousVersion == 47;
+        withRawDb(path, "portal_rewind", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("UPDATE schema_version SET version=%1").arg(previousVersion)));
+            if (fromMain) {
+                for (const char* column : {"portal_mean_ec", "portal_integral_ec_g", "portal_mean_temp_c",
+                                           "portal_estimate_reliable", "portal_mounting_mode", "weight_source",
+                                           "portal_present"})
+                    QVERIFY(q.exec(QStringLiteral("ALTER TABLE shots DROP COLUMN %1").arg(QLatin1String(column))));
+                return;
+            }
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN hot_water_result_json"));
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN portal_present"));
+            QVERIFY(q.exec(QString("UPDATE shots SET portal_mean_ec=8, portal_estimate_reliable=1 WHERE id=%1").arg(legacyId)));
+        });
+
+        QVERIFY(storage.initialize(path));
+        QVERIFY(storage.isDbWorkIdle());
+        withRawDb(path, "portal_migrated", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            QVERIFY(hasColumn(db, "shots", "hot_water_result_json"));
+            QSqlQuery q(db);
+            for (qint64 id : {legacyId, recordedId, ordinaryId}) {
+                QVERIFY(q.exec(QString("SELECT portal_present FROM shots WHERE id=%1").arg(id)) && q.next());
+                QCOMPARE(q.value(0).toBool(), !fromMain && id != ordinaryId);
+                q.finish();
+            }
+            // A preview shot without weight provenance is present but never a reference.
+            const auto points = ShotHistoryStorage::loadPortalCalibrationPointsStatic(db, -1, "Roaster", "Coffee");
+            QVERIFY(points);
+            QCOMPARE(points->size(), fromMain ? 0 : 1);
+            if (!fromMain) {
+                QCOMPARE(points->first().shotId, recordedId);
+                QVERIFY(points->first().measurementReliable);
+            }
+        });
+    }
+
     void freshDbCreatesSchema() {
         QString path = freshDbPath();
         ShotHistoryStorage storage;

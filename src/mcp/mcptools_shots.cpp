@@ -5,6 +5,7 @@
 #include "mcplogfilter.h"
 #include "../history/shotcomparison.h"
 #include "../history/shothistorystorage.h"
+#include "../ai/shotsummarizer.h"
 #include "../core/dbutils.h"
 
 #include <QDateTime>
@@ -92,6 +93,14 @@ static void reshapeBeanBase(QJsonObject& obj)
         // at every consumer; leave one trace.
         MCP_WARN_TAGGED("shots", QStringLiteral("corrupt beanBaseJson on shot %1")
                                     .arg(obj.value("id").toVariant().toString()));
+}
+
+// MCP and the in-app advisor read PORTAL data in one format, described once by the shared prompt.
+static void reshapePortal(QJsonObject& obj)
+{
+    const QJsonValue raw = obj.take(QStringLiteral("portalAnalysis"));
+    if (raw.isObject())
+        obj[QStringLiteral("portal")] = ShotSummarizer::buildPortalBlock(raw.toObject().toVariantMap());
 }
 
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
@@ -437,6 +446,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         reshapeDetectorEnvelopes(result);
                         nullifyUnratedFields(result);
                         reshapeBeanBase(result);
+                        reshapePortal(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
@@ -528,6 +538,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             reshapeDetectorEnvelopes(shotJson);
                             nullifyUnratedFields(shotJson);
                             reshapeBeanBase(shotJson);
+                            reshapePortal(shotJson);
                             shots.append(shotJson);
                             projections.append(std::move(shot));
                         }

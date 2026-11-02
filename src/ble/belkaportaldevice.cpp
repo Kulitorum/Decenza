@@ -343,7 +343,7 @@ void BelkaPortalDevice::receive(const QBluetoothUuid& chr, const QByteArray& pac
             logEvent(QStringLiteral("streaming"), QStringLiteral("Receiving measurements; EC and status units unverified"));
             setState(State::Streaming);
         }
-        emit measurementReceived(m_ec, m_temperature);
+        emit measurementReceived(m_ec, m_temperature, value->auxiliaryTemperature);
     }
     emit readingChanged();
 }

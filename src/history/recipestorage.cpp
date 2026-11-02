@@ -30,10 +30,6 @@ QVariant nullIfEmpty(const QString& s) {
     return s.isEmpty() ? QVariant() : QVariant(s);
 }
 
-QVariant nullIfZero(double v) {
-    return v > 0 ? QVariant(v) : QVariant();
-}
-
 // -------------------------------------------------------------------------
 // Single source of truth for the recipes column set, following the kCols
 // pattern in coffeebagstorage.cpp: the SELECT list, positional row read,

@@ -20,6 +20,7 @@ class SettingsHardware : public QObject {
     Q_PROPERTY(QString portalAddress READ portalAddress NOTIFY portalDeviceChanged FINAL)
     Q_PROPERTY(QString portalName READ portalName NOTIFY portalDeviceChanged FINAL)
     Q_PROPERTY(bool portalSyncDisplay READ portalSyncDisplay WRITE setPortalSyncDisplay NOTIFY portalSyncDisplayChanged FINAL)
+    Q_PROPERTY(QString portalMountingMode READ portalMountingMode WRITE setPortalMountingMode NOTIFY portalMountingModeChanged FINAL)
 
 public:
     QString portalAddress() const;
@@ -27,6 +28,8 @@ public:
     void setPortalDevice(const QString& address, const QString& name);
     bool portalSyncDisplay() const;
     void setPortalSyncDisplay(bool enabled);
+    QString portalMountingMode() const;
+    void setPortalMountingMode(const QString& mode);
     explicit SettingsHardware(QObject* parent = nullptr);
 
     int heaterIdleTemp() const;
@@ -83,6 +86,7 @@ public:
 signals:
     void portalDeviceChanged();
     void portalSyncDisplayChanged();
+    void portalMountingModeChanged();
     void heaterIdleTempChanged();
     void heaterWarmupFlowChanged();
     void heaterTestFlowChanged();

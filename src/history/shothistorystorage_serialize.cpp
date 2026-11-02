@@ -13,6 +13,7 @@
 #include "equipmentstorage.h"
 #include "machine/frameexitreason.h"
 
+#include "ai/portaltailanalyzer.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"   // canonicalNameForKbId
 
@@ -113,6 +114,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.flow = pointsToVariant(record.flow);
     p.temperature = pointsToVariant(record.temperature);
     p.temperatureMix = pointsToVariant(record.temperatureMix);
+    p.weightSource = record.weightSource;
+    p.portalMountingMode = record.portalMountingMode;
     p.portalSamples = PortalSamples::toVariant(record.portalSamples);
     p.resistance = pointsToVariant(record.resistance);
     p.conductance = pointsToVariant(record.conductance);
@@ -126,6 +129,25 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.weight = pointsToVariant(record.weight);
     p.weightFlowRate = pointsToVariant(record.weightFlowRate);
     p.weightFlowRateRaw = pointsToVariant(record.weightFlowRateRaw);
+
+    if (!record.portalSamples.isEmpty()) {
+        auto portalRes = PortalTailAnalyzer::analyzeShot(record.portalSamples, record.weight, record.weightSource,
+            record.portalMountingMode, record.summary.doseWeight, record.summary.finalWeight, record.pressure);
+        PortalTailAnalyzer::evaluateRatioAdvice(
+            &portalRes, record.portalCalibrationPoints, record.summary.id, record.bagId,
+            record.summary.beanBrand, record.summary.beanType,
+            record.summary.doseWeight, record.tasteBalance, record.tasteBody,
+            record.equipmentId, record.summary.profileName);
+        const auto calFit = PortalTailAnalyzer::fitCalibration(
+            record.portalCalibrationPoints, record.bagId,
+            record.summary.beanBrand, record.summary.beanType, record.summary.id, portalRes.mountingMode);
+        PortalTailAnalyzer::applyCalibration(
+            &portalRes, calFit, record.summary.finalWeight,
+            record.summary.doseWeight, record.drinkTds);
+        p.portalAnalysis = portalRes.toVariantMap();
+        if (record.portalCalibrationFailed)
+            p.portalAnalysis.insert(QStringLiteral("calibrationError"), QStringLiteral("queryFailed"));
+    }
 
     p.channelingDetected = record.channelingDetected;
     p.grindIssueDetected = record.grindIssueDetected;

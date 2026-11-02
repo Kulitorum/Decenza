@@ -60,6 +60,11 @@ bool SettingsConnectionsService::ready() const
     return connected() && m_state->ready();
 }
 
+QVariantMap SettingsConnectionsService::portalCalibration() const
+{
+    return connected() && m_state->ready() ? m_state->portalCalibration() : QVariantMap();
+}
+
 QString SettingsConnectionsService::errorMessage() const
 {
     return connected() ? QString() : tr("Connection settings are disconnected.");
@@ -77,6 +82,10 @@ void SettingsConnectionsService::setNode(QRemoteObjectNode* node)
                 this, &SettingsConnectionsService::changed);
         connect(m_state, &ConnectionsStateReplica::snapshotChanged,
                 this, &SettingsConnectionsService::stateChanged);
+        connect(m_state, &ConnectionsStateReplica::portalCalibrationChanged,
+                this, &SettingsConnectionsService::portalCalibrationChanged);
+        connect(m_state, &ConnectionsStateReplica::readyChanged,
+                this, &SettingsConnectionsService::portalCalibrationChanged);
         connect(m_state, &ConnectionsStateReplica::readyChanged,
                 this, &SettingsConnectionsService::stateChanged);
         connect(m_state, &ConnectionsStateReplica::operationCompleted, this,
@@ -118,6 +127,7 @@ void SettingsConnectionsService::changed()
     if (!connected())
         failPending(QStringLiteral("disconnected"));
     if (guard) emit stateChanged();
+    if (guard) emit portalCalibrationChanged();
 }
 
 void SettingsConnectionsService::failPending(const QString& reason)

@@ -9,13 +9,14 @@ ColumnLayout {
     property var requestAction: function(operation, args) {}
     readonly property var portalState: SettingsConnectionsService.snapshot.portal || ({
         savedName: "", active: false, owned: false, state: "disconnected", machineBusy: false,
-        syncDisplay: false, errorMessage: "", displayCommandStatus: "", canControlDisplay: false,
-        packetCount: 0, lastPacket: "", hasReading: false, ecRaw: 0, temperatureC: 0
+        syncDisplay: false, mountingMode: "onScale", errorMessage: "", displayCommandStatus: "",
+        canControlDisplay: false, packetCount: 0, lastPacket: "", hasReading: false, ecRaw: 0, temperatureC: 0
     })
+    readonly property var calibration: SettingsConnectionsService.portalCalibration
 
     Text {
         Layout.fillWidth: true
-        text: "Belka PORTAL" + (panel.portalState.savedName.length ? " · " + panel.portalState.savedName : "")
+        text: TranslationManager.translate("portal.device.title", "Belka PORTAL") + (panel.portalState.savedName.length ? " · " + panel.portalState.savedName : "")
         color: Theme.textColor
         font: Theme.subtitleFont
         wrapMode: Text.Wrap
@@ -27,7 +28,7 @@ ColumnLayout {
             text: panel.portalState.active
                 ? TranslationManager.translate("portal.disconnect", "Disconnect")
                 : TranslationManager.translate("portal.connect", "Connect")
-            accessibleName: text + " PORTAL"
+            accessibleName: text + " " + TranslationManager.translate("portal.device.title", "Belka PORTAL")
             enabled: !panel.portalState.machineBusy && panel.portalState.state !== "disconnecting"
                 && (panel.portalState.active || panel.portalState.owned)
             onClicked: panel.requestAction(
@@ -35,7 +36,7 @@ ColumnLayout {
         }
         AccessibleButton {
             text: TranslationManager.translate("portal.forget", "Forget")
-            accessibleName: text + " PORTAL"
+            accessibleName: text + " " + TranslationManager.translate("portal.device.title", "Belka PORTAL")
             enabled: !panel.portalState.machineBusy && panel.portalState.state !== "disconnecting"
                 && (panel.portalState.active || panel.portalState.owned)
             onClicked: panel.requestAction("forgetPortal", {})
@@ -48,6 +49,7 @@ ColumnLayout {
         text: TranslationManager.translate("portal.commonScan", "Use Scan for Devices to select PORTAL.")
         color: Theme.textSecondaryColor
         wrapMode: Text.Wrap
+        font: Theme.captionFont
     }
     RowLayout {
         Layout.fillWidth: true
@@ -66,12 +68,151 @@ ColumnLayout {
             accessibleName: syncLabel.text
         }
     }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Theme.scaled(4)
+        Text {
+            Layout.fillWidth: true
+            text: TranslationManager.translate("portal.mountingMode", "Mounting geometry")
+            color: Theme.textColor
+            font: Theme.bodyFont
+            wrapMode: Text.Wrap
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.scaled(6)
+            AccessibleButton {
+                text: TranslationManager.translate("portal.mountingOnScale", "On cup / scale (tare before shot)")
+                accessibleName: text
+                primary: (panel.portalState.mountingMode || "onScale") !== "independent"
+                Accessible.selected: primary
+                enabled: !panel.portalState.machineBusy
+                onClicked: panel.requestAction("setPortalMountingMode", { mode: "onScale" })
+            }
+            AccessibleButton {
+                text: TranslationManager.translate("portal.mountingIndependent", "Independent stand")
+                accessibleName: text
+                primary: panel.portalState.mountingMode === "independent"
+                Accessible.selected: primary
+                enabled: !panel.portalState.machineBusy
+                onClicked: panel.requestAction("setPortalMountingMode", { mode: "independent" })
+            }
+            Item { Layout.fillWidth: true }
+        }
+    }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Theme.scaled(4)
+        Text {
+            Layout.fillWidth: true
+            text: TranslationManager.translate("portal.calibration.title", "Refractometer calibration")
+            color: Theme.textColor
+            font: Theme.subtitleFont
+            wrapMode: Text.Wrap
+        }
+        Text {
+            Layout.fillWidth: true
+            text: panel.calibration.loading
+                ? TranslationManager.translate("portal.calibration.loading", "Updating calibration…")
+                : panel.calibration.error === "queryFailed"
+                  ? TranslationManager.translate("portal.calibration.queryFailed", "Calibration data could not be read. Reopen Settings to retry; details are in the log.")
+                : panel.calibration.error
+                  ? TranslationManager.translate("portal.calibration.error", "Calibration unavailable. Reopen Settings to retry.")
+                  : panel.calibration.calibrated
+                    ? TranslationManager.translate("portal.calibration.factor", "k = %1").arg(Number(panel.calibration.proportionalK).toFixed(4))
+                      + " · " + (panel.calibration.coffee || "")
+                    : TranslationManager.translate("portal.calibration.noReferences", "No suitable paired EC / TDS measurements for this coffee and mounting mode.")
+            color: Theme.textColor
+            font: Theme.bodyFont
+            wrapMode: Text.Wrap
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: Boolean(panel.calibration.calibrated)
+            text: TranslationManager.translate("portal.calibration.formula", "TDS% ≈ k × mass-weighted EC; EY% ≈ TDS% × beverage / dose.")
+                  + (panel.calibration.activeModel === "affine"
+                     ? "\n" + TranslationManager.translate("portal.calibration.affineFormula", "TDS% ≈ %1 × EC %2 %3")
+                         .arg(Number(panel.calibration.affineSlopeA).toFixed(4))
+                         .arg(panel.calibration.affineInterceptB >= 0 ? "+" : "−")
+                         .arg(Math.abs(panel.calibration.affineInterceptB).toFixed(2))
+                       + " · " + TranslationManager.translate("portal.calibration.affine", "Active fit includes an offset; k above is the proportional comparison.") : "")
+            color: Theme.textSecondaryColor
+            wrapMode: Text.Wrap
+            font: Theme.captionFont
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: Boolean(panel.calibration.calibrated)
+            text: TranslationManager.translate("portal.calibration.counts", "%1 included / %2 excluded")
+                    .arg(panel.calibration.shotCount || 0).arg(panel.calibration.excludedShotCount || 0)
+                  + ((panel.calibration.shotCount || 0) < 5
+                     ? " · " + TranslationManager.translate("portal.calibration.preliminary", "Preliminary: fewer than five reference shots") : "")
+                  + (panel.calibration.hasCrossValidation
+                     ? "\n" + TranslationManager.translate("portal.calibration.errorTds", "Leave-one-out error: %1 TDS percentage points")
+                         .arg(Number(panel.calibration.activeLoocvMaeTdsPct).toFixed(2)) : "")
+                  + "\n" + TranslationManager.translate("portal.calibration.range", "Measured ratio range: 1:%1–1:%2")
+                      .arg(Number(panel.calibration.minRatio || 0).toFixed(2))
+                      .arg(Number(panel.calibration.maxRatio || 0).toFixed(2))
+            color: Theme.textSecondaryColor
+            wrapMode: Text.Wrap
+            font: Theme.captionFont
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: Boolean(panel.calibration.calibrated) && !panel.calibration.predictionSupported
+            text: panel.calibration.hasCrossValidation
+                ? TranslationManager.translate("postshotreview.portal.inconsistent", "TDS/EY withheld: EC does not predict the reference TDS better than their average.")
+                : TranslationManager.translate("postshotreview.portal.unvalidated", "TDS/EY withheld: independent prediction error cannot be checked from one reference.")
+            color: Theme.warningColor
+            wrapMode: Text.Wrap
+            font: Theme.bodyFont
+        }
+        Text {
+            Layout.fillWidth: true
+            text: TranslationManager.translate("portal.calibration.help", "Save refractometer TDS on a shot in History or Shot Review. The fit updates automatically. EC dips, missing data and high-temperature warnings exclude a shot. Use the same PORTAL, water and coffee; a new coffee needs its own references.")
+            color: Theme.textSecondaryColor
+            wrapMode: Text.Wrap
+            font: Theme.captionFont
+        }
+        AccessibleButton {
+            id: referencesToggle
+            property bool expanded: false
+            visible: (panel.calibration.referenceShots || []).length > 0
+            text: TranslationManager.translate("portal.calibration.references", "Calibration shots") + (expanded ? " −" : " +")
+            accessibleName: text
+            onClicked: expanded = !expanded
+        }
+        Repeater {
+            model: referencesToggle.expanded ? (panel.calibration.referenceShots || []) : []
+            delegate: Text {
+                required property var modelData
+                Layout.fillWidth: true
+                text: String(modelData.dateTime).replace("T", " ").slice(0, 16)
+                      + " · 1:" + Number(modelData.ratio).toFixed(2)
+                      + " · " + TranslationManager.translate("portal.calibration.measuredTds", "TDS %1%").arg(Number(modelData.measuredTdsPct).toFixed(2))
+                      + " · " + (modelData.meanRawEc > 0
+                          ? TranslationManager.translate("portal.calibration.factor", "k = %1").arg(Number(modelData.individualK).toFixed(4))
+                          : TranslationManager.translate("portal.calibration.noEc", "EC unavailable"))
+                      + " · " + (modelData.included
+                          ? TranslationManager.translate("portal.calibration.included", "Included")
+                          : modelData.exclusionReason === "missing_ec"
+                           ? TranslationManager.translate("portal.calibration.missingEc", "missing EC")
+                           : modelData.exclusionReason === "mounting_mismatch"
+                            ? TranslationManager.translate("portal.calibration.mountMismatch", "Excluded: different or unknown mounting")
+                            : TranslationManager.translate("portal.calibration.excluded", "Excluded: measurement warnings / invalid data; see shot review"))
+                color: modelData.included ? Theme.textSecondaryColor : Theme.warningColor
+                font: Theme.captionFont
+                wrapMode: Text.Wrap
+            }
+        }
+    }
     Text {
         Layout.fillWidth: true
         visible: panel.portalState.errorMessage.length > 0
         text: TranslationManager.translate("portal.connectionProblem", "PORTAL connection or measurement problem. Reconnect while the machine is idle; details are available below.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
+        font: Theme.bodyFont
     }
     Text {
         Layout.fillWidth: true
@@ -79,6 +220,7 @@ ColumnLayout {
         text: TranslationManager.translate("portal.displaySyncFailed", "PORTAL display sync failed. Measurements can continue; check the graph on PORTAL.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
+        font: Theme.bodyFont
     }
     AccessibleButton {
         id: diagnosticToggle
@@ -98,12 +240,14 @@ ColumnLayout {
             text: TranslationManager.translate("portal.lastError", "Last error") + ": " + panel.portalState.errorMessage
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         Text {
             Layout.fillWidth: true
             text: TranslationManager.translate("portal.measurementNote", "EC is recorded as a raw value; units are unverified. The display commands do not report whether PORTAL saved a session.")
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         GridLayout {
             Layout.fillWidth: true
@@ -131,6 +275,7 @@ ColumnLayout {
                   ? TranslationManager.translate("portal.commandPending", "Sending display command…")
                   : panel.portalState.displayCommandStatus === "failed"
                     ? TranslationManager.translate("portal.commandFailed", "Display command failed. Check the PORTAL screen before trying again.") : ""
+            font: Theme.captionFont
         }
         Text {
             Layout.fillWidth: true

@@ -88,33 +88,55 @@ private:
     }
 
 private slots:
-    void lateWaterResultPreservesDraftAndRejectsOldOutcome()
+    void lateHistoryResultsPreserveDraftAndRejectOldOutcome()
     {
         QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
         const auto source = QString::fromUtf8(file.readAll());
         QJSEngine engine;
-        for (const auto& name : {"clonePersistedShot", "refreshShotOutcome", "completeShotOutcome", "onShotWaterResultUpdated"}) {
+        for (const auto& name : {"clonePersistedShot", "refreshShotOutcome", "completeShotOutcome", "onShotWaterResultUpdated",
+                                 "onShotPulledFromVisualizer", "mergePulledChanges", "_asField", "_stored"}) {
             const auto loaded = engine.evaluate(sourceFunction(source, QLatin1String(name)));
             QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
         }
+        const auto fieldSpecs = source.indexOf(QStringLiteral("readonly property var _fieldSpecs:"));
+        QVERIFY(fieldSpecs >= 0);
+        const auto begin = source.indexOf('[', fieldSpecs);
+        const auto end = source.indexOf(']', begin);
+        QVERIFY(begin >= 0 && end > begin);
+        const auto fields = engine.evaluate(QStringLiteral("var _fieldSpecs=") + source.mid(begin, end - begin + 1));
+        QVERIFY2(!fields.isError(), qPrintable(fields.toString()));
         const auto result = engine.evaluate(QStringLiteral(R"JS(
             var postShotReviewPage=this;
             var _editLoaded=true, editShotId=7, editNotes="unsaved draft", editEnjoyment=82;
-            var editShotData={id:7,espressoNotes:"saved note"}, shotOutcome={}, _outcomeRequestId="old";
+            var editShotData={id:7,espressoNotes:"saved note",doseWeightG:16}, shotOutcome={}, _outcomeRequestId="old";
             var HistoryService={requestShotOutcome:function(){return "new";}};
             onShotWaterResultUpdated(7,{status:"dispensed",amountSource:"scale",weightG:103.2});
             completeShotOutcome("old",true,{shotId:7,version:1});
             var ignoredOld=shotOutcome.version===undefined;
-            completeShotOutcome("new",true,{shotId:7,version:2});
+            completeShotOutcome("new",true,{shotId:7,version:2,portalAnalysis:{measurementReliable:true,thermalDriftWarning:false}});
             var reloads=0; loadShotForEditing=function(){++reloads;};
+            var editDoseWeight=16, _reviewOpeningValues={doseWeight:16,notes:"saved note"};
+            var _undoStack=[], _committedState={doseWeight:16,notes:"saved note"};
+            function captureEditState(){return {doseWeight:editDoseWeight,notes:editNotes};}
+            function applyEditState(state){editDoseWeight=state.doseWeight;editNotes=state.notes;}
+            var pullRequests=0;
+            HistoryService.requestShotOutcome=function(id){++pullRequests;return "pull-"+id;};
+            onShotPulledFromVisualizer(8,{doseWeight:16},{doseWeight:12});
+            var ignoredOtherShot=pullRequests===0;
+            onShotPulledFromVisualizer(7,{doseWeight:16},{doseWeight:12});
+            completeShotOutcome("new",true,{shotId:7,portalAnalysis:{measurementReliable:true}});
+            var ignoredPreviousOutcome=shotOutcome.version===2;
+            completeShotOutcome("pull-7",true,{shotId:7,portalAnalysis:{measurementReliable:false,thermalDriftWarning:true}});
+            var freshPortal=shotOutcome.portalAnalysis;
             _editLoaded=false;
             onShotWaterResultUpdated(7,{status:"notDispensed"});
             JSON.stringify([editNotes,editEnjoyment,editShotData.hotWaterResult.weightG,
-                            ignoredOld,shotOutcome.version,reloads]);
+                            ignoredOld,ignoredOtherShot,ignoredPreviousOutcome,editDoseWeight,
+                            freshPortal.measurementReliable,freshPortal.thermalDriftWarning,reloads]);
         )JS"));
         QVERIFY2(!result.isError(), qPrintable(result.toString()));
-        QCOMPARE(result.toString(), QStringLiteral("[\"unsaved draft\",82,103.2,true,2,1]"));
+        QCOMPARE(result.toString(), QStringLiteral("[\"unsaved draft\",82,103.2,true,true,true,12,false,true,1]"));
     }
 
     void waterFormattingUsesSavedSettingAndConvertsTemperatureDeltas()

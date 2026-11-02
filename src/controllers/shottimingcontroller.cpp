@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "shottimingcontroller.h"
 #include "../ble/de1device.h"
+#include "../ai/portaltailanalyzer.h"
 #include "../ble/scaledevice.h"
 #include "../core/settings.h"
 #include "../machine/machinestate.h"
@@ -8,6 +9,7 @@
 #include "../profile/profile.h"
 #include <QDebug>
 #include <QScopeGuard>
+#include <cmath>
 
 using namespace Settling;
 
@@ -88,6 +90,15 @@ std::optional<double> ShotTimingController::sensorTime(qint64 receivedAtMs) cons
         return std::nullopt;
     const double time = (receivedAtMs - m_displayTimeBase) / 1000.0;
     return time >= 0 ? std::optional<double>(time) : std::nullopt;
+}
+
+QString ShotTimingController::servingWeightSource() const
+{
+    using WeightSource = PortalTailAnalyzer::WeightSource;
+    if (!m_scale || !m_scale->isConnected() || m_scale->isSimulated())
+        return PortalTailAnalyzer::weightSourceToString(WeightSource::Unknown);
+    return PortalTailAnalyzer::weightSourceToString(
+        m_scale->isFlowScale() ? WeightSource::FlowScaleVirtual : WeightSource::PhysicalScale);
 }
 
 void ShotTimingController::setScale(ScaleDevice* scale)
@@ -311,6 +322,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             return;
         }
 
+        emit weightSourceUsed(servingWeightSource());
         m_weight = weight;
         m_flowRate = flowRate;
         emit weightChanged();
@@ -461,6 +473,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         return;
     }
 
+    emit weightSourceUsed(servingWeightSource());
     m_weight = weight;
     m_flowRateShort = flowRateShort;
 
@@ -475,6 +488,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
     }
     m_flowRate = m_smoothedFlowRate;
 
+    // Preserve measured pre-drip baselines; onShotSample only publishes positive weights.
+    if (std::abs(weight) < 0.1)
+        emit weightBaselineReady((QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0, weight);
     emit weightChanged();
 
     // Weight is cached here, emitted to graph in onShotSample for perfect timestamp sync.

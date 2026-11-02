@@ -1,5 +1,6 @@
 #include "portalcontroller.h"
 #include "ble/belkaportaldevice.h"
+#include "ble/portallogging.h"
 #include "core/settings_hardware.h"
 #include "machine/machinestate.h"
 #include "controllers/shottimingcontroller.h"
@@ -26,9 +27,11 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     connect(device, &BelkaPortalDevice::syncDisplayChanged, this, [device, settings] {
         settings->setPortalSyncDisplay(device->syncDisplay());
     });
-    connect(timing, &ShotTimingController::extractionClockStarted, this, [this, device, model] {
+    connect(timing, &ShotTimingController::extractionClockStarted, this, [this, device, settings, model] {
         m_captureOpen = true;
         model->markPortalGap();
+        if (device->active())
+            PORTAL_INFO(QStringLiteral("Shot capture started (mountingMode=%1)").arg(settings->portalMountingMode()));
         device->setExtractionActive(true);
     });
     connect(timing, &ShotTimingController::shotProcessingReady, this, [this, device] {
@@ -37,10 +40,14 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     });
     connect(device, &BelkaPortalDevice::readingInterrupted, model, &ShotDataModel::markPortalGap);
     connect(device, &BelkaPortalDevice::measurementReceived, this,
-            [this, timing, model](double ecRaw, double temperatureC) {
+            [this, timing, model, settings](double ecRaw, double temperatureC, double auxiliaryTemperatureRaw) {
         if (!m_captureOpen) return;
         const auto time = timing->sensorTime(QDateTime::currentMSecsSinceEpoch());
-        if (time) model->addPortalSample(*time, ecRaw, temperatureC);
+        if (!time) return;
+        // A shot records how PORTAL was mounted exactly when it records PORTAL data.
+        if (model->portalMountingMode().isEmpty())
+            model->setPortalMountingMode(settings->portalMountingMode());
+        model->addPortalSample(*time, ecRaw, temperatureC, auxiliaryTemperatureRaw);
     });
     const auto updateMachine = [this, machine, device, model] {
         const auto phase = machine->phase();
