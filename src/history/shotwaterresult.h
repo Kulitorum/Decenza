@@ -5,6 +5,7 @@
 #include <QVariantMap>
 #include <cmath>
 #include <optional>
+#include "../core/wateramount.h"
 
 struct ShotWaterResult {
     QString status;
@@ -67,6 +68,16 @@ struct ShotWaterResult {
         ShotWaterResult result;
         result.status = QStringLiteral("notDispensed");
         return result;
+    }
+    QString specWithCapturedTarget(const QString& spec) const {
+        const auto captured = toMap();
+        const double target = captured.value(QStringLiteral("targetWeightG")).toDouble();
+        if (status == QLatin1String("notDispensed") || target <= 0) return spec;
+        auto water = QJsonDocument::fromJson(spec.toUtf8()).object();
+        if (!WaterAmount::isRatio(water)
+            || water.value(QStringLiteral("resolvedTargetG")).toDouble() == target) return spec;
+        water.insert(QStringLiteral("resolvedTargetG"), target);
+        return QString::fromUtf8(QJsonDocument(water).toJson(QJsonDocument::Compact));
     }
     // Normalize legacy intent once on the host; never expose its target as an outcome.
     static QVariantMap legacySetting(const QString& spec) {

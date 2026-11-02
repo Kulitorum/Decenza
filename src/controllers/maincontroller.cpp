@@ -249,8 +249,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             this, &MainController::refreshRecipeWater);
     connect(m_machineState, &MachineState::targetWeightChanged, this, [this] {
         if (m_device->state() == DE1::State::Espresso) {
-            if (m_machineState->targetWeight() != m_profileManager->targetWeight())
-                m_recipeWaterBumpedYieldG = m_machineState->targetWeight();
+            m_recipeWaterBumpedYieldG = m_machineState->targetWeight();
             refreshRecipeWater();
         }
     });

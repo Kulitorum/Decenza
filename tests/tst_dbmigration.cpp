@@ -234,7 +234,16 @@ private:
 
 
 private slots:
+    void waterResultAsyncWriterIsNarrowAndReportsFailure_data() {
+        QTest::addColumn<bool>("ratio");
+        QTest::addColumn<bool>("waterBeforeSave");
+        QTest::newRow("fixed") << false << false;
+        QTest::newRow("ratio-water-before-save") << true << true;
+        QTest::newRow("ratio-water-after-save") << true << false;
+    }
     void waterResultAsyncWriterIsNarrowAndReportsFailure() {
+        QFETCH(bool, ratio);
+        QFETCH(bool, waterBeforeSave);
         const QString path = freshDbPath();
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
@@ -246,21 +255,30 @@ private slots:
         data.espressoNotes = "keep";
         data.espressoEnjoyment = 80;
         data.compressedSamples = qCompress(QByteArray("{}"));
-        data.hotWaterJson = R"({"hasWater":true,"volume":100})";
-        const QVariantMap initial{{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 100.0}};
+        data.hotWaterJson = ratio
+            ? R"({"hasWater":true,"amountMode":"ratio","waterToEspressoRatio":2.5,"resolvedTargetG":100})"
+            : R"({"hasWater":true,"volume":100})";
+        const QVariantMap measured{{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 100.0}};
+        QVariantMap initial = ratio && !waterBeforeSave ? QVariantMap() : measured;
+        if (waterBeforeSave) initial.insert("targetWeightG", 105.0);
         data.hotWaterResultJson = ShotWaterResult::fromMap(initial).toJson();
         const qint64 id = ShotHistoryStorage::saveShotStatic(path, data);
         QVERIFY(id > 0);
         withRawDb(path, "water_initial", [&](QSqlDatabase& db) {
             const auto shot = ShotHistoryStorage::loadShotRecordStatic(db, id);
             QCOMPARE(ShotHistoryStorage::convertShotRecord(shot).hotWaterResult, initial);
+            if (ratio) {
+                const auto spec = QJsonDocument::fromJson(shot.hotWaterJson.toUtf8()).object();
+                QCOMPARE(spec.value("resolvedTargetG").toInt(), waterBeforeSave ? 105 : 100);
+            }
         });
         QSignalSpy changed(&storage, &ShotHistoryStorage::shotWaterResultUpdated);
         QSignalSpy finished(&storage, &ShotHistoryStorage::shotWaterResultUpdateFinished);
         QSignalSpy metadata(&storage, &ShotHistoryStorage::shotMetadataUpdated);
         QSignalSpy errors(&storage, &ShotHistoryStorage::errorOccurred);
-        auto result = initial;
+        auto result = measured;
         result.insert("weightG", 103.2);
+        if (ratio) result.insert("targetWeightG", 113.0);
         storage.requestUpdateShotWaterResult(id, data.uuid, result);
         QTRY_COMPARE(finished.count(), 1);
         QVERIFY(finished.first().at(1).toBool());
@@ -272,7 +290,13 @@ private slots:
             QCOMPARE(ShotHistoryStorage::convertShotRecord(shot).hotWaterResult, result);
             QCOMPARE(shot.espressoNotes, data.espressoNotes);
             QCOMPARE(shot.summary.enjoyment, 80);
-            QCOMPARE(shot.hotWaterJson, data.hotWaterJson);
+            if (ratio) {
+                const auto spec = QJsonDocument::fromJson(shot.hotWaterJson.toUtf8()).object();
+                QCOMPARE(spec.value("resolvedTargetG").toInt(), 113);
+                QCOMPARE(spec.value("waterToEspressoRatio").toDouble(), 2.5);
+            } else {
+                QCOMPARE(shot.hotWaterJson, data.hotWaterJson);
+            }
             QSqlQuery q(db);
             QVERIFY(q.exec(QString("DELETE FROM shots WHERE id = %1").arg(id)));
         });

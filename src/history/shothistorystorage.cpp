@@ -3008,7 +3008,9 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":opened_date", data.openedDate.isEmpty() ? QVariant() : data.openedDate);
             query.bindValue(":recipe_id", data.recipeId > 0 ? QVariant(data.recipeId) : QVariant());
             query.bindValue(":steam_json", data.steamJson.isEmpty() ? QVariant() : data.steamJson);
-            query.bindValue(":hot_water_json", data.hotWaterJson.isEmpty() ? QVariant() : data.hotWaterJson);
+            const QString waterSpec = ShotWaterResult::fromJson(data.hotWaterResultJson)
+                .specWithCapturedTarget(data.hotWaterJson);
+            query.bindValue(":hot_water_json", waterSpec.isEmpty() ? QVariant() : waterSpec);
             query.bindValue(":hot_water_result_json", data.hotWaterResultJson.isEmpty() ? QVariant() : data.hotWaterResultJson);
             bindPortalColumns(query, data.portalSummary, data.portalMountingMode, data.weightSource,
                               data.portalPresent);
@@ -5105,15 +5107,26 @@ bool ShotHistoryStorage::shotIdsForVisualizerIdsStatic(QSqlDatabase& db, const Q
 bool ShotHistoryStorage::updateShotWaterResultStatic(QSqlDatabase& db, qint64 shotId,
                                                     const QString& uuid, const QVariantMap& result)
 {
-    const QString json = ShotWaterResult::fromMap(result).toJson();
+    const auto waterResult = ShotWaterResult::fromMap(result);
+    const QString json = waterResult.toJson();
     if (shotId <= 0 || uuid.isEmpty() || json.isEmpty()) return false;
+    auto txn = DbWriteTxn::begin(db, "shot water result");
+    if (!txn.ok()) return false;
     QSqlQuery query(db);
-    query.prepare(QStringLiteral("UPDATE shots SET hot_water_result_json = ?, "
-                                 "updated_at = strftime('%s', 'now') WHERE id = ? AND uuid = ?"));
-    query.addBindValue(json);
+    query.prepare(QStringLiteral("SELECT hot_water_json FROM shots WHERE id = ? AND uuid = ?"));
     query.addBindValue(shotId);
     query.addBindValue(uuid);
-    return query.exec() && query.numRowsAffected() == 1;
+    if (!query.exec() || !query.next()) return false;
+    const QVariant originalSpec = query.value(0);
+    const QString waterSpec = waterResult.specWithCapturedTarget(originalSpec.toString());
+    query.finish();
+    query.prepare(QStringLiteral("UPDATE shots SET hot_water_result_json = ?, hot_water_json = ?, "
+                                 "updated_at = strftime('%s', 'now') WHERE id = ? AND uuid = ?"));
+    query.addBindValue(json);
+    query.addBindValue(waterSpec == originalSpec.toString() ? originalSpec : QVariant(waterSpec));
+    query.addBindValue(shotId);
+    query.addBindValue(uuid);
+    return query.exec() && query.numRowsAffected() == 1 && txn.commit();
 }
 
 void ShotHistoryStorage::requestUpdateShotWaterResult(qint64 shotId, const QString& uuid,
