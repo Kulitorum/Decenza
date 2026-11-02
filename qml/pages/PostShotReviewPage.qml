@@ -2650,6 +2650,8 @@ T.Page {
                         warnings.push(TranslationManager.translate("postshotreview.portal.thermalWarning", "High outlet temperature (%1 °C); temperature effects on EC have not been validated.").arg(Number(pa.maxTempC || 0).toFixed(1)))
                     if (reasons.indexOf("incomplete_coverage") >= 0)
                         warnings.push(TranslationManager.translate("postshotreview.portal.coverageWarning", "Incomplete EC coverage."))
+                    if (reasons.indexOf("cup_mass_mismatch") >= 0)
+                        warnings.push(TranslationManager.translate("postshotreview.portal.cupMassWarning", "Cup weight differs from the recorded weight curve; full-cup EC is uncertain."))
                     if (reasons.indexOf("unknown_mounting") >= 0)
                         warnings.push(TranslationManager.translate("postshotreview.portal.mountingWarning", "Mounting geometry was not recorded."))
                     if (reasons.indexOf("preliminary_calibration") >= 0)
@@ -2766,8 +2768,7 @@ T.Page {
 
                         Text {
                             text: TranslationManager.translate("portal.device.title", "Belka PORTAL")
-                            font.pixelSize: Theme.scaled(11)
-                            font.bold: true
+                            font: Theme.subtitleFont
                             color: Theme.portalEcColor
                             Accessible.ignored: true
                         }
@@ -2778,7 +2779,7 @@ T.Page {
                                   : (pa.mountingMode === "onScale")
                                     ? TranslationManager.translate("postshotreview.portal.mountOnScale", "On cup / scale")
                                     : TranslationManager.translate("postshotreview.portal.mountUnknown", "Mounting not recorded")
-                            font.pixelSize: Theme.scaled(10)
+                            font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
                         }
@@ -2788,7 +2789,7 @@ T.Page {
                         Text {
                             visible: (pa.meanTempC || 0) > 0
                             text: (pa.meanTempC || 0).toFixed(1) + " \u00b0C"
-                            font.pixelSize: Theme.scaled(11)
+                            font: Theme.labelFont
                             color: Theme.portalTemperatureColor
                             Accessible.ignored: true
                         }
@@ -2806,14 +2807,13 @@ T.Page {
                             spacing: Theme.scaled(1)
                             Text {
                                 text: TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
-                                font.pixelSize: Theme.scaled(10)
+                                font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
                             Text {
                                 text: portalMetricsCard.meanEc.toFixed(2)
-                                font.pixelSize: Theme.scaled(14)
-                                font.bold: true
+                                font: Theme.subtitleFont
                                 color: Theme.portalEcColor
                                 Accessible.ignored: true
                             }
@@ -2824,7 +2824,7 @@ T.Page {
                             spacing: Theme.scaled(1)
                             Text {
                                 text: TranslationManager.translate("postshotreview.portal.integralEcTotalDose", "\u222bEC dm (total / dose)")
-                                font.pixelSize: Theme.scaled(10)
+                                font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
@@ -2833,8 +2833,7 @@ T.Page {
                                       + (portalMetricsCard.doseG > 0
                                          ? (" (" + (portalMetricsCard.integralEcG / portalMetricsCard.doseG).toFixed(2) + "/g)")
                                          : "")
-                                font.pixelSize: Theme.scaled(14)
-                                font.bold: true
+                                font: Theme.subtitleFont
                                 color: Theme.textColor
                                 Accessible.ignored: true
                             }
@@ -2845,7 +2844,7 @@ T.Page {
                             spacing: Theme.scaled(1)
                             Text {
                                 text: TranslationManager.translate("postshotreview.portal.estEyTds", "Approx. EY% / ~TDS%")
-                                font.pixelSize: Theme.scaled(10)
+                                font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
@@ -2856,8 +2855,7 @@ T.Page {
                                              .arg(portalMetricsCard.estEyPct.toFixed(1))
                                              .arg(portalMetricsCard.estTdsPct.toFixed(2)), font.pixelSize)
                                       : "\u2014"
-                                font.pixelSize: Theme.scaled(14)
-                                font.bold: true
+                                font: Theme.subtitleFont
                                 color: !portalMetricsCard.isCalibrated
                                        ? Theme.textSecondaryColor
                                        : (!portalMetricsCard.estimateReliable ? Theme.warningColor : Theme.dyeEyColor)
@@ -2871,14 +2869,14 @@ T.Page {
                             spacing: Theme.scaled(1)
                             Text {
                                 text: TranslationManager.translate("postshotreview.portal.tail5g", "Tail (last 5 g)")
-                                font.pixelSize: Theme.scaled(10)
+                                font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
                             Text {
                                 text: TranslationManager.translate("postshotreview.portal.m5", "M5 %1").arg(Number(portalMetricsCard.pa.M5 || 0).toFixed(2))
                                       + " \u00b7 " + ((portalMetricsCard.pa.recentContributionShare5g || 0) * 100).toFixed(1) + "%"
-                                font.pixelSize: Theme.scaled(13)
+                                font: Theme.bodyFont
                                 color: Theme.textColor
                                 Accessible.ignored: true
                             }
@@ -2888,7 +2886,7 @@ T.Page {
                     Text {
                         Layout.fillWidth: true
                         text: portalMetricsCard.calSummaryText
-                        font.pixelSize: Theme.scaled(10)
+                        font: Theme.captionFont
                         color: Theme.textSecondaryColor
                         wrapMode: Text.WordWrap
                         Accessible.ignored: true
@@ -2898,7 +2896,7 @@ T.Page {
                         Layout.fillWidth: true
                         visible: portalMetricsCard.completionSummary !== ""
                         text: portalMetricsCard.completionSummary
-                        font.pixelSize: Theme.scaled(10)
+                        font: Theme.captionFont
                         color: Theme.textSecondaryColor
                         wrapMode: Text.WordWrap
                         Accessible.ignored: true
@@ -2908,7 +2906,8 @@ T.Page {
                         Layout.fillWidth: true
                         visible: portalMetricsCard.ratioAdviceText !== ""
                         text: portalMetricsCard.ratioAdviceText
-                        font.pixelSize: Theme.scaled(10)
+                        font.families: Theme.captionFont.families
+                        font.pixelSize: Theme.captionFont.pixelSize
                         font.bold: portalMetricsCard.lowTailConcentration || portalMetricsCard.possibleUnderExtraction
                         color: (portalMetricsCard.lowTailConcentration || portalMetricsCard.possibleUnderExtraction)
                                ? Theme.warningColor : Theme.textColor
@@ -2921,7 +2920,8 @@ T.Page {
                         visible: !portalMetricsCard.estimateReliable && portalMetricsCard.uncertaintySummary !== ""
                         textFormat: Text.StyledText
                         text: Theme.replaceEmojiWithImg("\u26a0 " + portalMetricsCard.uncertaintySummary, font.pixelSize)
-                        font.pixelSize: Theme.scaled(10)
+                        font.families: Theme.captionFont.families
+                        font.pixelSize: Theme.captionFont.pixelSize
                         font.bold: true
                         color: Theme.warningColor
                         wrapMode: Text.WordWrap

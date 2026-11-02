@@ -130,7 +130,7 @@ void VisualizerUploader::attemptSavedShot(qint64 shotId, Send how)
         bool dirtyRead = false;
         withTempDb(dbPath, "viz_upload", [&](QSqlDatabase& db) {
             shot = ShotHistoryStorage::convertShotRecord(
-                ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO));
+                ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip));
             dirtyRead = ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq);
         });
         QMetaObject::invokeMethod(qApp, [self, shot, shotId, how, dirty, seq, dirtyRead]() {

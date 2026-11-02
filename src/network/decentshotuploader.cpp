@@ -95,7 +95,7 @@ void DecentShotUploader::attemptSavedShot(qint64 shotId, Send how) {
         p.error = Result::NotFound;
         p.failure = QStringLiteral("could not open the shot database");
         withTempDb(dbPath, "decent_upload", [&](QSqlDatabase& db) {
-            const ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+            const ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip);
             if (record.summary.id <= 0) { p.failure = QStringLiteral("no such shot"); return; }
             DecentUploadState state;
             if (!ShotHistoryStorage::loadDecentUploadStateStatic(db, shotId, &state)) {

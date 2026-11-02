@@ -10,7 +10,7 @@
 #include <QVariantMap>
 #include <QVector>
 
-// Pure, deterministic mass-space analysis for Belka PORTAL electrical
+// Mass-space analysis and empirical calibration for Belka PORTAL electrical
 // conductivity (EC) curves paired with physical scale cumulative cup weight.
 //
 // Scientific & physical guardrails:
@@ -29,6 +29,7 @@ public:
     static constexpr double kBoundaryClampSeconds = 0.5;
     static constexpr double kMinTailMassG = 5.0;
     static constexpr double kMinCoverageRatio = 0.85;
+    static constexpr double kCupMassToleranceG = 0.1; // One step of Shot Review's cup-weight input.
     static constexpr double kActivePeakMinMassG = 2.0;
     static constexpr double kMinInstabilityProminenceRawEc = 0.8;
 
@@ -70,6 +71,7 @@ public:
         WeightSource weightSource = WeightSource::Unknown;
         MountingMode mountingMode = MountingMode::Unknown;
         double doseWeightG = 0.0;
+        double finalWeightG = 0.0; // Metadata ratio; observed coverage still uses the scale curve.
         double activeStopTimeSec = 0.0; // >0 splits active pour vs post-stop SAW settling
         double lagOffsetSec = 0.0;      // Evaluates EC(t + lagOffsetSec) against m(t)
     };
@@ -185,7 +187,7 @@ public:
     struct CalibrationFit {
         bool calibrated = false;
         QString activeModel = QStringLiteral("none"); // "proportional" | "affine" | "none"
-        QString scope = QStringLiteral("none");       // "bag" | "bean" | "none"
+        QString scope = QStringLiteral("none");       // fitCalibration resolves to "bag" or "bean", even without references
         int shotCount = 0;
         int excludedShotCount = 0;
         QVariantList referenceShots;
@@ -218,6 +220,7 @@ public:
 
         double predictTdsPct(double meanRawEcPerG) const;
         double predictEyPct(double meanRawEcPerG, double finalWeightG, double doseWeightG) const;
+        QStringList predictionUncertainty(double meanRawEcPerG, double finalWeightG, double doseWeightG) const;
         QVariantMap toVariantMap() const;
     };
 
@@ -253,6 +256,8 @@ public:
                                  double measuredTdsPct = 0.0,
                                  double measuredEyPct = 0.0);
 
+    static double extractionYieldPct(double tdsPct, double finalWeightG, double doseWeightG);
+
     static void evaluateRatioAdvice(Result* result,
                                     const QVector<CalibrationPoint>& historyPoints,
                                     qint64 currentShotId,
@@ -260,10 +265,8 @@ public:
                                     const QString& targetBeanBrand,
                                     const QString& targetBeanType,
                                     double doseWeightG,
-                                    int currentEnjoyment = 0,
                                     const QString& currentTasteBalance = QString(),
                                     const QString& currentTasteBody = QString(),
-                                    const QString& currentNotes = QString(),
                                     qint64 targetEquipmentId = 0,
                                     const QString& targetProfileName = QString());
 

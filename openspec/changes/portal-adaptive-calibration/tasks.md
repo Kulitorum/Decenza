@@ -29,3 +29,12 @@
 ## Workflow follow-up
 
 - Archive this change as the final PR commit before an explicitly requested merge.
+
+## 5. Complete 20-point review audit
+
+- [ ] 5.1 Consolidate all unmerged PORTAL schema/backfill work in migration 50; test atomic failure and retry from main 47 and previews 48/49. Main's added-water migration 47 remains independent.
+- [ ] 5.2 Reuse one fit per coffee/mounting in each history request for unmeasured shots, display measured EY on paired rows, share prediction safeguards and skip reference reads for bulk export/flow calibration and invalid provenance. Verify scoped history output and measure actual fit/query counts.
+- [ ] 5.3 Recompute yield-dependent thermal eligibility using corrected metadata; prove the cache and review agree after a yield edit.
+- [ ] 5.4 Expose mounting selection to accessibility, use Theme fonts and reconcile stale comments/unused advice parameters and the tail coverage constant.
+- [ ] 5.5 Recheck all 20 findings, run the full suite/platform/QML/text gates and publish the audit in the existing PR. Wiki publication remains blocked under task 2.3 until a maintainer grants access.
+- [ ] 5.6 Address the additional GitHub findings: use the decoder in Settings, exclude cup/curve mass mismatches beyond the 0.1 g editing step and transact metadata plus eligibility together, including the MCP-owned transaction path.

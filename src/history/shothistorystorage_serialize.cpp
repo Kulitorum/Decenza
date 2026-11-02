@@ -135,6 +135,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
         portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
         portalOpts.doseWeightG = record.summary.doseWeight;
+        portalOpts.finalWeightG = record.summary.finalWeight;
         portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
         auto portalRes = PortalTailAnalyzer::analyze(
             record.portalSamples, record.weight, portalOpts);
@@ -147,8 +148,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         PortalTailAnalyzer::evaluateRatioAdvice(
             &portalRes, record.portalCalibrationPoints, record.summary.id, record.bagId,
             record.summary.beanBrand, record.summary.beanType,
-            record.summary.doseWeight, record.summary.enjoyment,
-            record.tasteBalance, record.tasteBody, record.espressoNotes,
+            record.summary.doseWeight, record.tasteBalance, record.tasteBody,
             record.equipmentId, record.summary.profileName);
         p.portalAnalysis = portalRes.toVariantMap();
     }

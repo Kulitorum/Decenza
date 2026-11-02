@@ -34,6 +34,7 @@
 #include <QMap>
 #include <algorithm>
 #include <utility>
+#include <tuple>
 #include <cmath>
 
 using decenza::storage::detail::use12h;
@@ -628,6 +629,8 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
             QString queryError;
 
             const bool databaseOpened = withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
+                using PortalFitKey = std::tuple<qint64, QString, QString, PortalTailAnalyzer::MountingMode>;
+                QMap<PortalFitKey, PortalTailAnalyzer::CalibrationFit> portalFits;
                 // Data query
                 QSqlQuery query(db);
                 // Every failure below used to fall through silently, leaving results
@@ -699,25 +702,28 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             shot["portalMeanTempC"] = portalMeanTempC;
                             const bool portalReliable = query.value(30).toBool();
                             shot["portalEstimateReliable"] = portalReliable;
-                            if (portalMeanEc > 0.0 && portalReliable) {
-                                const auto portalCalPoints = loadPortalCalibrationPointsStatic(db,
-                                    rowBagId, rowBeanBrand, rowBeanType);
-                                PortalTailAnalyzer::Result dummyRes;
-                                dummyRes.valid = true;
-                                dummyRes.estimateReliable = portalReliable;
-                                dummyRes.meanRawEcPerG = portalMeanEc;
-                                dummyRes.integralRawEcG = portalIntegralEcG;
-                                dummyRes.meanTempC = portalMeanTempC;
-                                const auto fit = PortalTailAnalyzer::fitCalibration(
-                                    portalCalPoints, rowBagId, rowBeanBrand, rowBeanType, rowShotId,
-                                    PortalTailAnalyzer::mountingModeFromString(query.value(31).toString()));
-                                PortalTailAnalyzer::applyCalibration(
-                                    &dummyRes, fit, rowFinalWeight, rowDoseWeight, rowDrinkTds);
-                                if (dummyRes.calibrated) {
-                                    shot["portalEstTdsPct"] = dummyRes.estimatedTdsPct;
-                                    shot["portalEstEyPct"] = dummyRes.estimatedEyPct;
-                                    shot["portalCalScope"] = dummyRes.calibrationScope;
-                                    shot["portalEstimateReliable"] = dummyRes.estimateReliable;
+                            if (portalMeanEc > 0.0 && rowDrinkTds > 0.0 && shot["drinkEyPct"].toDouble() <= 0.0)
+                                shot["drinkEyPct"] = PortalTailAnalyzer::extractionYieldPct(
+                                    rowDrinkTds, rowFinalWeight, rowDoseWeight);
+                            if (portalMeanEc > 0.0 && portalReliable && rowDrinkTds <= 0.0) {
+                                const auto mode = PortalTailAnalyzer::mountingModeFromString(query.value(31).toString());
+                                const PortalFitKey key{rowBagId > 0 ? rowBagId : -1, rowBeanBrand.trimmed().toLower(),
+                                                       rowBeanType.trimmed().toLower(), mode};
+                                auto cached = portalFits.find(key);
+                                if (cached == portalFits.end()) {
+                                    // No measured TDS on these targets: none can train its own fit.
+                                    auto fit = PortalTailAnalyzer::fitCalibration(
+                                        loadPortalCalibrationPointsStatic(db, rowBagId, rowBeanBrand, rowBeanType),
+                                        rowBagId, rowBeanBrand, rowBeanType, 0, mode);
+                                    cached = portalFits.insert(key, std::move(fit));
+                                }
+                                const auto& fit = cached.value();
+                                if (fit.calibrated) {
+                                    shot["portalEstTdsPct"] = fit.predictTdsPct(portalMeanEc);
+                                    shot["portalEstEyPct"] = fit.predictEyPct(portalMeanEc, rowFinalWeight, rowDoseWeight);
+                                    shot["portalCalScope"] = fit.scope;
+                                    shot["portalEstimateReliable"] = fit.predictionUncertainty(
+                                        portalMeanEc, rowFinalWeight, rowDoseWeight).isEmpty();
                                 }
                             }
 

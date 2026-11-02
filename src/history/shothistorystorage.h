@@ -310,9 +310,11 @@ public:
     // connection so the DB converges with the current detector logic. outBadgesPersisted
     // (when non-null) is set true when a write happened, false otherwise — used by
     // requestShot to decide whether to emit shotBadgesUpdated.
+    enum class PortalCalibration { Include, Skip };
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
                                             bool* outBadgesPersisted = nullptr,
-                                            const char* requestedBy = "unspecified");
+                                            const char* requestedBy = "unspecified",
+                                            PortalCalibration portalCalibration = PortalCalibration::Include);
 
     // Compute resistance, conductance, Darcy resistance, and the conductance
     // derivative from a shot's own raw pressure/flow data. Called
@@ -325,8 +327,7 @@ public:
     // and phase markers for legacy shots that lack phaseSummariesJson.
     static void computePhaseSummaries(ShotRecord& record);
 
-    // Load paired (PORTAL mass-weighted EC, refractometer TDS%) calibration points
-    // across stored shots where both portal_mean_ec > 0 and drink_tds > 0.
+    // Read paired or rated PORTAL measurements for this bag/bean; no logs or sample blobs.
     static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
         const QString& beanBrand, const QString& beanType);
     void requestPortalCalibration(const QString& requestId, qint64 bagId,
@@ -387,12 +388,15 @@ public:
     void requestDeleteShotForRequest(const QString& requestId, qint64 shotId);
     void requestDistinctBaristasForRequest(const QString& requestId);
 
-    // Thread-safe metadata update: caller provides their own connection.
+    // Metadata update owns a write transaction on the caller's connection.
     // Safe to call from any thread (does not use m_db). Returns true on success.
     // `refusal`, when given, receives why the write was refused (a bag id that
     // names no bag); "" for any other failure.
     static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata,
                                          QString* refusal = nullptr);
+    // Caller owns a DbWriteTxn spanning validation and this write (MCP shots_update).
+    static bool updateShotMetadataInTransaction(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata,
+                                                QString* refusal = nullptr);
     // Strict input guard for requestShotMetadataUpdate transports. The legacy
     // static writer remains permissive for its established native callers.
     static bool validateShotMetadataRequest(const QVariantMap& metadata,

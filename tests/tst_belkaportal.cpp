@@ -23,6 +23,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <limits>
+#include <optional>
 
 class PortalDiscoveryReplay : public QObject {
     Q_OBJECT
@@ -981,15 +982,15 @@ private slots:
         other.enjoyment = 95;
         other.tasteBalance = QStringLiteral("sour");
         PortalTailAnalyzer::evaluateRatioAdvice(&result, {other}, 2, 7, {}, {}, 16,
-            0, {}, {}, QStringLiteral("not sour"), 4, QStringLiteral("A-Flow"));
+            {}, {}, 4, QStringLiteral("A-Flow"));
         QCOMPARE(result.bestHistoricalWeightG, 0.0);
         QVERIFY(!result.possibleUnderExtraction);
         PortalTailAnalyzer::evaluateRatioAdvice(&result, {other}, 2, 7, {}, {}, 16,
-            0, {}, {}, {}, 3, QStringLiteral("A-Flow"));
+            {}, {}, 3, QStringLiteral("A-Flow"));
         QCOMPARE(result.bestHistoricalWeightG, 32.0);
         QVERIFY(!result.possibleUnderExtraction);
         PortalTailAnalyzer::evaluateRatioAdvice(&result, {other}, 1, 7, {}, {}, 16,
-            0, {}, {}, {}, 3, QStringLiteral("A-Flow"));
+            {}, {}, 3, QStringLiteral("A-Flow"));
         QCOMPARE(result.bestHistoricalWeightG, 0.0);
     }
 
@@ -1119,6 +1120,17 @@ private slots:
         QCOMPARE(partialRes.status, PortalTailAnalyzer::Status::InsufficientCoverage);
         QCOMPARE(partialRes.coveredMassG, 5.0);
         QCOMPARE(partialRes.integralRawEcG, 40.0);
+
+        const QVector<PortalSample> completePortal{{10.0, 8.0, 55.0, true}, {10.2, 8.0, 55.0, false}};
+        for (double cupMass : {25.0, 25.05, 25.2, 40.0, 20.0}) {
+            shortOpts.finalWeightG = cupMass;
+            const auto corrected = PortalTailAnalyzer::analyze(completePortal, {{10.0, 0.0}, {10.2, 25.0}}, shortOpts);
+            QVERIFY(corrected.valid);
+            QCOMPARE(corrected.totalMassG, 25.0);
+            QCOMPARE(corrected.calibrationEligible, cupMass == 25.0 || cupMass == 25.05);
+            QCOMPARE(corrected.uncertaintyReasons.contains(QStringLiteral("cup_mass_mismatch")),
+                     cupMass != 25.0 && cupMass != 25.05);
+        }
     }
 
     void portalTailAnalyzerDetectsMidShotVDipAndComputesLagSensitivity() {
@@ -1401,6 +1413,41 @@ private slots:
         const qint64 hotId = storage.importShotRecord(hotRecord, true);
         QVERIFY(hotId > 0);
 
+        const qint64 secondTarget = storage.importShotRecord(
+            makePortalRecord(QStringLiteral("target-2"), 1700000700, 28.0, 8.0, 0.0), true);
+        auto independent = makePortalRecord(QStringLiteral("target-independent"), 1700000800, 32.0, 7.6, 0.0);
+        independent.portalMountingMode = QStringLiteral("independent");
+        const qint64 independentTarget = storage.importShotRecord(independent, true);
+        auto otherCoffee = makePortalRecord(QStringLiteral("target-other-coffee"), 1700000900, 32.0, 7.6, 0.0);
+        otherCoffee.summary.beanType = QStringLiteral("Other coffee");
+        const qint64 otherTarget = storage.importShotRecord(otherCoffee, true);
+        QVERIFY(secondTarget > 0 && independentTarget > 0 && otherTarget > 0);
+        withTempDb(dbPath, "portal_measured_ey", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("UPDATE shots SET drink_ey=0 WHERE id=?");
+            q.addBindValue(id1);
+            QVERIFY(q.exec());
+        });
+        QSignalSpy listed(&storage, &ShotHistoryStorage::shotsFilteredReady);
+        storage.requestShotsFiltered({{QStringLiteral("beanBrand"), QStringLiteral("La Cabra")}}, 0, 50);
+        QTRY_COMPARE(listed.size(), 1);
+        const auto historyRows = listed.first().at(0).toList();
+        QCOMPARE(historyRows.size(), 8);
+        for (const auto& value : historyRows) {
+            const auto row = value.toMap();
+            const qint64 id = row.value("id").toLongLong();
+            if (id == id4 || id == secondTarget) {
+                const double expectedTds = id == id4 ? 9.5 : 10.0;
+                QVERIFY(std::abs(row.value("portalEstTdsPct").toDouble() - expectedTds) < 0.01);
+                QVERIFY(!row.value("portalEstimateReliable").toBool());
+            } else if (id == independentTarget || id == otherTarget) {
+                QVERIFY(!row.contains("portalEstTdsPct"));
+            } else if (id == id1) {
+                QCOMPARE(row.value("drinkEyPct").toDouble(), 17.5);
+                QVERIFY(!row.contains("portalEstTdsPct"));
+            }
+        }
+
         // Newer measurements from other coffees cannot evict this coffee's references.
         withTempDb(dbPath, "portal_other_coffee", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
@@ -1420,6 +1467,10 @@ private slots:
             measurement.addBindValue(id4);
             QVERIFY(measurement.exec());
             loaded4 = ShotHistoryStorage::loadShotRecordStatic(db, id4);
+            const auto exportRecord = ShotHistoryStorage::loadShotRecordStatic(db, id4, nullptr,
+                Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip);
+            QVERIFY(exportRecord.portalCalibrationPoints.isEmpty());
+            QCOMPARE(exportRecord.portalSamples.size(), loaded4.portalSamples.size());
             const auto hotLoaded = ShotHistoryStorage::loadShotRecordStatic(db, hotId);
             QCOMPARE(hotLoaded.espressoNotes, QStringLiteral("My tasting notes"));
             QSqlQuery notes(db);
@@ -1498,23 +1549,79 @@ private slots:
             QVERIFY(q.exec() && q.next());
             QVERIFY(q.value(0).toBool());
             const auto loaded = ShotHistoryStorage::loadShotRecordStatic(db, virtualId);
+            QVERIFY(loaded.portalCalibrationPoints.isEmpty());
             QCOMPARE(loaded.weightSource, QStringLiteral("flow_scale_virtual"));
             QCOMPARE(ShotHistoryStorage::convertShotRecord(loaded).portalAnalysis.value("status").toString(),
                      QStringLiteral("requires_physical_scale"));
         });
+        storage.requestUpdateShotMetadata(warmId, {{QStringLiteral("finalWeight"), 48.0}});
+        QTRY_COMPARE(metadataSaved.size(), 5);
+        QVERIFY(metadataSaved.last().at(1).toBool());
+        withTempDb(dbPath, "portal_yield_correction", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("SELECT portal_estimate_reliable FROM shots WHERE id=?");
+            q.addBindValue(warmId);
+            QVERIFY(q.exec() && q.next());
+            QVERIFY(!q.value(0).toBool());
+            const auto outcome = ShotHistoryStorage::shotOutcomeStatic(db, warmId);
+            QVERIFY(outcome.value("portalAnalysis").toMap().value("thermalDriftWarning").toBool());
+        });
+        storage.requestUpdateShotMetadata(warmId, {{QStringLiteral("finalWeight"), 32.0}});
+        QTRY_COMPARE(metadataSaved.size(), 6);
+        QVERIFY(metadataSaved.last().at(1).toBool());
+
+        withTempDb(dbPath, "portal_metadata_atomic", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("CREATE TRIGGER portal_refresh_failure BEFORE UPDATE OF portal_estimate_reliable ON shots "
+                           "WHEN NEW.portal_estimate_reliable=1 BEGIN SELECT RAISE(ABORT, 'refresh blocked'); END"));
+            for (bool callerOwnsTransaction : {false, true}) {
+                {
+                    std::optional<DbWriteTxn> txn;
+                    if (callerOwnsTransaction) {
+                        txn.emplace(DbWriteTxn::begin(db, "MCP metadata fixture"));
+                        QVERIFY(txn->ok());
+                    }
+                    const QVariantMap edit{{QStringLiteral("doseWeight"), 17.0}};
+                    const bool saved = callerOwnsTransaction
+                        ? ShotHistoryStorage::updateShotMetadataInTransaction(db, warmId, edit)
+                        : ShotHistoryStorage::updateShotMetadataStatic(db, warmId, edit);
+                    QVERIFY(!saved);
+                }
+                q.prepare("SELECT dose_weight, portal_estimate_reliable FROM shots WHERE id=?");
+                q.addBindValue(warmId);
+                QVERIFY(q.exec() && q.next());
+                QCOMPARE(q.value(0).toDouble(), 16.0);
+                QVERIFY(q.value(1).toBool());
+                q.finish();
+            }
+            QVERIFY(q.exec("DROP TRIGGER portal_refresh_failure"));
+        });
+
+        auto mismatched = makePortalRecord(QStringLiteral("unobserved-cup-tail"), 1700001000, 25.0, 8.0, 10.0);
+        mismatched.summary.beanBrand = QStringLiteral("Other roaster");
+        mismatched.summary.finalWeight = 40.0;
+        const qint64 mismatchId = storage.importShotRecord(mismatched, true);
+        QVERIFY(mismatchId > 0);
+        withTempDb(dbPath, "portal_import_mass", [&](QSqlDatabase& db) {
+            const auto imported = ShotHistoryStorage::loadShotRecordStatic(db, mismatchId);
+            const auto analysis = ShotHistoryStorage::convertShotRecord(imported).portalAnalysis;
+            QVERIFY(!analysis.value("calibrationEligible").toBool());
+            QVERIFY(analysis.value("uncertaintyReasons").toStringList().contains(QStringLiteral("cup_mass_mismatch")));
+        });
+
         ShotDataModel captured;
         captured.setPortalMountingMode(QStringLiteral("onScale"));
         captured.recordWeightSource(QStringLiteral("physical_scale"));
         for (int i = 0; i <= 250; ++i) {
             const double time = i * 0.1;
             captured.addSample(time, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0, 94.0);
+            captured.addPortalSample(time, 7.0, 61.0);
             captured.addWeightSample(time, time * 1.28, 1.28);
-            captured.addPortalSample(time, 7.0, 72.0);
         }
         ShotMetadata metadata;
         metadata.espressoNotes = QStringLiteral("My own tasting notes");
         QSignalSpy shotSaved(&storage, &ShotHistoryStorage::shotSaved);
-        QCOMPARE(storage.saveShot(&captured, nullptr, 25.0, 32.0, 16.0, metadata,
+        QCOMPARE(storage.saveShot(&captured, nullptr, 25.0, 40.0, 16.0, metadata,
             QStringLiteral("scale=acaia"), 0.0, 32.0), 0);
         QTRY_COMPARE(shotSaved.size(), 1);
         const qint64 capturedId = shotSaved.first().at(0).toLongLong();
@@ -1524,6 +1631,9 @@ private slots:
             QCOMPARE(saved.espressoNotes, QStringLiteral("My own tasting notes"));
             QCOMPARE(saved.weightSource, QStringLiteral("physical_scale"));
             QCOMPARE(saved.portalMountingMode, QStringLiteral("onScale"));
+            const auto analysis = ShotHistoryStorage::convertShotRecord(saved).portalAnalysis;
+            QVERIFY(!analysis.value("calibrationEligible").toBool());
+            QVERIFY(analysis.value("uncertaintyReasons").toStringList().contains(QStringLiteral("cup_mass_mismatch")));
         });
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());
@@ -1576,7 +1686,7 @@ private slots:
             bestRef.equipmentId = 3;
             bestRef.profileName = QStringLiteral("A-Flow");
             PortalTailAnalyzer::evaluateRatioAdvice(
-                &lRes, {bestRef}, 1000, 7, QStringLiteral("April"), QStringLiteral("Ethiopia"), 16.0, 0, {}, {}, {}, 3, QStringLiteral("A-Flow"));
+                &lRes, {bestRef}, 1000, 7, QStringLiteral("April"), QStringLiteral("Ethiopia"), 16.0, {}, {}, 3, QStringLiteral("A-Flow"));
             QCOMPARE(lRes.bestHistoricalEnjoyment, 95);
             QCOMPARE(lRes.bestHistoricalWeightG, 32.5);
         }
@@ -1617,7 +1727,7 @@ private slots:
             bestRef.profileName = QStringLiteral("A-Flow");
             PortalTailAnalyzer::evaluateRatioAdvice(
                 &sRes, {bestRef}, 1001, 7, QStringLiteral("April"), QStringLiteral("Ethiopia"),
-                16.0, 65, QStringLiteral("sour"), QStringLiteral("thin"), {}, 3, QStringLiteral("A-Flow"));
+                16.0, QStringLiteral("sour"), QStringLiteral("thin"), 3, QStringLiteral("A-Flow"));
             QCOMPARE(sRes.possibleUnderExtraction, true);
             QCOMPARE(sRes.ratioAdvice, QStringLiteral("try_longer"));
             QCOMPARE(sRes.bestHistoricalWeightG, 32.5);

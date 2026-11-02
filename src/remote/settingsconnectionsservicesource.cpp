@@ -257,8 +257,7 @@ void NativeSettingsConnectionsServiceSource::refreshPortalCalibration()
     }
     setPortalCalibration({{QStringLiteral("loading"), true}});
     const auto dye = m_settings->dye();
-    const auto mode = m_settings->hardware()->portalMountingMode() == QLatin1String("independent")
-        ? PortalTailAnalyzer::MountingMode::Independent : PortalTailAnalyzer::MountingMode::OnScale;
+    const auto mode = PortalTailAnalyzer::mountingModeFromString(m_settings->hardware()->portalMountingMode());
     m_shotHistory->requestPortalCalibration(m_portalCalibrationRequestId, dye->activeBagId(),
         dye->dyeBeanBrand(), dye->dyeBeanType(), mode);
 }

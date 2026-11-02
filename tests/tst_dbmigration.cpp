@@ -377,7 +377,15 @@ private slots:
     // Fresh DB: full schema at v12
     // ==========================================
 
+    void portalMigrationBackfillsOnceWithoutTrustingDiagnosticLogs_data() {
+        QTest::addColumn<int>("previousVersion");
+        QTest::newRow("main-47") << 47;
+        QTest::newRow("preview-48") << 48;
+        QTest::newRow("preview-49") << 49;
+    }
+
     void portalMigrationBackfillsOnceWithoutTrustingDiagnosticLogs() {
+        QFETCH(int, previousVersion);
         QTemporaryDir dir;
         const QString path = dir.filePath("portal-migration.db");
         ShotHistoryStorage storage;
@@ -394,9 +402,24 @@ private slots:
         storage.close();
         withRawDb(path, "portal_rewind", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            QVERIFY(q.exec("UPDATE schema_version SET version=47"));
+            QVERIFY(q.exec(QStringLiteral("UPDATE schema_version SET version=%1").arg(previousVersion)));
             QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN hot_water_result_json"));
             QVERIFY(q.exec("UPDATE shots SET portal_present=0, portal_mean_ec=8, portal_estimate_reliable=1"));
+            QVERIFY(q.exec("CREATE TRIGGER portal_backfill_failure BEFORE UPDATE OF portal_present ON shots "
+                           "BEGIN SELECT RAISE(ABORT, 'backfill blocked'); END"));
+        });
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("migration 50 incomplete"));
+        QVERIFY(storage.initialize(path));
+        storage.close();
+        withRawDb(path, "portal_atomic", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), previousVersion);
+            QVERIFY(!hasColumn(db, "shots", "hot_water_result_json"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT portal_present FROM shots"));
+            QVERIFY(q.next());
+            QVERIFY(!q.value(0).toBool());
+            q.finish();
+            QVERIFY(q.exec("DROP TRIGGER portal_backfill_failure"));
         });
         QVERIFY(storage.initialize(path));
         storage.close();

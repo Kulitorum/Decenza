@@ -338,7 +338,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         refusal = QStringLiteral("No equipment package with id %1").arg(equipmentId);
                         return;
                     }
-                    ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata, &refusal);
+                    ok = ShotHistoryStorage::updateShotMetadataInTransaction(db, shotId, metadata, &refusal);
                     if (ok && !txn.commit()) {
                         ok = false;
                         refusal = QStringLiteral("The update could not be saved: %1").arg(txn.commitError());

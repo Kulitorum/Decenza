@@ -16,7 +16,7 @@ ColumnLayout {
 
     Text {
         Layout.fillWidth: true
-        text: "Belka PORTAL" + (panel.portalState.savedName.length ? " · " + panel.portalState.savedName : "")
+        text: TranslationManager.translate("portal.device.title", "Belka PORTAL") + (panel.portalState.savedName.length ? " · " + panel.portalState.savedName : "")
         color: Theme.textColor
         font: Theme.subtitleFont
         wrapMode: Text.Wrap
@@ -28,7 +28,7 @@ ColumnLayout {
             text: panel.portalState.active
                 ? TranslationManager.translate("portal.disconnect", "Disconnect")
                 : TranslationManager.translate("portal.connect", "Connect")
-            accessibleName: text + " PORTAL"
+            accessibleName: text + " " + TranslationManager.translate("portal.device.title", "Belka PORTAL")
             enabled: !panel.portalState.machineBusy && panel.portalState.state !== "disconnecting"
                 && (panel.portalState.active || panel.portalState.owned)
             onClicked: panel.requestAction(
@@ -36,7 +36,7 @@ ColumnLayout {
         }
         AccessibleButton {
             text: TranslationManager.translate("portal.forget", "Forget")
-            accessibleName: text + " PORTAL"
+            accessibleName: text + " " + TranslationManager.translate("portal.device.title", "Belka PORTAL")
             enabled: !panel.portalState.machineBusy && panel.portalState.state !== "disconnecting"
                 && (panel.portalState.active || panel.portalState.owned)
             onClicked: panel.requestAction("forgetPortal", {})
@@ -84,6 +84,7 @@ ColumnLayout {
                 text: TranslationManager.translate("portal.mountingOnScale", "On cup / scale (tare before shot)")
                 accessibleName: text
                 primary: (panel.portalState.mountingMode || "onScale") !== "independent"
+                Accessible.selected: primary
                 enabled: !panel.portalState.machineBusy
                 onClicked: panel.requestAction("setPortalMountingMode", { mode: "onScale" })
             }
@@ -91,6 +92,7 @@ ColumnLayout {
                 text: TranslationManager.translate("portal.mountingIndependent", "Independent stand")
                 accessibleName: text
                 primary: panel.portalState.mountingMode === "independent"
+                Accessible.selected: primary
                 enabled: !panel.portalState.machineBusy
                 onClicked: panel.requestAction("setPortalMountingMode", { mode: "independent" })
             }

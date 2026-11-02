@@ -2422,24 +2422,14 @@ bool ShotHistoryStorage::runMigrations()
         }, "Until it completes, added-water results are unavailable");
     }
 
-    // PORTAL summaries are backfilled once with provenance in migration 50.
-    if (currentVersion >= 47 && currentVersion < 48) {
-        addColumns(48, "migration 48 portal summary columns", {
+    // One PORTAL migration; versions 48/49 existed only in contributor previews.
+    if (currentVersion >= 47 && currentVersion < 50) {
+        addColumns(50, "migration 50 portal measurements", {
             {QStringLiteral("shots"), QStringLiteral("portal_mean_ec"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_integral_ec_g"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_mean_temp_c"), QStringLiteral("REAL")},
-        }, "Until it completes, Belka PORTAL summary columns are unavailable");
-    }
-
-    if (currentVersion >= 48 && currentVersion < 49) {
-        addColumns(49, "migration 49 portal reliability", {
             {QStringLiteral("shots"), QStringLiteral("portal_estimate_reliable"), QStringLiteral("INTEGER")},
             {QStringLiteral("shots"), QStringLiteral("portal_mounting_mode"), QStringLiteral("TEXT")},
-        }, "PORTAL estimates are unavailable until it completes");
-    }
-
-    if (currentVersion >= 49 && currentVersion < 50) {
-        addColumns(50, "migration 50 shot measurement provenance", {
             {QStringLiteral("shots"), QStringLiteral("weight_source"), QStringLiteral("TEXT")},
             {QStringLiteral("shots"), QStringLiteral("portal_present"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
             // PORTAL previews used version 47 before main assigned it to added water.
@@ -2796,6 +2786,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(data.weightSource);
             portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(data.portalMountingMode);
             portalOpts.doseWeightG = data.doseWeight;
+            portalOpts.finalWeightG = data.finalWeight;
             portalOpts.activeStopTimeSec = shotData->pressureData().isEmpty() ? 0.0 : shotData->pressureData().last().x();
             const auto portalRes = PortalTailAnalyzer::analyze(
                 shotData->portalSamples(), tmpRecord.weight, portalOpts);
@@ -4087,7 +4078,8 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
 }
 
 ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
-                                                     bool* outBadgesPersisted, const char* requestedBy)
+                                                     bool* outBadgesPersisted, const char* requestedBy,
+                                                     PortalCalibration portalCalibration)
 {
     if (outBadgesPersisted) *outBadgesPersisted = false;
     ShotRecord record;
@@ -4334,10 +4326,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         query.finish();
     }
 
-    if (!record.portalSamples.isEmpty())
+    if (portalCalibration == PortalCalibration::Include && record.portalMeanEc > 0.0
+        && PortalTailAnalyzer::weightSourceFromString(record.weightSource) == PortalTailAnalyzer::WeightSource::PhysicalScale
+        && PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode) != PortalTailAnalyzer::MountingMode::Unknown)
         record.portalCalibrationPoints = loadPortalCalibrationPointsStatic(db, record.bagId,
             record.summary.beanBrand, record.summary.beanType);
-
 
     // Compute phase summaries on-the-fly for legacy shots that lack them
     if (record.phaseSummariesJson.isEmpty() && !record.pressure.isEmpty() && !record.phases.isEmpty()) {
@@ -4695,6 +4688,15 @@ bool ShotHistoryStorage::validateShotMetadataRequest(const QVariantMap& metadata
 bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadataIn,
                                                   QString* refusal)
 {
+    DbWriteTxn txn = DbWriteTxn::begin(db, "shot metadata update");
+    if (!txn.ok() || !updateShotMetadataInTransaction(db, shotId, metadataIn, refusal))
+        return false;
+    return txn.commit();
+}
+
+bool ShotHistoryStorage::updateShotMetadataInTransaction(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadataIn,
+                                                  QString* refusal)
+{
     // Sanitize structured-taste values against their allowed sets before use.
     // "" is a valid "unset". Any out-of-set value is dropped (with a warning) so
     // a bad taste key can never write garbage — without failing an update that
@@ -4829,7 +4831,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     }
     if (refreshPortal) {
         QSqlQuery samples(db);
-        samples.prepare("SELECT ss.data_blob, s.dose_weight FROM shots s "
+        samples.prepare("SELECT ss.data_blob, s.dose_weight, s.final_weight FROM shots s "
                         "JOIN shot_samples ss ON ss.shot_id=s.id WHERE s.id=:id AND s.portal_present=1");
         samples.bindValue(":id", shotId);
         if (!samples.exec()) return false;
@@ -4840,6 +4842,8 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
             opts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
             opts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
             opts.doseWeightG = samples.value(1).toDouble();
+            opts.finalWeightG = samples.value(2).toDouble();
+            samples.finish();
             opts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
             const auto result = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, opts);
             QSqlQuery update(db);
@@ -6386,6 +6390,7 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         portalOpts.weightSource = PortalTailAnalyzer::weightSourceFromString(record.weightSource);
         portalOpts.mountingMode = PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode);
         portalOpts.doseWeightG = record.summary.doseWeight;
+        portalOpts.finalWeightG = record.summary.finalWeight;
         portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
         const auto portalRes = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, portalOpts);
         if (portalRes.valid) {

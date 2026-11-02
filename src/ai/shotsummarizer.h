@@ -152,9 +152,7 @@ struct ShotSummary {
     // beanInputs directly and the flat fields can be retired.
     DialingBlocks::CurrentBeanBlockInputs beanInputs;
 
-    // Belka PORTAL mass-space analysis output (from ShotProjection::portalAnalysis
-    // or computed via PortalTailAnalyzer when portalSamples are present). Empty
-    // when no PORTAL samples were recorded.
+    // PORTAL analysis/status from the shared projection; includes invalid measurements.
     QVariantMap portalAnalysis;
 };
 

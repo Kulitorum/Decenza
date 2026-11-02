@@ -655,12 +655,12 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     }
 
     double tailCoveredMass = 0.0;
-    const double tailStart = out.totalMassG - 5.0;
+    const double tailStart = out.totalMassG - kMinTailMassG;
     for (qsizetype i = 1; i < knots.size(); ++i) {
         if (knots[i].cumulativeCoveredMass > knots[i - 1].cumulativeCoveredMass)
             tailCoveredMass += std::max(0.0, knots[i].massG - std::max(tailStart, knots[i - 1].massG));
     }
-    if (out.coverageRatio < kMinCoverageRatio || tailCoveredMass < 5.0 - 1e-6) {
+    if (out.coverageRatio < kMinCoverageRatio || tailCoveredMass < kMinTailMassG - 1e-6) {
         out.status = Status::InsufficientCoverage;
         out.estimateReliable = false;
         return out;
@@ -709,8 +709,10 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     }
 
     // Evaluate thermal drift safeguards.
+    const double beverageWeightG = options.finalWeightG > 0.0 && std::isfinite(options.finalWeightG)
+        ? options.finalWeightG : out.totalMassG;
     const double brewRatio = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG))
-                             ? (out.totalMassG / options.doseWeightG)
+                             ? (beverageWeightG / options.doseWeightG)
                              : 0.0;
     out.thermalDriftWarning = (out.maxTempC >= 68.0) || (brewRatio > 2.55 && out.maxTempC >= 64.0);
 
@@ -721,6 +723,9 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
 
     if (out.gapCount > 0 || out.coverageRatio < 0.999999)
         out.uncertaintyReasons.append(QStringLiteral("incomplete_coverage"));
+    if (options.finalWeightG > 0.0 && std::isfinite(options.finalWeightG)
+        && std::abs(options.finalWeightG - out.totalMassG) > kCupMassToleranceG + 1e-6)
+        out.uncertaintyReasons.append(QStringLiteral("cup_mass_mismatch"));
     if (out.mountingMode == MountingMode::Unknown)
         out.uncertaintyReasons.append(QStringLiteral("unknown_mounting"));
     out.estimateReliable = out.uncertaintyReasons.isEmpty();
@@ -810,12 +815,31 @@ double PortalTailAnalyzer::CalibrationFit::predictEyPct(double meanRawEcPerG,
                                                         double finalWeightG,
                                                         double doseWeightG) const
 {
-    if (!calibrated || !std::isfinite(finalWeightG) || !std::isfinite(doseWeightG)
-        || finalWeightG <= 0.0 || doseWeightG <= 0.0) {
+    return extractionYieldPct(predictTdsPct(meanRawEcPerG), finalWeightG, doseWeightG);
+}
+
+double PortalTailAnalyzer::extractionYieldPct(double tdsPct, double finalWeightG, double doseWeightG)
+{
+    if (!std::isfinite(tdsPct) || !std::isfinite(finalWeightG) || !std::isfinite(doseWeightG)
+        || tdsPct <= 0.0 || finalWeightG <= 0.0 || doseWeightG <= 0.0) {
         return 0.0;
     }
-    const double tds = predictTdsPct(meanRawEcPerG);
-    return (tds * finalWeightG) / doseWeightG;
+    return (tdsPct * finalWeightG) / doseWeightG;
+}
+
+QStringList PortalTailAnalyzer::CalibrationFit::predictionUncertainty(
+    double meanRawEcPerG, double finalWeightG, double doseWeightG) const
+{
+    QStringList reasons;
+    if (shotCount < 5)
+        reasons.append(QStringLiteral("preliminary_calibration"));
+    const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
+    if (shotCount >= 2 && ((minMeanRawEc > 0.0 && (meanRawEcPerG < minMeanRawEc - 1e-6
+                                               || meanRawEcPerG > maxMeanRawEc + 1e-6))
+        || (minRatio > 0.0 && ratio > 0.0 && (ratio < minRatio - 1e-6 || ratio > maxRatio + 1e-6)))) {
+        reasons.append(QStringLiteral("outside_calibration_range"));
+    }
+    return reasons;
 }
 
 QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
@@ -1128,17 +1152,10 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
 {
     if (!result || !result->valid || !fit.calibrated)
         return;
-    if (fit.shotCount < 5) {
+    const auto reasons = fit.predictionUncertainty(result->meanRawEcPerG, finalWeightG, doseWeightG);
+    if (!reasons.isEmpty()) {
         result->estimateReliable = false;
-        result->uncertaintyReasons.append(QStringLiteral("preliminary_calibration"));
-    }
-
-    const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
-    if (fit.shotCount >= 2 && ((fit.minMeanRawEc > 0.0 && (result->meanRawEcPerG < fit.minMeanRawEc - 1e-6
-                                              || result->meanRawEcPerG > fit.maxMeanRawEc + 1e-6))
-        || (fit.minRatio > 0.0 && ratio > 0.0 && (ratio < fit.minRatio - 1e-6 || ratio > fit.maxRatio + 1e-6)))) {
-        result->estimateReliable = false;
-        result->uncertaintyReasons.append(QStringLiteral("outside_calibration_range"));
+        result->uncertaintyReasons.append(reasons);
     }
 
     result->calibrated = true;
@@ -1172,9 +1189,7 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
         result->validationResidualTdsPct = result->estimatedTdsPct - measuredTdsPct;
         const double actualEy = (std::isfinite(measuredEyPct) && measuredEyPct > 0.1)
             ? measuredEyPct
-            : ((doseWeightG > 0.0 && effectiveWeightG > 0.0)
-                   ? (measuredTdsPct * effectiveWeightG / doseWeightG)
-                   : 0.0);
+            : extractionYieldPct(measuredTdsPct, effectiveWeightG, doseWeightG);
         if (actualEy > 0.0 && result->estimatedEyPct > 0.0)
             result->validationResidualEyPct = result->estimatedEyPct - actualEy;
     }
@@ -1187,10 +1202,8 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
                                              const QString& targetBeanBrand,
                                              const QString& targetBeanType,
                                              double doseWeightG,
-                                             int currentEnjoyment,
                                              const QString& currentTasteBalance,
                                              const QString& currentTasteBody,
-                                             const QString& currentNotes,
                                              qint64 targetEquipmentId,
                                              const QString& targetProfileName)
 {
@@ -1221,8 +1234,6 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
     result->bestHistoricalEnjoyment = bestShot ? bestShot->enjoyment : 0;
 
     // Only explicit feedback on this cup informs its taste interpretation.
-    Q_UNUSED(currentEnjoyment);
-    Q_UNUSED(currentNotes);
     const bool sour = currentTasteBalance.compare(QLatin1String("sour"), Qt::CaseInsensitive) == 0;
     const bool bitterOrThin = currentTasteBalance.compare(QLatin1String("bitter"), Qt::CaseInsensitive) == 0
         || currentTasteBody.compare(QLatin1String("thin"), Qt::CaseInsensitive) == 0;
