@@ -798,13 +798,6 @@ PortalTailAnalyzer::WeightSource PortalTailAnalyzer::weightSourceFromString(cons
     return WeightSource::Unknown;
 }
 
-PortalTailAnalyzer::MountingMode PortalTailAnalyzer::mountingModeFromString(const QString& mode, Qt::CaseSensitivity casing)
-{
-    if (mode.compare(QLatin1String("onScale"), casing) == 0) return MountingMode::OnScale;
-    if (mode.compare(QLatin1String("independent"), casing) == 0) return MountingMode::Independent;
-    return MountingMode::Unknown;
-}
-
 PortalTailAnalyzer::Options PortalTailAnalyzer::optionsForShot(
     const QString& weightSource, const QString& mountingMode, double doseWeightG,
     double finalWeightG, const QVector<QPointF>& pressure)
@@ -1302,19 +1295,6 @@ QString PortalTailAnalyzer::weightSourceToString(WeightSource source)
     case WeightSource::FlowScaleVirtual:
         return QStringLiteral("flow_scale_virtual");
     case WeightSource::Unknown:
-        return QStringLiteral("unknown");
-    }
-    return QStringLiteral("unknown");
-}
-
-QString PortalTailAnalyzer::mountingModeToString(MountingMode mode)
-{
-    switch (mode) {
-    case MountingMode::OnScale:
-        return QStringLiteral("onScale");
-    case MountingMode::Independent:
-        return QStringLiteral("independent");
-    case MountingMode::Unknown:
         return QStringLiteral("unknown");
     }
     return QStringLiteral("unknown");

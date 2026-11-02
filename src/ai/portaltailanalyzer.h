@@ -287,11 +287,27 @@ public:
 
     static WeightSource weightSourceFromString(const QString& source);
     static MountingMode mountingModeFromString(const QString& mode,
-                                               Qt::CaseSensitivity casing = Qt::CaseSensitive);
+                                               Qt::CaseSensitivity casing = Qt::CaseSensitive)
+    {
+        if (mode.compare(QLatin1String("onScale"), casing) == 0) return MountingMode::OnScale;
+        if (mode.compare(QLatin1String("independent"), casing) == 0) return MountingMode::Independent;
+        return MountingMode::Unknown;
+    }
 
     static QString statusToString(Status status);
     static QString weightSourceToString(WeightSource source);
-    static QString mountingModeToString(MountingMode mode);
+    static QString mountingModeToString(MountingMode mode)
+    {
+        switch (mode) {
+        case MountingMode::OnScale:
+            return QStringLiteral("onScale");
+        case MountingMode::Independent:
+            return QStringLiteral("independent");
+        case MountingMode::Unknown:
+            return QStringLiteral("unknown");
+        }
+        return QStringLiteral("unknown");
+    }
 };
 
 #endif // DECENZA_PORTALTAILANALYZER_H
