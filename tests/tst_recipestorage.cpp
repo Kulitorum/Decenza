@@ -1284,6 +1284,53 @@ private slots:
         });
     }
 
+    void ratioWaterValidatesFallbackChanges_data() {
+        QTest::addColumn<bool>("profileFallback");
+        QTest::newRow("bag-relink") << false;
+        QTest::newRow("embedded-profile") << true;
+    }
+    void ratioWaterValidatesFallbackChanges() {
+        QFETCH(bool, profileFallback);
+        withRawDb(freshDbPath(), "water_fallback_change", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag;
+            bag.roasterName = "Roaster";
+            bag.coffeeName = "Coffee";
+            bag.yieldMode = profileFallback ? "none" : "absolute";
+            bag.yieldValue = profileFallback ? 0 : 40;
+            const auto originalBag = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(originalBag > 0);
+            bag.yieldMode = "absolute";
+            bag.yieldValue = 300;
+            const auto invalidBag = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(invalidBag > 0);
+            Recipe recipe;
+            recipe.name = "Fallback water";
+            recipe.profileTitle = "Espresso";
+            recipe.bagId = originalBag;
+            if (profileFallback) recipe.profileJson = R"({"target_weight":40})";
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})";
+            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+            QVariantMap invalid{{"name", "Must not be saved"}};
+            invalid.insert(profileFallback ? "profileJson" : "bagId",
+                profileFallback ? QVariant(QStringLiteral(R"({"target_weight":300})")) : QVariant(invalidBag));
+            QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, invalid));
+            const auto unchanged = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(unchanged.name, recipe.name);
+            QCOMPARE(unchanged.bagId, originalBag);
+            QCOMPARE(unchanged.profileJson, recipe.profileJson);
+            invalid["name"] = "Corrected";
+            invalid[profileFallback ? "profileJson" : "bagId"] = profileFallback
+                ? QVariant(QStringLiteral(R"({"target_weight":42})")) : QVariant(originalBag);
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, invalid));
+            const auto corrected = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(corrected.name, QStringLiteral("Corrected"));
+            QCOMPARE(corrected.hotWaterJson, recipe.hotWaterJson);
+        });
+    }
+
     void ratioWaterValidationFailuresRetainClientMessage() {
         const auto path = freshDbPath();
         withRawDb(path, "water_error_seed", [](QSqlDatabase& db) {

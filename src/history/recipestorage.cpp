@@ -1514,7 +1514,8 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
 {
     if (fields.contains(QStringLiteral("hotWaterJson")) || fields.contains(QStringLiteral("profileTitle"))
         || fields.contains(QStringLiteral("yieldMode")) || fields.contains(QStringLiteral("yieldValue"))
-        || fields.contains(QStringLiteral("doseG"))) {
+        || fields.contains(QStringLiteral("doseG")) || fields.contains(QStringLiteral("bagId"))
+        || fields.contains(QStringLiteral("profileJson"))) {
         auto merged = loadRecipeStatic(db, recipeId).toVariantMap();
         for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
         if (!recipeWaterError(db, Recipe::fromVariantMap(merged), profileTargetHint).isEmpty()) return false;

@@ -75,7 +75,7 @@ The host resolves ratio water after activation's dose/yield step and when the ef
 
 `hot_water_json` retains the ratio specification. When a water result is joined, its start-of-step `targetWeightG` also becomes the snapshot’s `resolvedTargetG`, whether water finishes before or after the shot is saved. A skipped water step retains its planned target. Measured water remains separate. Clone and promotion preserve the ratio. Ratio resolution and use do not rewrite shared presets or other recipes; a deleted preset is recreated as fixed at the resolved amount. Legacy fixed and name-only blocks keep their existing interpretation.
 
-HTTP recipe writes report unsupported resolved water amounts as `400` with `code: "invalidWaterAmount"` and the validator message; MCP returns the same code/message. Clone validation captures the installed profile target just like create/update.
+HTTP recipe writes report unsupported resolved water amounts as `400` with `code: "invalidWaterAmount"` and the validator message; MCP returns the same code/message. Clone validation captures the installed profile target just like create/update. Static writes also revalidate linked-bag and embedded-profile changes because either can change the inherited espresso target.
 
 ## Recipe identity in shot history (history-recipe-identity)
 
