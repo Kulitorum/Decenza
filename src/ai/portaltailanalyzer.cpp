@@ -561,14 +561,12 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
             out.status = Status::InsufficientWeightData;
             return out;
         }
+        runningMaxMass = std::max(runningMaxMass, pt.y());
         if (!weightClean.isEmpty() && pt.x() == weightClean.last().x()) {
-            if (pt.y() != weightClean.last().y()) {
-                out.status = Status::InsufficientWeightData;
-                return out;
-            }
+            // Arrival order resolves snapshots sharing the millisecond clock.
+            weightClean.last().setY(runningMaxMass);
             continue;
         }
-        runningMaxMass = std::max(runningMaxMass, pt.y());
         weightClean.append(QPointF(pt.x(), runningMaxMass));
     }
 

@@ -924,6 +924,20 @@ private slots:
         QVERIFY(duplicate.calibrationEligible);
         QCOMPARE(duplicate.gapCount, 0);
         QVERIFY(std::abs(duplicate.integralRawEcG - 450.0) < 1e-6);
+        // Two scale snapshots can share a millisecond. The latest snapshot wins.
+        // EC(t)=20-t: [0,5] has 12 g at mean EC 17.5, [5,10] has
+        // 18 g at mean EC 12.5, so the independent integral is 435 EC*g.
+        const auto sameTick = PortalTailAnalyzer::analyze(portal,
+            {{0, 0}, {5, 10}, {5, 12}, {10, 30}}, opts);
+        QVERIFY(sameTick.valid);
+        QVERIFY(std::abs(sameTick.integralRawEcG - 435.0) < 1e-6);
+        QCOMPARE(sameTick.coveredMassG, 30.0);
+        const auto reversedClock = PortalTailAnalyzer::analyze(portal,
+            {{0, 0}, {5, 12}, {4, 15}, {10, 30}}, opts);
+        QVERIFY(!reversedClock.valid);
+        const auto resetAtSameTick = PortalTailAnalyzer::analyze(portal,
+            {{0, 0}, {5, 12}, {5, 0}, {10, 30}}, opts);
+        QVERIFY(!resetAtSameTick.valid);
         opts.lagOffsetSec = std::numeric_limits<double>::quiet_NaN();
         QVERIFY(!PortalTailAnalyzer::analyze(portal, {{0, 0}, {10, 30}}, opts).valid);
     }
@@ -1390,7 +1404,7 @@ private slots:
             {"time", 0.0}, {"ecRaw", 8.0}, {"temperatureC", 20.0}}});
         QCOMPARE(legacy.size(), 1);
         QVERIFY(!legacy.first().auxiliaryTemperatureRaw.has_value());
-        QVERIFY(!PortalSamples::toVariant(legacy).first().toMap().contains("auxiliaryTemperatureRaw"));
+        QVERIFY(!PortalSamples::toVariant(legacy).constFirst().toMap().contains("auxiliaryTemperatureRaw"));
         samples[20].auxiliaryTemperatureRaw.reset();
         const auto partial = Analyzer::analyze(samples, weight, options);
         QVERIFY(!partial.massWeightedAuxiliaryTemperatureRaw.has_value());

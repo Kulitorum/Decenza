@@ -15,6 +15,7 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 - Resolve persisted coffee names using one Unicode case-folded key before SQL selects matching identities from the partial PORTAL index. No global 200-shot bound can evict an older coffee. Non-PORTAL rows never load a fit; hidden settings panels never request one.
 - Recompute eligibility on dose/yield edits inside both the metadata and Visualizer-pull transactions. Shared Options assembly carries corrected cup mass through save/import/review and advisor fallback.
 - Keep observed baselines, tolerate at most 0.1 g of baseline noise and count equal-time EC packets once. Measurement quality controls ratio advice; calibration count/extrapolation controls TDS prediction confidence.
+- Coalesce ordered scale snapshots sharing a timestamp to their latest running-maximum value before interpolation. Preserve reset/time-reversal rejection and distinguish unusable recorded weight data from missing scale provenance.
 - Translate structured reasons/advice in the shared QML client so language switches and Wasm clients use their own TranslationManager.
 - Assemble one JSON PORTAL block for AI/MCP. Keep user notes untouched.
 

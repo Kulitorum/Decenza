@@ -26,6 +26,9 @@ does not establish identical ionic composition in each fraction.
 - Keep EC and its mass integral in raw device units. Never write an EC-derived
   estimate into measured `drinkTds` or `drinkEy`, and never apply an assumed water
   coefficient or double-correct an undocumented device output.
+- Resolve scale snapshots sharing a timestamp to the latest monotonic snapshot
+  before integration; retain rejection of reversed time, nonfinite data and scale
+  resets. An unusable recorded weight curve is distinct from a missing scale.
 - A fitted coefficient alone does not authorize a prediction. At least two
   independent pairs must permit leave-one-out evaluation. The selected model
   must have a positive EC/TDS association and lower held-out RMSE than predicting

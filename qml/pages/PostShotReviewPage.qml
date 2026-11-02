@@ -2690,6 +2690,8 @@ T.Page {
                 readonly property string calSummaryText: {
                     if (pa.status === "missing_weight_provenance") return TranslationManager.translate(
                         "postshotreview.portal.missingWeightProvenance", "The serving weight source was not recorded for this shot; it cannot be a calibration reference.")
+                    if (pa.status === "insufficient_weight_data") return TranslationManager.translate(
+                        "postshotreview.portal.invalidWeightCurve", "PORTAL cannot use this shot's recorded weight curve. Check the weight graph.")
                     if (!pa.valid) return TranslationManager.translate(
                         "postshotreview.portal.unavailable", "PORTAL analysis needs a physical scale and complete EC/weight data.")
                     if (!pa.calibrationEligible) return TranslationManager.translate(

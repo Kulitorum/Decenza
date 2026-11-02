@@ -5,6 +5,9 @@
 PORTAL mass analysis SHALL use physical-scale evidence and all recorded EC changes.
 It SHALL preserve scale plateaus and SHALL NOT bridge a recorded interruption.
 Tail metrics SHALL be unavailable when the last five grams contain missing EC data.
+Same-timestamp scale updates SHALL resolve to the latest monotonic value; reversed
+time and resets SHALL remain invalid. Recorded-curve failures SHALL be distinguished
+from missing physical-scale evidence.
 
 #### Scenario: A scale interval spans a PORTAL gap
 
@@ -15,6 +18,13 @@ Tail metrics SHALL be unavailable when the last five grams contain missing EC da
 
 - **WHEN** whole-shot coverage is sufficient but the final five grams contain a gap
 - **THEN** the analyzer SHALL report insufficient coverage rather than a low-concentration tail
+
+#### Scenario: Ordered scale updates share a clock tick
+
+- **WHEN** multiple recorded scale snapshots share a timestamp
+- **THEN** analysis SHALL use the latest monotonic snapshot at that timestamp without double-counting mass
+- **AND** reversed timestamps and scale resets SHALL remain invalid
+- **AND** an invalid recorded curve SHALL be distinguished from a missing physical scale in Shot Review
 
 ### Requirement: Refractometer estimates use independent comparable measurements
 
