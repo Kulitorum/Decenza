@@ -568,7 +568,7 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
         "shots.channeling_detected, shots.grind_issue_detected, "
         "shots.skip_first_frame_detected, shots.pour_truncated_detected, shots.rpm, "
         "shots.recipe_id, r.name, r.drink_type, r.archived, "
-        "shots.portal_mean_ec, shots.portal_integral_ec_g, shots.portal_mean_temp_c, shots.bag_id, shots.portal_estimate_reliable, shots.portal_mounting_mode");
+        "shots.portal_mean_ec, shots.bag_id, shots.portal_estimate_reliable, shots.portal_mounting_mode");
 
     // Recipe identity is resolved HERE, in the list query, and never per row: a
     // RecipeResolver in the delegate (correct on the shot page, which shows one
@@ -630,7 +630,8 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
 
             const bool databaseOpened = withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
                 using PortalFitKey = std::tuple<qint64, QString, QString, PortalTailAnalyzer::MountingMode>;
-                QMap<PortalFitKey, PortalTailAnalyzer::CalibrationFit> portalFits;
+                // nullopt: the reference read failed (logged) for that coffee on this page.
+                QMap<PortalFitKey, std::optional<PortalTailAnalyzer::CalibrationFit>> portalFits;
                 // Data query
                 QSqlQuery query(db);
                 // Every failure below used to fall through silently, leaving results
@@ -694,42 +695,38 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             shot["recipeArchived"] = query.value(25).toInt() != 0;
 
                             const double portalMeanEc = query.value(26).toDouble();
-                            const double portalIntegralEcG = query.value(27).toDouble();
-                            const double portalMeanTempC = query.value(28).toDouble();
-                            const qint64 rowBagId = query.value(29).isNull() ? -1 : query.value(29).toLongLong();
+                            const qint64 rowBagId = query.value(27).isNull() ? -1 : query.value(27).toLongLong();
                             shot["portalMeanEc"] = portalMeanEc;
-                            shot["portalIntegralEcG"] = portalIntegralEcG;
-                            shot["portalMeanTempC"] = portalMeanTempC;
-                            const bool portalReliable = query.value(30).toBool();
+                            const bool portalReliable = query.value(28).toBool();
                             // Retained History rows need explicit resets when calibration disappears.
-                            shot["portalEstTdsPct"] = 0.0;
                             shot["portalEstEyPct"] = 0.0;
-                            shot["portalCalScope"] = QString();
                             shot["portalEstimateReliable"] = false;
+                            shot["portalEstimateUnavailable"] = false;
                             if (portalMeanEc > 0.0 && rowDrinkTds > 0.0 && shot["drinkEyPct"].toDouble() <= 0.0)
                                 shot["drinkEyPct"] = PortalTailAnalyzer::extractionYieldPct(
                                     rowDrinkTds, rowFinalWeight, rowDoseWeight);
-                            if (portalMeanEc > 0.0 && portalReliable && rowDrinkTds <= 0.0) {
-                                const auto mode = PortalTailAnalyzer::mountingModeFromString(query.value(31).toString());
+                            if (portalMeanEc > 0.0 && rowDrinkTds <= 0.0) {
+                                const auto mode = PortalTailAnalyzer::mountingModeFromString(query.value(29).toString());
                                 const PortalFitKey key{rowBagId > 0 ? rowBagId : -1, PortalTailAnalyzer::coffeeNameKey(rowBeanBrand),
                                                        PortalTailAnalyzer::coffeeNameKey(rowBeanType), mode};
                                 auto cached = portalFits.find(key);
                                 if (cached == portalFits.end()) {
                                     // No measured TDS on these targets: none can train its own fit.
-                                    auto fit = PortalTailAnalyzer::fitCalibration(
-                                        loadPortalCalibrationPointsStatic(db, rowBagId, rowBeanBrand, rowBeanType),
-                                        rowBagId, rowBeanBrand, rowBeanType, 0, mode);
-                                    cached = portalFits.insert(key, std::move(fit));
+                                    const auto points = loadPortalCalibrationPointsStatic(db, rowBagId, rowBeanBrand, rowBeanType);
+                                    cached = portalFits.insert(key, points
+                                        ? std::optional(PortalTailAnalyzer::fitCalibration(
+                                              *points, rowBagId, rowBeanBrand, rowBeanType, 0, mode))
+                                        : std::nullopt);
                                 }
-                                const auto& fit = cached.value();
-                                if (fit.predictionSupported && !fit.predictionUncertainty(
-                                        portalMeanEc, rowFinalWeight, rowDoseWeight).contains(
-                                            QStringLiteral("outside_calibration_range"))) {
-                                    shot["portalEstTdsPct"] = fit.predictTdsPct(portalMeanEc);
-                                    shot["portalEstEyPct"] = fit.predictEyPct(portalMeanEc, rowFinalWeight, rowDoseWeight);
-                                    shot["portalCalScope"] = fit.scope;
-                                    shot["portalEstimateReliable"] = fit.predictionUncertainty(
-                                        portalMeanEc, rowFinalWeight, rowDoseWeight).isEmpty();
+                                if (!cached.value()) {
+                                    shot["portalEstimateUnavailable"] = true;
+                                } else {
+                                    const auto prediction = cached.value()->predict(
+                                        portalMeanEc, rowFinalWeight, rowDoseWeight, portalReliable);
+                                    if (prediction.available) {
+                                        shot["portalEstEyPct"] = prediction.eyPct;
+                                        shot["portalEstimateReliable"] = prediction.uncertaintyReasons.isEmpty();
+                                    }
                                 }
                             }
 

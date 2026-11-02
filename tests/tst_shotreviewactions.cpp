@@ -114,7 +114,7 @@ private slots:
             onShotWaterResultUpdated(7,{status:"dispensed",amountSource:"scale",weightG:103.2});
             completeShotOutcome("old",true,{shotId:7,version:1});
             var ignoredOld=shotOutcome.version===undefined;
-            completeShotOutcome("new",true,{shotId:7,version:2,portalAnalysis:{calibrationEligible:true,thermalDriftWarning:false}});
+            completeShotOutcome("new",true,{shotId:7,version:2,portalAnalysis:{measurementReliable:true,thermalDriftWarning:false}});
             var reloads=0; loadShotForEditing=function(){++reloads;};
             var editDoseWeight=16, _reviewOpeningValues={doseWeight:16,notes:"saved note"};
             var _undoStack=[], _committedState={doseWeight:16,notes:"saved note"};
@@ -125,15 +125,15 @@ private slots:
             onShotPulledFromVisualizer(8,{doseWeight:16},{doseWeight:12});
             var ignoredOtherShot=pullRequests===0;
             onShotPulledFromVisualizer(7,{doseWeight:16},{doseWeight:12});
-            completeShotOutcome("new",true,{shotId:7,portalAnalysis:{calibrationEligible:true}});
+            completeShotOutcome("new",true,{shotId:7,portalAnalysis:{measurementReliable:true}});
             var ignoredPreviousOutcome=shotOutcome.version===2;
-            completeShotOutcome("pull-7",true,{shotId:7,portalAnalysis:{calibrationEligible:false,thermalDriftWarning:true}});
+            completeShotOutcome("pull-7",true,{shotId:7,portalAnalysis:{measurementReliable:false,thermalDriftWarning:true}});
             var freshPortal=shotOutcome.portalAnalysis;
             _editLoaded=false;
             onShotWaterResultUpdated(7,{status:"notDispensed"});
             JSON.stringify([editNotes,editEnjoyment,editShotData.hotWaterResult.weightG,
                             ignoredOld,ignoredOtherShot,ignoredPreviousOutcome,editDoseWeight,
-                            freshPortal.calibrationEligible,freshPortal.thermalDriftWarning,reloads]);
+                            freshPortal.measurementReliable,freshPortal.thermalDriftWarning,reloads]);
         )JS"));
         QVERIFY2(!result.isError(), qPrintable(result.toString()));
         QCOMPARE(result.toString(), QStringLiteral("[\"unsaved draft\",82,103.2,true,true,true,12,false,true,1]"));

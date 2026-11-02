@@ -194,7 +194,13 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
 #endif
     if (m_portalDevice) {
         connect(m_portalDevice, &BelkaPortalDevice::stateChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
-        connect(m_portalDevice, &BelkaPortalDevice::stateChanged, this, &NativeSettingsConnectionsServiceSource::refreshPortalCalibration);
+        // Connection-state flaps during a shot must not refit; only ownership or activity changes matter.
+        const auto refreshWhenWantedChanges = [this] {
+            if (portalCalibrationWanted() != m_portalCalibrationWanted)
+                refreshPortalCalibration();
+        };
+        connect(m_portalDevice, &BelkaPortalDevice::stateChanged, this, refreshWhenWantedChanges);
+        connect(m_portalDevice, &BelkaPortalDevice::savedDeviceChanged, this, refreshWhenWantedChanges);
         connect(m_portalDevice, &BelkaPortalDevice::devicesChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
         connect(m_portalDevice, &BelkaPortalDevice::machineBusyChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
         connect(m_portalDevice, &BelkaPortalDevice::savedDeviceChanged, this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
@@ -249,16 +255,35 @@ void NativeSettingsConnectionsServiceSource::setShotHistory(ShotHistoryStorage* 
     refreshPortalCalibration();
 }
 
+bool NativeSettingsConnectionsServiceSource::portalCalibrationWanted() const
+{
+    return m_shotHistory && m_settings && m_portalDevice
+        && (m_portalDevice->owned() || m_portalDevice->active());
+}
+
 void NativeSettingsConnectionsServiceSource::refreshPortalCalibration()
 {
+    // A bag switch announces bag, brand and type separately; refit once for all of them.
+    if (m_portalCalibrationRefreshQueued) return;
+    m_portalCalibrationRefreshQueued = true;
+    QMetaObject::invokeMethod(this, [this] {
+        m_portalCalibrationRefreshQueued = false;
+        runPortalCalibrationRefresh();
+    }, Qt::QueuedConnection);
+}
+
+void NativeSettingsConnectionsServiceSource::runPortalCalibrationRefresh()
+{
     m_portalCalibrationRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    if (!m_shotHistory || !m_settings || !m_portalDevice
-        || (!m_portalDevice->owned() && !m_portalDevice->active())) {
+    m_portalCalibrationWanted = portalCalibrationWanted();
+    if (!m_portalCalibrationWanted) {
         setPortalCalibration({});
         return;
     }
-    m_shotHistory->requestPortalPresenceBackfill();
-    setPortalCalibration({{QStringLiteral("loading"), true}});
+    // Keep the previous fit on screen while the new one loads.
+    auto pending = portalCalibration();
+    pending.insert(QStringLiteral("loading"), true);
+    setPortalCalibration(pending);
     const auto dye = m_settings->dye();
     const auto mode = PortalTailAnalyzer::mountingModeFromString(m_settings->hardware()->portalMountingMode());
     m_shotHistory->requestPortalCalibration(m_portalCalibrationRequestId, dye->activeBagId(),
@@ -347,8 +372,7 @@ void NativeSettingsConnectionsServiceSource::refreshSnapshot()
             {QStringLiteral("errorMessage"), portal->errorMessage()},
             {QStringLiteral("syncDisplay"), portal->syncDisplay()},
             {QStringLiteral("mountingMode"),
-             (settings && settings->hardware()) ? settings->hardware()->portalMountingMode()
-                                                : QStringLiteral("onScale")},
+             (settings && settings->hardware()) ? settings->hardware()->portalMountingMode() : QString()},
             {QStringLiteral("canControlDisplay"), portal->canControlDisplay()},
             {QStringLiteral("displayCommandStatus"), portal->displayCommandStatus()},
             {QStringLiteral("lastPacket"), portal->lastPacket()},

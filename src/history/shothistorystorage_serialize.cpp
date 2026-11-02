@@ -131,10 +131,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.weightFlowRateRaw = pointsToVariant(record.weightFlowRateRaw);
 
     if (!record.portalSamples.isEmpty()) {
-        const auto portalOpts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
-            record.summary.doseWeight, record.summary.finalWeight, record.pressure);
-        auto portalRes = PortalTailAnalyzer::analyze(
-            record.portalSamples, record.weight, portalOpts);
+        auto portalRes = PortalTailAnalyzer::analyzeShot(record.portalSamples, record.weight, record.weightSource,
+            record.portalMountingMode, record.summary.doseWeight, record.summary.finalWeight, record.pressure);
         PortalTailAnalyzer::evaluateRatioAdvice(
             &portalRes, record.portalCalibrationPoints, record.summary.id, record.bagId,
             record.summary.beanBrand, record.summary.beanType,
@@ -142,11 +140,13 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             record.equipmentId, record.summary.profileName);
         const auto calFit = PortalTailAnalyzer::fitCalibration(
             record.portalCalibrationPoints, record.bagId,
-            record.summary.beanBrand, record.summary.beanType, record.summary.id, portalOpts.mountingMode);
+            record.summary.beanBrand, record.summary.beanType, record.summary.id, portalRes.mountingMode);
         PortalTailAnalyzer::applyCalibration(
             &portalRes, calFit, record.summary.finalWeight,
-            record.summary.doseWeight, record.drinkTds, record.drinkEy);
+            record.summary.doseWeight, record.drinkTds);
         p.portalAnalysis = portalRes.toVariantMap();
+        if (record.portalCalibrationFailed)
+            p.portalAnalysis.insert(QStringLiteral("calibrationError"), QStringLiteral("queryFailed"));
     }
 
     p.channelingDetected = record.channelingDetected;

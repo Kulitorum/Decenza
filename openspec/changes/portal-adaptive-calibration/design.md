@@ -11,8 +11,8 @@ Use recorded measurements as the calibration contract. General shot verdicts and
 ## Decisions
 
 - Each accepted weight packet records its actual serving source through ShotTimingController into ShotDataModel, before UI/control callbacks. Any nonphysical packet makes the shot ineligible, including a manual stop before the next graph sample. Mounting is captured only while PORTAL is active.
-- Save provenance in typed projections, compressed samples and SQLite columns. Keep schema migration separate from the one-time background presence scan; normal reads never repair rows. Pre-change shots without provenance remain ineligible rather than guessing from log wording.
-- Resolve persisted coffee names using one Unicode case-folded key before SQL selects matching identities from the partial PORTAL index. No global 200-shot bound can evict an older coffee. Non-PORTAL rows never load a fit; hidden settings panels never request one.
+- Save provenance in typed projections, compressed samples and SQLite columns. The migration adds columns only; normal reads never repair rows. Pre-change shots without provenance remain ineligible rather than guessing from log wording.
+- Resolve persisted coffee names using one Unicode case-folded key before SQL selects matching identities among `portal_present=1` shots. No global 200-shot bound can evict an older coffee. Non-PORTAL rows never load a fit; hidden settings panels never request one.
 - Recompute eligibility on dose/yield edits inside both the metadata and Visualizer-pull transactions. Shared Options assembly carries corrected cup mass through save/import/review and advisor fallback.
 - Keep observed baselines, tolerate at most 0.1 g of baseline noise and count equal-time EC packets once. Measurement quality controls ratio advice; calibration count/extrapolation controls TDS prediction confidence.
 - Coalesce ordered scale snapshots sharing a timestamp to their latest running-maximum value before interpolation. Preserve reset/time-reversal rejection and distinguish unusable recorded weight data from missing scale provenance.
@@ -37,9 +37,9 @@ optional field travels in the existing sample JSON/blob and shared projection.
 ## Risks / Trade-offs
 
 - Legacy references become ineligible until new physical-scale measurements are saved.
-- The first owned/active PORTAL schedules a one-time sample-blob scan on the existing database worker; users without PORTAL never schedule it. Normal reads use the small PORTAL index. The presence-only scan model measured 185.3 ms median / 186.9 ms worst on 1,268 shots (9.74 MB), and 1858.1 / 1869.5 ms at 10x (96.10 MB), five runs with Python SQLite/zlib/JSON on this Mac; these are not Qt startup measurements.
+- No historical sample blob is ever scanned: pre-change shots lack weight provenance, so a scan could mark them present but never make them references. Calibration reads run only for shots with PORTAL data and the owner's Settings panel, on the database worker, without an index (0.52 ms median / 2.81 ms worst on 1,339 shots; 8.71 / 9.65 ms at 10x, Python sqlite3 on an M-series Mac).
 - Live sensor acceptance and native/browser screen parity require a running paired installation; CI does not prove physical sensor behavior.
 
 ## Migration Plan
 
-Migration 51 consolidates the unmerged PORTAL schema and adds a database-local completion marker, including upgrades from previews 48-50. It does not scan shots or sample blobs. The shared Settings source requests the presence scan only for an owned/active PORTAL and queues calibration behind it. A session flag coalesces requests; the persisted marker prevents a new scan after restart. Presence updates and completion commit together, so a failed pass remains retryable. The optional index is created after completion and cannot invalidate the pass. Recorded physical-scale references keep their quality flag; legacy missing provenance is excluded even before the scan completes.
+Migration 51 consolidates the unmerged PORTAL schema. From main's 47 it only adds empty columns, an O(1) change in SQLite, so the users who never own a PORTAL pay nothing. From previews 48-50 one statement in the same transaction marks shots that already stored a PORTAL summary as present. Database import copies a v51 source's flags; an older source has no provenance to copy.

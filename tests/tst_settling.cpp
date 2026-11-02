@@ -224,8 +224,8 @@ private slots:
         opts.weightSource = PortalTailAnalyzer::weightSourceFromString(model.weightSource());
         opts.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
         const auto result = PortalTailAnalyzer::analyze(model.portalSamples(), model.cumulativeWeightData(), opts);
-        QVERIFY(result.valid);
-        QVERIFY(result.calibrationEligible);
+        QVERIFY(result.valid());
+        QVERIFY(result.measurementReliable);
         QVERIFY(std::abs(result.coveredMassG - coveredMass) < 1e-6);
         tc.endShot();
     }

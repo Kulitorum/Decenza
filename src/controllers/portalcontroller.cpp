@@ -31,10 +31,8 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
         m_captureOpen = true;
         model->markPortalGap();
         if (device->active())
-            model->setPortalMountingMode(settings->portalMountingMode());
-        device->setExtractionActive(true);
-        if (device->active() && settings)
             PORTAL_INFO(QStringLiteral("Shot capture started (mountingMode=%1)").arg(settings->portalMountingMode()));
+        device->setExtractionActive(true);
     });
     connect(timing, &ShotTimingController::shotProcessingReady, this, [this, device] {
         m_captureOpen = false;
@@ -42,10 +40,14 @@ PortalController::PortalController(BelkaPortalDevice* device, SettingsHardware* 
     });
     connect(device, &BelkaPortalDevice::readingInterrupted, model, &ShotDataModel::markPortalGap);
     connect(device, &BelkaPortalDevice::measurementReceived, this,
-            [this, timing, model](double ecRaw, double temperatureC, double auxiliaryTemperatureRaw) {
+            [this, timing, model, settings](double ecRaw, double temperatureC, double auxiliaryTemperatureRaw) {
         if (!m_captureOpen) return;
         const auto time = timing->sensorTime(QDateTime::currentMSecsSinceEpoch());
-        if (time) model->addPortalSample(*time, ecRaw, temperatureC, auxiliaryTemperatureRaw);
+        if (!time) return;
+        // A shot records how PORTAL was mounted exactly when it records PORTAL data.
+        if (model->portalMountingMode().isEmpty())
+            model->setPortalMountingMode(settings->portalMountingMode());
+        model->addPortalSample(*time, ecRaw, temperatureC, auxiliaryTemperatureRaw);
     });
     const auto updateMachine = [this, machine, device, model] {
         const auto phase = machine->phase();

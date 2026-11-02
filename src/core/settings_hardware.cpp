@@ -30,7 +30,7 @@ QString SettingsHardware::portalName() const { return m_settings.value(portalNam
 bool SettingsHardware::portalSyncDisplay() const { return m_settings.value(portalSyncDisplayKey, true).toBool(); }
 QString SettingsHardware::portalMountingMode() const
 {
-    return normalizePortalMountingMode(m_settings.value(portalMountingModeKey, QStringLiteral("onScale")).toString());
+    return normalizePortalMountingMode(m_settings.value(portalMountingModeKey).toString());
 }
 
 void SettingsHardware::setPortalDevice(const QString& address, const QString& name)

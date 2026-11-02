@@ -1,4 +1,4 @@
-# Belka PORTAL in this fork
+# Belka PORTAL in Decenza
 
 Select PORTAL and its mounting mode in **Settings → Connections**.
 Open a saved shot from **History** to view mass-weighted EC, tail contribution
@@ -14,7 +14,7 @@ EC cannot measure remaining coffee solids or determine taste: ratio advice is
 experimental and never stops or changes a brew.
 
 Sensor calibration with Belka's supplied solution is a separate device procedure;
-this fork does not add an unverified calibration command.
+Decenza does not add an unverified calibration command.
 
 TDS/EY is withheld when independent prediction error is unavailable, the model
 fails to outperform the reference mean, or the shot lies outside its measured

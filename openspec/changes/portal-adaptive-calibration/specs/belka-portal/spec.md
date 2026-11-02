@@ -84,7 +84,7 @@ The fit SHALL be derived from stored measurements rather than a hardcoded factor
 
 ### Requirement: Calibration uses saved measurement provenance
 
-Calibration references SHALL record the actual serving weight source, mounting mode and PORTAL presence from samples. Unknown or virtual sources SHALL be ineligible. Reads SHALL NOT backfill the database or parse diagnostic logs; schema migration SHALL NOT inspect historical sample blobs. Legacy presence backfill SHALL run once on the database worker after a PORTAL is owned or active, with completion persisted in the same transaction as the updates.
+Calibration references SHALL record the actual serving weight source, mounting mode and PORTAL presence from samples. Unknown or virtual sources SHALL be ineligible. Reads SHALL NOT backfill the database or parse diagnostic logs; schema migration SHALL NOT inspect historical sample blobs. Shots saved before this change carry no weight provenance and SHALL remain ineligible.
 
 #### Scenario: FlowScale serves a shot with a saved physical-scale SAW key
 
@@ -108,19 +108,17 @@ Calibration references SHALL record the actual serving weight source, mounting m
 - **WHEN** more than 200 newer measurements exist for other coffees
 - **THEN** the older coffee SHALL retain its matching references
 
-#### Scenario: No PORTAL has been attached
+#### Scenario: Upgrading from main
 
-- **WHEN** history is initialized without an owned or active PORTAL
-- **THEN** the PORTAL migration SHALL change schema only
-- **AND** no legacy sample scan SHALL be scheduled
+- **WHEN** history migrates from main's schema
+- **THEN** the PORTAL migration SHALL only add empty columns
+- **AND** no shot rows or sample blobs SHALL be read
 
-#### Scenario: First PORTAL attachment and restart
+#### Scenario: Upgrading a contributor preview
 
-- **WHEN** a PORTAL is owned or active and legacy presence backfill is incomplete
-- **THEN** the backfill SHALL run on the database worker without blocking UI event delivery
-- **AND** legacy missing provenance SHALL remain ineligible for calibration
-- **AND** a completed pass SHALL NOT run again after restart
-- **AND** a failed pass SHALL roll back its updates and remain retryable
+- **WHEN** history migrates from a preview schema that already stored PORTAL summaries
+- **THEN** shots with a stored PORTAL summary SHALL be marked present in the migration's transaction
+- **AND** shots without weight provenance SHALL remain ineligible for calibration
 
 ### Requirement: Empirical models demonstrate predictive value
 

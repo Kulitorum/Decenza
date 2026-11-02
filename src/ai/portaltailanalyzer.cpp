@@ -40,8 +40,8 @@ bool isFiniteWeightPoint(const QPointF& pt)
 // `breakBefore` is flagged (after index 0) or adjacent samples are separated
 // by more than `kGapSplitSeconds`.
 QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSamples,
-                                           int* outValidCount,
-                                           int* outGapCount,
+                                           qsizetype* outValidCount,
+                                           qsizetype* outGapCount,
                                            double* outPeakRawEc,
                                            double* outPeakTimeSec,
                                            double* outMeanTempC,
@@ -70,7 +70,7 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
     }
 
     if (outValidCount)
-        *outValidCount = static_cast<int>(cleaned.size());
+        *outValidCount = cleaned.size();
     if (outGapCount)
         *outGapCount = 0;
     if (outPeakRawEc)
@@ -88,7 +88,7 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
 
     double peakEc = cleaned.first().ecRaw;
     double peakTime = cleaned.first().time;
-    int gaps = 0;
+    qsizetype gaps = 0;
 
     PortalSegment current;
     current.samples.append(cleaned.first());
@@ -190,27 +190,27 @@ std::optional<PortalSample> evaluatePortalAtTime(const QVector<PortalSegment>& s
         return value;
     }
 
-    // tQuery fell strictly between two segments (an internal BLE gap > kGapSplitSeconds).
+    // tQuery fell between two segments.
     return std::nullopt;
 }
 
-double interpolateMassAtIntegral(const QVector<MassKnot>& uniqueKnots, double targetIntegral)
+double interpolateMassAtIntegral(const QVector<MassKnot>& knots, double targetIntegral)
 {
-    if (uniqueKnots.isEmpty())
+    if (knots.isEmpty())
         return 0.0;
-    if (targetIntegral <= uniqueKnots.first().cumulativeIntegral)
-        return uniqueKnots.first().massG;
-    if (targetIntegral >= uniqueKnots.last().cumulativeIntegral)
-        return uniqueKnots.last().massG;
+    if (targetIntegral <= knots.first().cumulativeIntegral)
+        return knots.first().massG;
+    if (targetIntegral >= knots.last().cumulativeIntegral)
+        return knots.last().massG;
 
     auto it = std::lower_bound(
-        uniqueKnots.begin(), uniqueKnots.end(), targetIntegral,
+        knots.begin(), knots.end(), targetIntegral,
         [](const MassKnot& k, double val) { return k.cumulativeIntegral < val; });
 
-    if (it == uniqueKnots.begin())
+    if (it == knots.begin())
         return it->massG;
-    if (it == uniqueKnots.end())
-        return uniqueKnots.last().massG;
+    if (it == knots.end())
+        return knots.last().massG;
 
     const MassKnot& right = *it;
     const MassKnot& left = *(it - 1);
@@ -229,23 +229,23 @@ double interpolateMassAtIntegral(const QVector<MassKnot>& uniqueKnots, double ta
     return left.massG + std::clamp(alpha, 0.0, 1.0) * dm;
 }
 
-double interpolateIntegralAtMass(const QVector<MassKnot>& uniqueKnots, double targetMass)
+double interpolateIntegralAtMass(const QVector<MassKnot>& knots, double targetMass)
 {
-    if (uniqueKnots.isEmpty())
+    if (knots.isEmpty())
         return 0.0;
-    if (targetMass <= uniqueKnots.first().massG)
-        return uniqueKnots.first().cumulativeIntegral;
-    if (targetMass >= uniqueKnots.last().massG)
-        return uniqueKnots.last().cumulativeIntegral;
+    if (targetMass <= knots.first().massG)
+        return knots.first().cumulativeIntegral;
+    if (targetMass >= knots.last().massG)
+        return knots.last().cumulativeIntegral;
 
     auto it = std::lower_bound(
-        uniqueKnots.begin(), uniqueKnots.end(), targetMass,
+        knots.begin(), knots.end(), targetMass,
         [](const MassKnot& k, double m) { return k.massG < m; });
 
-    if (it == uniqueKnots.begin())
+    if (it == knots.begin())
         return it->cumulativeIntegral;
-    if (it == uniqueKnots.end())
-        return uniqueKnots.last().cumulativeIntegral;
+    if (it == knots.end())
+        return knots.last().cumulativeIntegral;
 
     const MassKnot& right = *it;
     const MassKnot& left = *(it - 1);
@@ -260,23 +260,23 @@ double interpolateIntegralAtMass(const QVector<MassKnot>& uniqueKnots, double ta
     return left.cumulativeIntegral + 0.5 * (*left.ecRaw + ecAtMass) * alpha * dm;
 }
 
-std::optional<double> interpolateEcAtMass(const QVector<MassKnot>& uniqueKnots, double targetMass)
+std::optional<double> interpolateEcAtMass(const QVector<MassKnot>& knots, double targetMass)
 {
-    if (uniqueKnots.isEmpty())
+    if (knots.isEmpty())
         return std::nullopt;
-    if (targetMass <= uniqueKnots.first().massG)
-        return uniqueKnots.first().ecRaw;
-    if (targetMass >= uniqueKnots.last().massG)
-        return uniqueKnots.last().ecRaw;
+    if (targetMass <= knots.first().massG)
+        return knots.first().ecRaw;
+    if (targetMass >= knots.last().massG)
+        return knots.last().ecRaw;
 
     auto it = std::lower_bound(
-        uniqueKnots.begin(), uniqueKnots.end(), targetMass,
+        knots.begin(), knots.end(), targetMass,
         [](const MassKnot& k, double m) { return k.massG < m; });
 
-    if (it == uniqueKnots.begin())
+    if (it == knots.begin())
         return it->ecRaw;
-    if (it == uniqueKnots.end())
-        return uniqueKnots.last().ecRaw;
+    if (it == knots.end())
+        return knots.last().ecRaw;
 
     const MassKnot& right = *it;
     const MassKnot& left = *(it - 1);
@@ -295,37 +295,37 @@ std::optional<double> interpolateEcAtMass(const QVector<MassKnot>& uniqueKnots, 
 // Detects significant mid-shot V-dips (drop followed by recovery) in EC(m)
 // after the main active-pour peak (m >= kActivePeakMinMassG).
 QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
-    const QVector<MassKnot>& uniqueKnots,
+    const QVector<MassKnot>& knots,
     double mainPeakMassG)
 {
     QVector<PortalTailAnalyzer::InstabilityDip> dips;
-    if (uniqueKnots.size() < 3)
+    if (knots.size() < 3)
         return dips;
 
     qsizetype startIdx = 0;
-    while (startIdx < uniqueKnots.size()
-           && uniqueKnots[startIdx].massG < std::max(PortalTailAnalyzer::kActivePeakMinMassG, mainPeakMassG)) {
+    while (startIdx < knots.size()
+           && knots[startIdx].massG < std::max(PortalTailAnalyzer::kActivePeakMinMassG, mainPeakMassG)) {
         ++startIdx;
     }
-    if (startIdx >= uniqueKnots.size() - 2)
+    if (startIdx >= knots.size() - 2)
         return dips;
 
     qsizetype i = startIdx;
-    while (i + 2 < uniqueKnots.size()) {
-        if (!uniqueKnots[i].ecRaw.has_value()) {
+    while (i + 2 < knots.size()) {
+        if (!knots[i].ecRaw.has_value()) {
             ++i;
             continue;
         }
 
         // Advance to local pre-dip high
-        while (i + 1 < uniqueKnots.size()
-               && uniqueKnots[i + 1].ecRaw.has_value()
-               && uniqueKnots[i + 1].segmentIndex == uniqueKnots[i].segmentIndex
-               && *uniqueKnots[i + 1].ecRaw >= *uniqueKnots[i].ecRaw) {
+        while (i + 1 < knots.size()
+               && knots[i + 1].ecRaw.has_value()
+               && knots[i + 1].segmentIndex == knots[i].segmentIndex
+               && *knots[i + 1].ecRaw >= *knots[i].ecRaw) {
             ++i;
         }
         const qsizetype highIdx = i;
-        const double highEc = *uniqueKnots[highIdx].ecRaw;
+        const double highEc = *knots[highIdx].ecRaw;
 
         // Walk down to local valley while looking for a recovery of at least kMinInstabilityProminenceRawEc
         qsizetype valleyIdx = highIdx;
@@ -333,11 +333,11 @@ QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
         qsizetype recoveryIdx = -1;
         double recoveryEc = valleyEc;
 
-        for (qsizetype j = highIdx + 1; j < uniqueKnots.size(); ++j) {
-            if (!uniqueKnots[j].ecRaw.has_value()
-                || uniqueKnots[j].segmentIndex != uniqueKnots[highIdx].segmentIndex)
+        for (qsizetype j = highIdx + 1; j < knots.size(); ++j) {
+            if (!knots[j].ecRaw.has_value()
+                || knots[j].segmentIndex != knots[highIdx].segmentIndex)
                 break;
-            const double curEc = *uniqueKnots[j].ecRaw;
+            const double curEc = *knots[j].ecRaw;
             if (curEc < valleyEc) {
                 valleyEc = curEc;
                 valleyIdx = j;
@@ -349,9 +349,9 @@ QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
                     recoveryIdx = j;
                 }
                 // Stop extending recovery once EC begins falling again after recovery
-                if (j + 1 < uniqueKnots.size()
-                    && uniqueKnots[j + 1].ecRaw.has_value()
-                    && *uniqueKnots[j + 1].ecRaw < curEc) {
+                if (j + 1 < knots.size()
+                    && knots[j + 1].ecRaw.has_value()
+                    && *knots[j + 1].ecRaw < curEc) {
                     break;
                 }
             }
@@ -362,12 +362,12 @@ QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
         const double prominence = std::min(drop, recovery);
         if (recoveryIdx > valleyIdx && prominence >= PortalTailAnalyzer::kMinInstabilityProminenceRawEc) {
             PortalTailAnalyzer::InstabilityDip dip;
-            dip.startMassG = uniqueKnots[highIdx].massG;
-            dip.startTimeSec = uniqueKnots[highIdx].timeSec;
-            dip.valleyMassG = uniqueKnots[valleyIdx].massG;
-            dip.valleyTimeSec = uniqueKnots[valleyIdx].timeSec;
-            dip.recoveryMassG = uniqueKnots[recoveryIdx].massG;
-            dip.recoveryTimeSec = uniqueKnots[recoveryIdx].timeSec;
+            dip.startMassG = knots[highIdx].massG;
+            dip.startTimeSec = knots[highIdx].timeSec;
+            dip.valleyMassG = knots[valleyIdx].massG;
+            dip.valleyTimeSec = knots[valleyIdx].timeSec;
+            dip.recoveryMassG = knots[recoveryIdx].massG;
+            dip.recoveryTimeSec = knots[recoveryIdx].timeSec;
             dip.dropRawEc = drop;
             dip.recoveryRawEc = recovery;
             dip.prominenceRawEc = prominence;
@@ -379,6 +379,369 @@ QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
     }
 
     return dips;
+}
+
+
+
+// A drop larger than this is a scale reset or tare, not settling noise.
+constexpr double kMaxScaleRegressionG = 2.0;
+// Bounds the affine intercept to a plausible TDS offset.
+constexpr double kMaxAffineInterceptTdsPct = 5.0;
+
+bool positiveFinite(double value)
+{
+    return std::isfinite(value) && value > 0.0;
+}
+
+// Rejects reversed clocks, non-finite points and scale resets; otherwise
+// returns the curve made monotonic, one point per timestamp.
+std::optional<QVector<QPointF>> cleanWeightCurve(const QVector<QPointF>& raw)
+{
+    QVector<QPointF> clean;
+    clean.reserve(raw.size());
+    double runningMaxMass = 0.0;
+    for (const auto& pt : raw) {
+        if (!isFiniteWeightPoint(pt)
+            || (!clean.isEmpty() && pt.x() < clean.last().x())
+            || pt.y() < runningMaxMass - kMaxScaleRegressionG)
+            return std::nullopt;
+        runningMaxMass = std::max(runningMaxMass, pt.y());
+        // Snapshots sharing a millisecond collapse to the running maximum.
+        if (!clean.isEmpty() && pt.x() == clean.last().x()) {
+            clean.last().setY(runningMaxMass);
+            continue;
+        }
+        clean.append(QPointF(pt.x(), runningMaxMass));
+    }
+    return clean;
+}
+
+// One knot per scale point plus one at every PORTAL sample and the active
+// stop, so sparse scale packets do not erase the EC observed between them.
+QVector<MassKnot> buildMassKnots(const QVector<QPointF>& weight,
+                                 const QVector<PortalSegment>& segments,
+                                 double activeStopTimeSec)
+{
+    QVector<MassKnot> knots;
+    knots.reserve(weight.size());
+    for (const auto& pt : weight) {
+        MassKnot knot;
+        knot.timeSec = pt.x();
+        knot.massG = pt.y();
+        knots.append(knot);
+    }
+
+    const double firstTime = weight.first().x();
+    const double lastTime = weight.last().x();
+    const auto addTime = [&](double time) {
+        if (!std::isfinite(time) || time <= firstTime || time >= lastTime) return;
+        const auto right = std::lower_bound(weight.cbegin(), weight.cend(), time,
+            [](const QPointF& pt, double t) { return pt.x() < t; });
+        const auto left = right - 1;
+        const double alpha = (time - left->x()) / (right->x() - left->x());
+        MassKnot knot;
+        knot.timeSec = time;
+        knot.massG = left->y() + alpha * (right->y() - left->y());
+        knots.append(knot);
+    };
+    for (const auto& segment : segments)
+        for (const auto& sample : segment.samples)
+            addTime(sample.time);
+    addTime(activeStopTimeSec);
+    std::stable_sort(knots.begin(), knots.end(), [](const MassKnot& a, const MassKnot& b) {
+        return a.timeSec < b.timeSec;
+    });
+
+    for (auto& knot : knots) {
+        const auto value = evaluatePortalAtTime(segments, knot.timeSec, &knot.segmentIndex);
+        if (value) {
+            knot.ecRaw = value->ecRaw;
+            knot.temperatureC = value->temperatureC;
+            knot.auxiliaryTemperatureRaw = value->auxiliaryTemperatureRaw;
+        }
+    }
+    return knots;
+}
+
+struct MassIntegrals {
+    double total = 0.0;
+    double active = 0.0;
+    double coveredMass = 0.0;
+    double temperature = 0.0;
+    double auxiliary = 0.0;
+    double auxiliaryCoveredMass = 0.0;
+};
+
+// Trapezoidal integration of EC(m) dm over steps whose both ends lie in one
+// PORTAL segment; fills each knot's cumulative integral and covered mass.
+MassIntegrals integrateMassSpace(QVector<MassKnot>* knots, double activeStopTimeSec)
+{
+    MassIntegrals sums;
+    const bool hasActiveStop = positiveFinite(activeStopTimeSec);
+    auto& k = *knots;
+    k[0].cumulativeIntegral = 0.0;
+    for (qsizetype i = 1; i < k.size(); ++i) {
+        const double dm = k[i].massG - k[i - 1].massG;
+        if (dm > 0.0 && k[i - 1].ecRaw && k[i].ecRaw && k[i - 1].segmentIndex == k[i].segmentIndex) {
+            const double stepIntegral = 0.5 * (*k[i - 1].ecRaw + *k[i].ecRaw) * dm;
+            sums.total += stepIntegral;
+            sums.coveredMass += dm;
+            sums.temperature += 0.5 * (k[i - 1].temperatureC + k[i].temperatureC) * dm;
+            if (k[i - 1].auxiliaryTemperatureRaw && k[i].auxiliaryTemperatureRaw) {
+                sums.auxiliary += 0.5 * (*k[i - 1].auxiliaryTemperatureRaw + *k[i].auxiliaryTemperatureRaw) * dm;
+                sums.auxiliaryCoveredMass += dm;
+            }
+            if (!hasActiveStop || k[i].timeSec <= activeStopTimeSec)
+                sums.active += stepIntegral;
+        }
+        k[i].cumulativeIntegral = sums.total;
+        k[i].cumulativeCoveredMass = sums.coveredMass;
+    }
+    return sums;
+}
+
+double tailCoveredMassG(const QVector<MassKnot>& knots, double totalMassG)
+{
+    double covered = 0.0;
+    const double tailStart = totalMassG - PortalTailAnalyzer::kTailWindowG;
+    for (qsizetype i = 1; i < knots.size(); ++i) {
+        if (knots[i].cumulativeCoveredMass > knots[i - 1].cumulativeCoveredMass)
+            covered += std::max(0.0, knots[i].massG - std::max(tailStart, knots[i - 1].massG));
+    }
+    return covered;
+}
+
+// M2/M5/R5/T5 over the last 2 g and kTailWindowG of cup mass.
+void computeTailFeatures(const QVector<MassKnot>& knots, PortalTailAnalyzer::Result* out)
+{
+    constexpr double kWindowG = PortalTailAnalyzer::kTailWindowG;
+    const double mEnd = out->totalMassG;
+    const double iEnd = knots.last().cumulativeIntegral;
+    const double iMinus2 = interpolateIntegralAtMass(knots, mEnd - 2.0);
+    const double iMinus5 = interpolateIntegralAtMass(knots, mEnd - kWindowG);
+
+    out->tailMean2g = (iEnd - iMinus2) / 2.0;
+    out->tailMean5g = (iEnd - iMinus5) / kWindowG;
+    if (out->mainPeakRawEc > 0.0)
+        out->tailRatio5g = out->tailMean5g / out->mainPeakRawEc;
+    if (iEnd > 0.0)
+        out->recentContributionShare5g = (iEnd - iMinus5) / iEnd;
+
+    // Least-squares slope over a uniform 51-point mass grid.
+    constexpr int kGridPoints = 51;
+    const double mStart = mEnd - kWindowG;
+    double sumM = 0.0;
+    double sumEc = 0.0;
+    double sumMM = 0.0;
+    double sumMEc = 0.0;
+    int count = 0;
+    for (int idx = 0; idx < kGridPoints; ++idx) {
+        const double dm = kWindowG * static_cast<double>(idx) / static_cast<double>(kGridPoints - 1);
+        const std::optional<double> ec = interpolateEcAtMass(knots, mStart + dm);
+        if (!ec)
+            continue;
+        sumM += dm;
+        sumEc += *ec;
+        sumMM += dm * dm;
+        sumMEc += dm * *ec;
+        ++count;
+    }
+    if (count >= 2) {
+        const double n = static_cast<double>(count);
+        const double denom = n * sumMM - sumM * sumM;
+        if (std::abs(denom) > 1e-9)
+            out->tailSlope5gPerG = (n * sumMEc - sumM * sumEc) / denom;
+    }
+}
+
+void assessMeasurement(const PortalTailAnalyzer::Options& options, PortalTailAnalyzer::Result* out)
+{
+    const double beverageWeightG = positiveFinite(options.finalWeightG) ? options.finalWeightG : out->totalMassG;
+    const double brewRatio = positiveFinite(options.doseWeightG) ? beverageWeightG / options.doseWeightG : 0.0;
+    // Conservative screening heuristics, not published validity limits (docs/PORTAL_EVIDENCE.md).
+    out->thermalDriftWarning = out->maxTempC >= 68.0 || (brewRatio > 2.55 && out->maxTempC >= 64.0);
+
+    if (out->instabilityDipCount > 0)
+        out->uncertaintyReasons.append(QStringLiteral("mid_shot_dip"));
+    if (out->thermalDriftWarning)
+        out->uncertaintyReasons.append(QStringLiteral("thermal_drift"));
+    if (out->gapCount > 0 || out->totalMassG - out->coveredMassG > PortalTailAnalyzer::kCupMassToleranceG + 1e-6)
+        out->uncertaintyReasons.append(QStringLiteral("incomplete_coverage"));
+    if (positiveFinite(options.finalWeightG)
+        && std::abs(options.finalWeightG - out->totalMassG) > PortalTailAnalyzer::kCupMassToleranceG + 1e-6)
+        out->uncertaintyReasons.append(QStringLiteral("cup_mass_mismatch"));
+    if (out->mountingMode == PortalTailAnalyzer::MountingMode::Unknown)
+        out->uncertaintyReasons.append(QStringLiteral("unknown_mounting"));
+    out->measurementReliable = out->uncertaintyReasons.isEmpty();
+}
+
+using CalibrationPoint = PortalTailAnalyzer::CalibrationPoint;
+using CalibrationScope = PortalTailAnalyzer::CalibrationScope;
+
+// "Same coffee" for calibration and ratio advice: one bag, or one case-folded brand + bean name.
+struct CoffeeTarget {
+    qint64 bagId = -1;
+    QString brandKey;
+    QString typeKey;
+
+    CoffeeTarget(qint64 bag, const QString& brand, const QString& type)
+        : bagId(bag)
+        , brandKey(PortalTailAnalyzer::coffeeNameKey(brand))
+        , typeKey(PortalTailAnalyzer::coffeeNameKey(type))
+    {}
+
+    bool matches(const CalibrationPoint& p, CalibrationScope scope) const
+    {
+        if (scope == CalibrationScope::Bag)
+            return bagId > 0 && p.bagId == bagId;
+        return !brandKey.isEmpty() && !typeKey.isEmpty()
+            && PortalTailAnalyzer::coffeeNameKey(p.beanBrand) == brandKey
+            && PortalTailAnalyzer::coffeeNameKey(p.beanType) == typeKey;
+    }
+};
+
+double brewRatio(const CalibrationPoint& p)
+{
+    return p.doseWeightG > 0.0 ? p.finalWeightG / p.doseWeightG : 0.0;
+}
+
+// One shot's TDS-per-EC factor, the single-reference proportional k.
+double individualK(double measuredTdsPct, double meanRawEcPerG)
+{
+    return meanRawEcPerG > 0.0 ? measuredTdsPct / meanRawEcPerG : 0.0;
+}
+
+void appendReferenceRows(PortalTailAnalyzer::CalibrationFit* fit,
+                         const QVector<CalibrationPoint>& points,
+                         const QVector<CalibrationPoint>& selected,
+                         const CoffeeTarget& target, qint64 excludeShotId,
+                         PortalTailAnalyzer::MountingMode targetMountingMode)
+{
+    for (const auto& p : points) {
+        if (!target.matches(p, fit->scope) || (excludeShotId > 0 && p.shotId == excludeShotId)
+            || p.measuredTdsPct <= 0.0)
+            continue;
+        const bool included = std::any_of(selected.cbegin(), selected.cend(),
+            [&p](const CalibrationPoint& reference) { return reference.shotId == p.shotId; });
+        if (!included)
+            ++fit->excludedShotCount;
+        if (fit->referenceShots.size() >= PortalTailAnalyzer::kMaxReferenceShots)
+            continue;
+        const QString reason = included ? QString()
+            : !std::isfinite(p.meanRawEcPerG) || p.meanRawEcPerG <= 0.1
+                ? QStringLiteral("missing_ec")
+                : p.mountingMode != targetMountingMode || targetMountingMode == PortalTailAnalyzer::MountingMode::Unknown
+                    ? QStringLiteral("mounting_mismatch") : QStringLiteral("measurement_warning");
+        fit->referenceShots.append(QVariantMap{
+            {QStringLiteral("shotId"), p.shotId},
+            {QStringLiteral("dateTime"), QDateTime::fromSecsSinceEpoch(p.timestamp).toString(Qt::ISODate)},
+            {QStringLiteral("ratio"), brewRatio(p)},
+            {QStringLiteral("measuredTdsPct"), p.measuredTdsPct},
+            {QStringLiteral("meanRawEc"), p.meanRawEcPerG},
+            {QStringLiteral("individualK"), individualK(p.measuredTdsPct, p.meanRawEcPerG)},
+            {QStringLiteral("included"), included},
+            {QStringLiteral("exclusionReason"), reason}});
+    }
+}
+
+struct RegressionSums {
+    double n = 0.0;
+    double sx = 0.0;
+    double sy = 0.0;
+    double sxx = 0.0;
+    double sxy = 0.0;
+};
+
+// TDS% = k * EC, with exact leave-one-out errors and the mean-of-the-others baseline.
+bool fitProportional(const QVector<CalibrationPoint>& selected, const RegressionSums& s,
+                     PortalTailAnalyzer::CalibrationFit* fit)
+{
+    if (s.sxx <= 1e-12)
+        return false;
+    fit->proportionalK = s.sxy / s.sxx;
+    if (!(fit->proportionalK > 0.0) || !std::isfinite(fit->proportionalK))
+        return false;
+
+    const qsizetype n = selected.size();
+    if (n < 2)
+        return true;
+    double loocvAbs = 0.0;
+    double loocvSq = 0.0;
+    double baselineSq = 0.0;
+    qsizetype loocvCount = 0;
+    for (const auto& p : selected) {
+        const double x = p.meanRawEcPerG;
+        const double y = p.measuredTdsPct;
+        const double baselineError = (s.sy - y) / (s.n - 1.0) - y;
+        baselineSq += baselineError * baselineError;
+        const double denom = s.sxx - x * x;
+        if (denom > 1e-9) {
+            const double loocvErr = (s.sxy - x * y) / denom * x - y;
+            loocvAbs += std::abs(loocvErr);
+            loocvSq += loocvErr * loocvErr;
+            ++loocvCount;
+        }
+    }
+
+    if (loocvCount > 0) {
+        fit->proportionalLoocvMaeTdsPct = loocvAbs / static_cast<double>(loocvCount);
+        fit->proportionalLoocvRmseTdsPct = std::sqrt(loocvSq / static_cast<double>(loocvCount));
+    }
+    fit->hasCrossValidation = loocvCount == n;
+    if (fit->hasCrossValidation)
+        fit->baselineLoocvRmseTdsPct = std::sqrt(baselineSq / s.n);
+    return true;
+}
+
+// TDS% = a * EC + b; needs three points spanning 0.5 raw EC.
+void fitAffine(const QVector<CalibrationPoint>& selected, const RegressionSums& s,
+               PortalTailAnalyzer::CalibrationFit* fit)
+{
+    const qsizetype n = selected.size();
+    const double denom = s.n * s.sxx - s.sx * s.sx;
+    if (n < 3 || fit->maxMeanRawEc - fit->minMeanRawEc < 0.5 || std::abs(denom) <= 1e-9)
+        return;
+    const double a = (s.n * s.sxy - s.sx * s.sy) / denom;
+    const double b = (s.sy - a * s.sx) / s.n;
+    if (!std::isfinite(a) || !std::isfinite(b) || a <= 0.0)
+        return;
+    fit->affineValid = true;
+    fit->affineSlopeA = a;
+    fit->affineInterceptB = b;
+
+    double loocvAbs = 0.0;
+    double loocvSq = 0.0;
+    qsizetype loocvCount = 0;
+    for (const auto& p : selected) {
+        const double x = p.meanRawEcPerG;
+        const double y = p.measuredTdsPct;
+        const double nSub = s.n - 1.0;
+        const double sxSub = s.sx - x;
+        const double sySub = s.sy - y;
+        const double denomSub = nSub * (s.sxx - x * x) - sxSub * sxSub;
+        if (std::abs(denomSub) <= 1e-9)
+            continue;
+        const double aSub = (nSub * (s.sxy - x * y) - sxSub * sySub) / denomSub;
+        const double bSub = (sySub - aSub * sxSub) / nSub;
+        const double loocvErr = aSub * x + bSub - y;
+        if (!std::isfinite(loocvErr) || !std::isfinite(aSub) || aSub <= 0.0)
+            continue;
+        loocvAbs += std::abs(loocvErr);
+        loocvSq += loocvErr * loocvErr;
+        ++loocvCount;
+    }
+
+    fit->affineHasCrossValidation = loocvCount == n;
+    if (fit->affineHasCrossValidation) {
+        fit->affineLoocvMaeTdsPct = loocvAbs / s.n;
+        fit->affineLoocvRmseTdsPct = std::sqrt(loocvSq / s.n);
+    }
+
+    // The intercept must earn its parameter: at least 5% lower held-out RMSE.
+    if (n >= 4 && std::abs(b) < kMaxAffineInterceptTdsPct
+        && fit->affineHasCrossValidation && fit->hasCrossValidation
+        && fit->affineLoocvRmseTdsPct < fit->proportionalLoocvRmseTdsPct * 0.95)
+        fit->activeModel = PortalTailAnalyzer::CalibrationModel::Affine;
 }
 
 } // namespace
@@ -398,15 +761,29 @@ QVariantMap PortalTailAnalyzer::InstabilityDip::toVariantMap() const
     return m;
 }
 
+QString PortalTailAnalyzer::Result::calibrationMode() const
+{
+    if (!calibrated)
+        return QStringLiteral("relative_proxy_only");
+    return calibrationModel == CalibrationModel::Affine ? QStringLiteral("refractometer_affine")
+                                                        : QStringLiteral("refractometer_proportional");
+}
+
+PortalTailAnalyzer::PersistedSummary PortalTailAnalyzer::Result::persistedSummary() const
+{
+    if (!valid())
+        return {};
+    return {meanRawEcPerG, integralRawEcG, meanTempC, measurementReliable};
+}
+
 QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
 {
     QVariantMap m;
-    m["valid"] = valid;
+    m["valid"] = valid();
     m["status"] = PortalTailAnalyzer::statusToString(status);
     m["weightSource"] = PortalTailAnalyzer::weightSourceToString(weightSource);
     m["mountingMode"] = PortalTailAnalyzer::mountingModeToString(mountingMode);
-    m["calibrationMode"] = calibrationMode;
-    m["lagOffsetSec"] = lagOffsetSec;
+    m["calibrationMode"] = calibrationMode();
 
     m["portalSampleCount"] = portalSampleCount;
     m["weightSampleCount"] = weightSampleCount;
@@ -414,17 +791,23 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     m["totalMassG"] = totalMassG;
     m["coveredMassG"] = coveredMassG;
     m["coverageRatio"] = coverageRatio;
-
     m["peakRawEc"] = peakRawEc;
     m["peakTimeSec"] = peakTimeSec;
+    m["meanTempC"] = meanTempC;
+    m["maxTempC"] = maxTempC;
+    m["temperatureCompensation"] = QStringLiteral("unverified_device_output");
+    m["measurementReliable"] = measurementReliable;
+    m["estimateReliable"] = estimateReliable();
+    m["uncertaintyReasons"] = uncertaintyReasons + calibrationReasons;
+    if (!valid())
+        return m;
+
     m["mainPeakRawEc"] = mainPeakRawEc;
     m["mainPeakMassG"] = mainPeakMassG;
     m["finalRawEc"] = finalRawEc;
-    m["meanTempC"] = meanTempC;
     m["massWeightedTempC"] = massWeightedTempC;
     if (massWeightedAuxiliaryTemperatureRaw)
         m["massWeightedAuxiliaryTemperatureRaw"] = *massWeightedAuxiliaryTemperatureRaw;
-    m["temperatureCompensation"] = QStringLiteral("unverified_device_output");
 
     m["integralRawEcG"] = integralRawEcG;
     m["activeIntegralRawEcG"] = activeIntegralRawEcG;
@@ -445,72 +828,41 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     for (const auto& dip : instabilityDips)
         dipsList.append(dip.toVariantMap());
     m["instabilityDips"] = dipsList;
-
-    m["maxTempC"] = maxTempC;
     m["thermalDriftWarning"] = thermalDriftWarning;
-    m["estimateReliable"] = estimateReliable;
-    m["calibrationEligible"] = calibrationEligible;
-    m["uncertaintyReasons"] = uncertaintyReasons;
 
     m["massAt85PctIntegralG"] = massAt85PctIntegralG;
     m["massAt90PctIntegralG"] = massAt90PctIntegralG;
     m["post1to2MassG"] = post1to2MassG;
     m["post1to2ContributionShare"] = post1to2ContributionShare;
-    m["ratioAdvice"] = ratioAdvice;
+    m["ratioAdvice"] = PortalTailAnalyzer::ratioAdviceToString(ratioAdvice);
     m["lowTailConcentration"] = lowTailConcentration;
-    m["possibleUnderExtraction"] = possibleUnderExtraction;
     m["bestHistoricalWeightG"] = bestHistoricalWeightG;
     m["bestHistoricalRatio"] = bestHistoricalRatio;
     m["bestHistoricalEnjoyment"] = bestHistoricalEnjoyment;
 
+    if (selfReferenceK > 0.0)
+        m["selfReferenceK"] = selfReferenceK;
     m["calibrated"] = calibrated;
     m["predictionAvailable"] = predictionAvailable;
-    if (calibrated) {
-        m["calibrationHasCrossValidation"] = calibrationHasCrossValidation;
-        if (calibrationHasCrossValidation)
-            m["calibrationBaselineLoocvRmseTdsPct"] = calibrationBaselineLoocvRmseTdsPct;
-        m["calibrationScope"] = calibrationScope;
-        m["calibrationShotCount"] = calibrationShotCount;
-        m["calibrationSlopeK"] = calibrationSlopeK;
-        m["calibrationAffineValid"] = calibrationAffineValid;
-        if (calibrationAffineValid) {
-            m["calibrationAffineA"] = calibrationAffineA;
-            m["calibrationAffineB"] = calibrationAffineB;
-        }
-        m["calibrationMaeTdsPct"] = calibrationMaeTdsPct;
-        m["calibrationRmseTdsPct"] = calibrationRmseTdsPct;
-        if (calibrationHasCrossValidation) {
-            m["calibrationLoocvMaeTdsPct"] = calibrationLoocvMaeTdsPct;
-            m["calibrationLoocvRmseTdsPct"] = calibrationLoocvRmseTdsPct;
-        }
-        m["calibrationTempCorrR"] = calibrationTempCorrR;
-        m["calibrationTempSlopePctPerC"] = calibrationTempSlopePctPerC;
-        if (predictionAvailable) {
-            m["estimatedTdsPct"] = estimatedTdsPct;
-            m["estimatedEyPct"] = estimatedEyPct;
-        }
-        m["hasValidationReading"] = hasValidationReading;
-        if (hasValidationReading && predictionAvailable) {
-            m["validationResidualTdsPct"] = validationResidualTdsPct;
-            m["validationResidualEyPct"] = validationResidualEyPct;
-        }
+    if (!calibrated)
+        return m;
+    m["calibrationHasCrossValidation"] = calibrationHasCrossValidation;
+    m["calibrationScope"] = PortalTailAnalyzer::calibrationScopeToString(calibrationScope);
+    m["calibrationShotCount"] = calibrationShotCount;
+    m["calibrationSlopeK"] = calibrationSlopeK;
+    if (calibrationModel == CalibrationModel::Affine) {
+        m["calibrationAffineA"] = calibrationAffineA;
+        m["calibrationAffineB"] = calibrationAffineB;
     }
-
-    return m;
-}
-
-QVariantMap PortalTailAnalyzer::LagSensitivityPoint::toVariantMap() const
-{
-    QVariantMap m;
-    m["lagOffsetSec"] = lagOffsetSec;
-    m["valid"] = valid;
-    m["integralRawEcG"] = integralRawEcG;
-    m["meanRawEcPerG"] = meanRawEcPerG;
-    m["M2"] = tailMean2g;
-    m["M5"] = tailMean5g;
-    m["T5"] = tailSlope5gPerG;
-    m["R5"] = tailRatio5g;
-    m["recentContributionShare5g"] = recentContributionShare5g;
+    if (calibrationHasCrossValidation)
+        m["calibrationLoocvMaeTdsPct"] = calibrationLoocvMaeTdsPct;
+    m["hasValidationReading"] = hasValidationReading;
+    if (predictionAvailable) {
+        m["estimatedTdsPct"] = estimatedTdsPct;
+        m["estimatedEyPct"] = estimatedEyPct;
+        if (hasValidationReading)
+            m["validationResidualTdsPct"] = validationResidualTdsPct;
+    }
     return m;
 }
 
@@ -522,25 +874,11 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     Result out;
     out.weightSource = options.weightSource;
     out.mountingMode = options.mountingMode;
-    out.lagOffsetSec = options.lagOffsetSec;
 
-    int validPortalCount = 0;
-    int gapCount = 0;
-    double peakRawEc = 0.0;
-    double peakTimeSec = 0.0;
-    double meanTempC = 0.0;
-    double maxTempC = 0.0;
     const QVector<PortalSegment> segments = buildPortalSegments(
-        portalSamples, &validPortalCount, &gapCount, &peakRawEc, &peakTimeSec, &meanTempC, &maxTempC);
-
-    out.portalSampleCount = validPortalCount;
-    out.gapCount = gapCount;
-    out.peakRawEc = peakRawEc;
-    out.peakTimeSec = peakTimeSec;
-    out.meanTempC = meanTempC;
-    out.maxTempC = maxTempC;
-
-    if (validPortalCount < 2 || segments.isEmpty()) {
+        portalSamples, &out.portalSampleCount, &out.gapCount, &out.peakRawEc, &out.peakTimeSec,
+        &out.meanTempC, &out.maxTempC);
+    if (out.portalSampleCount < 2 || segments.isEmpty()) {
         out.status = Status::NoPortalData;
         return out;
     }
@@ -551,293 +889,83 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         return out;
     }
 
-    QVector<QPointF> weightClean;
-    weightClean.reserve(cumulativeWeight.size());
-    double runningMaxMass = 0.0;
-    for (const auto& pt : cumulativeWeight) {
-        if (!isFiniteWeightPoint(pt)
-            || (!weightClean.isEmpty() && pt.x() < weightClean.last().x())
-            || pt.y() < runningMaxMass - 2.0) {
-            out.status = Status::InsufficientWeightData;
-            return out;
-        }
-        runningMaxMass = std::max(runningMaxMass, pt.y());
-        if (!weightClean.isEmpty() && pt.x() == weightClean.last().x()) {
-            // Arrival order resolves snapshots sharing the millisecond clock.
-            weightClean.last().setY(runningMaxMass);
-            continue;
-        }
-        weightClean.append(QPointF(pt.x(), runningMaxMass));
+    const auto weight = cleanWeightCurve(cumulativeWeight);
+    out.weightSampleCount = weight ? weight->size() : 0;
+    if (!weight || weight->size() < 2) {
+        out.status = Status::InsufficientWeightData;
+        return out;
     }
-
-    out.weightSampleCount = static_cast<int>(weightClean.size());
-    if (weightClean.size() < 2) {
+    out.totalMassG = weight->last().y();
+    if (out.totalMassG < kTailWindowG) {
         out.status = Status::InsufficientWeightData;
         return out;
     }
 
-    const double firstTime = weightClean.first().x();
-    QVector<MassKnot> knots;
-    knots.reserve(weightClean.size() + portalSamples.size() + 1);
-    for (const auto& pt : weightClean) {
-        MassKnot knot;
-        knot.timeSec = pt.x();
-        knot.massG = pt.y();
-        knots.append(knot);
+    QVector<MassKnot> knots = buildMassKnots(*weight, segments, options.activeStopTimeSec);
+    const MassIntegrals sums = integrateMassSpace(&knots, options.activeStopTimeSec);
+    if (sums.coveredMass > 0.0) {
+        out.meanRawEcPerG = sums.total / sums.coveredMass;
+        out.massWeightedTempC = sums.temperature / sums.coveredMass;
+        if (std::abs(sums.auxiliaryCoveredMass - sums.coveredMass) < 1e-6)
+            out.massWeightedAuxiliaryTemperatureRaw = sums.auxiliary / sums.coveredMass;
     }
+    out.coveredMassG = sums.coveredMass;
+    out.coverageRatio = sums.coveredMass / out.totalMassG;
+    out.integralRawEcG = sums.total;
+    out.activeIntegralRawEcG = sums.active;
+    out.settlingIntegralRawEcG = std::max(0.0, sums.total - sums.active);
+    if (positiveFinite(options.doseWeightG))
+        out.doseNormalizedIntegral = sums.total / options.doseWeightG;
+    if (knots.last().ecRaw)
+        out.finalRawEc = *knots.last().ecRaw;
 
-    // Keep scale plateaus and every EC change; sparse scale packets must not
-    // erase the chemistry observed between them.
-    const auto addTime = [&](double time) {
-        if (!std::isfinite(time) || time <= firstTime || time >= weightClean.last().x()) return;
-        const auto right = std::lower_bound(weightClean.cbegin(), weightClean.cend(), time,
-            [](const QPointF& pt, double t) { return pt.x() < t; });
-        const auto left = right - 1;
-        const double alpha = (time - left->x()) / (right->x() - left->x());
-        MassKnot knot;
-        knot.timeSec = time;
-        knot.massG = left->y() + alpha * (right->y() - left->y());
-        knots.append(knot);
-    };
-    for (const auto& segment : segments)
-        for (const auto& sample : segment.samples)
-            addTime(sample.time - options.lagOffsetSec);
-    addTime(options.activeStopTimeSec);
-    std::stable_sort(knots.begin(), knots.end(), [](const MassKnot& a, const MassKnot& b) {
-        return a.timeSec < b.timeSec;
-    });
-    for (auto& knot : knots) {
-        const auto value = evaluatePortalAtTime(segments, knot.timeSec + options.lagOffsetSec,
-                                               &knot.segmentIndex);
-        if (value) {
-            knot.ecRaw = value->ecRaw;
-            knot.temperatureC = value->temperatureC;
-            knot.auxiliaryTemperatureRaw = value->auxiliaryTemperatureRaw;
+    for (const auto& k : knots) {
+        if (k.massG >= kActivePeakMinMassG && k.ecRaw && *k.ecRaw > out.mainPeakRawEc) {
+            out.mainPeakRawEc = *k.ecRaw;
+            out.mainPeakMassG = k.massG;
         }
     }
-
-    out.totalMassG = runningMaxMass;
-    if (out.totalMassG < kMinTailMassG || knots.size() < 2) {
-        out.status = Status::InsufficientWeightData;
-        return out;
+    if (out.mainPeakRawEc <= 0.0) {
+        out.mainPeakRawEc = out.peakRawEc;
+        out.mainPeakMassG = 0.0;
     }
 
-    // Trapezoidal integration in cumulative cup-mass space: int EC(m) dm
-    double totalIntegral = 0.0;
-    double activeIntegral = 0.0;
-    double coveredMass = 0.0;
-    double temperatureIntegral = 0.0;
-    double auxiliaryIntegral = 0.0;
-    double auxiliaryCoveredMass = 0.0;
-    const bool hasActiveStop = options.activeStopTimeSec > 0.0 && std::isfinite(options.activeStopTimeSec);
-
-    knots[0].cumulativeIntegral = 0.0;
-    for (qsizetype i = 1; i < knots.size(); ++i) {
-        const double dm = knots[i].massG - knots[i - 1].massG;
-        if (dm > 0.0 && knots[i - 1].ecRaw.has_value() && knots[i].ecRaw.has_value()
-            && knots[i - 1].segmentIndex == knots[i].segmentIndex) {
-            const double ecMid = 0.5 * (*knots[i - 1].ecRaw + *knots[i].ecRaw);
-            const double stepIntegral = ecMid * dm;
-            totalIntegral += stepIntegral;
-            coveredMass += dm;
-            temperatureIntegral += 0.5 * (knots[i - 1].temperatureC + knots[i].temperatureC) * dm;
-            if (knots[i - 1].auxiliaryTemperatureRaw && knots[i].auxiliaryTemperatureRaw) {
-                auxiliaryIntegral += 0.5 * (*knots[i - 1].auxiliaryTemperatureRaw
-                    + *knots[i].auxiliaryTemperatureRaw) * dm;
-                auxiliaryCoveredMass += dm;
-            }
-            if (!hasActiveStop || knots[i].timeSec <= options.activeStopTimeSec)
-                activeIntegral += stepIntegral;
-        }
-        knots[i].cumulativeIntegral = totalIntegral;
-        knots[i].cumulativeCoveredMass = coveredMass;
-    }
-
-    if (coveredMass > 0.0) {
-        out.massWeightedTempC = temperatureIntegral / coveredMass;
-        if (std::abs(auxiliaryCoveredMass - coveredMass) < 1e-6)
-            out.massWeightedAuxiliaryTemperatureRaw = auxiliaryIntegral / coveredMass;
-    }
-    out.coveredMassG = coveredMass;
-    out.coverageRatio = out.totalMassG > 0.0 ? (coveredMass / out.totalMassG) : 0.0;
-    out.integralRawEcG = totalIntegral;
-    out.activeIntegralRawEcG = hasActiveStop ? activeIntegral : totalIntegral;
-    out.settlingIntegralRawEcG = std::max(0.0, out.integralRawEcG - out.activeIntegralRawEcG);
-
-    if (coveredMass > 0.0)
-        out.meanRawEcPerG = totalIntegral / coveredMass;
-    if (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG))
-        out.doseNormalizedIntegral = totalIntegral / options.doseWeightG;
-
-    const QVector<MassKnot>& uniqueKnots = knots;
-
-    if (uniqueKnots.last().ecRaw.has_value())
-        out.finalRawEc = *uniqueKnots.last().ecRaw;
-
-    // Determine main peak EC during active pour (cumulative mass >= kActivePeakMinMassG)
-    double mainPeakEc = 0.0;
-    double mainPeakMass = 0.0;
-    for (const auto& k : uniqueKnots) {
-        if (k.massG >= kActivePeakMinMassG && k.ecRaw.has_value() && *k.ecRaw > mainPeakEc) {
-            mainPeakEc = *k.ecRaw;
-            mainPeakMass = k.massG;
-        }
-    }
-    if (mainPeakEc <= 0.0) {
-        mainPeakEc = out.peakRawEc;
-        mainPeakMass = 0.0;
-    }
-    out.mainPeakRawEc = mainPeakEc;
-    out.mainPeakMassG = mainPeakMass;
-
-    // Detect mid-shot V-dip instability events
-    out.instabilityDips = detectInstabilityDips(uniqueKnots, mainPeakMass);
-    out.instabilityDipCount = static_cast<int>(out.instabilityDips.size());
-    for (const auto& dip : out.instabilityDips) {
+    out.instabilityDips = detectInstabilityDips(knots, out.mainPeakMassG);
+    out.instabilityDipCount = out.instabilityDips.size();
+    for (const auto& dip : out.instabilityDips)
         out.maxDipProminenceRawEc = std::max(out.maxDipProminenceRawEc, dip.prominenceRawEc);
-    }
 
-    double tailCoveredMass = 0.0;
-    const double tailStart = out.totalMassG - kMinTailMassG;
-    for (qsizetype i = 1; i < knots.size(); ++i) {
-        if (knots[i].cumulativeCoveredMass > knots[i - 1].cumulativeCoveredMass)
-            tailCoveredMass += std::max(0.0, knots[i].massG - std::max(tailStart, knots[i - 1].massG));
-    }
-    if (out.coverageRatio < kMinCoverageRatio || tailCoveredMass < kMinTailMassG - 1e-6) {
+    if (out.coverageRatio < kMinCoverageRatio
+        || tailCoveredMassG(knots, out.totalMassG) < kTailWindowG - 1e-6) {
         out.status = Status::InsufficientCoverage;
-        out.estimateReliable = false;
         return out;
     }
 
-    // Tail window features over [M_end - 2 g, M_end] and [M_end - 5 g, M_end]
-    const double mEnd = out.totalMassG;
-    const double iEnd = uniqueKnots.last().cumulativeIntegral;
-    const double iMinus2 = interpolateIntegralAtMass(uniqueKnots, mEnd - 2.0);
-    const double iMinus5 = interpolateIntegralAtMass(uniqueKnots, mEnd - kMinTailMassG);
+    computeTailFeatures(knots, &out);
+    assessMeasurement(options, &out);
 
-    out.tailMean2g = (iEnd - iMinus2) / 2.0;
-    out.tailMean5g = (iEnd - iMinus5) / kMinTailMassG;
-    if (out.mainPeakRawEc > 0.0)
-        out.tailRatio5g = out.tailMean5g / out.mainPeakRawEc;
-    if (iEnd > 0.0)
-        out.recentContributionShare5g = (iEnd - iMinus5) / iEnd;
-
-    // Linear least-squares slope T5 = dEC/dm over uniform 51-point mass grid in [M_end - 5, M_end]
-    constexpr int kGridPoints = 51;
-    const double mStart5 = mEnd - kMinTailMassG;
-    double sumM = 0.0;
-    double sumEc = 0.0;
-    double sumMM = 0.0;
-    double sumMEc = 0.0;
-    int validGridCount = 0;
-
-    for (int idx = 0; idx < kGridPoints; ++idx) {
-        const double m = mStart5 + (kMinTailMassG * static_cast<double>(idx)) / static_cast<double>(kGridPoints - 1);
-        const std::optional<double> ecAtM = interpolateEcAtMass(uniqueKnots, m);
-        if (!ecAtM.has_value())
-            continue;
-        const double dm = m - mStart5;
-        sumM += dm;
-        sumEc += *ecAtM;
-        sumMM += dm * dm;
-        sumMEc += dm * (*ecAtM);
-        ++validGridCount;
-    }
-
-    if (validGridCount >= 2) {
-        const double n = static_cast<double>(validGridCount);
-        const double denom = n * sumMM - sumM * sumM;
-        if (std::abs(denom) > 1e-9)
-            out.tailSlope5gPerG = (n * sumMEc - sumM * sumEc) / denom;
-    }
-
-    // Evaluate thermal drift safeguards.
-    const double beverageWeightG = options.finalWeightG > 0.0 && std::isfinite(options.finalWeightG)
-        ? options.finalWeightG : out.totalMassG;
-    const double brewRatio = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG))
-                             ? (beverageWeightG / options.doseWeightG)
-                             : 0.0;
-    out.thermalDriftWarning = (out.maxTempC >= 68.0) || (brewRatio > 2.55 && out.maxTempC >= 64.0);
-
-    if (out.instabilityDipCount > 0)
-        out.uncertaintyReasons.append(QStringLiteral("mid_shot_dip"));
-    if (out.thermalDriftWarning)
-        out.uncertaintyReasons.append(QStringLiteral("thermal_drift"));
-
-    if (out.gapCount > 0 || out.totalMassG - out.coveredMassG > kCupMassToleranceG + 1e-6)
-        out.uncertaintyReasons.append(QStringLiteral("incomplete_coverage"));
-    if (options.finalWeightG > 0.0 && std::isfinite(options.finalWeightG)
-        && std::abs(options.finalWeightG - out.totalMassG) > kCupMassToleranceG + 1e-6)
-        out.uncertaintyReasons.append(QStringLiteral("cup_mass_mismatch"));
-    if (out.mountingMode == MountingMode::Unknown)
-        out.uncertaintyReasons.append(QStringLiteral("unknown_mounting"));
-    out.estimateReliable = out.uncertaintyReasons.isEmpty();
-    out.calibrationEligible = out.estimateReliable;
-
-    // --- Shot completion / cut-point metrics ---
+    const double iEnd = knots.last().cumulativeIntegral;
     if (iEnd > 0.0) {
-        out.massAt85PctIntegralG = interpolateMassAtIntegral(uniqueKnots, 0.85 * iEnd);
-        out.massAt90PctIntegralG = interpolateMassAtIntegral(uniqueKnots, 0.90 * iEnd);
+        out.massAt85PctIntegralG = interpolateMassAtIntegral(knots, 0.85 * iEnd);
+        out.massAt90PctIntegralG = interpolateMassAtIntegral(knots, 0.90 * iEnd);
     }
-
-    const bool hasValidDose = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG));
-    const double m1to2 = hasValidDose ? (2.0 * options.doseWeightG) : 0.0;
-    if (hasValidDose && mEnd > m1to2 + 1.0 && iEnd > 0.0) {
-        out.post1to2MassG = mEnd - m1to2;
-        const double iAt1to2 = interpolateIntegralAtMass(uniqueKnots, m1to2);
+    const double m1to2 = positiveFinite(options.doseWeightG) ? 2.0 * options.doseWeightG : 0.0;
+    if (m1to2 > 0.0 && out.totalMassG > m1to2 + 1.0 && iEnd > 0.0) {
+        out.post1to2MassG = out.totalMassG - m1to2;
+        const double iAt1to2 = interpolateIntegralAtMass(knots, m1to2);
         out.post1to2ContributionShare = std::clamp((iEnd - iAt1to2) / iEnd, 0.0, 1.0);
     }
 
-    out.lowTailConcentration = out.estimateReliable && out.instabilityDipCount == 0
+    out.lowTailConcentration = out.measurementReliable && out.instabilityDipCount == 0
         && out.tailRatio5g > 0.0 && out.tailRatio5g <= 0.16 && out.tailSlope5gPerG <= 0.0;
-    out.valid = true;
     out.status = Status::Valid;
     return out;
 }
 
-QVector<PortalTailAnalyzer::LagSensitivityPoint> PortalTailAnalyzer::analyzeLagSensitivity(
-    const QVector<PortalSample>& portalSamples,
-    const QVector<QPointF>& cumulativeWeight,
-    const Options& baseOptions,
-    const QVector<double>& lagOffsetsSec)
-{
-    QVector<LagSensitivityPoint> table;
-    table.reserve(lagOffsetsSec.size());
-    for (double tau : lagOffsetsSec) {
-        Options opts = baseOptions;
-        opts.lagOffsetSec = tau;
-        const Result r = analyze(portalSamples, cumulativeWeight, opts);
-
-        LagSensitivityPoint pt;
-        pt.lagOffsetSec = tau;
-        pt.valid = r.valid;
-        pt.integralRawEcG = r.integralRawEcG;
-        pt.meanRawEcPerG = r.meanRawEcPerG;
-        pt.tailMean2g = r.tailMean2g;
-        pt.tailMean5g = r.tailMean5g;
-        pt.tailSlope5gPerG = r.tailSlope5gPerG;
-        pt.tailRatio5g = r.tailRatio5g;
-        pt.recentContributionShare5g = r.recentContributionShare5g;
-        table.append(pt);
-    }
-    return table;
-}
-
-QVector<double> PortalTailAnalyzer::defaultLagOffsetsSec()
-{
-    return { -0.5, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.5 };
-}
-
-PortalTailAnalyzer::WeightSource PortalTailAnalyzer::weightSourceFromString(const QString& source)
-{
-    if (source == QLatin1String("physical_scale")) return WeightSource::PhysicalScale;
-    if (source == QLatin1String("flow_scale_virtual")) return WeightSource::FlowScaleVirtual;
-    return WeightSource::Unknown;
-}
-
-PortalTailAnalyzer::Options PortalTailAnalyzer::optionsForShot(
-    const QString& weightSource, const QString& mountingMode, double doseWeightG,
-    double finalWeightG, const QVector<QPointF>& pressure)
+PortalTailAnalyzer::Result PortalTailAnalyzer::analyzeShot(
+    const QVector<PortalSample>& portalSamples, const QVector<QPointF>& cumulativeWeight,
+    const QString& weightSource, const QString& mountingMode,
+    double doseWeightG, double finalWeightG, const QVector<QPointF>& pressure)
 {
     Options options;
     options.weightSource = weightSourceFromString(weightSource);
@@ -845,26 +973,38 @@ PortalTailAnalyzer::Options PortalTailAnalyzer::optionsForShot(
     options.doseWeightG = doseWeightG;
     options.finalWeightG = finalWeightG;
     options.activeStopTimeSec = pressure.isEmpty() ? 0.0 : pressure.last().x();
-    return options;
+    return analyze(portalSamples, cumulativeWeight, options);
 }
 
-double PortalTailAnalyzer::CalibrationFit::predictTdsPct(double meanRawEcPerG) const
+PortalTailAnalyzer::Prediction PortalTailAnalyzer::CalibrationFit::predict(
+    double meanRawEcPerG, double finalWeightG, double doseWeightG, bool measurementReliable) const
 {
-    if (!predictionSupported || !std::isfinite(meanRawEcPerG) || meanRawEcPerG <= 0.0)
-        return 0.0;
-    double pred = 0.0;
-    if (activeModel == QLatin1String("affine") && affineValid)
-        pred = affineSlopeA * meanRawEcPerG + affineInterceptB;
-    else
-        pred = proportionalK * meanRawEcPerG;
-    return std::max(0.0, pred);
-}
+    Prediction prediction;
+    if (!calibrated)
+        return prediction;
+    if (shotCount < 5)
+        prediction.uncertaintyReasons.append(QStringLiteral("preliminary_calibration"));
+    if (!hasCrossValidation)
+        prediction.uncertaintyReasons.append(QStringLiteral("unvalidated_calibration"));
+    else if (!predictionSupported)
+        prediction.uncertaintyReasons.append(QStringLiteral("inconsistent_calibration"));
+    const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
+    const bool outsideEc = minMeanRawEc > 0.0
+        && (meanRawEcPerG < minMeanRawEc - 1e-6 || meanRawEcPerG > maxMeanRawEc + 1e-6);
+    const bool outsideRatio = minRatio > 0.0 && ratio > 0.0
+        && (ratio < minRatio - 1e-6 || ratio > maxRatio + 1e-6);
+    const bool outsideRange = shotCount >= 2 && (outsideEc || outsideRatio);
+    if (outsideRange)
+        prediction.uncertaintyReasons.append(QStringLiteral("outside_calibration_range"));
 
-double PortalTailAnalyzer::CalibrationFit::predictEyPct(double meanRawEcPerG,
-                                                        double finalWeightG,
-                                                        double doseWeightG) const
-{
-    return extractionYieldPct(predictTdsPct(meanRawEcPerG), finalWeightG, doseWeightG);
+    prediction.available = measurementReliable && predictionSupported && !outsideRange
+        && std::isfinite(meanRawEcPerG) && meanRawEcPerG > 0.0;
+    if (prediction.available) {
+        prediction.tdsPct = std::max(0.0, affineActive() ? affineSlopeA * meanRawEcPerG + affineInterceptB
+                                                         : proportionalK * meanRawEcPerG);
+        prediction.eyPct = extractionYieldPct(prediction.tdsPct, finalWeightG, doseWeightG);
+    }
+    return prediction;
 }
 
 double PortalTailAnalyzer::extractionYieldPct(double tdsPct, double finalWeightG, double doseWeightG)
@@ -876,64 +1016,26 @@ double PortalTailAnalyzer::extractionYieldPct(double tdsPct, double finalWeightG
     return (tdsPct * finalWeightG) / doseWeightG;
 }
 
-QStringList PortalTailAnalyzer::CalibrationFit::predictionUncertainty(
-    double meanRawEcPerG, double finalWeightG, double doseWeightG) const
-{
-    QStringList reasons;
-    if (shotCount < 5)
-        reasons.append(QStringLiteral("preliminary_calibration"));
-    if (!hasCrossValidation)
-        reasons.append(QStringLiteral("unvalidated_calibration"));
-    else if (!predictionSupported)
-        reasons.append(QStringLiteral("inconsistent_calibration"));
-    const double ratio = doseWeightG > 0.0 ? finalWeightG / doseWeightG : 0.0;
-    if (shotCount >= 2 && ((minMeanRawEc > 0.0 && (meanRawEcPerG < minMeanRawEc - 1e-6
-                                               || meanRawEcPerG > maxMeanRawEc + 1e-6))
-        || (minRatio > 0.0 && ratio > 0.0 && (ratio < minRatio - 1e-6 || ratio > maxRatio + 1e-6)))) {
-        reasons.append(QStringLiteral("outside_calibration_range"));
-    }
-    return reasons;
-}
-
 QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
 {
     QVariantMap m;
     m["calibrated"] = calibrated;
     m["hasCrossValidation"] = hasCrossValidation;
     m["predictionSupported"] = predictionSupported;
-    if (hasCrossValidation) m["baselineLoocvRmseTdsPct"] = baselineLoocvRmseTdsPct;
-    m["activeModel"] = activeModel;
-    m["scope"] = scope;
+    m["activeModel"] = calibrationModelToString(activeModel);
+    m["scope"] = calibrationScopeToString(scope);
     m["shotCount"] = shotCount;
     m["excludedShotCount"] = excludedShotCount;
     m["referenceShots"] = referenceShots;
-    m["minMeanRawEc"] = minMeanRawEc;
-    m["maxMeanRawEc"] = maxMeanRawEc;
     m["minRatio"] = minRatio;
     m["maxRatio"] = maxRatio;
     m["proportionalK"] = proportionalK;
-    m["proportionalMaeTdsPct"] = proportionalMaeTdsPct;
-    m["proportionalRmseTdsPct"] = proportionalRmseTdsPct;
-    m["proportionalBiasTdsPct"] = proportionalBiasTdsPct;
-    if (hasCrossValidation) {
-        m["proportionalLoocvMaeTdsPct"] = proportionalLoocvMaeTdsPct;
-        m["proportionalLoocvRmseTdsPct"] = proportionalLoocvRmseTdsPct;
-    }
-    m["affineValid"] = affineValid;
-    if (affineValid) {
+    if (hasCrossValidation)
+        m["activeLoocvMaeTdsPct"] = activeLoocvMaeTdsPct();
+    if (affineActive()) {
         m["affineSlopeA"] = affineSlopeA;
         m["affineInterceptB"] = affineInterceptB;
-        m["affineMaeTdsPct"] = affineMaeTdsPct;
-        m["affineRmseTdsPct"] = affineRmseTdsPct;
-        m["affineBiasTdsPct"] = affineBiasTdsPct;
-        m["affineHasCrossValidation"] = affineHasCrossValidation;
-        if (affineHasCrossValidation) {
-            m["affineLoocvMaeTdsPct"] = affineLoocvMaeTdsPct;
-            m["affineLoocvRmseTdsPct"] = affineLoocvRmseTdsPct;
-        }
     }
-    m["tempCorrelationR"] = tempCorrelationR;
-    m["tempSlopePctPerC"] = tempSlopePctPerC;
     return m;
 }
 
@@ -951,278 +1053,70 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
     MountingMode targetMountingMode)
 {
     CalibrationFit fit;
-
-    QVector<CalibrationPoint> validAll;
-    validAll.reserve(points.size());
-    for (const auto& p : points) {
-        if (p.estimateReliable && p.mountingMode == targetMountingMode
-            && targetMountingMode != MountingMode::Unknown
-            && std::isfinite(p.meanRawEcPerG) && p.meanRawEcPerG > 0.1
-            && std::isfinite(p.measuredTdsPct) && p.measuredTdsPct > 0.1) {
-            validAll.append(p);
+    const CoffeeTarget target(targetBagId, targetBeanBrand, targetBeanType);
+    const auto selectFor = [&](CalibrationScope scope) {
+        QVector<CalibrationPoint> out;
+        for (const auto& p : points) {
+            if (p.measurementReliable && targetMountingMode != MountingMode::Unknown
+                && p.mountingMode == targetMountingMode
+                && std::isfinite(p.meanRawEcPerG) && p.meanRawEcPerG > 0.1
+                && std::isfinite(p.measuredTdsPct) && p.measuredTdsPct > 0.1
+                && !(excludeShotId > 0 && p.shotId == excludeShotId)
+                && target.matches(p, scope))
+                out.append(p);
         }
-    }
+        return out;
+    };
 
-    QVector<CalibrationPoint> pool;
-    pool.reserve(validAll.size());
-    for (const auto& p : validAll) {
-        if (excludeShotId > 0 && p.shotId == excludeShotId)
-            continue;
-        pool.append(p);
-    }
-
+    // A bag's own references win; otherwise the same brand + bean across bags.
     QVector<CalibrationPoint> selected;
-    QString scope = QStringLiteral("none");
-
     if (targetBagId > 0) {
-        for (const auto& p : pool) {
-            if (p.bagId == targetBagId)
-                selected.append(p);
-        }
+        selected = selectFor(CalibrationScope::Bag);
         if (!selected.isEmpty())
-            scope = QStringLiteral("bag");
+            fit.scope = CalibrationScope::Bag;
     }
-
-    if (selected.isEmpty() && !targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()) {
-        for (const auto& p : pool) {
-            if (coffeeNameKey(p.beanBrand) == coffeeNameKey(targetBeanBrand)
-                && coffeeNameKey(p.beanType) == coffeeNameKey(targetBeanType)) {
-                selected.append(p);
-            }
-        }
+    if (selected.isEmpty()) {
+        selected = selectFor(CalibrationScope::Bean);
         if (!selected.isEmpty())
-            scope = QStringLiteral("bean");
+            fit.scope = CalibrationScope::Bean;
     }
-
-    if (scope == QLatin1String("none"))
-        scope = targetBagId > 0 ? QStringLiteral("bag") : QStringLiteral("bean");
-    fit.scope = scope;
-    for (const auto& p : points) {
-        const bool sameCoffee = scope == QLatin1String("bag") ? p.bagId == targetBagId
-            : !targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()
-                && coffeeNameKey(p.beanBrand) == coffeeNameKey(targetBeanBrand)
-                && coffeeNameKey(p.beanType) == coffeeNameKey(targetBeanType);
-        if (!sameCoffee || (excludeShotId > 0 && p.shotId == excludeShotId) || p.measuredTdsPct <= 0.0)
-            continue;
-        const bool included = std::any_of(selected.cbegin(), selected.cend(),
-            [&p](const CalibrationPoint& reference) { return reference.shotId == p.shotId; });
-        const QString reason = included ? QString()
-            : !std::isfinite(p.meanRawEcPerG) || p.meanRawEcPerG <= 0.1
-                ? QStringLiteral("missing_ec")
-                : p.mountingMode != targetMountingMode || targetMountingMode == MountingMode::Unknown
-                    ? QStringLiteral("mounting_mismatch") : QStringLiteral("measurement_warning");
-        if (!included) ++fit.excludedShotCount;
-        fit.referenceShots.append(QVariantMap{
-            {QStringLiteral("shotId"), p.shotId},
-            {QStringLiteral("dateTime"), QDateTime::fromSecsSinceEpoch(p.timestamp).toString(Qt::ISODate)},
-            {QStringLiteral("ratio"), p.doseWeightG > 0.0 ? p.finalWeightG / p.doseWeightG : 0.0},
-            {QStringLiteral("measuredTdsPct"), p.measuredTdsPct},
-            {QStringLiteral("meanRawEc"), p.meanRawEcPerG},
-            {QStringLiteral("individualK"), p.meanRawEcPerG > 0.0 ? p.measuredTdsPct / p.meanRawEcPerG : 0.0},
-            {QStringLiteral("included"), included},
-            {QStringLiteral("exclusionReason"), reason}});
-    }
+    if (fit.scope == CalibrationScope::None)
+        fit.scope = targetBagId > 0 ? CalibrationScope::Bag : CalibrationScope::Bean;
+    appendReferenceRows(&fit, points, selected, target, excludeShotId, targetMountingMode);
     if (selected.isEmpty())
         return fit;
 
+    RegressionSums sums;
     fit.minMeanRawEc = fit.maxMeanRawEc = selected.first().meanRawEcPerG;
     for (const auto& p : selected) {
-        fit.minMeanRawEc = std::min(fit.minMeanRawEc, p.meanRawEcPerG);
-        fit.maxMeanRawEc = std::max(fit.maxMeanRawEc, p.meanRawEcPerG);
-        const double ratio = p.doseWeightG > 0.0 ? p.finalWeightG / p.doseWeightG : 0.0;
+        const double x = p.meanRawEcPerG;
+        const double y = p.measuredTdsPct;
+        sums.n += 1.0;
+        sums.sx += x;
+        sums.sy += y;
+        sums.sxx += x * x;
+        sums.sxy += x * y;
+        fit.minMeanRawEc = std::min(fit.minMeanRawEc, x);
+        fit.maxMeanRawEc = std::max(fit.maxMeanRawEc, x);
+        const double ratio = brewRatio(p);
         if (!std::isfinite(ratio) || ratio <= 0.0)
             continue;
         fit.minRatio = fit.minRatio > 0.0 ? std::min(fit.minRatio, ratio) : ratio;
         fit.maxRatio = std::max(fit.maxRatio, ratio);
     }
+    fit.shotCount = selected.size();
 
-    const int n = static_cast<int>(selected.size());
-    fit.shotCount = n;
-    fit.scope = scope;
-
-    double sxx = 0.0;
-    double sxy = 0.0;
-    double sx = 0.0;
-    double sy = 0.0;
-    double minX = selected.first().meanRawEcPerG;
-    double maxX = selected.first().meanRawEcPerG;
-
-    for (const auto& p : selected) {
-        const double x = p.meanRawEcPerG;
-        const double y = p.measuredTdsPct;
-        sxx += x * x;
-        sxy += x * y;
-        sx += x;
-        sy += y;
-        minX = std::min(minX, x);
-        maxX = std::max(maxX, x);
-    }
-
-    if (sxx <= 1e-12)
-        return fit;
-
-    // 1. Proportional model: y_hat = k * x
-    fit.proportionalK = sxy / sxx;
-    fit.calibrated = fit.proportionalK > 0.0 && std::isfinite(fit.proportionalK);
+    fit.calibrated = fitProportional(selected, sums, &fit);
     if (!fit.calibrated)
         return fit;
+    fit.activeModel = CalibrationModel::Proportional;
+    fitAffine(selected, sums, &fit);
 
-    fit.activeModel = QStringLiteral("proportional");
-
-    double propSumAbs = 0.0;
-    double propSumSq = 0.0;
-    double propSumErr = 0.0;
-    double propLoocvAbs = 0.0;
-    double propLoocvSq = 0.0;
-    double baselineLoocvSq = 0.0;
-    int propLoocvCount = 0;
-
-    for (const auto& p : selected) {
-        const double x = p.meanRawEcPerG;
-        const double y = p.measuredTdsPct;
-        const double err = (fit.proportionalK * x) - y;
-        propSumAbs += std::abs(err);
-        propSumSq += err * err;
-        propSumErr += err;
-
-        if (n >= 2) {
-            const double baselineError = (sy - y) / static_cast<double>(n - 1) - y;
-            baselineLoocvSq += baselineError * baselineError;
-            const double denom = sxx - x * x;
-            if (denom > 1e-9) {
-                const double kLeaveOut = (sxy - x * y) / denom;
-                const double loocvErr = (kLeaveOut * x) - y;
-                propLoocvAbs += std::abs(loocvErr);
-                propLoocvSq += loocvErr * loocvErr;
-                ++propLoocvCount;
-            }
-        }
-    }
-
-    fit.proportionalMaeTdsPct = propSumAbs / static_cast<double>(n);
-    fit.proportionalRmseTdsPct = std::sqrt(propSumSq / static_cast<double>(n));
-    fit.proportionalBiasTdsPct = propSumErr / static_cast<double>(n);
-    if (propLoocvCount > 0) {
-        fit.proportionalLoocvMaeTdsPct = propLoocvAbs / static_cast<double>(propLoocvCount);
-        fit.proportionalLoocvRmseTdsPct = std::sqrt(propLoocvSq / static_cast<double>(propLoocvCount));
-    }
-
-    fit.hasCrossValidation = n >= 2 && propLoocvCount == n;
-    if (fit.hasCrossValidation)
-        fit.baselineLoocvRmseTdsPct = std::sqrt(baselineLoocvSq / static_cast<double>(n));
-
-    // 2. Affine model: y_hat = a * x + b (when n >= 3 and EC range >= 0.5 raw-EC)
-    const double nd = static_cast<double>(n);
-    const double affineDenom = nd * sxx - sx * sx;
-    if (n >= 3 && (maxX - minX) >= 0.5 && std::abs(affineDenom) > 1e-9) {
-        const double a = (nd * sxy - sx * sy) / affineDenom;
-        const double b = (sy - a * sx) / nd;
-        if (std::isfinite(a) && std::isfinite(b) && a > 0.0) {
-            fit.affineValid = true;
-            fit.affineSlopeA = a;
-            fit.affineInterceptB = b;
-
-            double affSumAbs = 0.0;
-            double affSumSq = 0.0;
-            double affSumErr = 0.0;
-            double affLoocvAbs = 0.0;
-            double affLoocvSq = 0.0;
-            int affLoocvCount = 0;
-
-            for (int i = 0; i < n; ++i) {
-                const double x = selected[i].meanRawEcPerG;
-                const double y = selected[i].measuredTdsPct;
-                const double err = (a * x + b) - y;
-                affSumAbs += std::abs(err);
-                affSumSq += err * err;
-                affSumErr += err;
-
-                // Leave-One-Out for affine regression
-                const double nSub = static_cast<double>(n - 1);
-                const double sxSub = sx - x;
-                const double sySub = sy - y;
-                const double sxxSub = sxx - x * x;
-                const double sxySub = sxy - x * y;
-                const double denomSub = nSub * sxxSub - sxSub * sxSub;
-                if (std::abs(denomSub) > 1e-9) {
-                    const double aSub = (nSub * sxySub - sxSub * sySub) / denomSub;
-                    const double bSub = (sySub - aSub * sxSub) / nSub;
-                    const double loocvErr = (aSub * x + bSub) - y;
-                    if (!std::isfinite(loocvErr) || !std::isfinite(aSub) || aSub <= 0.0)
-                        continue;
-                    affLoocvAbs += std::abs(loocvErr);
-                    affLoocvSq += loocvErr * loocvErr;
-                    ++affLoocvCount;
-                }
-            }
-
-            fit.affineMaeTdsPct = affSumAbs / nd;
-            fit.affineRmseTdsPct = std::sqrt(affSumSq / nd);
-            fit.affineBiasTdsPct = affSumErr / nd;
-            fit.affineHasCrossValidation = affLoocvCount == n;
-            if (fit.affineHasCrossValidation) {
-                fit.affineLoocvMaeTdsPct = affLoocvAbs / static_cast<double>(affLoocvCount);
-                fit.affineLoocvRmseTdsPct = std::sqrt(affLoocvSq / static_cast<double>(affLoocvCount));
-            }
-
-            // Select affine model if n >= 4, intercept is physically bounded, and LOOCV RMSE improves by >= 5%
-            if (n >= 4 && std::abs(b) < 5.0 && affLoocvCount == n && propLoocvCount == n
-                && fit.affineLoocvRmseTdsPct < fit.proportionalLoocvRmseTdsPct * 0.95) {
-                fit.activeModel = QStringLiteral("affine");
-            }
-        }
-    }
-
-    // A model must add held-out predictive value over the other references' mean.
+    // A model must beat predicting each reference from the others' mean TDS.
     // This is a model-selection policy, not a physical EC-to-TDS validity threshold.
-    const double activeRmse = fit.activeModel == QLatin1String("affine")
-        ? fit.affineLoocvRmseTdsPct : fit.proportionalLoocvRmseTdsPct;
-    fit.predictionSupported = fit.hasCrossValidation && (nd * sxy - sx * sy) > 1e-9
+    const double activeRmse = fit.activeLoocvRmseTdsPct();
+    fit.predictionSupported = fit.hasCrossValidation && sums.n * sums.sxy - sums.sx * sums.sy > 1e-9
         && std::isfinite(activeRmse) && activeRmse < fit.baselineLoocvRmseTdsPct;
-
-    // 3. Empirical temperature dependence check across paired shots
-    if (n >= 3) {
-        double sumT = 0.0;
-        double sumR = 0.0;
-        double sumTT = 0.0;
-        double sumRR = 0.0;
-        double sumTR = 0.0;
-        double minT = 1e9;
-        double maxT = -1e9;
-        int tempCount = 0;
-
-        for (const auto& p : selected) {
-            if (!std::isfinite(p.meanTempC) || p.meanTempC <= 5.0)
-                continue;
-            const double predProp = fit.proportionalK * p.meanRawEcPerG;
-            if (predProp <= 0.1)
-                continue;
-            // Relative conductivity excess (%) vs refractometer TDS
-            const double relPct = ((predProp - p.measuredTdsPct) / p.measuredTdsPct) * 100.0;
-            const double t = p.meanTempC;
-            sumT += t;
-            sumR += relPct;
-            sumTT += t * t;
-            sumRR += relPct * relPct;
-            sumTR += t * relPct;
-            minT = std::min(minT, t);
-            maxT = std::max(maxT, t);
-            ++tempCount;
-        }
-
-        if (tempCount >= 3 && (maxT - minT) >= 0.5) {
-            const double nt = static_cast<double>(tempCount);
-            const double varT = nt * sumTT - sumT * sumT;
-            const double varR = nt * sumRR - sumR * sumR;
-            const double covTR = nt * sumTR - sumT * sumR;
-            if (varT > 1e-9) {
-                fit.tempSlopePctPerC = covTR / varT;
-                if (varR > 1e-9)
-                    fit.tempCorrelationR = covTR / std::sqrt(varT * varR);
-            }
-        }
-    }
-
     return fit;
 }
 
@@ -1230,61 +1124,43 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
                                           const CalibrationFit& fit,
                                           double finalWeightG,
                                           double doseWeightG,
-                                          double measuredTdsPct,
-                                          double measuredEyPct)
+                                          double measuredTdsPct)
 {
     if (!result) return;
-    result->predictionAvailable = false;
-    result->estimatedTdsPct = result->estimatedEyPct = 0.0;
+    // Everything below is derived from `fit`, so a second call fully replaces the first.
+    result->calibrationReasons.clear();
+    result->calibrated = result->predictionAvailable = result->calibrationHasCrossValidation = false;
+    result->calibrationModel = CalibrationModel::None;
+    result->calibrationScope = CalibrationScope::None;
+    result->calibrationShotCount = 0;
+    result->calibrationSlopeK = result->calibrationAffineA = result->calibrationAffineB = 0.0;
+    result->calibrationLoocvMaeTdsPct = result->estimatedTdsPct = result->estimatedEyPct = 0.0;
+    result->selfReferenceK = result->validationResidualTdsPct = 0.0;
     result->hasValidationReading = std::isfinite(measuredTdsPct) && measuredTdsPct > 0.1;
-    if (!result->valid || !fit.calibrated) return;
-    const bool measurementReliable = result->estimateReliable;
-    const auto reasons = fit.predictionUncertainty(result->meanRawEcPerG, finalWeightG, doseWeightG);
-    if (!reasons.isEmpty()) {
-        result->estimateReliable = false;
-        result->uncertaintyReasons.append(reasons);
-    }
+    if (!result->valid()) return;
+    result->selfReferenceK = result->hasValidationReading ? individualK(measuredTdsPct, result->meanRawEcPerG) : 0.0;
+    if (!fit.calibrated) return;
 
+    const double effectiveWeightG = positiveFinite(finalWeightG) ? finalWeightG : result->totalMassG;
+    const Prediction prediction = fit.predict(result->meanRawEcPerG, effectiveWeightG, doseWeightG,
+                                              result->measurementReliable);
+    result->calibrationReasons = prediction.uncertaintyReasons;
     result->calibrated = true;
     result->calibrationHasCrossValidation = fit.hasCrossValidation;
-    result->calibrationBaselineLoocvRmseTdsPct = fit.baselineLoocvRmseTdsPct;
-    result->calibrationMode = fit.activeModel == QLatin1String("affine")
-        ? QStringLiteral("refractometer_affine")
-        : QStringLiteral("refractometer_proportional");
+    result->calibrationModel = fit.activeModel;
     result->calibrationScope = fit.scope;
     result->calibrationShotCount = fit.shotCount;
     result->calibrationSlopeK = fit.proportionalK;
-    result->calibrationAffineValid = fit.affineValid;
     result->calibrationAffineA = fit.affineSlopeA;
     result->calibrationAffineB = fit.affineInterceptB;
-    result->calibrationMaeTdsPct = fit.activeModel == QLatin1String("affine")
-        ? fit.affineMaeTdsPct : fit.proportionalMaeTdsPct;
-    result->calibrationRmseTdsPct = fit.activeModel == QLatin1String("affine")
-        ? fit.affineRmseTdsPct : fit.proportionalRmseTdsPct;
-    result->calibrationLoocvMaeTdsPct = fit.activeModel == QLatin1String("affine")
-        ? fit.affineLoocvMaeTdsPct : fit.proportionalLoocvMaeTdsPct;
-    result->calibrationLoocvRmseTdsPct = fit.activeModel == QLatin1String("affine")
-        ? fit.affineLoocvRmseTdsPct : fit.proportionalLoocvRmseTdsPct;
-    result->calibrationTempCorrR = fit.tempCorrelationR;
-    result->calibrationTempSlopePctPerC = fit.tempSlopePctPerC;
-
-    if (!measurementReliable || !fit.predictionSupported
-        || reasons.contains(QStringLiteral("outside_calibration_range"))) return;
+    result->calibrationLoocvMaeTdsPct = fit.activeLoocvMaeTdsPct();
+    if (!prediction.available)
+        return;
     result->predictionAvailable = true;
-    const double effectiveWeightG = (std::isfinite(finalWeightG) && finalWeightG > 0.0)
-        ? finalWeightG : result->totalMassG;
-    result->estimatedTdsPct = fit.predictTdsPct(result->meanRawEcPerG);
-    result->estimatedEyPct = fit.predictEyPct(result->meanRawEcPerG, effectiveWeightG, doseWeightG);
-
-    if (std::isfinite(measuredTdsPct) && measuredTdsPct > 0.1) {
-        result->hasValidationReading = true;
+    result->estimatedTdsPct = prediction.tdsPct;
+    result->estimatedEyPct = prediction.eyPct;
+    if (result->hasValidationReading)
         result->validationResidualTdsPct = result->estimatedTdsPct - measuredTdsPct;
-        const double actualEy = (std::isfinite(measuredEyPct) && measuredEyPct > 0.1)
-            ? measuredEyPct
-            : extractionYieldPct(measuredTdsPct, effectiveWeightG, doseWeightG);
-        if (actualEy > 0.0 && result->estimatedEyPct > 0.0)
-            result->validationResidualEyPct = result->estimatedEyPct - actualEy;
-    }
 }
 
 void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
@@ -1299,12 +1175,13 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
                                              qint64 targetEquipmentId,
                                              const QString& targetProfileName)
 {
-    if (!result || !result->valid)
+    if (!result || !result->valid())
         return;
 
-    result->possibleUnderExtraction = false;
-    result->ratioAdvice = QStringLiteral("taste_first");
+    result->ratioAdvice = RatioAdvice::TasteFirst;
 
+    const CoffeeTarget target(targetBagId, targetBeanBrand, targetBeanType);
+    const CalibrationScope scope = targetBagId > 0 ? CalibrationScope::Bag : CalibrationScope::Bean;
     const CalibrationPoint* bestShot = nullptr;
     for (const auto& pt : historyPoints) {
         if (pt.shotId == currentShotId || pt.enjoyment < 75 || pt.enjoyment > 100
@@ -1313,34 +1190,26 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
             || targetProfileName.isEmpty() || pt.profileName != targetProfileName
             || std::abs(pt.doseWeightG - doseWeightG) > 0.5)
             continue;
-        const bool sameCoffee = targetBagId > 0 ? pt.bagId == targetBagId
-            : (!targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()
-               && coffeeNameKey(pt.beanBrand) == coffeeNameKey(targetBeanBrand)
-               && coffeeNameKey(pt.beanType) == coffeeNameKey(targetBeanType));
-        if (sameCoffee && (!bestShot || pt.enjoyment > bestShot->enjoyment))
+        if (target.matches(pt, scope) && (!bestShot || pt.enjoyment > bestShot->enjoyment))
             bestShot = &pt;
     }
 
     result->bestHistoricalWeightG = bestShot ? bestShot->finalWeightG : 0.0;
-    result->bestHistoricalRatio = bestShot ? bestShot->finalWeightG / bestShot->doseWeightG : 0.0;
+    result->bestHistoricalRatio = bestShot ? brewRatio(*bestShot) : 0.0;
     result->bestHistoricalEnjoyment = bestShot ? bestShot->enjoyment : 0;
 
+    if (!result->measurementReliable) {
+        result->ratioAdvice = RatioAdvice::Uncertain;
+        return;
+    }
     // Only explicit feedback on this cup informs its taste interpretation.
     const bool sour = currentTasteBalance.compare(QLatin1String("sour"), Qt::CaseInsensitive) == 0;
     const bool bitterOrThin = currentTasteBalance.compare(QLatin1String("bitter"), Qt::CaseInsensitive) == 0
         || currentTasteBody.compare(QLatin1String("thin"), Qt::CaseInsensitive) == 0;
-    if (!result->calibrationEligible) {
-        result->ratioAdvice = QStringLiteral("uncertain");
-        return;
-    }
-    if (sour && result->tailRatio5g >= 0.22) {
-        result->possibleUnderExtraction = true;
-        result->ratioAdvice = QStringLiteral("try_longer");
-    } else if (bitterOrThin && result->lowTailConcentration) {
-        result->ratioAdvice = QStringLiteral("try_shorter");
-    }
-
-
+    if (sour && result->tailRatio5g >= 0.22)
+        result->ratioAdvice = RatioAdvice::TryLonger;
+    else if (bitterOrThin && result->lowTailConcentration)
+        result->ratioAdvice = RatioAdvice::TryShorter;
 }
 
 QString PortalTailAnalyzer::statusToString(Status status)
@@ -1362,15 +1231,43 @@ QString PortalTailAnalyzer::statusToString(Status status)
     return QStringLiteral("unknown");
 }
 
-QString PortalTailAnalyzer::weightSourceToString(WeightSource source)
+QString PortalTailAnalyzer::calibrationModelToString(CalibrationModel model)
 {
-    switch (source) {
-    case WeightSource::PhysicalScale:
-        return QStringLiteral("physical_scale");
-    case WeightSource::FlowScaleVirtual:
-        return QStringLiteral("flow_scale_virtual");
-    case WeightSource::Unknown:
-        return QStringLiteral("unknown");
+    switch (model) {
+    case CalibrationModel::Proportional:
+        return QStringLiteral("proportional");
+    case CalibrationModel::Affine:
+        return QStringLiteral("affine");
+    case CalibrationModel::None:
+        return QStringLiteral("none");
     }
-    return QStringLiteral("unknown");
+    return QStringLiteral("none");
+}
+
+QString PortalTailAnalyzer::calibrationScopeToString(CalibrationScope scope)
+{
+    switch (scope) {
+    case CalibrationScope::Bag:
+        return QStringLiteral("bag");
+    case CalibrationScope::Bean:
+        return QStringLiteral("bean");
+    case CalibrationScope::None:
+        return QStringLiteral("none");
+    }
+    return QStringLiteral("none");
+}
+
+QString PortalTailAnalyzer::ratioAdviceToString(RatioAdvice advice)
+{
+    switch (advice) {
+    case RatioAdvice::TasteFirst:
+        return QStringLiteral("taste_first");
+    case RatioAdvice::Uncertain:
+        return QStringLiteral("uncertain");
+    case RatioAdvice::TryLonger:
+        return QStringLiteral("try_longer");
+    case RatioAdvice::TryShorter:
+        return QStringLiteral("try_shorter");
+    }
+    return QStringLiteral("taste_first");
 }

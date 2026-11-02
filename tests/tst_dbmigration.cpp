@@ -377,7 +377,7 @@ private slots:
     // Fresh DB: full schema at v12
     // ==========================================
 
-    void portalMigrationDefersBackfillUntilRequested_data() {
+    void portalMigrationIsSchemaOnlyFromMain_data() {
         QTest::addColumn<int>("previousVersion");
         QTest::newRow("main-47") << 47;
         QTest::newRow("preview-48") << 48;
@@ -385,7 +385,7 @@ private slots:
         QTest::newRow("preview-50") << 50;
     }
 
-    void portalMigrationDefersBackfillUntilRequested() {
+    void portalMigrationIsSchemaOnlyFromMain() {
         QFETCH(int, previousVersion);
         QTemporaryDir dir;
         const QString path = dir.filePath("portal-migration.db");
@@ -399,7 +399,6 @@ private slots:
         legacy.summary.beanBrand = QStringLiteral("Roaster");
         legacy.summary.beanType = QStringLiteral("Coffee");
         legacy.drinkTds = 10.0;
-        legacy.debugLog = QStringLiteral("[SAW][Learning] scale=acaia; mountingMode=onScale");
         legacy.portalSamples = {{1.0, 8.0, 60.0, true}, {2.0, 7.0, 60.0, false}};
         const qint64 legacyId = storage.importShotRecord(legacy, true);
         QVERIFY(legacyId > 0);
@@ -424,85 +423,45 @@ private slots:
         const qint64 ordinaryId = storage.importShotRecord(ordinary, true);
         QVERIFY(ordinaryId > 0);
         storage.close();
+
+        // Main's version 47 has added water and no PORTAL columns; the previews
+        // had the PORTAL summary columns without a presence flag or added water.
+        const bool fromMain = previousVersion == 47;
         withRawDb(path, "portal_rewind", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
             QVERIFY(q.exec(QStringLiteral("UPDATE schema_version SET version=%1").arg(previousVersion)));
+            if (fromMain) {
+                for (const char* column : {"portal_mean_ec", "portal_integral_ec_g", "portal_mean_temp_c",
+                                           "portal_estimate_reliable", "portal_mounting_mode", "weight_source",
+                                           "portal_present"})
+                    QVERIFY(q.exec(QStringLiteral("ALTER TABLE shots DROP COLUMN %1").arg(QLatin1String(column))));
+                return;
+            }
             QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN hot_water_result_json"));
-            QVERIFY(q.exec("DROP TABLE portal_presence_backfill"));
-            QVERIFY(q.exec(QString("UPDATE shots SET portal_present=0 WHERE id=%1").arg(recordedId)));
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN portal_present"));
             QVERIFY(q.exec(QString("UPDATE shots SET portal_mean_ec=8, portal_estimate_reliable=1 WHERE id=%1").arg(legacyId)));
-            QVERIFY(q.exec(QString("CREATE TRIGGER portal_backfill_failure BEFORE UPDATE OF portal_present ON shots "
-                                   "WHEN NEW.id=%1 BEGIN SELECT RAISE(ABORT, 'backfill blocked'); END").arg(recordedId)));
         });
+
         QVERIFY(storage.initialize(path));
         QVERIFY(storage.isDbWorkIdle());
-        withRawDb(path, "portal_schema_only", [&](QSqlDatabase& db) {
+        withRawDb(path, "portal_migrated", [&](QSqlDatabase& db) {
             QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
             QVERIFY(hasColumn(db, "shots", "hot_water_result_json"));
             QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT completed FROM portal_presence_backfill WHERE id=1") && q.next());
-            QVERIFY(!q.value(0).toBool());
-            // Cached legacy flags cannot admit a reference before the scan.
-            QVERIFY(ShotHistoryStorage::loadPortalCalibrationPointsStatic(db, -1, "Roaster", "Coffee").isEmpty());
-        });
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("PORTAL presence backfill incomplete"));
-        storage.requestPortalPresenceBackfill();
-        storage.requestPortalPresenceBackfill();
-        QTRY_VERIFY(storage.isDbWorkIdle());
-        QCoreApplication::sendPostedEvents(&storage, QEvent::MetaCall);
-        withRawDb(path, "portal_retry", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT completed FROM portal_presence_backfill WHERE id=1") && q.next());
-            QVERIFY(!q.value(0).toBool());
-            q.finish();
-            QVERIFY(q.exec(QString("SELECT portal_estimate_reliable FROM shots WHERE id=%1").arg(legacyId)) && q.next());
-            QVERIFY(q.value(0).toBool());  // the earlier row update rolled back too
-            q.finish();
-            QVERIFY(q.exec("DROP TRIGGER portal_backfill_failure"));
-        });
-        QSignalSpy changed(&storage, &ShotHistoryStorage::historyDataChanged);
-        withRawDb(path, "portal_competing_writer", [&](QSqlDatabase& db) {
-            QVERIFY(db.transaction());
-            QSqlQuery q(db);
-            QVERIFY(q.exec("UPDATE portal_presence_backfill SET completed=0 WHERE id=1"));
-            storage.requestPortalPresenceBackfill();
-            storage.requestPortalPresenceBackfill();
-            bool uiDelivered = false;
-            QMetaObject::invokeMethod(&storage, [&] { uiDelivered = true; }, Qt::QueuedConnection);
-            QTRY_VERIFY(uiDelivered);
-            QVERIFY(!storage.isDbWorkIdle());
-            QVERIFY(db.commit());
-        });
-        QTRY_COMPARE(changed.size(), 1);
-        QTRY_VERIFY(storage.isDbWorkIdle());
-        withRawDb(path, "portal_backfilled", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT completed FROM portal_presence_backfill WHERE id=1") && q.next());
-            QVERIFY(q.value(0).toBool());
-            q.finish();
-            QVERIFY(q.exec(QString("SELECT portal_present, portal_estimate_reliable, weight_source, portal_mounting_mode "
-                                   "FROM shots WHERE id=%1").arg(legacyId)) && q.next());
-            QVERIFY(q.value(0).toBool());
-            QVERIFY(!q.value(1).toBool());
-            QVERIFY(q.value(2).toString().isEmpty());
-            QVERIFY(q.value(3).toString().isEmpty());
-            q.finish();
+            for (qint64 id : {legacyId, recordedId, ordinaryId}) {
+                QVERIFY(q.exec(QString("SELECT portal_present FROM shots WHERE id=%1").arg(id)) && q.next());
+                QCOMPARE(q.value(0).toBool(), !fromMain && id != ordinaryId);
+                q.finish();
+            }
+            // A preview shot without weight provenance is present but never a reference.
             const auto points = ShotHistoryStorage::loadPortalCalibrationPointsStatic(db, -1, "Roaster", "Coffee");
-            QCOMPARE(points.size(), 1);
-            QCOMPARE(points.first().shotId, recordedId);
-            QVERIFY(points.first().estimateReliable);
-            QVERIFY(q.exec(QString("SELECT portal_present FROM shots WHERE id=%1").arg(ordinaryId)) && q.next());
-            QVERIFY(!q.value(0).toBool());
-            q.finish();
-            QVERIFY(q.exec("CREATE TRIGGER portal_no_repeat BEFORE UPDATE OF portal_present ON shots "
-                           "BEGIN SELECT RAISE(ABORT, 'backfill repeated'); END"));
+            QVERIFY(points);
+            QCOMPARE(points->size(), fromMain ? 0 : 1);
+            if (!fromMain) {
+                QCOMPARE(points->first().shotId, recordedId);
+                QVERIFY(points->first().measurementReliable);
+            }
         });
-        storage.close();
-        QVERIFY(storage.initialize(path));
-        storage.requestPortalPresenceBackfill();
-        QTRY_VERIFY(storage.isDbWorkIdle());
-        QCoreApplication::sendPostedEvents(&storage, QEvent::MetaCall);
-        QCOMPARE(changed.size(), 1);
     }
 
     void freshDbCreatesSchema() {

@@ -327,11 +327,10 @@ public:
     // and phase markers for legacy shots that lack phaseSummariesJson.
     static void computePhaseSummaries(ShotRecord& record);
 
-    // Read paired or rated PORTAL measurements for this bag/bean; no logs or sample blobs.
-    static QVector<PortalTailAnalyzer::CalibrationPoint> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
+    // Paired or rated PORTAL measurements for this bag/bean; no logs or sample blobs.
+    // nullopt (logged) when a query fails, so a failure never reads as "no references".
+    static std::optional<QVector<PortalTailAnalyzer::CalibrationPoint>> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
         const QString& beanBrand, const QString& beanType);
-    // Called only for an owned/active PORTAL; one persisted scan per database.
-    void requestPortalPresenceBackfill();
     void requestPortalCalibration(const QString& requestId, qint64 bagId,
                                   const QString& beanBrand, const QString& beanType,
                                   PortalTailAnalyzer::MountingMode mountingMode);
@@ -966,7 +965,6 @@ private:
     QSqlDatabase m_db;
     QString m_dbPath;
     bool m_ready = false;
-    bool m_portalPresenceBackfillRequested = false;
     int m_totalShots = 0;
     int m_schemaVersion = 1;
     int m_schemaVersionAtStart = 1;  // schema version on open, before this run's migrations (crossedSchemaVersion)

@@ -38,6 +38,7 @@
 #include <QDebug>
 #include <QSettings>
 #include <QThread>
+#include <QMutex>
 #include <algorithm>
 #include <array>
 #include <tuple>
@@ -54,6 +55,61 @@
 // and shothistorystorage_queries.cpp.
 using decenza::storage::detail::AnalysisInputs;
 using decenza::storage::detail::prepareAnalysisInputs;
+
+namespace {
+
+// The PORTAL columns shot save and shot-file import write identically.
+void bindPortalColumns(QSqlQuery& query, const PortalTailAnalyzer::PersistedSummary& summary,
+                       const QString& mountingMode, const QString& weightSource, bool present)
+{
+    query.bindValue(":portal_mean_ec", nullIfZero(summary.meanRawEcPerG));
+    query.bindValue(":portal_integral_ec_g", nullIfZero(summary.integralRawEcG));
+    query.bindValue(":portal_mean_temp_c", nullIfZero(summary.meanTempC));
+    // The column predates the rename; it holds the measurement verdict, not a prediction's.
+    query.bindValue(":portal_estimate_reliable", summary.measurementReliable);
+    query.bindValue(":portal_mounting_mode", mountingMode);
+    query.bindValue(":weight_source", weightSource);
+    query.bindValue(":portal_present", present);
+}
+
+// The reference read repeats on every Settings refresh and History page, so a
+// persistent failure is reported once per cause, and its recovery once.
+class PortalReadReporter {
+public:
+    void failed(const QString& cause)
+    {
+        QMutexLocker lock(&m_mutex);
+        if (cause == m_lastFailure) return;
+        m_lastFailure = cause;
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL calibration read failed:" << cause;
+    }
+    void succeeded()
+    {
+        QMutexLocker lock(&m_mutex);
+        if (m_lastFailure.isEmpty()) return;
+        m_lastFailure.clear();
+        DIAG_INFO(STORAGE, "ShotHistoryStorage") << "PORTAL calibration read recovered";
+    }
+
+private:
+    QMutex m_mutex;
+    QString m_lastFailure;
+};
+
+PortalReadReporter& portalReadReporter()
+{
+    static PortalReadReporter reporter;
+    return reporter;
+}
+
+// Dose and yield feed the thermal-ratio and cup-mass checks, so editing either
+// re-derives the stored measurement flag (refreshPortalEligibilityInTransaction).
+bool changesPortalEligibility(const QVariantMap& fields)
+{
+    return fields.contains(QStringLiteral("doseWeight")) || fields.contains(QStringLiteral("finalWeight"));
+}
+
+} // namespace
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
@@ -168,7 +224,6 @@ void ShotHistoryStorage::close()
 
 bool ShotHistoryStorage::initialize(const QString& dbPath)
 {
-    m_portalPresenceBackfillRequested = false;
     m_dbPath = dbPath;
     if (m_dbPath.isEmpty()) {
         QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -2418,7 +2473,12 @@ bool ShotHistoryStorage::runMigrations()
     }
 
     // One PORTAL migration; versions 48-50 existed only in contributor previews.
+    // Schema-only from main: pre-change shots lack weight provenance, so scanning
+    // them could never create a calibration reference.
     if (currentVersion >= 47 && currentVersion < 51) {
+        QStringList previewStatements;
+        if (currentVersion >= 48)
+            previewStatements << QStringLiteral("UPDATE shots SET portal_present=1 WHERE portal_mean_ec IS NOT NULL");
         addColumns(51, "migration 51 portal measurements", {
             {QStringLiteral("shots"), QStringLiteral("portal_mean_ec"), QStringLiteral("REAL")},
             {QStringLiteral("shots"), QStringLiteral("portal_integral_ec_g"), QStringLiteral("REAL")},
@@ -2427,13 +2487,9 @@ bool ShotHistoryStorage::runMigrations()
             {QStringLiteral("shots"), QStringLiteral("portal_mounting_mode"), QStringLiteral("TEXT")},
             {QStringLiteral("shots"), QStringLiteral("weight_source"), QStringLiteral("TEXT")},
             {QStringLiteral("shots"), QStringLiteral("portal_present"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
-            // PORTAL previews used version 47 before main assigned it to added water.
+            // Previews branched before main's 47 and lack its added-water column.
             {QStringLiteral("shots"), QStringLiteral("hot_water_result_json"), QStringLiteral("TEXT")},
-        }, "PORTAL provenance is unavailable until it completes", {
-            QStringLiteral("CREATE TABLE IF NOT EXISTS portal_presence_backfill ("
-                           "id INTEGER PRIMARY KEY CHECK(id=1), completed INTEGER NOT NULL DEFAULT 0)"),
-            QStringLiteral("INSERT OR IGNORE INTO portal_presence_backfill(id, completed) VALUES(1,0)")
-        });
+        }, "Until it completes, shots cannot be saved or opened", previewStatements);
     }
 
     m_schemaVersion = currentVersion;
@@ -2754,19 +2810,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             profileKbResolved);
         decenza::applyBadgesToTarget(data, analysis.detectors);
 
-        if (!shotData->portalSamples().isEmpty()) {
-            const auto portalOpts = PortalTailAnalyzer::optionsForShot(data.weightSource, data.portalMountingMode,
-                data.doseWeight, data.finalWeight, shotData->pressureData());
-            const auto portalRes = PortalTailAnalyzer::analyze(
-                shotData->portalSamples(), tmpRecord.weight, portalOpts);
-            if (portalRes.valid) {
-                data.portalMeanEc = portalRes.meanRawEcPerG;
-                data.portalIntegralEcG = portalRes.integralRawEcG;
-                data.portalMeanTempC = portalRes.meanTempC;
-                data.portalEstimateReliable = portalRes.estimateReliable;
-                data.portalMountingMode = PortalTailAnalyzer::mountingModeToString(portalRes.mountingMode);
-
-            }
+        if (data.portalPresent) {
+            data.portalSummary = PortalTailAnalyzer::analyzeShot(
+                shotData->portalSamples(), tmpRecord.weight, data.weightSource, data.portalMountingMode,
+                data.doseWeight, data.finalWeight, shotData->pressureData()).persistedSummary();
         }
     }
 
@@ -2963,13 +3010,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":steam_json", data.steamJson.isEmpty() ? QVariant() : data.steamJson);
             query.bindValue(":hot_water_json", data.hotWaterJson.isEmpty() ? QVariant() : data.hotWaterJson);
             query.bindValue(":hot_water_result_json", data.hotWaterResultJson.isEmpty() ? QVariant() : data.hotWaterResultJson);
-            query.bindValue(":portal_mean_ec", data.portalMeanEc > 0 ? QVariant(data.portalMeanEc) : QVariant());
-            query.bindValue(":portal_integral_ec_g", data.portalIntegralEcG > 0 ? QVariant(data.portalIntegralEcG) : QVariant());
-            query.bindValue(":portal_mean_temp_c", data.portalMeanTempC > 0 ? QVariant(data.portalMeanTempC) : QVariant());
-            query.bindValue(":portal_estimate_reliable", data.portalEstimateReliable);
-            query.bindValue(":portal_mounting_mode", data.portalMountingMode);
-            query.bindValue(":weight_source", data.weightSource);
-            query.bindValue(":portal_present", data.portalPresent);
+            bindPortalColumns(query, data.portalSummary, data.portalMountingMode, data.weightSource,
+                              data.portalPresent);
 
             if (!query.exec()) {
                 locked = isSqliteLockError(query.lastError());
@@ -3758,7 +3800,9 @@ QVariantMap ShotHistoryStorage::shotOutcomeStatic(QSqlDatabase& db, qint64 shotI
     const qint64 previousId = previousShotIdStatic(db, shotId);
     QString previousWhen;
     if (previousId > 0) {
-        const ShotRecord previous = loadShotRecordStatic(db, previousId, nullptr, Q_FUNC_INFO);
+        // The previous shot is comparison context: its PORTAL analysis stays uncalibrated.
+        const ShotRecord previous = loadShotRecordStatic(db, previousId, nullptr, Q_FUNC_INFO,
+                                                         PortalCalibration::Skip);
         if (previous.summary.id != 0) {
             pair << convertShotRecord(previous);
             previousWhen = shortDateTime(previous.summary.timestamp);
@@ -3959,64 +4003,6 @@ void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
         QJsonDocument(phasesArray).toJson(QJsonDocument::Compact));
 }
 
-void ShotHistoryStorage::requestPortalPresenceBackfill()
-{
-    if (!m_ready || m_portalPresenceBackfillRequested) return;
-    m_portalPresenceBackfillRequested = true;
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, destroyed] {
-        bool success = false;
-        bool changed = false;
-        withTempDb(dbPath, "shs_portal_presence", [&](QSqlDatabase& db) {
-            QSqlQuery state(db);
-            if (!state.exec("SELECT completed FROM portal_presence_backfill WHERE id=1") || !state.next())
-                return;
-            if (state.value(0).toBool()) {
-                success = true;
-                return;
-            }
-            state.finish();
-            DbWriteTxn txn = DbWriteTxn::begin(db, "PORTAL presence backfill");
-            if (!txn.ok()) return;
-            // M-series Mac, five Python SQLite/zlib/JSON scan-model runs:
-            // 1,268 shots / 9.74 MB: median 185.3 ms, worst 186.9 ms;
-            // 10x / 96.10 MB: median 1858.1 ms, worst 1869.5 ms.
-            // No curve reconstruction or analysis; this runs on the DB worker.
-            QSqlQuery samples(db);
-            if (!samples.exec("SELECT shot_id, data_blob FROM shot_samples")) return;
-            while (samples.next()) {
-                const auto root = QJsonDocument::fromJson(qUncompress(samples.value(1).toByteArray())).object();
-                if (root.value(QStringLiteral("portalSamples")).toArray().isEmpty()) continue;
-                const bool known = PortalTailAnalyzer::weightSourceFromString(root.value(QStringLiteral("weightSource")).toString())
-                        == PortalTailAnalyzer::WeightSource::PhysicalScale
-                    && PortalTailAnalyzer::mountingModeFromString(root.value(QStringLiteral("portalMountingMode")).toString())
-                        != PortalTailAnalyzer::MountingMode::Unknown;
-                QSqlQuery update(db);
-                update.prepare("UPDATE shots SET portal_present=1, "
-                               "portal_estimate_reliable=CASE WHEN :known THEN portal_estimate_reliable ELSE 0 END WHERE id=:id");
-                update.bindValue(":known", known);
-                update.bindValue(":id", samples.value(0));
-                if (!update.exec()) return;
-                changed = true;
-            }
-            samples.finish();
-            if (!state.exec("UPDATE portal_presence_backfill SET completed=1 WHERE id=1")) return;
-            success = txn.commit();
-            if (success && !state.exec("CREATE INDEX IF NOT EXISTS idx_shots_portal ON shots(portal_present) WHERE portal_present=1"))
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL index unavailable:" << state.lastError().text();
-        });
-        if (!success)
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL presence backfill incomplete - retry on the next PORTAL refresh";
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, dbPath, success, changed, destroyed] {
-            if (*destroyed || m_dbPath != dbPath) return;
-            m_portalPresenceBackfillRequested = success;
-            if (success && changed) emit historyDataChanged();
-        }, Qt::QueuedConnection);
-    });
-}
-
 void ShotHistoryStorage::requestPortalCalibration(const QString& requestId, qint64 bagId,
                                                   const QString& beanBrand, const QString& beanType,
                                                   PortalTailAnalyzer::MountingMode mountingMode)
@@ -4029,32 +4015,40 @@ void ShotHistoryStorage::requestPortalCalibration(const QString& requestId, qint
     auto destroyed = m_destroyed;
     runOnDbThread([this, dbPath, requestId, bagId, beanBrand, beanType, mountingMode, destroyed] {
         QVariantMap calibration;
-        const bool opened = withTempDb(dbPath, "shs_portal_calibration", [&](QSqlDatabase& db) {
-            calibration = PortalTailAnalyzer::fitCalibration(loadPortalCalibrationPointsStatic(db, bagId, beanBrand, beanType),
-                bagId, beanBrand, beanType, 0, mountingMode).toVariantMap();
+        QString error = QStringLiteral("unavailable");
+        withTempDb(dbPath, "shs_portal_calibration", [&](QSqlDatabase& db) {
+            const auto points = loadPortalCalibrationPointsStatic(db, bagId, beanBrand, beanType);
+            if (!points) {
+                error = QStringLiteral("queryFailed");
+                return;
+            }
+            error.clear();
+            calibration = PortalTailAnalyzer::fitCalibration(*points, bagId, beanBrand, beanType, 0, mountingMode)
+                              .toVariantMap();
             calibration.insert(QStringLiteral("coffee"), (beanBrand + QLatin1Char(' ') + beanType).trimmed());
         });
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, requestId, calibration, opened, destroyed] {
+        QMetaObject::invokeMethod(this, [this, requestId, calibration, error, destroyed] {
             if (*destroyed) return;
-            emit portalCalibrationReady(requestId, calibration,
-                opened ? QString() : QStringLiteral("unavailable"));
+            emit portalCalibrationReady(requestId, calibration, error);
         }, Qt::QueuedConnection);
     });
 }
 
-QVector<PortalTailAnalyzer::CalibrationPoint>
+std::optional<QVector<PortalTailAnalyzer::CalibrationPoint>>
 ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
     const QString& beanBrand, const QString& beanType)
 {
-    // M-series Mac, 31 SQLite reads including name resolution on a real-history
-    // copy with synthetic PORTAL fields (Python casefold models Qt key matching):
-    // 1,268 shots / 9.74 MB: median 0.071 ms, worst 0.252 ms;
-    // 10x (12,680 / 96.27 MB): median 2.055 ms, worst 3.179 ms.
-    // No logs or sample blobs enter either worker read.
+    // Unindexed name scan on a real-history copy, M-series Mac, Python sqlite3, 7 runs:
+    // 1,339 shots: median 0.52 ms, worst 2.81 ms; 10x: median 8.71 ms, worst 9.65 ms.
+    // Reached only for shots with PORTAL data and the owner's Settings panel, on worker threads.
     QVector<PortalTailAnalyzer::CalibrationPoint> out;
-    // Resolve Unicode-equivalent names with the same Qt policy used by fitting.
-    // SQL then selects only the matching persisted identities (SQLite LOWER is ASCII-only).
+    const auto failed = [](const char* step, const QSqlQuery& query) {
+        portalReadReporter().failed(QStringLiteral("%1: %2").arg(QLatin1String(step), query.lastError().text()));
+        return std::nullopt;
+    };
+    // Names are matched case-folded in C++ (SQLite LOWER is ASCII-only); SQL
+    // then selects the exact stored spellings that matched.
     QStringList coffeeScopes{bagId > 0 ? QStringLiteral("bag_id = :bag") : QStringLiteral("0")};
     QVariantMap coffeeBinds;
     const QString brandKey = PortalTailAnalyzer::coffeeNameKey(beanBrand);
@@ -4063,7 +4057,7 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
         QSqlQuery names(db);
         if (!names.exec("SELECT DISTINCT bean_brand, bean_type FROM shots WHERE portal_present=1 "
                         "AND (COALESCE(drink_tds,0)>0 OR COALESCE(enjoyment,0)>0)"))
-            return out;
+            return failed("name lookup", names);
         while (names.next()) {
             if (PortalTailAnalyzer::coffeeNameKey(names.value(0).toString()) != brandKey
                 || PortalTailAnalyzer::coffeeNameKey(names.value(1).toString()) != beanKey)
@@ -4078,27 +4072,26 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
     QSqlQuery q(db);
     if (!q.prepare(QString(R"(
         SELECT id, bag_id, bean_brand, bean_type,
-               portal_mean_ec, drink_tds, portal_mean_temp_c,
-               dose_weight, final_weight, drink_ey, timestamp, portal_integral_ec_g,
-               enjoyment, taste_balance, taste_body,
+               portal_mean_ec, drink_tds, dose_weight, final_weight, timestamp, enjoyment,
                portal_estimate_reliable, portal_mounting_mode, equipment_id, profile_name
         FROM shots
         WHERE portal_present = 1
-          AND weight_source = 'physical_scale'
+          AND weight_source = :physicalScale
           AND (COALESCE(drink_tds, 0) > 0 OR COALESCE(enjoyment, 0) > 0)
           AND (%1)
         ORDER BY CASE WHEN COALESCE(portal_mean_ec, 0) > 0 AND COALESCE(drink_tds, 0) > 0 THEN 0
                       WHEN COALESCE(portal_mean_ec, 0) > 0 THEN 1
                       ELSE 2 END,
                  timestamp DESC
-    )").arg(coffeeScopes.join(" OR ")))) {
-        return out;
-    }
+    )").arg(coffeeScopes.join(" OR "))))
+        return failed("prepare", q);
+    q.bindValue(":physicalScale",
+                PortalTailAnalyzer::weightSourceToString(PortalTailAnalyzer::WeightSource::PhysicalScale));
     if (bagId > 0) q.bindValue(":bag", bagId);
     for (auto it = coffeeBinds.cbegin(); it != coffeeBinds.cend(); ++it)
         q.bindValue(it.key(), it.value());
     if (!q.exec())
-        return out;
+        return failed("read", q);
 
     while (q.next()) {
         PortalTailAnalyzer::CalibrationPoint pt;
@@ -4108,22 +4101,18 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
         pt.beanType = q.value(3).toString();
         pt.meanRawEcPerG = q.value(4).toDouble();
         pt.measuredTdsPct = q.value(5).toDouble();
-        pt.meanTempC = q.value(6).toDouble();
-        pt.doseWeightG = q.value(7).toDouble();
-        pt.finalWeightG = q.value(8).toDouble();
-        pt.measuredEyPct = q.value(9).toDouble();
-        pt.timestamp = q.value(10).toLongLong();
-        pt.integralRawEcG = q.value(11).toDouble();
-        pt.enjoyment = q.value(12).toInt();
-        pt.tasteBalance = q.value(13).toString();
-        pt.tasteBody = q.value(14).toString();
-        pt.estimateReliable = q.value(15).toBool();
-        pt.mountingMode = PortalTailAnalyzer::mountingModeFromString(q.value(16).toString());
-        pt.equipmentId = q.value(17).toLongLong();
-        pt.profileName = q.value(18).toString();
+        pt.doseWeightG = q.value(6).toDouble();
+        pt.finalWeightG = q.value(7).toDouble();
+        pt.timestamp = q.value(8).toLongLong();
+        pt.enjoyment = q.value(9).toInt();
+        pt.measurementReliable = q.value(10).toBool();
+        pt.mountingMode = PortalTailAnalyzer::mountingModeFromString(q.value(11).toString());
+        pt.equipmentId = q.value(12).toLongLong();
+        pt.profileName = q.value(13).toString();
         if (pt.measuredTdsPct > 0.0 || pt.enjoyment > 0)
             out.append(pt);
     }
+    portalReadReporter().succeeded();
     return out;
 }
 
@@ -4164,7 +4153,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.taste_balance, s.taste_body,
                s.yield_mode, s.yield_anchor_value,
                s.flow_calibration,
-               s.portal_mean_ec, s.portal_integral_ec_g, s.portal_mean_temp_c, s.weight_source, s.portal_mounting_mode, s.hot_water_result_json
+               s.hot_water_result_json,
+               s.portal_mean_ec, s.portal_integral_ec_g, s.portal_mean_temp_c, s.portal_estimate_reliable,
+               s.weight_source, s.portal_mounting_mode
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         LEFT JOIN equipment_items eb ON eb.package_id = s.equipment_id AND eb.kind = 'basket'
@@ -4281,13 +4272,14 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // positional read keeps its index, the same rule the taste-axis and
     // yield-anchor columns followed. NULL reads as 0.0 = not recorded.
     record.flowCalibration = query.value(56).toDouble();
-    // Belka PORTAL summary metrics (cols 57/58/59, migration 48).
-    record.portalMeanEc = query.value(57).toDouble();
-    record.portalIntegralEcG = query.value(58).toDouble();
-    record.portalMeanTempC = query.value(59).toDouble();
-    record.weightSource = query.value(60).toString();
-    record.portalMountingMode = query.value(61).toString();
-    record.hotWaterResultJson = query.value(62).toString();
+    record.hotWaterResultJson = query.value(57).toString();
+    // PORTAL columns (migration 51), appended by the same rule.
+    record.portalSummary.meanRawEcPerG = query.value(58).toDouble();
+    record.portalSummary.integralRawEcG = query.value(59).toDouble();
+    record.portalSummary.meanTempC = query.value(60).toDouble();
+    record.portalSummary.measurementReliable = query.value(61).toBool();
+    record.weightSource = query.value(62).toString();
+    record.portalMountingMode = query.value(63).toString();
     if (query.value(54).isNull() && record.targetWeight > 0) {
         record.yieldMode = YieldSpec::modeAbsolute();
         record.yieldAnchorValue = record.targetWeight;
@@ -4376,11 +4368,14 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         query.finish();
     }
 
-    if (portalCalibration == PortalCalibration::Include && record.portalMeanEc > 0.0
-        && PortalTailAnalyzer::weightSourceFromString(record.weightSource) == PortalTailAnalyzer::WeightSource::PhysicalScale
-        && PortalTailAnalyzer::mountingModeFromString(record.portalMountingMode) != PortalTailAnalyzer::MountingMode::Unknown)
-        record.portalCalibrationPoints = loadPortalCalibrationPointsStatic(db, record.bagId,
+    if (portalCalibration == PortalCalibration::Include && record.portalSummary.meanRawEcPerG > 0.0
+        && PortalTailAnalyzer::hasReferenceProvenance(record.weightSource, record.portalMountingMode)) {
+        auto points = loadPortalCalibrationPointsStatic(db, record.bagId,
             record.summary.beanBrand, record.summary.beanType);
+        record.portalCalibrationFailed = !points;
+        if (points)
+            record.portalCalibrationPoints = std::move(*points);
+    }
 
     // Compute phase summaries on-the-fly for legacy shots that lack them
     if (record.phaseSummariesJson.isEmpty() && !record.pressure.isEmpty() && !record.phases.isEmpty()) {
@@ -4741,7 +4736,12 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     DbWriteTxn txn = DbWriteTxn::begin(db, "shot metadata update");
     if (!txn.ok() || !updateShotMetadataInTransaction(db, shotId, metadataIn, refusal))
         return false;
-    return txn.commit();
+    if (!txn.commit()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Shot metadata commit failed for shot" << shotId
+                                                 << ":" << txn.commitError();
+        return false;
+    }
+    return true;
 }
 
 bool ShotHistoryStorage::updateShotMetadataInTransaction(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadataIn,
@@ -4802,8 +4802,7 @@ bool ShotHistoryStorage::updateShotMetadataInTransaction(QSqlDatabase& db, qint6
         return false;
     }
 
-    const bool refreshPortal = metadata.contains(QStringLiteral("doseWeight"))
-        || metadata.contains(QStringLiteral("finalWeight"));
+    const bool refreshPortal = changesPortalEligibility(metadata);
     if (refreshPortal)
         setClauses << "portal_estimate_reliable = 0";
 
@@ -4885,22 +4884,42 @@ bool ShotHistoryStorage::updateShotMetadataInTransaction(QSqlDatabase& db, qint6
 bool ShotHistoryStorage::refreshPortalEligibilityInTransaction(QSqlDatabase& db, qint64 shotId)
 {
     QSqlQuery samples(db);
-    samples.prepare("SELECT ss.data_blob, s.dose_weight, s.final_weight FROM shots s "
-                    "JOIN shot_samples ss ON ss.shot_id=s.id WHERE s.id=:id AND s.portal_present=1");
+    if (!samples.prepare("SELECT ss.data_blob, s.dose_weight, s.final_weight FROM shots s "
+                         "JOIN shot_samples ss ON ss.shot_id=s.id WHERE s.id=:id AND s.portal_present=1")) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL eligibility read failed for shot" << shotId
+                                                 << ":" << samples.lastError().text();
+        return false;
+    }
     samples.bindValue(":id", shotId);
-    if (!samples.exec()) return false;
-    if (samples.next()) {
-        ShotRecord record;
-        decompressSampleData(samples.value(0).toByteArray(), &record);
-        const auto opts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
-            samples.value(1).toDouble(), samples.value(2).toDouble(), record.pressure);
-        samples.finish();
-        const auto result = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, opts);
-        QSqlQuery update(db);
-        update.prepare("UPDATE shots SET portal_estimate_reliable=:reliable WHERE id=:id");
-        update.bindValue(":reliable", result.valid && result.estimateReliable);
-        update.bindValue(":id", shotId);
-        if (!update.exec()) return false;
+    if (!samples.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL eligibility read failed for shot" << shotId
+                                                 << ":" << samples.lastError().text();
+        return false;
+    }
+    if (!samples.next())
+        return true;
+    ShotRecord record;
+    decompressSampleData(samples.value(0).toByteArray(), &record);
+    if (record.portalSamples.isEmpty())
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Shot" << shotId
+            << "is marked as having PORTAL data but none is readable - it leaves calibration";
+    const double doseWeightG = samples.value(1).toDouble();
+    const double finalWeightG = samples.value(2).toDouble();
+    samples.finish();
+    const auto result = PortalTailAnalyzer::analyzeShot(record.portalSamples, record.weight, record.weightSource,
+        record.portalMountingMode, doseWeightG, finalWeightG, record.pressure);
+    QSqlQuery update(db);
+    if (!update.prepare("UPDATE shots SET portal_estimate_reliable=:reliable WHERE id=:id")) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL eligibility write failed for shot" << shotId
+                                                 << ":" << update.lastError().text();
+        return false;
+    }
+    update.bindValue(":reliable", result.persistedSummary().measurementReliable);
+    update.bindValue(":id", shotId);
+    if (!update.exec()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "PORTAL eligibility write failed for shot" << shotId
+                                                 << ":" << update.lastError().text();
+        return false;
     }
     return true;
 }
@@ -4998,8 +5017,7 @@ bool ShotHistoryStorage::applyVisualizerPullStatic(QSqlDatabase& db, qint64 shot
     if (changes.isEmpty())
         return txn.commit();
 
-    const bool refreshPortal = changes.contains(QStringLiteral("doseWeight"))
-        || changes.contains(QStringLiteral("finalWeight"));
+    const bool refreshPortal = changesPortalEligibility(changes);
     QStringList sets;
     if (refreshPortal)
         sets << "portal_estimate_reliable = 0";
@@ -5021,8 +5039,10 @@ bool ShotHistoryStorage::applyVisualizerPullStatic(QSqlDatabase& db, qint64 shot
     q.finish();
     if (refreshPortal && !refreshPortalEligibilityInTransaction(db, shotId))
         return false;
-    if (!txn.commit())
+    if (!txn.commit()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer pull commit failed:" << txn.commitError();
         return false;
+    }
     *written = changes;
     for (auto it = changes.cbegin(); it != changes.cend(); ++it)
         previous->insert(it.key(), local.value(it.key()));
@@ -5952,8 +5972,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcValueOrNull(idxPortalMeanEc));
                 insert.addBindValue(srcValueOrNull(idxPortalIntegralEcG));
                 insert.addBindValue(srcValueOrNull(idxPortalMeanTempC));
-                insert.addBindValue(idxWeightSource >= 0 && srcValueOrNull(idxWeightSource).toString() == QLatin1String("physical_scale")
-                    && srcValueOrNull(idxPortalReliable).toBool());
+                insert.addBindValue(srcValueOrNull(idxPortalReliable).toBool()
+                    && PortalTailAnalyzer::hasReferenceProvenance(srcValueOrNull(idxWeightSource).toString(),
+                                                                  srcValueOrNull(idxPortalMounting).toString()));
                 insert.addBindValue(srcValueOrNull(idxPortalMounting));
                 insert.addBindValue(srcValueOrNull(idxWeightSource));
                 insert.addBindValue(srcValueOrNull(idxPortalPresent).toBool());
@@ -6007,18 +6028,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to read samples for shot"
                                << uuid << ":" << srcSamples.lastError().text();
                 } else if (srcSamples.next()) {
-                    if (idxPortalPresent < 0) {
-                        ShotRecord legacy;
-                        decompressSampleData(srcSamples.value(1).toByteArray(), &legacy);
-                        QSqlQuery presence(destDb);
-                        presence.prepare("UPDATE shots SET portal_present=:present, portal_estimate_reliable=0 WHERE id=:id");
-                        presence.bindValue(":present", !legacy.portalSamples.isEmpty());
-                        presence.bindValue(":id", newId);
-                        if (!presence.exec()) {
-                            failed++;
-                            continue;
-                        }
-                    }
                     QSqlQuery insertSample(destDb);
                     insertSample.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (?, ?, ?)");
                     insertSample.addBindValue(newId);
@@ -6437,21 +6446,11 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         }
     }
 
-    double portalMeanEc = 0.0;
-    double portalIntegralEcG = 0.0;
-    double portalMeanTempC = 0.0;
-    bool portalReliable = false;
-    if (!record.portalSamples.isEmpty()) {
-        const auto portalOpts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
-            record.summary.doseWeight, record.summary.finalWeight, record.pressure);
-        const auto portalRes = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, portalOpts);
-        if (portalRes.valid) {
-            portalMeanEc = portalRes.meanRawEcPerG;
-            portalIntegralEcG = portalRes.integralRawEcG;
-            portalMeanTempC = portalRes.meanTempC;
-            portalReliable = portalRes.estimateReliable;
-        }
-    }
+    const PortalTailAnalyzer::PersistedSummary portalSummary = record.portalSamples.isEmpty()
+        ? PortalTailAnalyzer::PersistedSummary{}
+        : PortalTailAnalyzer::analyzeShot(record.portalSamples, record.weight, record.weightSource,
+              record.portalMountingMode, record.summary.doseWeight, record.summary.finalWeight,
+              record.pressure).persistedSummary();
 
     // Insert main shot record
     query.prepare(R"(
@@ -6548,13 +6547,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     query.bindValue(":grind_issue_detected", record.grindIssueDetected ? 1 : 0);
     query.bindValue(":skip_first_frame_detected", record.skipFirstFrameDetected ? 1 : 0);
     query.bindValue(":pour_truncated_detected", record.pourTruncatedDetected ? 1 : 0);
-    query.bindValue(":portal_mean_ec", portalMeanEc > 0 ? QVariant(portalMeanEc) : QVariant());
-    query.bindValue(":portal_integral_ec_g", portalIntegralEcG > 0 ? QVariant(portalIntegralEcG) : QVariant());
-    query.bindValue(":portal_mean_temp_c", portalMeanTempC > 0 ? QVariant(portalMeanTempC) : QVariant());
-    query.bindValue(":portal_estimate_reliable", portalReliable);
-    query.bindValue(":portal_mounting_mode", record.portalMountingMode);
-    query.bindValue(":weight_source", record.weightSource);
-    query.bindValue(":portal_present", !record.portalSamples.isEmpty());
+    bindPortalColumns(query, portalSummary, record.portalMountingMode, record.weightSource,
+                      !record.portalSamples.isEmpty());
 
     if (!query.exec()) {
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to import shot:" << query.lastError().text();

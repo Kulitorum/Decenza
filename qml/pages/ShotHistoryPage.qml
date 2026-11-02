@@ -936,15 +936,15 @@ T.Page {
                         if (ec <= 0) return ""
                         var ey = model.drinkEyPct || 0
                         var estEy = model.portalEstEyPct || 0
-                        var parts = []
-                        if (ec > 0)
-                            parts.push(TranslationManager.translate("shothistory.portal.ec", "EC %1").arg(ec.toFixed(2)))
+                        var parts = [TranslationManager.translate("shothistory.portal.ec", "EC %1").arg(ec.toFixed(2))]
                         if (ey > 0)
                             parts.push(TranslationManager.translate("shothistory.portal.ey", "EY %1%").arg(ey.toFixed(1)))
                         else if (estEy > 0)
                             parts.push(TranslationManager.translate("shothistory.portal.estimatedEy", "~EY %1%").arg(estEy.toFixed(1))
                                 + (model.portalEstimateReliable ? "" : (" (" + TranslationManager.translate(
                                     "shothistory.portal.uncertain", "uncertain") + ")")))
+                        else if (model.portalEstimateUnavailable)
+                            parts.push(TranslationManager.translate("shothistory.portal.estimateUnavailable", "~EY unavailable"))
                         return parts.join(" \u00b7 ")
                     }
 
@@ -1202,9 +1202,7 @@ T.Page {
                                 Text {
                                     text: shotDelegate.portalText()
                                     font: Theme.labelFont
-                                    color: (shotDelegate.model.portalMeanEc || 0) > 0
-                                           ? Theme.portalEcColor
-                                           : Theme.textSecondaryColor
+                                    color: Theme.portalEcColor
                                     visible: text !== ""
                                     Accessible.ignored: true
                                 }

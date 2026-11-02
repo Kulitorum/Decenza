@@ -4,7 +4,7 @@
 
 - [x] 1.1 Implement mass integration, gap and scale safeguards; retain existing analyzer tests.
 - [x] 1.2 Record serving-source and mounting provenance; remove log inference, slow-onset detectors and note injection; extend storage/capture regressions.
-- [x] 1.3 Separate the schema migration from the deferred background presence scan, scope read-only calibration and refresh eligibility on dose edits; extend migration/storage coverage.
+- [x] 1.3 Separate the schema migration from the deferred background presence scan, scope read-only calibration and refresh eligibility on dose edits; extend migration/storage coverage. (Presence-scan parts superseded by 10.8.)
 - [x] 1.4 Measure realistic and multiplied database costs and record them at the query call site.
 
 ## 2. Shared presentation
@@ -21,7 +21,7 @@
 
 ## 4. Review follow-up
 
-- [x] 4.1 Reuse the mounting-mode decoder in both database readers; create the optional index after the deferred presence pass (section 8).
+- [x] 4.1 Reuse the mounting-mode decoder in both database readers; create the optional index after the deferred presence pass (section 8). (Presence-scan parts superseded by 10.8.)
 - [x] 4.2 Reject simulated serving scales, leave initial cup mass uncovered, retain actually measured pre-drip baselines and derive the ratio envelope only from finite positive reference ratios. [Four regression controls](https://github.com/janhcla/Decenza/actions/runs/41348913871) against source 949fd637 failed at the intended assertions; both owner suites passed before and after restoration.
 - [x] 4.3 Render both review-card warning icons through the shared emoji image helper.
 - [x] 4.4 Full Linux suite, Android/Wasm builds and QML passed in CI 41348885569; [text invariants](https://github.com/janhcla/Decenza/actions/runs/41348888596) passed on source 949fd637.
@@ -41,7 +41,7 @@
 
 ## 6. GitHub review at 4bc1afcf
 
-- [x] 6.1 The user accepted the later GitHub recommendation: schema-only migration with presence backfill once in the background after PORTAL ownership/attachment. The earlier startup placement is superseded by section 8.
+- [x] 6.1 The user accepted the later GitHub recommendation: schema-only migration with presence backfill once in the background after PORTAL ownership/attachment. The earlier startup placement is superseded by section 8. (Presence-scan parts superseded by 10.8.)
 - [x] 6.2 Accept baseline noise within 0.1 g while retaining observed mass, preserve small negative baselines, and drop equal-time EC duplicates without inventing a gap.
 - [x] 6.3 Gate ratio advice on measurement quality rather than empirical prediction uncertainty; verify advice remains consistent with 0/1/3/5 references. [Six controls on 4dd43776](https://github.com/janhcla/Decenza/actions/runs/41414838994) failed at their intended assertions; all four owner suites passed before/after restoration.
 - [x] 6.4 Share Options assembly across all analysis entry points, including the advisor fallback, and describe PORTAL units/ranges in the shared system prompt.
@@ -55,11 +55,11 @@
 - [x] 7.3 Subscribe Settings calibration to successful Visualizer pulls, including TDS-only changes; native/browser live refresh remains part of manual acceptance.
 - [x] 7.4 Both owner-boundary regressions passed, and each deliberate defect failed at its intended assertion in CI 41417057187. Full platform validation passed on 7fe70f0a; final text-invariants results are linked in the PR. GitHub was rechecked before publishing the audit.
 
-## 8. Deferred legacy presence backfill
+## 8. Deferred legacy presence backfill (superseded by 10.8)
 
-- [x] 8.1 Move the sample scan and optional index off initialization; persist completion atomically with presence updates on the existing DB worker, preserving recorded references.
-- [x] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it.
-- [x] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. [Six regression controls on functional source 1a5643e3](https://github.com/janhcla/Decenza/actions/runs/41423944384) failed at their intended assertions; dbmigration, belkaportal and shotreviewactions passed before and after restoration.
+- [x] 8.1 Move the sample scan and optional index off initialization; persist completion atomically with presence updates on the existing DB worker, preserving recorded references. (Presence-scan parts superseded by 10.8.)
+- [x] 8.2 Request the pass only behind the shared owned/active hardware gate, coalesce repeated requests, and queue Settings calibration after it. (Presence-scan parts superseded by 10.8.)
+- [x] 8.3 Extend the migration owner test for previews 47-50, startup without scan, UI event delivery under a competing writer, rollback/retry and no repeat after restart. [Six regression controls on functional source 1a5643e3](https://github.com/janhcla/Decenza/actions/runs/41423944384) failed at their intended assertions; dbmigration, belkaportal and shotreviewactions passed before and after restoration. (Presence-scan parts superseded by 10.8.)
 - [x] 8.4 Functional source 83aec17e passed the current Linux/Android/Wasm run 41444622052 and QML gate; strict OpenSpec validation passed. The PR records the current evidence and final text-invariants check. GitHub was rechecked before publishing the update.
 - [x] 8.5 Address new GitHub review 5734465691: refresh Shot Review outcomes after Visualizer pulls while preserving the editing form; the existing late-outcome regression now executes the real merge/callback/outcome handlers, rejects stale replies and preserves the draft.
 - [x] 8.6 Address GitHub review 5734886935: explicitly reset History estimate roles when calibration disappears. [The regression control on 83aec17e](https://github.com/janhcla/Decenza/actions/runs/41444764681) retains 10% instead of zero when the reset is removed; all three owner suites passed before/after restoration.
@@ -73,3 +73,15 @@
 - [x] 9.5 Prepare the updated manual in the separate wiki checkout (local wiki commit `8abe130`); the ready-to-copy paragraph is in PR #2164. Upstream reports `push: false`; publication remains blocked under task 2.3.
 - [x] 9.6 Push `cb939cf4`, `8be63808` and `87b162ba` to existing Kulitorum/Decenza PR #2164 and update its description through the GitHub connector. The GitHub text-invariants run on `87b162ba` reports `action_required`; the local checks passed. No release or merge was performed.
 - [x] 9.7 Fix a live capture rejected by two scale updates in one millisecond. The existing analytic integration test fails at `sameTick.valid` before the fix and preserves independent integral 435 EC*g after coalescing. Reversed clocks/resets remain rejected; Shot Review distinguishes unusable recorded curves. PORTAL 47/47 passed after restoration of three deliberate sensor/calibration/weighting regressions; all four expected failing assertions were observed in the control run.
+
+## 10. Maintainer review at 4ce673ee
+
+- [x] 10.1 Split the measurement verdict (`measurementReliable`, fixed by analysis) from the estimate verdict (derived from all uncertainty reasons); send both to the advisor and gate ratio advice on the former.
+- [x] 10.2 One prediction gate (`CalibrationFit::predict`) for Shot Review, History and the advisor; typed model, scope and advice; Shot Review reads EY and the single-shot k from the analysis instead of recomputing them.
+- [x] 10.3 Report calibration read failures as `queryFailed` with a logged cause; log backfill failures once per cause with their resolution; log metadata, eligibility and Visualizer-pull commit failures. (Presence-scan parts superseded by 10.8.)
+- [x] 10.4 Replace the per-shot import decode with a rescan of imported shots; keep the record SELECT append-only; give advisor fields unit-bearing names. (Presence-scan parts superseded by 10.8.)
+- [x] 10.5 Keep the previous Settings fit visible while it refreshes and refit only when PORTAL ownership/activity changes; stamp mounting when PORTAL connects mid-shot.
+- [x] 10.6 Remove the test-only lag-sensitivity API and the process-log plans; add affine, import-rescan, main-47 and provenance round-trip coverage. (Presence-scan parts superseded by 10.8.)
+- [x] 10.7 Simplify: drop analysis outputs nobody reads (in-sample fit errors, temperature correlation, duplicate advice flag, unread reference fields), send MCP the advisor's portal block, stamp mounting with the first PORTAL sample, scan the backfill outside the write lock and coalesce Settings refits. (Presence-scan parts superseded by 10.8.)
+- [x] 10.8 Replace the deferred presence scan (section 8) with a schema-only migration from main and one preview-only SQL statement: the scan could never turn a pre-change shot into a reference. Remove its table, retry logging, Settings hook, import reset and index; calibration reads measured 0.52 ms median / 8.71 ms at 10x without it, PORTAL owners only.
+- [x] 10.9 Final review: a failed reference read reaches Shot Review and History as unavailable instead of "uncalibrated"; read failures log once per cause with their recovery; unreadable PORTAL samples name their shot; `predict()` owns the measurement gate and recalibration replaces rather than stacks; the advisor's mean EC field is `massWeightedMeanRawEc`; unread History keys are gone; MCP portal reshape and non-default mounting are covered by tests.

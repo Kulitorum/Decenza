@@ -1,7 +1,5 @@
 #include "shotsummarizer.h"
-#include "portaltailanalyzer.h"
 #include "shotanalysis.h"
-#include "../models/portalsample.h"
 #include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::analyzeShot
 #include "../profile/profile.h"
 #include "profileshapeindex.h"   // resolveProfileKb — title steps, then shape
@@ -263,17 +261,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.flowGoalCurve = curveToPoints(shotData.flowGoal);
     summary.tempGoalCurve = curveToPoints(shotData.temperatureGoal);
 
-    if (!shotData.portalAnalysis.isEmpty()) {
-        summary.portalAnalysis = shotData.portalAnalysis;
-    } else if (!shotData.portalSamples.isEmpty()) {
-        const QVector<PortalSample> portalVec = PortalSamples::fromVariant(shotData.portalSamples);
-        if (!portalVec.isEmpty()) {
-            const auto portalOpts = PortalTailAnalyzer::optionsForShot(shotData.weightSource, shotData.portalMountingMode,
-                summary.doseWeight, summary.finalWeight, summary.pressureCurve);
-            summary.portalAnalysis = PortalTailAnalyzer::analyze(
-                portalVec, summary.weightCurve, portalOpts).toVariantMap();
-        }
-    }
+    summary.portalAnalysis = shotData.portalAnalysis;
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
@@ -568,64 +556,63 @@ QJsonObject ShotSummarizer::buildPortalBlock(const QVariantMap& pa)
     if (!valid)
         return portal;
 
-    auto round2 = [](double v) { return QString::number(v, 'f', 2).toDouble(); };
-    auto round3 = [](double v) { return QString::number(v, 'f', 3).toDouble(); };
-    auto round4 = [](double v) { return QString::number(v, 'f', 4).toDouble(); };
+    const auto number = [&pa](const char* key) { return pa.value(QLatin1String(key)).toDouble(); };
+    const auto rounded = [](double v, int decimals) { return QString::number(v, 'f', decimals).toDouble(); };
+    const auto copy = [&](const char* to, const char* from, int decimals) {
+        portal[QLatin1String(to)] = rounded(number(from), decimals);
+    };
 
-    portal["integralRawEcG"] = round2(pa.value(QStringLiteral("integralRawEcG")).toDouble());
-    portal["activeIntegralRawEcG"] = round2(pa.value(QStringLiteral("activeIntegralRawEcG")).toDouble());
-    portal["settlingIntegralRawEcG"] = round2(pa.value(QStringLiteral("settlingIntegralRawEcG")).toDouble());
-    portal["meanRawEcPerG"] = round2(pa.value(QStringLiteral("meanRawEcPerG")).toDouble());
-    if (pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble() > 0.0)
-        portal["doseNormalizedIntegral"] = round2(pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble());
-    portal["peakRawEc"] = round2(pa.value(QStringLiteral("peakRawEc")).toDouble());
-    portal["mainPeakRawEc"] = round2(pa.value(QStringLiteral("mainPeakRawEc")).toDouble());
-    portal["finalRawEc"] = round2(pa.value(QStringLiteral("finalRawEc")).toDouble());
-    portal["M2"] = round2(pa.value(QStringLiteral("M2")).toDouble());
-    portal["M5"] = round2(pa.value(QStringLiteral("M5")).toDouble());
-    portal["T5"] = round3(pa.value(QStringLiteral("T5")).toDouble());
-    if (pa.contains(QStringLiteral("estimateReliable"))) {
-        portal["estimateReliable"] = pa.value(QStringLiteral("estimateReliable")).toBool();
-        portal["thermalDriftWarning"] = pa.value(QStringLiteral("thermalDriftWarning")).toBool();
-    }
-    if (pa.value(QStringLiteral("massAt90PctIntegralG")).toDouble() > 0.0) {
-        portal["massAt85PctIntegralG"] = round2(pa.value(QStringLiteral("massAt85PctIntegralG")).toDouble());
-        portal["massAt90PctIntegralG"] = round2(pa.value(QStringLiteral("massAt90PctIntegralG")).toDouble());
-    }
-    if (pa.value(QStringLiteral("post1to2MassG")).toDouble() > 0.0) {
-        portal["post1to2MassG"] = round2(pa.value(QStringLiteral("post1to2MassG")).toDouble());
-        portal["post1to2ContributionShare"] = round4(pa.value(QStringLiteral("post1to2ContributionShare")).toDouble());
-    }
-    portal["lowTailConcentration"] = pa.value(QStringLiteral("lowTailConcentration")).toBool();
-    portal["possibleUnderExtraction"] = pa.value(QStringLiteral("possibleUnderExtraction")).toBool();
+    copy("integralRawEcG", "integralRawEcG", 2);
+    copy("activeIntegralRawEcG", "activeIntegralRawEcG", 2);
+    copy("settlingIntegralRawEcG", "settlingIntegralRawEcG", 2);
+    copy("massWeightedMeanRawEc", "meanRawEcPerG", 2);
+    if (number("doseNormalizedIntegral") > 0.0)
+        copy("integralRawEcGPerDoseG", "doseNormalizedIntegral", 2);
+    copy("peakRawEc", "peakRawEc", 2);
+    copy("mainPeakRawEc", "mainPeakRawEc", 2);
+    copy("finalRawEc", "finalRawEc", 2);
+    copy("tailMean2gRawEc", "M2", 2);
+    copy("tailMean5gRawEc", "M5", 2);
+    copy("tailSlope5gRawEcPerG", "T5", 3);
+    copy("tailToPeakRatio5g", "R5", 3);
+    copy("recentContributionShare5g0to1", "recentContributionShare5g", 4);
+    copy("coverage0to1", "coverageRatio", 3);
+    portal["measurementReliable"] = pa.value(QStringLiteral("measurementReliable")).toBool();
+    portal["estimateReliable"] = pa.value(QStringLiteral("estimateReliable")).toBool();
+    portal["thermalDriftWarning"] = pa.value(QStringLiteral("thermalDriftWarning")).toBool();
     portal["mountingMode"] = pa.value(QStringLiteral("mountingMode")).toString();
     portal["uncertaintyReasons"] = QJsonArray::fromVariantList(pa.value(QStringLiteral("uncertaintyReasons")).toList());
+    if (number("massAt90PctIntegralG") > 0.0) {
+        copy("massAt85PctIntegralG", "massAt85PctIntegralG", 2);
+        copy("massAt90PctIntegralG", "massAt90PctIntegralG", 2);
+    }
+    if (number("post1to2MassG") > 0.0) {
+        copy("post1to2MassG", "post1to2MassG", 2);
+        copy("post1to2ContributionShare0to1", "post1to2ContributionShare", 4);
+    }
+    portal["lowTailConcentration"] = pa.value(QStringLiteral("lowTailConcentration")).toBool();
     portal["ratioAdvice"] = pa.value(QStringLiteral("ratioAdvice")).toString();
-    if (pa.value(QStringLiteral("bestHistoricalWeightG")).toDouble() > 0.0) {
-        portal["bestHistoricalWeightG"] = round2(pa.value(QStringLiteral("bestHistoricalWeightG")).toDouble());
-        portal["bestHistoricalRatio"] = round2(pa.value(QStringLiteral("bestHistoricalRatio")).toDouble());
+    if (number("bestHistoricalWeightG") > 0.0) {
+        copy("bestHistoricalWeightG", "bestHistoricalWeightG", 2);
+        copy("bestHistoricalRatio", "bestHistoricalRatio", 2);
         portal["bestHistoricalEnjoyment0to100"] = pa.value(QStringLiteral("bestHistoricalEnjoyment")).toInt();
     }
-    portal["R5"] = round3(pa.value(QStringLiteral("R5")).toDouble());
-    portal["recentContributionShare5g"] = round4(pa.value(QStringLiteral("recentContributionShare5g")).toDouble());
-    portal["coverageRatio"] = round3(pa.value(QStringLiteral("coverageRatio")).toDouble());
     const int dipCount = pa.value(QStringLiteral("instabilityDipCount")).toInt();
     portal["instabilityDipCount"] = dipCount;
     if (dipCount > 0)
-        portal["maxDipProminenceRawEc"] = round2(pa.value(QStringLiteral("maxDipProminenceRawEc")).toDouble());
+        copy("maxDipProminenceRawEc", "maxDipProminenceRawEc", 2);
     const bool calibrated = pa.value(QStringLiteral("calibrated")).toBool();
     portal["calibrated"] = calibrated;
     portal["predictionAvailable"] = pa.value(QStringLiteral("predictionAvailable")).toBool();
     if (calibrated) {
         portal["calibrationScope"] = pa.value(QStringLiteral("calibrationScope")).toString();
-        portal["calibrationModel"] = pa.value(QStringLiteral("calibrationMode")).toString();
         portal["calibrationShotCount"] = pa.value(QStringLiteral("calibrationShotCount")).toInt();
         if (pa.value(QStringLiteral("calibrationHasCrossValidation")).toBool())
-            portal["calibrationLoocvMaeTdsPct"] = round3(pa.value(QStringLiteral("calibrationLoocvMaeTdsPct")).toDouble());
+            copy("calibrationLoocvMaeTdsPct", "calibrationLoocvMaeTdsPct", 3);
         if (pa.value(QStringLiteral("predictionAvailable")).toBool()) {
-            portal["estimatedTdsPct"] = round2(pa.value(QStringLiteral("estimatedTdsPct")).toDouble());
-            if (pa.value(QStringLiteral("estimatedEyPct")).toDouble() > 0.0)
-                portal["estimatedEyPct"] = round2(pa.value(QStringLiteral("estimatedEyPct")).toDouble());
+            copy("estimatedTdsPct", "estimatedTdsPct", 2);
+            if (number("estimatedEyPct") > 0.0)
+                copy("estimatedEyPct", "estimatedEyPct", 2);
         }
     }
     return portal;
@@ -1101,7 +1088,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 
 Treat these JSON payload fields as gates on your advice:
 
-**Optional `portal` block** (on `shot` or historical shots such as `bestRecentShot`): raw EC is device-unit conductivity, not TDS or coffee solids. `M2` and `M5` are mean raw EC over the last 2 g and 5 g; `T5` is the last-5-g slope in raw EC/g; `R5` is unitless M5/main-peak EC and may exceed 1. `peakRawEc`, `mainPeakRawEc`, `finalRawEc` and `meanRawEcPerG` are raw EC units. `integralRawEcG`, `activeIntegralRawEcG` and `settlingIntegralRawEcG` are raw EC × g; `doseNormalizedIntegral` divides that integral by dose grams. `coverageRatio`, `recentContributionShare5g` and `post1to2ContributionShare` are fractions from 0 to 1. Mass fields ending in G are grams. Calibrated TDS/EY fields ending in Pct are percentages; error fields ending in TdsPct are TDS percentage points. Use estimated TDS/EY only when `predictionAvailable` is true; a fitted model alone does not support prediction, and missing estimates or cross-validation errors are unavailable rather than zero. Read `uncertaintyReasons`: calibration uncertainty does not make raw tail evidence unreliable. Ratio advice requires reliable measurements and explicit feedback on the current cup; it suggests an experiment, not an optimum.
+**Optional `portal` block** (on `shot` or historical shots such as `bestRecentShot`): raw EC is device-unit conductivity, not TDS or coffee solids. Fields ending `RawEc` are raw EC; `RawEcG` is raw EC × g, and `integralRawEcGPerDoseG` divides `integralRawEcG` by dose grams. `massWeightedMeanRawEc` is the mean raw EC weighted by cup mass; `tailSlope5gRawEcPerG` is the slope of raw EC against cup mass over the last 5 g. `tailMean2gRawEc` and `tailMean5gRawEc` average the last 2 g and 5 g; `tailToPeakRatio5g` divides the 5 g mean by `mainPeakRawEc` and may exceed 1. Fields ending `0to1` are fractions; mass fields ending in G are grams; `post1to2*` describe the cup mass beyond a 1:2 ratio and its share of the EC integral. `instabilityDipCount` counts mid-shot EC dips (deepest: `maxDipProminenceRawEc`); a dip can be a bubble or partial wetting and is not proof of channeling. `measurementReliable` is the measurement-only verdict. `estimateReliable` is false whenever any `uncertaintyReasons` entry applies, including the calibration-only reasons `preliminary_calibration`, `unvalidated_calibration`, `inconsistent_calibration` and `outside_calibration_range`, which do not make the raw tail evidence unreliable; `thermalDriftWarning` mirrors the `thermal_drift` reason. `calibrationMode` is `relative_proxy_only` until refractometer references exist. `estimatedTdsPct` and `estimatedEyPct` are percentages and appear only when `predictionAvailable` is true; `calibrationLoocvMaeTdsPct` is held-out error in TDS percentage points; `calibrationShotCount` counts the references and `calibrationScope` is `bag` or `bean`. A missing estimate or error is unavailable, not zero. `lowTailConcentration` marks a weak, falling tail. `ratioAdvice` is `taste_first` (no taste-plus-tail rule applies), `uncertain` (`measurementReliable` is false), `try_longer` or `try_shorter`; it combines the tail with explicit taste feedback on this cup and suggests an experiment, not an optimum. `bestHistorical*` describe the highest-rated (≥75) other PORTAL shot with the same coffee, equipment, profile and a dose within 0.5 g.
 
 **`result.profile`**: the canonical source for profile metadata — `filename`, `title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` (when set). Read profile intent and frame steps here. The `shotAnalysis` prose carries shot-VARIABLE data only (dose, yield, duration, grind setting, extraction, peaks, phase data, detector observations); profile, bean and grinder identity come only from the structured blocks.
 

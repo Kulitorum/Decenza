@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "shottimingcontroller.h"
 #include "../ble/de1device.h"
+#include "../ai/portaltailanalyzer.h"
 #include "../ble/scaledevice.h"
 #include "../core/settings.h"
 #include "../machine/machinestate.h"
@@ -93,8 +94,11 @@ std::optional<double> ShotTimingController::sensorTime(qint64 receivedAtMs) cons
 
 QString ShotTimingController::servingWeightSource() const
 {
-    if (!m_scale || !m_scale->isConnected() || m_scale->isSimulated()) return QStringLiteral("unknown");
-    return m_scale->isFlowScale() ? QStringLiteral("flow_scale_virtual") : QStringLiteral("physical_scale");
+    using WeightSource = PortalTailAnalyzer::WeightSource;
+    if (!m_scale || !m_scale->isConnected() || m_scale->isSimulated())
+        return PortalTailAnalyzer::weightSourceToString(WeightSource::Unknown);
+    return PortalTailAnalyzer::weightSourceToString(
+        m_scale->isFlowScale() ? WeightSource::FlowScaleVirtual : WeightSource::PhysicalScale);
 }
 
 void ShotTimingController::setScale(ScaleDevice* scale)

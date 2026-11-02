@@ -119,10 +119,9 @@ struct ShotRecord {
     QString weightSource;
     QString portalMountingMode;
     QVector<PortalSample> portalSamples;
-    double portalMeanEc = 0.0;
-    double portalIntegralEcG = 0.0;
-    double portalMeanTempC = 0.0;
+    PortalTailAnalyzer::PersistedSummary portalSummary;
     QVector<PortalTailAnalyzer::CalibrationPoint> portalCalibrationPoints;
+    bool portalCalibrationFailed = false; // The reference read failed (logged); not "no references".
 
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
@@ -435,14 +434,10 @@ struct ShotSaveData {
     // Phase summaries JSON (per-phase metrics for UI display)
     QString phaseSummariesJson;
 
-    // Belka PORTAL summary metrics (persisted in shots.portal_mean_ec,
-    // shots.portal_integral_ec_g, shots.portal_mean_temp_c)
-    double portalMeanEc = 0.0;
-    double portalIntegralEcG = 0.0;
-    double portalMeanTempC = 0.0;
+    // PORTAL columns (migration 51).
+    PortalTailAnalyzer::PersistedSummary portalSummary;
     QString weightSource;
     bool portalPresent = false;
-    bool portalEstimateReliable = false;
     QString portalMountingMode;
 
     // Pre-compressed sample data blob

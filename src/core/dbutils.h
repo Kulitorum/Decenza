@@ -7,6 +7,7 @@
 #include <QThread>
 #include <QObject>
 #include <QString>
+#include <QVariant>
 #include <QDebug>
 
 #include "core/storagelogging.h"
@@ -14,6 +15,11 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+
+// An unset (zero) or meaningless negative measurement is stored as NULL, not 0.
+inline QVariant nullIfZero(double v) {
+    return v > 0 ? QVariant(v) : QVariant();
+}
 
 // True when a statement failed because someone else holds the lock rather than
 // for a reason retrying cannot fix. This is what separates "wait and try again"

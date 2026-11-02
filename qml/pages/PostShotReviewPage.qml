@@ -2633,44 +2633,31 @@ T.Page {
                 readonly property double doseG: postShotReviewPage.editDoseWeight > 0
                                                 ? postShotReviewPage.editDoseWeight
                                                 : (postShotReviewPage.editShotData.doseWeightG || 0)
-                readonly property double yieldG: postShotReviewPage.editDrinkWeight > 0
-                                                 ? postShotReviewPage.editDrinkWeight
-                                                 : (postShotReviewPage.editShotData.finalWeightG || 0)
-                readonly property double liveTds: postShotReviewPage.editDrinkTds || 0
                 readonly property bool isCalibrated: Boolean(pa.predictionAvailable)
                 readonly property double estTdsPct: isCalibrated ? (pa.estimatedTdsPct || 0) : 0
-                readonly property double estEyPct: (estTdsPct > 0 && doseG > 0 && yieldG > 0)
-                                                   ? (estTdsPct * yieldG) / doseG : 0
+                readonly property double estEyPct: isCalibrated ? (pa.estimatedEyPct || 0) : 0
                 readonly property bool estimateReliable: Boolean(pa.estimateReliable)
                 readonly property string uncertaintySummary: {
-                    var warnings = []
-                    var reasons = pa.uncertaintyReasons || []
-                    if (reasons.indexOf("mid_shot_dip") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.dipWarning", "EC dips detected (%1); this does not confirm channeling.").arg(pa.instabilityDipCount || 0))
-                    if (reasons.indexOf("thermal_drift") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.thermalWarning", "High outlet temperature (%1 °C); temperature effects on EC have not been validated.").arg(Number(pa.maxTempC || 0).toFixed(1)))
-                    if (reasons.indexOf("incomplete_coverage") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.coverageWarning", "Incomplete EC coverage."))
-                    if (reasons.indexOf("cup_mass_mismatch") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.cupMassWarning", "Cup weight differs from the recorded weight curve; full-cup EC is uncertain."))
-                    if (reasons.indexOf("unknown_mounting") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.mountingWarning", "Mounting geometry was not recorded."))
-                    if (reasons.indexOf("preliminary_calibration") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.preliminaryWarning", "Fewer than five independent refractometer shots: preliminary calibration."))
-                    if (reasons.indexOf("unvalidated_calibration") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.unvalidated", "TDS/EY withheld: independent prediction error cannot be checked from one reference."))
-                    if (reasons.indexOf("inconsistent_calibration") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.inconsistent", "TDS/EY withheld: EC does not predict the reference TDS better than their average."))
-                    if (reasons.indexOf("outside_calibration_range") >= 0)
-                        warnings.push(TranslationManager.translate("postshotreview.portal.rangeWarning", "Outside the measured EC or ratio range: TDS/EY withheld."))
-                    return warnings.join(" ")
+                    var text = {
+                        "mid_shot_dip": TranslationManager.translate("postshotreview.portal.dipWarning", "EC dips detected (%1); this does not confirm channeling.").arg(pa.instabilityDipCount || 0),
+                        "thermal_drift": TranslationManager.translate("postshotreview.portal.thermalWarning", "High outlet temperature (%1 °C); temperature effects on EC have not been validated.").arg(Number(pa.maxTempC || 0).toFixed(1)),
+                        "incomplete_coverage": TranslationManager.translate("postshotreview.portal.coverageWarning", "Incomplete EC coverage."),
+                        "cup_mass_mismatch": TranslationManager.translate("postshotreview.portal.cupMassWarning", "Cup weight differs from the recorded weight curve; full-cup EC is uncertain."),
+                        "unknown_mounting": TranslationManager.translate("postshotreview.portal.mountingWarning", "Mounting geometry was not recorded."),
+                        "preliminary_calibration": TranslationManager.translate("postshotreview.portal.preliminaryWarning", "Fewer than five independent refractometer shots: preliminary calibration."),
+                        "unvalidated_calibration": TranslationManager.translate("postshotreview.portal.unvalidated", "TDS/EY withheld: independent prediction error cannot be checked from one reference."),
+                        "inconsistent_calibration": TranslationManager.translate("postshotreview.portal.inconsistent", "TDS/EY withheld: EC does not predict the reference TDS better than their average."),
+                        "outside_calibration_range": TranslationManager.translate("postshotreview.portal.rangeWarning", "Outside the measured EC or ratio range: TDS/EY withheld.")
+                    }
+                    return (pa.uncertaintyReasons || []).map(function(reason) { return text[reason] || "" })
+                        .filter(function(warning) { return warning !== "" }).join(" ")
                 }
                 readonly property string completionSummary: (pa.massAt90PctIntegralG || 0) > 0
                     ? TranslationManager.translate("postshotreview.portal.completion", "90% of the recorded EC integral was reached at %1 g; the last 5 g contributed %2%. This is a relative EC proxy, not a measurement of coffee solids or taste.")
                         .arg(Number(pa.massAt90PctIntegralG).toFixed(1))
                         .arg(Number((pa.recentContributionShare5g || 0) * 100).toFixed(1)) : ""
                 readonly property bool lowTailConcentration: Boolean(pa.lowTailConcentration)
-                readonly property bool possibleUnderExtraction: Boolean(pa.possibleUnderExtraction)
+                readonly property bool suggestsLongerRatio: pa.ratioAdvice === "try_longer"
                 readonly property string ratioAdviceText: {
                     if (!pa.valid) return ""
                     if (pa.ratioAdvice === "uncertain")
@@ -2694,17 +2681,18 @@ T.Page {
                         "postshotreview.portal.invalidWeightCurve", "PORTAL cannot use this shot's recorded weight curve. Check the weight graph.")
                     if (!pa.valid) return TranslationManager.translate(
                         "postshotreview.portal.unavailable", "PORTAL analysis needs a physical scale and complete EC/weight data.")
-                    if (!pa.calibrationEligible) return TranslationManager.translate(
+                    if (pa.calibrationError === "queryFailed") return TranslationManager.translate(
+                        "postshotreview.portal.calibrationReadFailed", "Calibration references could not be read, so TDS/EY is unavailable. Reopen this shot to retry; details are in the log.")
+                    if (!pa.measurementReliable) return TranslationManager.translate(
                         "postshotreview.portal.excludedCalibration", "Excluded from calibration: measurement warnings. Estimates, when available, are uncertain.")
                     if (pa.calibrated) {
-                        var affine = String(pa.calibrationMode || "").indexOf("affine") >= 0
-                        var modelStr = affine
-                            ? TranslationManager.translate("postshotreview.portal.affineFormula", "TDS = %1 × EC %2 %3")
-                                .arg(Number(pa.calibrationAffineA || 0).toFixed(3))
+                        var modelStr = pa.calibrationMode === "refractometer_affine"
+                            ? TranslationManager.translate("portal.calibration.affineFormula", "TDS% ≈ %1 × EC %2 %3")
+                                .arg(Number(pa.calibrationAffineA || 0).toFixed(4))
                                 .arg((pa.calibrationAffineB || 0) >= 0 ? "+" : "−")
                                 .arg(Math.abs(pa.calibrationAffineB || 0).toFixed(2))
-                            : TranslationManager.translate("postshotreview.portal.proportionalFormula", "TDS = %1 × EC")
-                                .arg(Number(pa.calibrationSlopeK || 0).toFixed(3))
+                            : TranslationManager.translate("portal.calibration.factor", "k = %1")
+                                .arg(Number(pa.calibrationSlopeK || 0).toFixed(4))
                         var scope = pa.calibrationScope === "bag"
                             ? TranslationManager.translate("postshotreview.portal.scopeBag", "bag")
                             : TranslationManager.translate("postshotreview.portal.scopeBean", "coffee")
@@ -2714,18 +2702,15 @@ T.Page {
                             ? " · " + TranslationManager.translate("postshotreview.portal.loocv", "LOOCV MAE %1%")
                                 .arg(Number(pa.calibrationLoocvMaeTdsPct).toFixed(2)) : ""
                         var resStr = ""
-                        if (liveTds > 0 && isCalibrated) {
-                            var diff = estTdsPct - liveTds
+                        if (pa.validationResidualTdsPct !== undefined) {
+                            var diff = pa.validationResidualTdsPct
                             resStr = " · " + TranslationManager.translate("postshotreview.portal.residual", "ΔTDS vs refr. %1%")
                                 .arg((diff >= 0 ? "+" : "") + diff.toFixed(2))
                         }
-                        var warn = (pa.calibrationShotCount || 0) < 5
-                            ? (" \u00b7 " + TranslationManager.translate("postshotreview.portal.fewShots", "<5 shots: preliminary"))
-                            : ""
-                        return modelStr + " \u00b7 " + nStr + loocv + resStr + warn
+                        return modelStr + " \u00b7 " + nStr + loocv + resStr
                     }
-                    if (liveTds > 0 && meanEc > 0) {
-                        return TranslationManager.translate("portal.calibration.factor", "k = %1").arg((liveTds / meanEc).toFixed(3)) + " "
+                    if ((pa.selfReferenceK || 0) > 0) {
+                        return TranslationManager.translate("portal.calibration.factor", "k = %1").arg(Number(pa.selfReferenceK).toFixed(4)) + " "
                                + TranslationManager.translate("postshotreview.portal.selfAnchor",
                                      "(this shot only \u2014 collect independent refractometer shots to check prediction error)")
                     }
@@ -2804,6 +2789,30 @@ T.Page {
                         }
                     }
 
+                    component PortalMetric: ColumnLayout {
+                        id: metric
+                        property string label
+                        property string value
+                        property color valueColor: Theme.textColor
+                        property font valueFont: Theme.subtitleFont
+                        property int valueFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(1)
+                        Text {
+                            text: metric.label
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            text: metric.value
+                            font: metric.valueFont
+                            color: metric.valueColor
+                            textFormat: metric.valueFormat
+                            Accessible.ignored: true
+                        }
+                    }
+
                     GridLayout {
                         Layout.fillWidth: true
                         visible: Boolean(portalMetricsCard.pa.valid)
@@ -2811,84 +2820,36 @@ T.Page {
                         columnSpacing: Theme.scaled(12)
                         rowSpacing: Theme.scaled(8)
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(1)
-                            Text {
-                                text: TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                text: portalMetricsCard.meanEc.toFixed(2)
-                                font: Theme.subtitleFont
-                                color: Theme.portalEcColor
-                                Accessible.ignored: true
-                            }
+                        PortalMetric {
+                            label: TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
+                            value: portalMetricsCard.meanEc.toFixed(2)
+                            valueColor: Theme.portalEcColor
                         }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(1)
-                            Text {
-                                text: TranslationManager.translate("postshotreview.portal.integralEcTotalDose", "\u222bEC dm (total / dose)")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                text: portalMetricsCard.integralEcG.toFixed(1)
-                                      + (portalMetricsCard.doseG > 0
-                                         ? (" (" + (portalMetricsCard.integralEcG / portalMetricsCard.doseG).toFixed(2) + "/g)")
-                                         : "")
-                                font: Theme.subtitleFont
-                                color: Theme.textColor
-                                Accessible.ignored: true
-                            }
+                        PortalMetric {
+                            label: TranslationManager.translate("postshotreview.portal.integralEcTotalDose", "\u222bEC dm (total / dose)")
+                            value: portalMetricsCard.integralEcG.toFixed(1)
+                                   + ((portalMetricsCard.pa.doseNormalizedIntegral || 0) > 0
+                                      ? (" (" + Number(portalMetricsCard.pa.doseNormalizedIntegral).toFixed(2) + "/g)")
+                                      : "")
                         }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(1)
-                            Text {
-                                text: TranslationManager.translate("postshotreview.portal.estEyTds", "Approx. EY% / ~TDS%")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                text: portalMetricsCard.isCalibrated
-                                      ? Theme.replaceEmojiWithImg((!portalMetricsCard.estimateReliable ? "\u26a0 " : "")
-                                         + TranslationManager.translate("postshotreview.portal.estimateValues", "~%1% (~%2% TDS)")
-                                             .arg(portalMetricsCard.estEyPct.toFixed(1))
-                                             .arg(portalMetricsCard.estTdsPct.toFixed(2)), font.pixelSize)
-                                      : "\u2014"
-                                font: Theme.subtitleFont
-                                color: !portalMetricsCard.isCalibrated
-                                       ? Theme.textSecondaryColor
-                                       : (!portalMetricsCard.estimateReliable ? Theme.warningColor : Theme.dyeEyColor)
-                                textFormat: Text.StyledText
-                                Accessible.ignored: true
-                            }
+                        PortalMetric {
+                            label: TranslationManager.translate("postshotreview.portal.estEyTds", "Approx. EY% / ~TDS%")
+                            value: portalMetricsCard.isCalibrated
+                                   ? Theme.replaceEmojiWithImg((!portalMetricsCard.estimateReliable ? "\u26a0 " : "")
+                                      + TranslationManager.translate("postshotreview.portal.estimateValues", "~%1% (~%2% TDS)")
+                                          .arg(portalMetricsCard.estEyPct.toFixed(1))
+                                          .arg(portalMetricsCard.estTdsPct.toFixed(2)), Theme.subtitleFont.pixelSize)
+                                   : "\u2014"
+                            valueColor: !portalMetricsCard.isCalibrated
+                                        ? Theme.textSecondaryColor
+                                        : (!portalMetricsCard.estimateReliable ? Theme.warningColor : Theme.dyeEyColor)
+                            valueFormat: Text.StyledText
                         }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(1)
-                            Text {
-                                text: TranslationManager.translate("postshotreview.portal.tail5g", "Tail (last 5 g)")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                text: TranslationManager.translate("postshotreview.portal.m5", "M5 %1").arg(Number(portalMetricsCard.pa.M5 || 0).toFixed(2))
-                                      + " \u00b7 " + ((portalMetricsCard.pa.recentContributionShare5g || 0) * 100).toFixed(1) + "%"
-                                font: Theme.bodyFont
-                                color: Theme.textColor
-                                Accessible.ignored: true
-                            }
+                        PortalMetric {
+                            label: TranslationManager.translate("postshotreview.portal.tail5g", "Tail (last 5 g)")
+                            value: TranslationManager.translate("postshotreview.portal.m5", "M5 %1").arg(Number(portalMetricsCard.pa.M5 || 0).toFixed(2))
+                                   + " \u00b7 " + ((portalMetricsCard.pa.recentContributionShare5g || 0) * 100).toFixed(1) + "%"
+                            valueFont: Theme.bodyFont
                         }
                     }
 
@@ -2915,10 +2876,13 @@ T.Page {
                         Layout.fillWidth: true
                         visible: portalMetricsCard.ratioAdviceText !== ""
                         text: portalMetricsCard.ratioAdviceText
-                        font.families: Theme.captionFont.families
-                        font.pixelSize: Theme.captionFont.pixelSize
-                        font.bold: portalMetricsCard.lowTailConcentration || portalMetricsCard.possibleUnderExtraction
-                        color: (portalMetricsCard.lowTailConcentration || portalMetricsCard.possibleUnderExtraction)
+                        // `font.families:` is not assignable as a grouped property (fails at load).
+                        font: Qt.font({
+                            families: Theme.captionFont.families,
+                            pixelSize: Theme.captionFont.pixelSize,
+                            bold: portalMetricsCard.lowTailConcentration || portalMetricsCard.suggestsLongerRatio
+                        })
+                        color: (portalMetricsCard.lowTailConcentration || portalMetricsCard.suggestsLongerRatio)
                                ? Theme.warningColor : Theme.textColor
                         wrapMode: Text.WordWrap
                         Accessible.ignored: true
@@ -2929,9 +2893,11 @@ T.Page {
                         visible: !portalMetricsCard.estimateReliable && portalMetricsCard.uncertaintySummary !== ""
                         textFormat: Text.StyledText
                         text: Theme.replaceEmojiWithImg("\u26a0 " + portalMetricsCard.uncertaintySummary, font.pixelSize)
-                        font.families: Theme.captionFont.families
-                        font.pixelSize: Theme.captionFont.pixelSize
-                        font.bold: true
+                        font: Qt.font({
+                            families: Theme.captionFont.families,
+                            pixelSize: Theme.captionFont.pixelSize,
+                            bold: true
+                        })
                         color: Theme.warningColor
                         wrapMode: Text.WordWrap
                         Accessible.ignored: true

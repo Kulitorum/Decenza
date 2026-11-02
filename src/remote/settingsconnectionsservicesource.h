@@ -41,6 +41,8 @@ public:
 private:
     void refreshSnapshot();
     void refreshPortalCalibration();
+    void runPortalCalibrationRefresh();
+    bool portalCalibrationWanted() const;
     void finish(const QString& requestId, const QString& operation, bool success,
                 const QVariantMap& result = {}, const QString& reason = {});
     bool exactArguments(const QVariantMap& arguments,
@@ -53,6 +55,8 @@ private:
     QPointer<Settings> m_settings;
     QPointer<ShotHistoryStorage> m_shotHistory;
     QString m_portalCalibrationRequestId;
+    bool m_portalCalibrationWanted = false;
+    bool m_portalCalibrationRefreshQueued = false;
     QPointer<BLEManager> m_bleManager;
     QPointer<DE1Device> m_de1Device;
     QPointer<ScaleDeviceProxy> m_scaleDevice;

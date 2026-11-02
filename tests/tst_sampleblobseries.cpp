@@ -112,6 +112,8 @@ private slots:
         model.addPortalSample(0.42, 0.8, 75.0);
         model.markPortalGap();
         model.addPortalSample(1.2, 1.1, 83.0);
+        model.recordWeightSource(QStringLiteral("physical_scale"));
+        model.setPortalMountingMode(QStringLiteral("independent"));
         ShotRecord record;
         giveIdentity(record);
         record.summary.timestamp = 1755000000;
@@ -130,15 +132,22 @@ private slots:
         // this does not assert that the remote service retains the extension.
         const QJsonObject download{{"timeframe", exported["elapsed"]},
             {"data", QJsonObject{{"espresso_pressure", exported["pressure"].toObject()["pressure"]}}},
-            {"decenza_portal_samples", exported["decenza_portal_samples"]}};
+            {"decenza_portal_samples", exported["decenza_portal_samples"]},
+            {"decenza_weight_source", exported["decenza_weight_source"]},
+            {"decenza_portal_mounting_mode", exported["decenza_portal_mounting_mode"]}};
         auto parsed = ShotFileParser::parseVisualizerShot(download, "", "", record.summary.timestamp);
         QVERIFY2(parsed.success, qPrintable(parsed.errorMessage));
         QCOMPARE(PortalSamples::toVariant(parsed.record.portalSamples), model.portalSamplesVariant());
+        // Provenance decides calibration eligibility, so it must survive the file round trip.
+        QCOMPARE(parsed.record.weightSource, QStringLiteral("physical_scale"));
+        QCOMPARE(parsed.record.portalMountingMode, QStringLiteral("independent"));
         const qint64 id = storage.importShotRecord(parsed.record, false);
         QVERIFY(id > 0);
         withTempDb(path, "portal_reload", [&](QSqlDatabase& db) {
             const auto loaded = ShotHistoryStorage::loadShotRecordStatic(db, id);
             QCOMPARE(PortalSamples::toVariant(loaded.portalSamples), model.portalSamplesVariant());
+            QCOMPARE(loaded.weightSource, QStringLiteral("physical_scale"));
+            QCOMPARE(loaded.portalMountingMode, QStringLiteral("independent"));
         });
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());

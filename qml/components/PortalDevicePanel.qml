@@ -49,6 +49,7 @@ ColumnLayout {
         text: TranslationManager.translate("portal.commonScan", "Use Scan for Devices to select PORTAL.")
         color: Theme.textSecondaryColor
         wrapMode: Text.Wrap
+        font: Theme.captionFont
     }
     RowLayout {
         Layout.fillWidth: true
@@ -113,6 +114,8 @@ ColumnLayout {
             Layout.fillWidth: true
             text: panel.calibration.loading
                 ? TranslationManager.translate("portal.calibration.loading", "Updating calibration…")
+                : panel.calibration.error === "queryFailed"
+                  ? TranslationManager.translate("portal.calibration.queryFailed", "Calibration data could not be read. Reopen Settings to retry; details are in the log.")
                 : panel.calibration.error
                   ? TranslationManager.translate("portal.calibration.error", "Calibration unavailable. Reopen Settings to retry.")
                   : panel.calibration.calibrated
@@ -135,6 +138,7 @@ ColumnLayout {
                        + " · " + TranslationManager.translate("portal.calibration.affine", "Active fit includes an offset; k above is the proportional comparison.") : "")
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         Text {
             Layout.fillWidth: true
@@ -145,14 +149,13 @@ ColumnLayout {
                      ? " · " + TranslationManager.translate("portal.calibration.preliminary", "Preliminary: fewer than five reference shots") : "")
                   + (panel.calibration.hasCrossValidation
                      ? "\n" + TranslationManager.translate("portal.calibration.errorTds", "Leave-one-out error: %1 TDS percentage points")
-                         .arg(Number(panel.calibration.activeModel === "affine"
-                                     ? panel.calibration.affineLoocvMaeTdsPct
-                                     : panel.calibration.proportionalLoocvMaeTdsPct).toFixed(2)) : "")
+                         .arg(Number(panel.calibration.activeLoocvMaeTdsPct).toFixed(2)) : "")
                   + "\n" + TranslationManager.translate("portal.calibration.range", "Measured ratio range: 1:%1–1:%2")
                       .arg(Number(panel.calibration.minRatio || 0).toFixed(2))
                       .arg(Number(panel.calibration.maxRatio || 0).toFixed(2))
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         Text {
             Layout.fillWidth: true
@@ -162,12 +165,14 @@ ColumnLayout {
                 : TranslationManager.translate("postshotreview.portal.unvalidated", "TDS/EY withheld: independent prediction error cannot be checked from one reference.")
             color: Theme.warningColor
             wrapMode: Text.Wrap
+            font: Theme.bodyFont
         }
         Text {
             Layout.fillWidth: true
             text: TranslationManager.translate("portal.calibration.help", "Save refractometer TDS on a shot in History or Shot Review. The fit updates automatically. EC dips, missing data and high-temperature warnings exclude a shot. Use the same PORTAL, water and coffee; a new coffee needs its own references.")
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         AccessibleButton {
             id: referencesToggle
@@ -178,7 +183,7 @@ ColumnLayout {
             onClicked: expanded = !expanded
         }
         Repeater {
-            model: referencesToggle.expanded ? (panel.calibration.referenceShots || []).slice(0, 20) : []
+            model: referencesToggle.expanded ? (panel.calibration.referenceShots || []) : []
             delegate: Text {
                 required property var modelData
                 Layout.fillWidth: true
@@ -207,6 +212,7 @@ ColumnLayout {
         text: TranslationManager.translate("portal.connectionProblem", "PORTAL connection or measurement problem. Reconnect while the machine is idle; details are available below.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
+        font: Theme.bodyFont
     }
     Text {
         Layout.fillWidth: true
@@ -214,6 +220,7 @@ ColumnLayout {
         text: TranslationManager.translate("portal.displaySyncFailed", "PORTAL display sync failed. Measurements can continue; check the graph on PORTAL.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
+        font: Theme.bodyFont
     }
     AccessibleButton {
         id: diagnosticToggle
@@ -233,12 +240,14 @@ ColumnLayout {
             text: TranslationManager.translate("portal.lastError", "Last error") + ": " + panel.portalState.errorMessage
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         Text {
             Layout.fillWidth: true
             text: TranslationManager.translate("portal.measurementNote", "EC is recorded as a raw value; units are unverified. The display commands do not report whether PORTAL saved a session.")
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
+            font: Theme.captionFont
         }
         GridLayout {
             Layout.fillWidth: true
@@ -266,6 +275,7 @@ ColumnLayout {
                   ? TranslationManager.translate("portal.commandPending", "Sending display command…")
                   : panel.portalState.displayCommandStatus === "failed"
                     ? TranslationManager.translate("portal.commandFailed", "Display command failed. Check the PORTAL screen before trying again.") : ""
+            font: Theme.captionFont
         }
         Text {
             Layout.fillWidth: true

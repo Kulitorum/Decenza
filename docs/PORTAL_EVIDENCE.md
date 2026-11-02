@@ -61,7 +61,7 @@ Compute `massWeightedTempC` and, only with complete auxiliary coverage,
 `massWeightedAuxiliaryTemperatureRaw` on the same observed, gap-free positive
 mass increments as the EC integral. Dry pre-shot periods and scale plateaus have
 zero weight. Preserve `meanTempC` and the existing stored summary column as the
-legacy sample mean, rather than silently changing old calibration inputs.
+legacy sample mean, rather than redefining a stored column.
 
 These diagnostics can help investigate warm-up and timing. They cannot determine
 whether the hardware has already compensated EC or reconstruct missing legacy

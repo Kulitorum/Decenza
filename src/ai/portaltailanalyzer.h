@@ -6,6 +6,7 @@
 
 #include <QPointF>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
@@ -13,31 +14,22 @@
 // Mass-space analysis and empirical calibration for Belka PORTAL electrical
 // conductivity (EC) curves paired with physical scale cumulative cup weight.
 //
-// Scientific & physical guardrails:
-//   - Belka PORTAL reports raw electrical conductivity (`ecRaw`) in device
-//     units, not optical refractive index (TDS %). Without a bean- and
-//     water-specific calibration against a refractometer, `ecRaw` and its
-//     mass integral must NEVER be presented as physical TDS % or physical
-//     Extraction Yield %. Integrals remain raw-EC * g even when a separate
-//     empirical refractometer model supplies an estimated TDS/EY.
-//   - Mass-space integration requires a physical scale (`WeightSource::PhysicalScale`).
-//     Virtual FlowScale curves (derived from DE1 pump flow) are explicitly
-//     rejected (`Status::RequiresPhysicalScale`).
+// Raw EC and its mass integral are device units, never TDS % or EY %. Only a
+// coffee-specific refractometer fit may supply an estimated TDS/EY, and only
+// a physical scale curve can be integrated (virtual FlowScale weight is
+// rejected with Status::RequiresPhysicalScale).
 class PortalTailAnalyzer {
 public:
     static constexpr double kGapSplitSeconds = 0.5;
     static constexpr double kBoundaryClampSeconds = 0.5;
-    static constexpr double kMinTailMassG = 5.0;
+    static constexpr double kTailWindowG = 5.0; // Tail features need this much observed mass.
     static constexpr double kMinCoverageRatio = 0.85;
     static constexpr double kCupMassToleranceG = 0.1; // One step of Shot Review's cup-weight input.
     static constexpr double kActivePeakMinMassG = 2.0;
     static constexpr double kMinInstabilityProminenceRawEc = 0.8;
+    static constexpr qsizetype kMaxReferenceShots = 20;
 
-    enum class WeightSource {
-        Unknown,
-        PhysicalScale,
-        FlowScaleVirtual
-    };
+    enum class WeightSource { Unknown, PhysicalScale, FlowScaleVirtual };
 
     enum class MountingMode {
         Unknown,
@@ -53,6 +45,10 @@ public:
         InsufficientWeightData,
         InsufficientCoverage
     };
+
+    enum class CalibrationModel { None, Proportional, Affine };
+    enum class CalibrationScope { None, Bag, Bean };
+    enum class RatioAdvice { TasteFirst, Uncertain, TryLonger, TryShorter };
 
     struct InstabilityDip {
         double startMassG = 0.0;
@@ -74,32 +70,36 @@ public:
         double doseWeightG = 0.0;
         double finalWeightG = 0.0; // Metadata ratio; observed coverage still uses the scale curve.
         double activeStopTimeSec = 0.0; // >0 splits active pour vs post-stop SAW settling
-        double lagOffsetSec = 0.0;      // Evaluates EC(t + lagOffsetSec) against m(t)
+    };
+
+    // The four values a shot row persists, zero unless the analysis is valid.
+    struct PersistedSummary {
+        double meanRawEcPerG = 0.0;
+        double integralRawEcG = 0.0;
+        double meanTempC = 0.0;
+        bool measurementReliable = false;
     };
 
     struct Result {
-        bool valid = false;
         Status status = Status::NoPortalData;
         WeightSource weightSource = WeightSource::Unknown;
         MountingMode mountingMode = MountingMode::Unknown;
-        QString calibrationMode = QStringLiteral("relative_proxy_only");
-        double lagOffsetSec = 0.0;
 
         // Sample & coverage diagnostics
-        int portalSampleCount = 0;
-        int weightSampleCount = 0;
-        int gapCount = 0;
+        qsizetype portalSampleCount = 0;
+        qsizetype weightSampleCount = 0;
+        qsizetype gapCount = 0;
         double totalMassG = 0.0;
         double coveredMassG = 0.0;
         double coverageRatio = 0.0;
 
-        // Peak & terminal EC (raw-EC) + mean sensor temperature (C)
+        // Peak & terminal EC (raw-EC) + sensor temperature (C)
         double peakRawEc = 0.0;
         double peakTimeSec = 0.0;
         double mainPeakRawEc = 0.0; // Peak EC at cumulative mass >= kActivePeakMinMassG
         double mainPeakMassG = 0.0;
         double finalRawEc = 0.0;
-        double meanTempC = 0.0; // Legacy time-sample mean, including dry/plateau periods.
+        double meanTempC = 0.0; // Time-sample mean; persisted and displayed only.
         double massWeightedTempC = 0.0;
         std::optional<double> massWeightedAuxiliaryTemperatureRaw;
 
@@ -118,16 +118,17 @@ public:
         double recentContributionShare5g = 0.0; // int_{M-5}^M EC dm / int_0^M EC dm
 
         // Mid-shot instability / V-dip events after main peak
-        int instabilityDipCount = 0;
+        qsizetype instabilityDipCount = 0;
         double maxDipProminenceRawEc = 0.0;
         QVector<InstabilityDip> instabilityDips;
 
-        // Safeguards & reliability diagnostics for EC -> TDS/EY estimation
         double maxTempC = 0.0;
         bool thermalDriftWarning = false;
-        bool estimateReliable = false;
-        bool calibrationEligible = false;
-        QStringList uncertaintyReasons;
+        // Fixed by analyze(): the measurement itself is clean enough to train a
+        // calibration and to support ratio advice. Calibration never changes it.
+        bool measurementReliable = false;
+        QStringList uncertaintyReasons; // Measurement caveats, fixed by analyze().
+        QStringList calibrationReasons; // Prediction caveats, replaced by each applyCalibration().
 
         // Shot completion / cut-point & historical ratio advisor
         double massAt85PctIntegralG = 0.0;
@@ -135,35 +136,36 @@ public:
         double post1to2MassG = 0.0;
         double post1to2ContributionShare = 0.0;
         bool lowTailConcentration = false;
-        bool possibleUnderExtraction = false;
         double bestHistoricalWeightG = 0.0;
         double bestHistoricalRatio = 0.0;
         int bestHistoricalEnjoyment = 0;
-        QString ratioAdvice = QStringLiteral("taste_first");
+        RatioAdvice ratioAdvice = RatioAdvice::TasteFirst;
 
         // Empirical refractometer calibration (Atago PAL / drink_tds paired shots)
         bool calibrated = false;
         bool predictionAvailable = false;
         bool calibrationHasCrossValidation = false;
-        double calibrationBaselineLoocvRmseTdsPct = 0.0;
-        QString calibrationScope;       // "bag" | "bean" | ""
-        int calibrationShotCount = 0;
+        CalibrationModel calibrationModel = CalibrationModel::None;
+        CalibrationScope calibrationScope = CalibrationScope::None;
+        qsizetype calibrationShotCount = 0;
         double calibrationSlopeK = 0.0; // Proportional model: TDS% = k * meanRawEcPerG
-        bool calibrationAffineValid = false;
         double calibrationAffineA = 0.0; // Affine model: TDS% = a * meanRawEcPerG + b
         double calibrationAffineB = 0.0;
-        double calibrationMaeTdsPct = 0.0;
-        double calibrationRmseTdsPct = 0.0;
         double calibrationLoocvMaeTdsPct = 0.0;
-        double calibrationLoocvRmseTdsPct = 0.0;
-        double calibrationTempCorrR = 0.0;
-        double calibrationTempSlopePctPerC = 0.0;
         double estimatedTdsPct = 0.0;
         double estimatedEyPct = 0.0;
         bool hasValidationReading = false;
+        double selfReferenceK = 0.0;           // This shot's own measured TDS / meanRawEcPerG
         double validationResidualTdsPct = 0.0; // estimatedTdsPct - measuredTdsPct
-        double validationResidualEyPct = 0.0;  // estimatedEyPct - measuredEyPct
 
+        bool valid() const { return status == Status::Valid; }
+        // No measurement or calibration caveat applies.
+        bool estimateReliable() const
+        {
+            return valid() && uncertaintyReasons.isEmpty() && calibrationReasons.isEmpty();
+        }
+        QString calibrationMode() const;
+        PersistedSummary persistedSummary() const;
         QVariantMap toVariantMap() const;
     };
 
@@ -173,21 +175,22 @@ public:
         double doseWeightG = 0.0;
         double finalWeightG = 0.0;
         double meanRawEcPerG = 0.0;
-        double integralRawEcG = 0.0;
-        double meanTempC = 0.0;
         double measuredTdsPct = 0.0;
-        double measuredEyPct = 0.0;
         qint64 bagId = -1;
         QString beanBrand;
         QString beanType;
         int enjoyment = 0;
-        QString tasteBalance;
-        QString tasteBody;
-        QString espressoNotes;
-        bool estimateReliable = false;
+        bool measurementReliable = false;
         MountingMode mountingMode = MountingMode::Unknown;
         qint64 equipmentId = 0;
         QString profileName;
+    };
+
+    struct Prediction {
+        bool available = false; // A reliable measurement, a supported model, inside the measured range.
+        double tdsPct = 0.0;
+        double eyPct = 0.0;
+        QStringList uncertaintyReasons;
     };
 
     struct CalibrationFit {
@@ -195,21 +198,18 @@ public:
         bool hasCrossValidation = false;
         bool predictionSupported = false;
         double baselineLoocvRmseTdsPct = 0.0;
-        QString activeModel = QStringLiteral("none"); // "proportional" | "affine" | "none"
-        QString scope = QStringLiteral("none");       // fitCalibration resolves to "bag" or "bean", even without references
-        int shotCount = 0;
-        int excludedShotCount = 0;
-        QVariantList referenceShots;
+        CalibrationModel activeModel = CalibrationModel::None;
+        CalibrationScope scope = CalibrationScope::None;
+        qsizetype shotCount = 0;
+        qsizetype excludedShotCount = 0;
+        QVariantList referenceShots; // At most kMaxReferenceShots, most relevant first.
         double minMeanRawEc = 0.0;
         double maxMeanRawEc = 0.0;
         double minRatio = 0.0;
         double maxRatio = 0.0;
 
-        // Model 1: Proportional (TDS% = k * meanRawEcPerG)
+        // Model 1: Proportional (TDS% = k * meanRawEcPerG); errors are leave-one-out.
         double proportionalK = 0.0;
-        double proportionalMaeTdsPct = 0.0;
-        double proportionalRmseTdsPct = 0.0;
-        double proportionalBiasTdsPct = 0.0;
         double proportionalLoocvMaeTdsPct = 0.0;
         double proportionalLoocvRmseTdsPct = 0.0;
 
@@ -218,33 +218,16 @@ public:
         bool affineHasCrossValidation = false;
         double affineSlopeA = 0.0;
         double affineInterceptB = 0.0;
-        double affineMaeTdsPct = 0.0;
-        double affineRmseTdsPct = 0.0;
-        double affineBiasTdsPct = 0.0;
         double affineLoocvMaeTdsPct = 0.0;
         double affineLoocvRmseTdsPct = 0.0;
 
-        // Step 3: Empirical temperature dependence diagnostics across paired shots
-        double tempCorrelationR = 0.0;
-        double tempSlopePctPerC = 0.0;
+        bool affineActive() const { return activeModel == CalibrationModel::Affine; }
+        double activeLoocvMaeTdsPct() const { return affineActive() ? affineLoocvMaeTdsPct : proportionalLoocvMaeTdsPct; }
+        double activeLoocvRmseTdsPct() const { return affineActive() ? affineLoocvRmseTdsPct : proportionalLoocvRmseTdsPct; }
 
-        double predictTdsPct(double meanRawEcPerG) const;
-        double predictEyPct(double meanRawEcPerG, double finalWeightG, double doseWeightG) const;
-        QStringList predictionUncertainty(double meanRawEcPerG, double finalWeightG, double doseWeightG) const;
-        QVariantMap toVariantMap() const;
-    };
-
-    struct LagSensitivityPoint {
-        double lagOffsetSec = 0.0;
-        bool valid = false;
-        double integralRawEcG = 0.0;
-        double meanRawEcPerG = 0.0;
-        double tailMean2g = 0.0;
-        double tailMean5g = 0.0;
-        double tailSlope5gPerG = 0.0;
-        double tailRatio5g = 0.0;
-        double recentContributionShare5g = 0.0;
-
+        // The single prediction gate shared by Shot Review, History and the AI payload.
+        Prediction predict(double meanRawEcPerG, double finalWeightG, double doseWeightG,
+                           bool measurementReliable) const;
         QVariantMap toVariantMap() const;
     };
 
@@ -252,9 +235,12 @@ public:
                           const QVector<QPointF>& cumulativeWeight,
                           const Options& options);
 
-    static Options optionsForShot(const QString& weightSource, const QString& mountingMode,
-                                  double doseWeightG, double finalWeightG,
-                                  const QVector<QPointF>& pressure);
+    // analyze() with Options decoded from a stored shot; pressure's last sample marks the active stop.
+    static Result analyzeShot(const QVector<PortalSample>& portalSamples,
+                              const QVector<QPointF>& cumulativeWeight,
+                              const QString& weightSource, const QString& mountingMode,
+                              double doseWeightG, double finalWeightG,
+                              const QVector<QPointF>& pressure);
 
     static CalibrationFit fitCalibration(const QVector<CalibrationPoint>& points,
                                          qint64 targetBagId = -1,
@@ -267,8 +253,7 @@ public:
                                  const CalibrationFit& fit,
                                  double finalWeightG,
                                  double doseWeightG,
-                                 double measuredTdsPct = 0.0,
-                                 double measuredEyPct = 0.0);
+                                 double measuredTdsPct = 0.0);
 
     static double extractionYieldPct(double tdsPct, double finalWeightG, double doseWeightG);
 
@@ -284,17 +269,22 @@ public:
                                     qint64 targetEquipmentId = 0,
                                     const QString& targetProfileName = QString());
 
-    static QVector<LagSensitivityPoint> analyzeLagSensitivity(
-        const QVector<PortalSample>& portalSamples,
-        const QVector<QPointF>& cumulativeWeight,
-        const Options& baseOptions,
-        const QVector<double>& lagOffsetsSec = defaultLagOffsetsSec());
-
-    static QVector<double> defaultLagOffsetsSec();
-
+    // Case-folded so SQL scope resolution, fitting and the History cache agree.
     static QString coffeeNameKey(const QString& name);
 
-    static WeightSource weightSourceFromString(const QString& source);
+    // A physical-scale curve with a recorded mounting: the only shots a calibration may learn from.
+    static bool hasReferenceProvenance(const QString& weightSource, const QString& mountingMode)
+    {
+        return weightSourceFromString(weightSource) == WeightSource::PhysicalScale
+            && mountingModeFromString(mountingMode) != MountingMode::Unknown;
+    }
+
+    static WeightSource weightSourceFromString(const QString& source)
+    {
+        if (source == QLatin1String("physical_scale")) return WeightSource::PhysicalScale;
+        if (source == QLatin1String("flow_scale_virtual")) return WeightSource::FlowScaleVirtual;
+        return WeightSource::Unknown;
+    }
     static MountingMode mountingModeFromString(const QString& mode,
                                                Qt::CaseSensitivity casing = Qt::CaseSensitive)
     {
@@ -304,7 +294,18 @@ public:
     }
 
     static QString statusToString(Status status);
-    static QString weightSourceToString(WeightSource source);
+    static QString weightSourceToString(WeightSource source)
+    {
+        switch (source) {
+        case WeightSource::PhysicalScale:
+            return QStringLiteral("physical_scale");
+        case WeightSource::FlowScaleVirtual:
+            return QStringLiteral("flow_scale_virtual");
+        case WeightSource::Unknown:
+            return QStringLiteral("unknown");
+        }
+        return QStringLiteral("unknown");
+    }
     static QString mountingModeToString(MountingMode mode)
     {
         switch (mode) {
@@ -317,6 +318,9 @@ public:
         }
         return QStringLiteral("unknown");
     }
+    static QString calibrationModelToString(CalibrationModel model);
+    static QString calibrationScopeToString(CalibrationScope scope);
+    static QString ratioAdviceToString(RatioAdvice advice);
 };
 
 #endif // DECENZA_PORTALTAILANALYZER_H
