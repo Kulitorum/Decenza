@@ -283,6 +283,8 @@ public:
 
     static QVector<double> defaultLagOffsetsSec();
 
+    static QString coffeeNameKey(const QString& name);
+
     static WeightSource weightSourceFromString(const QString& source);
     static MountingMode mountingModeFromString(const QString& mode,
                                                Qt::CaseSensitivity casing = Qt::CaseSensitive);

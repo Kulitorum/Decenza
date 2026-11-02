@@ -39,6 +39,12 @@ solids. The app SHALL NOT append warnings to the user's tasting notes when savin
 - **WHEN** the current cup has no taste feedback
 - **THEN** another cup's feedback SHALL NOT mark the current cup under-extracted
 
+#### Scenario: Empirical calibration is preliminary
+
+- **WHEN** the same reliable measurement has zero or fewer than five refractometer references
+- **THEN** its measurement-based ratio advice SHALL remain unchanged
+- **AND** any available TDS/EY estimate SHALL still report calibration uncertainty
+
 #### Scenario: Metadata changes in Shot Review
 
 - **WHEN** taste or refractometer metadata is saved

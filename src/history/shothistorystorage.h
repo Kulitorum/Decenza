@@ -919,6 +919,8 @@ public:
     static QString grinderModelMatchSql(const QString& placeholder);
 private:
 
+    static bool refreshPortalEligibilityInTransaction(QSqlDatabase& db, qint64 shotId);
+
     // Run a SELECT DISTINCT against m_db and return the non-empty values.
     // THE single place these getters touch the database.
     QStringList queryDistinctList(const QString& sql, const QVariantList& binds = {});

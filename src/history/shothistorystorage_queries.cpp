@@ -707,8 +707,8 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                                     rowDrinkTds, rowFinalWeight, rowDoseWeight);
                             if (portalMeanEc > 0.0 && portalReliable && rowDrinkTds <= 0.0) {
                                 const auto mode = PortalTailAnalyzer::mountingModeFromString(query.value(31).toString());
-                                const PortalFitKey key{rowBagId > 0 ? rowBagId : -1, rowBeanBrand.trimmed().toLower(),
-                                                       rowBeanType.trimmed().toLower(), mode};
+                                const PortalFitKey key{rowBagId > 0 ? rowBagId : -1, PortalTailAnalyzer::coffeeNameKey(rowBeanBrand),
+                                                       PortalTailAnalyzer::coffeeNameKey(rowBeanType), mode};
                                 auto cached = portalFits.find(key);
                                 if (cached == portalFits.end()) {
                                     // No measured TDS on these targets: none can train its own fit.

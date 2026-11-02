@@ -895,6 +895,11 @@ QVariantMap PortalTailAnalyzer::CalibrationFit::toVariantMap() const
     return m;
 }
 
+QString PortalTailAnalyzer::coffeeNameKey(const QString& name)
+{
+    return name.trimmed().toCaseFolded();
+}
+
 PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
     const QVector<CalibrationPoint>& points,
     qint64 targetBagId,
@@ -938,8 +943,8 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
 
     if (selected.isEmpty() && !targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()) {
         for (const auto& p : pool) {
-            if (p.beanBrand.trimmed().compare(targetBeanBrand.trimmed(), Qt::CaseInsensitive) == 0
-                && p.beanType.trimmed().compare(targetBeanType.trimmed(), Qt::CaseInsensitive) == 0) {
+            if (coffeeNameKey(p.beanBrand) == coffeeNameKey(targetBeanBrand)
+                && coffeeNameKey(p.beanType) == coffeeNameKey(targetBeanType)) {
                 selected.append(p);
             }
         }
@@ -953,8 +958,8 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
     for (const auto& p : points) {
         const bool sameCoffee = scope == QLatin1String("bag") ? p.bagId == targetBagId
             : !targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()
-                && p.beanBrand.trimmed().compare(targetBeanBrand.trimmed(), Qt::CaseInsensitive) == 0
-                && p.beanType.trimmed().compare(targetBeanType.trimmed(), Qt::CaseInsensitive) == 0;
+                && coffeeNameKey(p.beanBrand) == coffeeNameKey(targetBeanBrand)
+                && coffeeNameKey(p.beanType) == coffeeNameKey(targetBeanType);
         if (!sameCoffee || (excludeShotId > 0 && p.shotId == excludeShotId) || p.measuredTdsPct <= 0.0)
             continue;
         const bool included = std::any_of(selected.cbegin(), selected.cend(),
@@ -1242,8 +1247,8 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
             continue;
         const bool sameCoffee = targetBagId > 0 ? pt.bagId == targetBagId
             : (!targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()
-               && pt.beanBrand.trimmed().compare(targetBeanBrand.trimmed(), Qt::CaseInsensitive) == 0
-               && pt.beanType.trimmed().compare(targetBeanType.trimmed(), Qt::CaseInsensitive) == 0);
+               && coffeeNameKey(pt.beanBrand) == coffeeNameKey(targetBeanBrand)
+               && coffeeNameKey(pt.beanType) == coffeeNameKey(targetBeanType));
         if (sameCoffee && (!bestShot || pt.enjoyment > bestShot->enjoyment))
             bestShot = &pt;
     }

@@ -1629,6 +1629,65 @@ private slots:
             QVERIFY(q.exec("DROP TRIGGER portal_refresh_failure"));
         });
 
+        withTempDb(dbPath, "portal_visualizer_refresh", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("UPDATE shots SET visualizer_dirty=0 WHERE id=?");
+            q.addBindValue(warmId);
+            QVERIFY(q.exec());
+            for (const auto& edit : QList<QVariantMap>{
+                     {{"doseWeight", 12.0}}, {{"doseWeight", 16.0}},
+                     {{"finalWeight", 48.0}}, {{"finalWeight", 32.0}}}) {
+                QVariantMap written, previous;
+                QVERIFY(ShotHistoryStorage::applyVisualizerPullStatic(db, warmId, edit, &written, &previous));
+                QCOMPARE(written, edit);
+                q.prepare("SELECT portal_estimate_reliable, visualizer_dirty FROM shots WHERE id=?");
+                q.addBindValue(warmId);
+                QVERIFY(q.exec() && q.next());
+                const bool reliable = edit.value("doseWeight").toDouble() == 16.0
+                    || edit.value("finalWeight").toDouble() == 32.0;
+                QCOMPARE(q.value(0).toBool(), reliable);
+                QCOMPARE(q.value(1).toInt(), 0);
+                q.finish();
+                const auto analysis = ShotHistoryStorage::shotOutcomeStatic(db, warmId).value("portalAnalysis").toMap();
+                QCOMPARE(analysis.value("calibrationEligible").toBool(), reliable);
+            }
+            QVERIFY(q.exec("CREATE TRIGGER portal_pull_failure BEFORE UPDATE OF portal_estimate_reliable ON shots "
+                           "WHEN NEW.portal_estimate_reliable=1 BEGIN SELECT RAISE(ABORT, 'refresh blocked'); END"));
+            QVariantMap written, previous;
+            QVERIFY(!ShotHistoryStorage::applyVisualizerPullStatic(db, warmId, {{"doseWeight", 17.0}}, &written, &previous));
+            QVERIFY(written.isEmpty());
+            q.prepare("SELECT dose_weight, portal_estimate_reliable FROM shots WHERE id=?");
+            q.addBindValue(warmId);
+            QVERIFY(q.exec() && q.next());
+            QCOMPARE(q.value(0).toDouble(), 16.0);
+            QVERIFY(q.value(1).toBool());
+            q.finish();
+            QVERIFY(q.exec("DROP TRIGGER portal_pull_failure"));
+        });
+
+        auto unicodeReference = makePortalRecord(QStringLiteral("unicode-reference"), 1700001100, 32.0, 8.0, 10.0);
+        unicodeReference.summary.beanBrand = QStringLiteral(" CAFÉ ");
+        unicodeReference.summary.beanType = QStringLiteral("ÅBØ");
+        const qint64 unicodeId = storage.importShotRecord(unicodeReference, true);
+        QVERIFY(unicodeId > 0);
+        auto unicodeTarget = unicodeReference;
+        unicodeTarget.summary.uuid = QStringLiteral("unicode-target");
+        unicodeTarget.summary.beanBrand = QStringLiteral("café");
+        unicodeTarget.summary.beanType = QStringLiteral(" åbø ");
+        unicodeTarget.drinkTds = unicodeTarget.drinkEy = 0.0;
+        QVERIFY(storage.importShotRecord(unicodeTarget, true) > 0);
+        storage.requestPortalCalibration(QStringLiteral("unicode-coffee"), -1,
+            QStringLiteral("Café"), QStringLiteral("åbø"), PortalTailAnalyzer::MountingMode::OnScale);
+        QTRY_COMPARE(calibrationReady.size(), 3);
+        const auto unicodeFit = calibrationReady.last().at(1).toMap();
+        QCOMPARE(unicodeFit.value("shotCount").toInt(), 1);
+        QVERIFY(std::abs(unicodeFit.value("proportionalK").toDouble() - 1.25) < 0.001);
+        storage.requestShotsFiltered({{QStringLiteral("beanBrand"), QStringLiteral("café")}}, 0, 50);
+        QTRY_COMPARE(listed.size(), 2);
+        const auto unicodeRows = listed.last().at(0).toList();
+        QCOMPARE(unicodeRows.size(), 1);
+        QVERIFY(std::abs(unicodeRows.first().toMap().value("portalEstTdsPct").toDouble() - 10.0) < 0.01);
+
         auto mismatched = makePortalRecord(QStringLiteral("unobserved-cup-tail"), 1700001000, 25.0, 8.0, 10.0);
         mismatched.summary.beanBrand = QStringLiteral("Other roaster");
         mismatched.summary.finalWeight = 40.0;

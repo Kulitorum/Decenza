@@ -4005,13 +4005,36 @@ QVector<PortalTailAnalyzer::CalibrationPoint>
 ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
     const QString& beanBrand, const QString& beanType)
 {
-    // M-series Mac, 31 SQLite reads on a real-history copy with synthetic PORTAL fields:
-    // 1,268 shots / 9.74 MB: median 0.035 ms, worst 0.180 ms;
-    // 10x (12,680 / 96.10 MB): median 1.171 ms, worst 1.752 ms.
-    // EXPLAIN uses idx_shots_portal; no logs or sample blobs enter this worker read.
+    // M-series Mac, 31 SQLite reads including name resolution on a real-history
+    // copy with synthetic PORTAL fields (Python casefold models Qt key matching):
+    // 1,268 shots / 9.74 MB: median 0.071 ms, worst 0.471 ms;
+    // 10x (12,680 / 96.10 MB): median 2.098 ms, worst 8.047 ms.
+    // No logs or sample blobs enter either worker read.
     QVector<PortalTailAnalyzer::CalibrationPoint> out;
+    // Resolve Unicode-equivalent names with the same Qt policy used by fitting.
+    // SQL then selects only the matching persisted identities (SQLite LOWER is ASCII-only).
+    QStringList coffeeScopes{bagId > 0 ? QStringLiteral("bag_id = :bag") : QStringLiteral("0")};
+    QVariantMap coffeeBinds;
+    const QString brandKey = PortalTailAnalyzer::coffeeNameKey(beanBrand);
+    const QString beanKey = PortalTailAnalyzer::coffeeNameKey(beanType);
+    if (!brandKey.isEmpty() && !beanKey.isEmpty()) {
+        QSqlQuery names(db);
+        if (!names.exec("SELECT DISTINCT bean_brand, bean_type FROM shots WHERE portal_present=1 "
+                        "AND (COALESCE(drink_tds,0)>0 OR COALESCE(enjoyment,0)>0)"))
+            return out;
+        while (names.next()) {
+            if (PortalTailAnalyzer::coffeeNameKey(names.value(0).toString()) != brandKey
+                || PortalTailAnalyzer::coffeeNameKey(names.value(1).toString()) != beanKey)
+                continue;
+            const QString brandBind = QStringLiteral(":brand%1").arg(coffeeBinds.size());
+            const QString beanBind = QStringLiteral(":bean%1").arg(coffeeBinds.size());
+            coffeeScopes << QString("(bean_brand=%1 AND bean_type=%2)").arg(brandBind, beanBind);
+            coffeeBinds.insert(brandBind, names.value(0));
+            coffeeBinds.insert(beanBind, names.value(1));
+        }
+    }
     QSqlQuery q(db);
-    if (!q.prepare(R"(
+    if (!q.prepare(QString(R"(
         SELECT id, bag_id, bean_brand, bean_type,
                portal_mean_ec, drink_tds, portal_mean_temp_c,
                dose_weight, final_weight, drink_ey, timestamp, portal_integral_ec_g,
@@ -4020,18 +4043,17 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 b
         FROM shots
         WHERE portal_present = 1
           AND (COALESCE(drink_tds, 0) > 0 OR COALESCE(enjoyment, 0) > 0)
-          AND (bag_id = :bag OR (LOWER(TRIM(bean_brand)) = LOWER(TRIM(:brand))
-               AND LOWER(TRIM(bean_type)) = LOWER(TRIM(:bean)) AND TRIM(:brand) != '' AND TRIM(:bean) != ''))
+          AND (%1)
         ORDER BY CASE WHEN COALESCE(portal_mean_ec, 0) > 0 AND COALESCE(drink_tds, 0) > 0 THEN 0
                       WHEN COALESCE(portal_mean_ec, 0) > 0 THEN 1
                       ELSE 2 END,
                  timestamp DESC
-    )")) {
+    )").arg(coffeeScopes.join(" OR ")))) {
         return out;
     }
-    q.bindValue(":bag", bagId);
-    q.bindValue(":brand", beanBrand);
-    q.bindValue(":bean", beanType);
+    if (bagId > 0) q.bindValue(":bag", bagId);
+    for (auto it = coffeeBinds.cbegin(); it != coffeeBinds.cend(); ++it)
+        q.bindValue(it.key(), it.value());
     if (!q.exec())
         return out;
 
@@ -4814,25 +4836,28 @@ bool ShotHistoryStorage::updateShotMetadataInTransaction(QSqlDatabase& db, qint6
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "No shot with id" << shotId << "to update";
         return false;
     }
-    if (refreshPortal) {
-        QSqlQuery samples(db);
-        samples.prepare("SELECT ss.data_blob, s.dose_weight, s.final_weight FROM shots s "
-                        "JOIN shot_samples ss ON ss.shot_id=s.id WHERE s.id=:id AND s.portal_present=1");
-        samples.bindValue(":id", shotId);
-        if (!samples.exec()) return false;
-        if (samples.next()) {
-            ShotRecord record;
-            decompressSampleData(samples.value(0).toByteArray(), &record);
-            const auto opts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
-                samples.value(1).toDouble(), samples.value(2).toDouble(), record.pressure);
-            samples.finish();
-            const auto result = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, opts);
-            QSqlQuery update(db);
-            update.prepare("UPDATE shots SET portal_estimate_reliable=:reliable WHERE id=:id");
-            update.bindValue(":reliable", result.valid && result.estimateReliable);
-            update.bindValue(":id", shotId);
-            if (!update.exec()) return false;
-        }
+    return !refreshPortal || refreshPortalEligibilityInTransaction(db, shotId);
+}
+
+bool ShotHistoryStorage::refreshPortalEligibilityInTransaction(QSqlDatabase& db, qint64 shotId)
+{
+    QSqlQuery samples(db);
+    samples.prepare("SELECT ss.data_blob, s.dose_weight, s.final_weight FROM shots s "
+                    "JOIN shot_samples ss ON ss.shot_id=s.id WHERE s.id=:id AND s.portal_present=1");
+    samples.bindValue(":id", shotId);
+    if (!samples.exec()) return false;
+    if (samples.next()) {
+        ShotRecord record;
+        decompressSampleData(samples.value(0).toByteArray(), &record);
+        const auto opts = PortalTailAnalyzer::optionsForShot(record.weightSource, record.portalMountingMode,
+            samples.value(1).toDouble(), samples.value(2).toDouble(), record.pressure);
+        samples.finish();
+        const auto result = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, opts);
+        QSqlQuery update(db);
+        update.prepare("UPDATE shots SET portal_estimate_reliable=:reliable WHERE id=:id");
+        update.bindValue(":reliable", result.valid && result.estimateReliable);
+        update.bindValue(":id", shotId);
+        if (!update.exec()) return false;
     }
     return true;
 }
@@ -4930,7 +4955,11 @@ bool ShotHistoryStorage::applyVisualizerPullStatic(QSqlDatabase& db, qint64 shot
     if (changes.isEmpty())
         return txn.commit();
 
+    const bool refreshPortal = changes.contains(QStringLiteral("doseWeight"))
+        || changes.contains(QStringLiteral("finalWeight"));
     QStringList sets;
+    if (refreshPortal)
+        sets << "portal_estimate_reliable = 0";
     for (auto it = changes.cbegin(); it != changes.cend(); ++it)
         sets << QString("%1 = :%1").arg(QString::fromLatin1(VisualizerSync::columnForKey(it.key())->column));
     sets << "updated_at = strftime('%s', 'now')";
@@ -4946,6 +4975,9 @@ bool ShotHistoryStorage::applyVisualizerPullStatic(QSqlDatabase& db, qint64 shot
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Visualizer pull write failed:" << q.lastError().text();
         return false;
     }
+    q.finish();
+    if (refreshPortal && !refreshPortalEligibilityInTransaction(db, shotId))
+        return false;
     if (!txn.commit())
         return false;
     *written = changes;

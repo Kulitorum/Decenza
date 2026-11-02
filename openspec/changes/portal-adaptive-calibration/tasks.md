@@ -47,3 +47,9 @@
 - [ ] 6.4 Share Options assembly across all analysis entry points, including the advisor fallback, and describe PORTAL units/ranges in the shared system prompt.
 - [ ] 6.5 Reuse mounting decoding in normalization/validation, finish the tail-window constant cleanup, stamp mounting only during active PORTAL capture, and distinguish missing provenance from virtual-scale data.
 - [ ] 6.6 Run the current platform suite and regression controls and recheck GitHub comments. Device acceptance and the rare import-failure path noted below threshold remain outside these automated checks.
+
+## 7. Additional GitHub findings at 4bc1afcf
+
+- [ ] 7.1 Share Unicode coffee-name normalization across SQL scope resolution, fitting, advice and the history cache; verify accented names through Settings and History and remeasure the query.
+- [ ] 7.2 Refresh PORTAL eligibility inside the Visualizer pull transaction, preserving clean sync state and rolling back metadata if refresh fails.
+- [ ] 7.3 Validate both new owner-boundary regressions and the current platform build; recheck GitHub before completing the audit.
