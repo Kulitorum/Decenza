@@ -86,9 +86,6 @@ bool missingIndex(const QJsonObject& args, const QString& action, QJsonObject& r
 
 } // namespace
 
-// machineState is gone from this signature: resolving the milk on the scale
-// moved into MainController::selectSteamPitcher with the rest of the shared
-// select, so this file no longer needs a machine at all.
 void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController)
 {
     // Apply a steam pitcher's stored parameters to the active steam settings and
@@ -96,7 +93,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     // on the Steam page. Used by select and by add (which auto-selects).
     // ONE function does this, and it is the same one the idle pill row, the
     // Steam widget popup, the Steam page and recipe activation call. This lambda
-    // used to re-implement its tail — resolve the milk, apply the values,
+    // used to re-implement its tail — apply the values,
     // dispatch on the result — and that copy drifted the moment the shared one
     // learned to clear the transient veto when a real pitcher is picked. The
     // symptom on a live machine: selecting "Heater off" over MCP and then

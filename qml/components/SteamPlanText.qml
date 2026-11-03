@@ -19,18 +19,13 @@ Item {
     readonly property bool _presetOff: !!(_preset && _preset.disabled)
     readonly property string _pitcherName: (_preset && _preset.name) ? String(_preset.name) : ""
 
-    // Target milk for the plan: the weight just measured this session (after the bell) if
-    // there is one, else the last measured milk. (The old per-pitcher calibMilkG is no
-    // longer consulted — weight-timing is now a global rate, and calibMilkG has no UI
-    // left to edit, so it would freeze the plan on a stale reference weight.)
-    //
+    // The milk captured this session, else the last steam's.
     readonly property real _targetMilk:
         !SteamService.ready ? 0
             : PreparationService.state.sessionMeasuredMilkG > 0
                 ? PreparationService.state.sessionMeasuredMilkG : (SteamService.state.lastSteamMilkG || 0)
-    // Preparation owns the start policy: current capturable milk can scale a
-    // locked time, while manual time and an active steam keep the actual timeout.
-    // Historical milk describes the plan but never substitutes for a fresh load.
+    // Preparation owns the time: only captured milk scales it, while manual time and
+    // an active steam keep the actual timeout. The last steam's milk never does.
     readonly property int _duration:
         SteamService.ready ? SteamService.state.plannedSteamDurationSec : 0
 

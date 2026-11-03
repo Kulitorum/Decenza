@@ -830,9 +830,7 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
                    QStringLiteral("The selected steam pitcher changed. Review it and try again."));
             return;
         }
-        m_controller->selectSteamPitcher(index,
-            m_controller->preparation()
-                ? m_controller->preparation()->sessionMeasuredMilkG() : 0.0);
+        m_controller->selectSteamPitcher(index);
         finish(requestId, operation, true, {}, {{QStringLiteral("index"), index}});
         return;
     }
@@ -937,11 +935,9 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
                    QStringLiteral("The selected steam pitcher changed. Select it again before starting."));
             return;
         }
-        // Native Home's second tap reapplies the selected pitcher so milk is
-        // recalculated from the current scale before the machine starts.
-        const double measuredMilkG = m_controller->preparation()
-            ? m_controller->preparation()->sessionMeasuredMilkG() : 0.0;
-        m_controller->selectSteamPitcher(index, measuredMilkG);
+        // Native Home's second tap reapplies the selected pitcher's values before
+        // the machine starts.
+        m_controller->selectSteamPitcher(index);
         QString applyReason;
         if (!validateStart(expectedContextId, &applyReason)
             || !MachineControlPresets::matchesSelection(

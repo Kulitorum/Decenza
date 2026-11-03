@@ -250,9 +250,6 @@ void NativeSteamServiceSource::refreshSnapshot()
         setWarningSnapshot(m_health->warningSnapshot().toJson().toVariantMap());
     }
     const auto preset = SteamPitcherSelection::presetAt(steamPitcherPresets(), selectedSteamPitcher());
-    const double measuredMilk = m_scale->connected() && !m_scale->isFlowScale()
-        ? SteamCalculations::netMilkForPitcher(preset,
-            m_preparation->loadOnScaleG(m_machineState->scaleWeight())) : 0.0;
     setDeviceConnected(m_device->isConnected());
     setDeviceState(m_device->stateInt());
     setDeviceSubState(m_device->subStateInt());
@@ -275,9 +272,6 @@ void NativeSteamServiceSource::refreshSnapshot()
     setSteamAutoFlushCountdown(m_controller->steamAutoFlushCountdown());
     setSteamTimeoutScaled(m_preparation->steamTimeoutScaled());
     setMilkScaleLoadG(m_preparation->milkScaleLoadG());
-    setMeasuredMilkG(measuredMilk);
-    setScaledSteamTimeout(SteamCalculations::scaledSteamTime(
-        preset, milkAutoCaptureEnabled(), steamSecondsPerGram(), measuredMilk));
     const auto* coach = m_controller->liveSteamCoach();
     setCueText(coach ? coach->cueText() : QString());
     setCueSeverity(coach ? coach->cueSeverity() : QString());

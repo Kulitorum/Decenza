@@ -738,29 +738,31 @@ QList<TranslationManager::ScannedString> TranslationManager::parseTranslatableSt
     // promise Qt does not make. A few microseconds of PCRE compile per file is not measurable
     // against regexing the file itself.
     //
+    // One QML string literal's body: no raw newline, and `\"` does not end it. A capture that
+    // stopped at the escaped quote registered `Profile "%1" is missing` as `Profile \`, which the
+    // runtime then overwrote and the next scan wrote back, and whose missing %1 made the
+    // community translation be rejected.
+    //
+    // The newline exclusion is load-bearing too. AISettingsPage has `fallback: "How to get an API
+    // key:"`, whose TEXT ends in `key:`, so `\bkey\s*:\s*"` matched at `key:"`; with no newline
+    // guard the capture ran to the next quote in the file and registered 249 characters of QML
+    // source as a key, which was then AI-translated and uploaded to the community server.
+    const QString body = QStringLiteral(R"(((?:[^"\\\n]|\\.)+))");
+    const auto literal = [&body](const char* prefix) {
+        return QRegularExpression(QLatin1String(prefix) + QStringLiteral("\"") + body + QStringLiteral("\""));
+    };
+
     // Pattern 1: Direct translate() calls - translate("key", "fallback")
-    QRegularExpression directCallRegex("translate\\s*\\(\\s*\"([^\"\\n]+)\"\\s*,\\s*\"([^\"\\n]+)\"\\s*\\)");
+    const QRegularExpression directCallRegex(QStringLiteral(R"(translate\s*\(\s*")") + body
+        + QStringLiteral(R"("\s*,\s*")") + body + QStringLiteral(R"("\s*\))"));
 
     // Pattern 2: ActionButton's translationKey/translationFallback properties
-    QRegularExpression propKeyRegex("translationKey\\s*:\\s*\"([^\"\\n]+)\"");
-    QRegularExpression propFallbackRegex("translationFallback\\s*:\\s*\"([^\"\\n]+)\"");
+    const QRegularExpression propKeyRegex = literal(R"(translationKey\s*:\s*)");
+    const QRegularExpression propFallbackRegex = literal(R"(translationFallback\s*:\s*)");
 
     // Pattern 3: Tr component's key/fallback properties - Tr { key: "..."; fallback: "..." }
-    // [^"\n] — the capture must NOT cross a line.
-    //
-    // With [^"]+ this matched inside a string literal and then ran away. AISettingsPage has
-    // `fallback: "How to get an API key:"`, whose TEXT ends in `key:` — so `\bkey\s*:\s*"`
-    // matched at `key:"` and captured everything up to the next quote in the file: 249
-    // characters of QML source, registered as a translation key.
-    //
-    // It was then dutifully AI-translated into every language and uploaded to the community
-    // server, where "How to get an API key:" is now stored against a key made of
-    // `color: Theme.textColor / font: Theme.subtitleFont / switch(Settings.ai.aiProvider)`.
-    //
-    // No QML string literal spans a raw newline, so excluding it costs nothing and stops the
-    // regex escaping its own quotes.
-    QRegularExpression trKeyRegex("\\bkey\\s*:\\s*\"([^\"\\n]+)\"");
-    QRegularExpression trFallbackRegex("\\bfallback\\s*:\\s*\"([^\"\\n]+)\"");
+    const QRegularExpression trKeyRegex = literal(R"(\bkey\s*:\s*)");
+    const QRegularExpression trFallbackRegex = literal(R"(\bfallback\s*:\s*)");
 
     // Pattern 1: Direct translate() calls
     QRegularExpressionMatchIterator matchIt = directCallRegex.globalMatch(content);
@@ -2567,7 +2569,6 @@ QString TranslationManager::unescapeQmlLiteral(const QString& literal)
             // escapes, \b \f \v \0 \xNN, \u{...}), so leaving it written verbatim is the
             // deliberate choice: a scanner that guesses can invent a character, one that
             // declines can only fail to decode. See the header for the full subset.
-            // rather than silently eating the backslash.
             out += u'\\';
             out += esc;
             break;

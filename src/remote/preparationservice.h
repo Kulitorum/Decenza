@@ -14,8 +14,8 @@ class PreparationServiceView final : public PreparationState
 public:
     explicit PreparationServiceView(PreparationService* service);
     bool selectMode(const QString& mode) override;
-    bool startMilkAttempt() override;
-    bool cancelMilkAttempt() override;
+    bool startMilkAttempt(const QString& surface) override;
+    bool cancelMilkAttempt(const QString& surface) override;
     bool setMilkTimeLocked(bool locked) override;
     void update(const PreparationSnapshot& snapshot, bool available, bool deliverEvents)
     { applySnapshot(snapshot, available, deliverEvents); }
@@ -46,7 +46,8 @@ private:
     explicit PreparationService(QRemoteObjectNode* node, QObject* parent);
     static QRemoteObjectNode* publishedNode();
     void refresh();
-    bool send(const QString& action);
+    bool send(const QString& action, const QString& owner = QString());
+    bool sendMilk(const QString& action, const QString& surface);
     void failPending();
     void report(const QString& requestId, const QString& action,
                 bool success, const QString& message);

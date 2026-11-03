@@ -24,7 +24,6 @@ struct PreparationSnapshot {
     bool milkTimeLocked = true;
     bool milkAttemptOpen = false;
     double sessionMeasuredMilkG = 0;
-    double lastOnScaleMilkG = 0;
     bool steamTimeoutScaled = false;
     double lastBeanGrams = 0;
     double lastMilkGrams = 0;
@@ -35,6 +34,16 @@ struct PreparationSnapshot {
     WeightCaptureSnapshot milk;
 
     static bool isMode(const QString& mode);
+    // A milk-offer owner: "<clientId>/<surface>". An empty surface gives the prefix
+    // shared by every owner of that client.
+    static QString milkOwner(const QString& clientId, const QString& surface)
+    { return clientId + QLatin1Char('/') + surface; }
+    // The client of an owner, or "" when the owner is not "<clientId>/<surface>".
+    static QString milkOwnerClient(const QString& owner)
+    {
+        const qsizetype slash = owner.indexOf(QLatin1Char('/'));
+        return slash > 0 && slash + 1 < owner.size() ? owner.left(slash) : QString();
+    }
     QJsonObject toJson() const;
     static bool parse(const QJsonObject&, PreparationSnapshot*, QString* error = nullptr);
 };
@@ -72,7 +81,6 @@ class PreparationState : public QObject {
     Q_PROPERTY(WeightCaptureState* bean READ bean CONSTANT FINAL)
     Q_PROPERTY(WeightCaptureState* milk READ milk CONSTANT FINAL)
     Q_PROPERTY(double sessionMeasuredMilkG READ sessionMeasuredMilkG NOTIFY changed FINAL)
-    Q_PROPERTY(double lastOnScaleMilkG READ lastOnScaleMilkG NOTIFY changed FINAL)
     Q_PROPERTY(bool steamTimeoutScaled READ steamTimeoutScaled NOTIFY changed FINAL)
     Q_PROPERTY(double milkScaleLoadG READ milkScaleLoadG NOTIFY changed FINAL)
     Q_PROPERTY(bool milkTimeLocked READ milkTimeLocked NOTIFY changed FINAL)
@@ -84,7 +92,6 @@ public:
     WeightCaptureState* bean() { return &m_bean; }
     WeightCaptureState* milk() { return &m_milk; }
     double sessionMeasuredMilkG() const { return m_snapshot.sessionMeasuredMilkG; }
-    double lastOnScaleMilkG() const { return m_snapshot.lastOnScaleMilkG; }
     bool steamTimeoutScaled() const { return m_snapshot.steamTimeoutScaled; }
     double milkScaleLoadG() const;
     // What is on the scale above the empty reading the milk capture learned: the
@@ -97,8 +104,13 @@ public:
 
     Q_INVOKABLE bool isPreparationMode(const QString& mode) const { return PreparationSnapshot::isMode(mode); }
     Q_INVOKABLE virtual bool selectMode(const QString& mode) = 0;
-    Q_INVOKABLE virtual bool startMilkAttempt() = 0;
-    Q_INVOKABLE virtual bool cancelMilkAttempt() = 0;
+    // A milk sample is offered by an owner and stays open while any owner holds it.
+    // Clients pass the offering surface; the client view qualifies it with its client
+    // id (PreparationSnapshot::milkOwner).
+    Q_INVOKABLE virtual bool startMilkAttempt(const QString& owner) = 0;
+    Q_INVOKABLE virtual bool cancelMilkAttempt(const QString& owner) = 0;
+    // A closed client cannot withdraw its own offers. Only the host holds them.
+    virtual void releaseMilkClient(const QString& clientId) { Q_UNUSED(clientId) }
     Q_INVOKABLE virtual bool setMilkTimeLocked(bool locked) = 0;
 signals:
     void changed();

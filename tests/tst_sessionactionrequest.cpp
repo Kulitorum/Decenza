@@ -122,7 +122,6 @@ private slots:
         const QString actions[] = {
             QStringLiteral("espresso"), QStringLiteral("steam"),
             QStringLiteral("hotwater"), QStringLiteral("flush"),
-            QStringLiteral("milk-start"), QStringLiteral("milk-cancel"),
             QStringLiteral("milk-lock"), QStringLiteral("milk-unlock")
         };
         for (const QString& name : actions) {

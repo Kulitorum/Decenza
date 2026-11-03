@@ -46,23 +46,12 @@ inline bool steamPitcherNameTaken(const QVariantList& presets, const QString& na
     return nameTakenIn(presets, name, ignoreIndex);
 }
 
-inline double netMilkForPitcher(const QVariantMap& preset, double scaleReading)
-{
-    if (preset.isEmpty() || preset.value(QStringLiteral("disabled")).toBool())
-        return 0.0;
-    const double pitcherWeight = preset.value(QStringLiteral("pitcherWeightG"), 0.0).toDouble();
-    if (pitcherWeight <= 0.0)
-        return 0.0;
-    const double milk = scaleReading - pitcherWeight;
-    return (milk >= 50.0 && milk <= 1500.0) ? milk : 0.0;
-}
-
 // Why a milk weight cannot scale this preset's steam time, or nullptr when it can.
 inline const char* steamScalingBlocker(const QVariantMap& preset, bool milkAutoCaptureEnabled,
                                        double secondsPerGram)
 {
     if (!milkAutoCaptureEnabled)
-        return "milk auto-capture off";
+        return "weight-timed steaming off";
     if (preset.isEmpty())
         return "no pitcher preset selected";
     if (preset.value(QStringLiteral("disabled")).toBool())

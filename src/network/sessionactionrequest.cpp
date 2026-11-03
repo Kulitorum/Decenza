@@ -23,8 +23,6 @@ constexpr Endpoint kEndpoints[] = {
     {"/api/session/preparation/steam", Action::Steam, "steam"},
     {"/api/session/preparation/hotwater", Action::Hotwater, "hotwater"},
     {"/api/session/preparation/flush", Action::Flush, "flush"},
-    {"/api/session/preparation/milk-start", Action::MilkStart, "milk-start"},
-    {"/api/session/preparation/milk-cancel", Action::MilkCancel, "milk-cancel"},
     {"/api/session/preparation/milk-lock", Action::MilkLock, "milk-lock"},
     {"/api/session/preparation/milk-unlock", Action::MilkUnlock, "milk-unlock"},
     {"/api/session/portal/reconnect", Action::PortalReconnect, "portal-reconnect"},

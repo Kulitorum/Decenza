@@ -14,11 +14,16 @@ public:
     void publish(const PreparationSnapshot& value, bool available = true)
     { applySnapshot(value, available, false); }
     bool selectMode(const QString& mode) override { return command(mode); }
-    bool startMilkAttempt() override { return command(QStringLiteral("milk-start")); }
-    bool cancelMilkAttempt() override { return command(QStringLiteral("milk-cancel")); }
+    bool startMilkAttempt(const QString& owner) override
+    { owners.append(owner); return command(QStringLiteral("milk-start")); }
+    bool cancelMilkAttempt(const QString& owner) override
+    { owners.append(owner); return command(QStringLiteral("milk-cancel")); }
     bool setMilkTimeLocked(bool locked) override
     { return command(locked ? QStringLiteral("milk-lock") : QStringLiteral("milk-unlock")); }
+    void releaseMilkClient(const QString& clientId) override { released.append(clientId); }
     QStringList calls;
+    QStringList owners;
+    QStringList released;
     bool accept = true;
 private:
     bool command(const QString& action) { calls.append(action); return accept; }
@@ -33,12 +38,13 @@ public:
         setSnapshot(PreparationSnapshot{}.toJson().toVariantMap());
         setReady(true);
     }
-    void execute(QString id, QString action) override
-    { ids.append(id); actions.append(action); }
+    void execute(QString id, QString action, QString owner) override
+    { ids.append(id); actions.append(action); owners.append(owner); }
     void finish(const QString& id, const QString& action, bool success)
     { emit operationCompleted(id, action, success, success ? QString() : QStringLiteral("refused")); }
     QStringList ids;
     QStringList actions;
+    QStringList owners;
 };
 
 class tst_PreparationService final : public QObject
@@ -56,11 +62,12 @@ private slots:
     {
         PreparationControllerStub controller;
         NativePreparationServiceSource source(&controller);
+        source.openClient(QStringLiteral("client"));
         QSignalSpy completed(&source, &PreparationServiceStateSimpleSource::operationCompleted);
         const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         controller.accept = false;
-        source.execute(id, QStringLiteral("milk-start"));
-        source.execute(id, QStringLiteral("milk-start"));
+        source.execute(id, QStringLiteral("milk-start"), QStringLiteral("client/review"));
+        source.execute(id, QStringLiteral("milk-start"), QStringLiteral("client/review"));
         QCOMPARE(controller.calls, QStringList{QStringLiteral("milk-start")});
         QCOMPARE(completed.size(), 0);
         QTRY_COMPARE(completed.size(), 1);
@@ -68,29 +75,60 @@ private slots:
         QVERIFY(!completed.first().at(2).toBool());
         QVERIFY(!completed.first().at(3).toString().isEmpty());
 
-        source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("tare"));
-        source.execute(QStringLiteral("not-a-uuid"), QStringLiteral("steam"));
-        QTRY_COMPARE(completed.size(), 3);
+        source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("tare"), {});
+        source.execute(QStringLiteral("not-a-uuid"), QStringLiteral("steam"), {});
+        // An ownerless offer could never be released when its client closes.
+        source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("milk-start"), {});
+        QTRY_COMPARE(completed.size(), 4);
         QCOMPARE(controller.calls.size(), 1);
         QVERIFY(!completed.at(1).at(2).toBool());
         QVERIFY(!completed.at(2).at(2).toBool());
+        QVERIFY(!completed.at(3).at(2).toBool());
 
         controller.accept = true;
         for (const QString& action : {QStringLiteral("espresso"), QStringLiteral("steam"),
                 QStringLiteral("hotwater"), QStringLiteral("flush"), QStringLiteral("milk-start"),
                 QStringLiteral("milk-cancel"), QStringLiteral("milk-lock"), QStringLiteral("milk-unlock")}) {
-            source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), action);
+            source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), action,
+                           action.startsWith(QLatin1String("milk-")) ? QStringLiteral("client/review") : QString());
             QCOMPARE(controller.calls.last(), action);
         }
-        QTRY_COMPARE(completed.size(), 11);
-        for (qsizetype index = 3; index < completed.size(); ++index)
+        QCOMPARE(controller.owners.last(), QStringLiteral("client/review"));
+        QTRY_COMPARE(completed.size(), 12);
+        for (qsizetype index = 4; index < completed.size(); ++index)
             QVERIFY(completed.at(index).at(2).toBool());
 
         controller.publish({}, false);
-        source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("milk-start"));
-        QTRY_COMPARE(completed.size(), 12);
+        source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("milk-start"),
+                       QStringLiteral("client/review"));
+        QTRY_COMPARE(completed.size(), 13);
         QVERIFY(!completed.last().at(2).toBool());
         QCOMPARE(controller.calls.size(), 9);
+    }
+
+    // An offer the host could never release (a client that is not connected, or no
+    // surface) is refused; closing a client releases its offers.
+    void milkOffersComeOnlyFromConnectedClients()
+    {
+        PreparationControllerStub controller;
+        NativePreparationServiceSource source(&controller);
+        QSignalSpy completed(&source, &PreparationServiceStateSimpleSource::operationCompleted);
+        const auto offer = [&source](const QString& owner) {
+            source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces),
+                           QStringLiteral("milk-start"), owner);
+        };
+        source.openClient(QStringLiteral("client"));
+        offer(QStringLiteral("stranger/review"));
+        offer(QStringLiteral("client/"));
+        offer(QStringLiteral("client/review"));
+        source.closeClient(QStringLiteral("client"));
+        offer(QStringLiteral("client/review"));
+        QTRY_COMPARE(completed.size(), 4);
+        QCOMPARE(controller.owners, QStringList{QStringLiteral("client/review")});
+        QCOMPARE(controller.released, QStringList{QStringLiteral("client")});
+        const QList<bool> accepted{false, false, true, false};
+        for (qsizetype index = 0; index < completed.size(); ++index)
+            QCOMPARE(completed.at(index).at(2).toBool(), accepted.at(index));
     }
 
     void completionMatchesUuidAndActionAndDisconnectNeverReplays()
@@ -99,6 +137,8 @@ private slots:
         QRemoteObjectHost host;
         QVERIFY(host.setHostUrl(QUrl(QStringLiteral("preparation-test:///commands")),
                                 QRemoteObjectHost::AllowExternalRegistration));
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        host.setProperty("decenzaClientId", clientId);
         QVERIFY(host.enableRemoting<PreparationServiceStateSourceAPI>(&source));
         PreparationService::setPublishedNode(&host);
         QQmlEngine engine;
@@ -121,8 +161,10 @@ private slots:
         QVERIFY(!completed.first().at(2).toBool());
         QCOMPARE(failed.size(), 1);
 
-        QVERIFY(service->state()->startMilkAttempt());
+        QVERIFY(service->state()->startMilkAttempt(QStringLiteral("review")));
         QTRY_COMPARE(source.ids.size(), 2);
+        // The host releases this client's offers by the id it sees here.
+        QCOMPARE(source.owners.last(), clientId + QStringLiteral("/review"));
         const QString disconnectedId = source.ids.last();
         service->setNode(nullptr);
         QVERIFY(!service->ready());
@@ -147,7 +189,6 @@ private slots:
         snapshot.lastBeanGrams = 18.0;
         snapshot.lastMilkGrams = 35.0;
         snapshot.lastMilkSeconds = 5;
-        snapshot.lastOnScaleMilkG = 120.0;
         snapshot.steamTimeoutScaled = true;
         controller.publish(snapshot);
         NativePreparationServiceSource source(&controller);
@@ -163,7 +204,6 @@ private slots:
         QSignalSpy milk(service->state(), &PreparationState::milkCaptured);
         QTRY_VERIFY(service->ready());
         QCOMPARE(service->state()->snapshot().beanCaptureSequence, qint64(4));
-        QCOMPARE(service->state()->lastOnScaleMilkG(), 120.0);
         QVERIFY(service->state()->steamTimeoutScaled());
         QCOMPARE(beans.size(), 0);
         QCOMPARE(milk.size(), 0);
@@ -176,7 +216,6 @@ private slots:
         QCOMPARE(milk.first().at(0).toDouble(), 37.0);
         QCOMPARE(milk.first().at(1).toInt(), 6);
         service->setNode(nullptr);
-        QCOMPARE(service->state()->lastOnScaleMilkG(), 0.0);
         ++snapshot.milkCaptureSequence;
         controller.publish(snapshot);
         // Browser reconnect replaces the node; reusing an in-process replica

@@ -469,8 +469,7 @@ void ShotServer::handleSessionAction(QTcpSocket* socket, const QString& method,
 
     if (parsed.action == SessionActionRequest::Action::SelectPitcher) {
         // Selection, validation and application run in the host event loop.
-        // Milk fallback comes from the single host capture workflow.
-        m_mainController->selectSteamPitcher(parsed.index, preparation->sessionMeasuredMilkG());
+        m_mainController->selectSteamPitcher(parsed.index);
         respond(200, true, {});
         return;
     }
@@ -514,12 +513,6 @@ void ShotServer::handleSessionAction(QTcpSocket* socket, const QString& method,
         break;
     case SessionActionRequest::Action::Flush:
         accepted = preparation->selectMode(QStringLiteral("flush"));
-        break;
-    case SessionActionRequest::Action::MilkStart:
-        accepted = preparation->startMilkAttempt();
-        break;
-    case SessionActionRequest::Action::MilkCancel:
-        accepted = preparation->cancelMilkAttempt();
         break;
     case SessionActionRequest::Action::MilkLock:
         accepted = preparation->setMilkTimeLocked(true);

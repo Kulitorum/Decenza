@@ -2,7 +2,7 @@ import QtQuick
 import Decenza
 
 // Read-only view of the host-owned preparation capture. The controller owns the
-// scale detector, session milk, timeout update, and cancel/restore semantics.
+// scale detector, session milk, timeout update, and when a sample is offered.
 Item {
     id: root
 
@@ -21,14 +21,6 @@ Item {
     readonly property real netWeight: capture.netWeight
 
     signal milkCaptured(real milk, int seconds)
-
-    function startAttempt() {
-        return PreparationService.state.startMilkAttempt()
-    }
-
-    function cancelAttempt() {
-        return PreparationService.state.cancelMilkAttempt()
-    }
 
     Connections {
         target: PreparationService.state

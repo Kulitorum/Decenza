@@ -4,7 +4,8 @@ class PreparationServiceState
     PROP(bool ready READONLY)
     PROP(QVariantMap snapshot READONLY)
 
-    SLOT(void execute(QString requestId, QString action))
+    // owner is "<decenzaClientId>/<surface>" for milk-start and milk-cancel, else empty.
+    SLOT(void execute(QString requestId, QString action, QString owner))
     SIGNAL(operationCompleted(QString requestId, QString action,
                               bool success, QString message))
 }
