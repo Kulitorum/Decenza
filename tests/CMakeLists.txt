@@ -2170,6 +2170,8 @@ set_source_files_properties(
     ${CMAKE_SOURCE_DIR}/qml/components/SharedSuggestionField.qml
     PROPERTIES QT_RESOURCE_ALIAS SharedSuggestionField.qml
 )
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_wateramountmodeselector.qml
+    PROPERTIES QT_RESOURCE_ALIAS tst_wateramountmodeselector.qml)
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_sharedformcontrols.qml
     PROPERTIES QT_RESOURCE_ALIAS tst_sharedformcontrols.qml
@@ -2183,6 +2185,7 @@ set_source_files_properties(
 # Only presentation/service dependencies are supplied by the isolated fixture;
 # host event validation remains covered by the GlobalSupport service tests.
 set(_mcp_confirmation_control_sources
+    ${CMAKE_SOURCE_DIR}/qml/components/WaterAmountModeSelector.qml
     ${CMAKE_SOURCE_DIR}/qml/components/McpConfirmDialog.qml
     ${CMAKE_SOURCE_DIR}/qml/components/CrashReportDialog.qml
     ${CMAKE_SOURCE_DIR}/qml/components/HideKeyboardButton.qml
@@ -2223,6 +2226,7 @@ qt_add_qml_module(tst_sharedformcontrols
         ${_mcp_confirmation_fixture_sources}
         ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_sharedformcontrols.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_mcpconfirmdialog.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_wateramountmodeselector.qml
 )
 decenza_wire_qml_cache_deps(tst_sharedformcontrols _tst_sharedformcontrols_units_wired)
 target_link_libraries(tst_sharedformcontrols PRIVATE

@@ -193,6 +193,88 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void legacyVesselSnapshotUsesPresetButFullSnapshotsStayIndependent() {
+        Fixture f;
+        const QVariantMap preset{{"name", "Cup"}, {"volume", 200}, {"mode", "volume"},
+            {"temperature", 85.0}, {"flowRate", 31}};
+        const QVariantMap legacy{{"hasWater", true}, {"vesselName", "Cup"}, {"volume", 0},
+            {"temperatureC", 0}, {"flowRate", 40}};
+        const auto resolved = f.service->waterVesselSnapshot(legacy, preset);
+        QCOMPARE(resolved.value("volume").toInt(), 200);
+        QCOMPARE(resolved.value("temperatureC").toDouble(), 85.0);
+        QCOMPARE(resolved.value("flowRate").toInt(), 31);
+        QCOMPARE(resolved.value("mode").toString(), QStringLiteral("volume"));
+        const QVariantMap fixed{{"volume", 150}, {"temperatureC", 90.0}};
+        QCOMPARE(f.service->waterVesselSnapshot(fixed, preset), fixed);
+        const QVariantMap ratio{{"amountMode", "ratio"}, {"waterToEspressoRatio", 2.7}};
+        QCOMPARE(f.service->waterVesselSnapshot(ratio, preset), ratio);
+    }
+    void waterPreviewUsesRecipeYieldRatherThanSession() {
+        Fixture f;
+        const QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.0}, {"doseG", 18.0}};
+        const QVariantMap bag{{"yieldMode", "absolute"}, {"yieldValue", 50.0}};
+        const double target = f.service->recipeYieldPreview(recipe, bag, 42.0);
+        QCOMPARE(target, 36.0);
+        const QVariantMap water{{"hasWater", true}, {"vesselName", "Cup"},
+            {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+        const auto preview = f.service->waterAmountPreview(water, target);
+        QVERIFY(preview.value("valid").toBool());
+        QCOMPARE(preview.value("amountG").toInt(), 90);
+        auto unnamed = water;
+        unnamed.remove("vesselName");
+        QCOMPARE(f.service->waterAmountPreview(unnamed, target).value("amountG").toInt(), 90);
+        QCOMPARE(f.service->recipeYieldPreview({}, bag, 42), 50.0);
+        QVERIFY(!f.service->waterAmountPreview(water, 0).value("valid").toBool());
+    }
+    void waterPreviewInheritsOnlyEnabledProfileDoseAfterRecipeAndBag() {
+        Fixture f;
+        QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.0}, {"doseG", 0.0}};
+        QVariantMap bag;
+        QVariantMap profile{{"hasRecommendedDose", true}, {"recommendedDose", 18.0}};
+        const QVariantMap water{{"hasWater", true}, {"vesselName", "Cup"},
+            {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+        auto target = [&] { return f.service->recipeYieldPreview(recipe, bag, 0, profile); };
+        QCOMPARE(target(), 36.0);
+        QCOMPARE(f.service->waterAmountPreview(water, target()).value("amountG").toInt(), 90);
+        f.engine.globalObject().setProperty(QStringLiteral("previewService"), f.engine.newQObject(f.service));
+        const auto jsPreview = f.engine.evaluate(QStringLiteral(
+            "previewService.recipeYieldPreview({yieldMode: 'ratio', yieldValue: 2, doseG: 0},"
+            " {}, 0, {hasRecommendedDose: true, recommendedDose: 18})"));
+        QVERIFY2(!jsPreview.isError(), qPrintable(jsPreview.toString()));
+        QCOMPARE(jsPreview.toNumber(), 36.0);
+        bag.insert("doseWeightG", 20.0);
+        QCOMPARE(target(), 40.0);
+        recipe.insert("doseG", 21.0);
+        QCOMPARE(target(), 42.0);
+        recipe.insert("doseG", 0.0);
+        bag.clear();
+        profile.insert("hasRecommendedDose", false);
+        QCOMPARE(target(), 0.0);
+        QVERIFY(!f.service->waterAmountPreview(water, target()).value("valid").toBool());
+        profile = {{"has_recommended_dose", true}, {"recommended_dose", 19.0}};
+        QCOMPARE(target(), 38.0);
+        profile.insert("has_recommended_dose", false);
+        QCOMPARE(target(), 0.0);
+        recipe = {{"yieldMode", "absolute"}, {"yieldValue", 40.0}};
+        QCOMPARE(target(), 40.0);
+    }
+    void selectedVesselRemovalRequestsHostApplication() {
+        Settings settings;
+        auto* brew = settings.brew();
+        const int originalSelection = brew->selectedWaterVessel();
+        const auto restore = qScopeGuard([&] { brew->setSelectedWaterCup(originalSelection); });
+        brew->addWaterVesselPreset("Deleted selected vessel", 200, "weight", 40, 85);
+        const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        brew->setSelectedWaterCup(index);
+        NativeRecipeContextSource source(&settings, nullptr);
+        QSignalSpy apply(&source, &NativeRecipeContextSource::presetApplyRequested);
+        source.executePresetEdit(QUuid::createUuid().toString(QUuid::WithoutBraces),
+            "waterVessel", "remove", {{"index", index}, {"expectedName", "Deleted selected vessel"}},
+            source.revision());
+        QCOMPARE(apply.count(), 1);
+        QCOMPARE(apply.first().at(0).toString(), QStringLiteral("waterVessel"));
+    }
+
     void shotBaselineIsOneCorrelatedRevisionGuardedOperation()
     {
         Fixture f;
@@ -541,6 +623,10 @@ private slots:
         QCOMPARE(settings.brew()->getWaterVesselPreset(waterIndex).value(QStringLiteral("volume")).toInt(),
                  230);
 
+        const int beforeWaterAmount = settings.brew()->waterVolume();
+        const auto beforeWaterMode = settings.brew()->waterVolumeMode();
+        const auto beforeWaterTemperature = settings.brew()->waterTemperature();
+        const int beforeWaterFlow = settings.hardware()->hotWaterFlowRate();
         const QString waterCommitId = request();
         QSignalSpy commitPreferencesChanged(&source,
                                             &RecipeContextStateSimpleSource::preferencesChanged);
@@ -554,10 +640,13 @@ private slots:
         QCOMPARE(commitRevisionChanged.count(), 1);
         QCOMPARE(applySpy.count(), 1);
         QCOMPARE(applySpy.first().at(0).toString(), QStringLiteral("waterVessel"));
-        QCOMPARE(settings.brew()->waterVolume(), 245);
-        QCOMPARE(settings.brew()->waterVolumeMode(), QStringLiteral("volume"));
-        QCOMPARE(settings.hardware()->hotWaterFlowRate(), 55);
-        QCOMPARE(settings.brew()->waterTemperature(), 94.0);
+        QCOMPARE(settings.brew()->waterVolume(), beforeWaterAmount);
+        QCOMPARE(settings.brew()->waterVolumeMode(), beforeWaterMode);
+        QCOMPARE(settings.hardware()->hotWaterFlowRate(), beforeWaterFlow);
+        QCOMPARE(settings.brew()->waterTemperature(), beforeWaterTemperature);
+        const auto confirmed = completed.last().at(5).toMap().value("presetEditResult").toMap();
+        QCOMPARE(confirmed.value("index").toInt(), waterIndex);
+        QCOMPARE(confirmed.value("preset").toMap().value("volume").toInt(), 245);
 
         QVariantMap malformedWater = updateWater;
         malformedWater.insert(QStringLiteral("surprise"), true);
@@ -664,8 +753,9 @@ private slots:
                                  legacyEdit, source.revision());
         QCOMPARE(completed.count(), beforeLegacy + 1);
         QVERIFY(completed.last().at(3).toBool());
-        QCOMPARE(hardware->hotWaterFlowRate(), 5);
-        QCOMPARE(brew->waterTemperature(), 86.0);
+        const auto legacyConfirmed = completed.last().at(5).toMap().value("presetEditResult").toMap().value("preset").toMap();
+        QCOMPARE(legacyConfirmed.value("flowRate").toInt(), 5);
+        QCOMPARE(legacyConfirmed.value("temperature").toDouble(), 86.0);
         const QVariantMap stored = QJsonDocument::fromJson(settings.value(
             QStringLiteral("water/vesselPresets")).toByteArray()).array().at(1).toObject().toVariantMap();
         QCOMPARE(stored.value(QStringLiteral("mode")).toString(), QStringLiteral("weight"));

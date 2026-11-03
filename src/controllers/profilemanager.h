@@ -11,6 +11,7 @@
 #include "../profile/profile.h"
 #include "../profile/profiledialintext.h"
 #include "../profile/recipeprofiledisplay.h"
+#include "../core/wateramount.h"
 
 class Settings;
 class DE1Device;
@@ -279,6 +280,7 @@ public:
     // falling back to the profile's target_weight. Always returns plain
     // grams — a ratio never crosses MachineState.
     double targetWeight() const;
+    double configuredTargetWeight() const;
     void setTargetWeight(double weight);
     // True iff the session anchor's mode is "ratio" — read from the stored
     // mode, never inferred by comparing grams against the profile target.
@@ -573,6 +575,7 @@ public:
     // Profile frames were already read during refreshProfiles(); request
     // handlers must not reopen profile files on the UI thread.
     QHash<QString, RecipeProfileDisplayNumbers> recipeProfileDisplaySnapshot() const;
+    QHash<QString, WaterAmount::ProfileDefaults> recipeBrewDefaultsSnapshot() const;
 
     // Installed titles, EXACT — not trimmed or lower-cased like the two
     // snapshots above. Those are lookups where a near-match is better than

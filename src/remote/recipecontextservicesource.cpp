@@ -613,12 +613,16 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
                                                    quint64 expectedRevision)
 {
     bool registered = false;
-    const auto finish = [this, &requestId, &domain, &operation, &registered](
+    int savedIndex = -1;
+    const auto finish = [this, &requestId, &domain, &operation, &registered, &savedIndex](
                             bool success, const QString& reason) {
-        if (registered)
-            m_pendingRequestIds.remove(requestId);
-        emit presetEditCompleted(requestId, domain, operation, success, revision(),
-                                 preferences(), reason);
+        if (registered) m_pendingRequestIds.remove(requestId);
+        auto values = preferences();
+        if (success && savedIndex >= 0 && domain == QLatin1String("waterVessel"))
+            values.insert(QStringLiteral("presetEditResult"), QVariantMap{
+                {QStringLiteral("index"), savedIndex},
+                {QStringLiteral("preset"), m_settings->brew()->getWaterVesselPreset(savedIndex)}});
+        emit presetEditCompleted(requestId, domain, operation, success, revision(), values, reason);
     };
 
     if (!validRequestId(requestId)) {
@@ -663,6 +667,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
                 accepted = brew->waterVesselPresets().size() == presets.size() + 1
                     && brew->getWaterVesselPreset(static_cast<int>(presets.size()))
                            .value(QStringLiteral("name")).toString() == name;
+                if (accepted) savedIndex = static_cast<int>(presets.size());
             }
         } else if (operation == QLatin1String("update")
                    || operation == QLatin1String("commit")) {
@@ -697,10 +702,9 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
                     && updated.value(QStringLiteral("flowRate")).toInt() == flowRate
                     && qFuzzyCompare(updated.value(QStringLiteral("temperature")).toDouble() + 1.0,
                                      temperature + 1.0);
+                if (accepted) savedIndex = index;
                 if (accepted && operation == QLatin1String("commit")) {
-                    accepted = MachineControlPresets::selectWaterVessel(
-                        brew, m_settings->hardware(), index,
-                        [this] { emit presetApplyRequested(QStringLiteral("waterVessel")); });
+                    emit presetApplyRequested(QStringLiteral("waterVessel"));
                 }
             }
         } else if (operation == QLatin1String("remove")) {
@@ -711,8 +715,11 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             if (valid) {
                 registered = true;
                 m_pendingRequestIds.insert(requestId, QStringLiteral("presetEdit"));
+                const bool wasSelected = brew->selectedWaterVessel() == index;
                 brew->removeWaterVesselPreset(index);
                 accepted = brew->waterVesselPresets().size() + 1 == presets.size();
+                if (accepted && wasSelected)
+                    emit presetApplyRequested(QStringLiteral("waterVessel"));
             }
         } else if (operation == QLatin1String("move")) {
             int from = -1, to = -1;

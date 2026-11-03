@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <utility>
+#include "wateramount.h"
 
 // Portable recipe-editor field schema shared by native storage and the QtRO
 // facade. Keep presentation-only and inventory aggregates out of this list.
@@ -56,11 +57,18 @@ inline DrinkSequence drinkSequence(const QVariantMap& recipe)
                          recipe.value(QStringLiteral("hotWaterJson")).toString());
 }
 
+inline QString waterError(const QString& profileTitle, const QString& hotWaterJson)
+{
+    return WaterAmount::definitionError(QJsonDocument::fromJson(hotWaterJson.toUtf8()).object(),
+                                        !profileTitle.trimmed().isEmpty());
+}
+
 inline bool saveValidationPasses(const QString& name, const QString& profileTitle,
                                  const QString& hotWaterJson)
 {
     return !name.trimmed().isEmpty()
-        && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson));
+        && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson))
+        && waterError(profileTitle, hotWaterJson).isEmpty();
 }
 
 inline const QStringList& keys()

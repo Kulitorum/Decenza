@@ -48,21 +48,28 @@ struct ShotReviewSetup {
     }
 };
 
-// Operation IDs keep an asynchronously saved shot paired with its own start,
-// even if another cycle starts before the save callback runs.
+// Operation IDs keep review and water start snapshots paired with their shot,
+// even if another cycle starts before the asynchronous save callback runs.
 class ShotReviewBaselines {
 public:
     explicit ShotReviewBaselines(qint64 startupShotId = 0) : m_startupShotId(startupShotId) {}
-    void started(qint64 operationId, const ShotReviewSetup& setup) {
+    void started(qint64 operationId, const ShotReviewSetup& setup, const QString& waterSpec = {}) {
         // A cycle that never extracts may never produce a matching completion.
         // Bound retained snapshots; a missing old snapshot fails closed.
         if (m_started.size() >= 64) m_started.clear();
-        m_started.insert(operationId, setup);
+        m_started.insert(operationId, {setup, waterSpec});
+    }
+    void associateWater(qint64 operationId, const QString& waterSpec) {
+        const auto it = m_started.find(operationId);
+        if (it != m_started.end()) it->waterSpec = waterSpec;
+    }
+    QString waterSpec(qint64 operationId) const {
+        return m_started.value(operationId).waterSpec;
     }
     std::optional<ShotReviewSetup> take(qint64 operationId) {
         const auto it = m_started.find(operationId);
         if (it == m_started.end()) return std::nullopt;
-        const ShotReviewSetup result = it.value();
+        const ShotReviewSetup result = it->review;
         m_started.erase(it);
         return result;
     }
@@ -80,6 +87,7 @@ public:
 private:
     qint64 m_startupShotId = 0;
     qint64 m_savedShotId = 0;
-    QHash<qint64, ShotReviewSetup> m_started;
+    struct Started { ShotReviewSetup review; QString waterSpec; };
+    QHash<qint64, Started> m_started;
     std::optional<ShotReviewSetup> m_saved;
 };

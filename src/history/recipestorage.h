@@ -44,7 +44,8 @@ class SerialDbWorker;
 // selects a water vessel; the vessel's own values ride the recipe. Like
 // the steam pitcher the vessel is snapshotted BY VALUE (never a preset-list
 // reference); activation re-selects it by name and recreates it from the
-// snapshot if the preset was deleted. There is no separate per-recipe amount.
+// snapshot if the preset was deleted. A recipe-only amountMode="ratio" stores
+// waterToEspressoRatio in place of volume; shared presets remain fixed.
 // Returned by the recipes-using-a-profile count when the count could not be
 // taken at all. Distinct from 0 on purpose — see countRecipesUsingProfile.
 inline constexpr int kRecipeCountUnknown = -1;
@@ -312,6 +313,9 @@ public:
     // dbPath must be the shot history database (table lives there).
     void initialize(const QString& dbPath);
     QString databasePath() const { return m_dbPath; }
+    void setProfileBrewSnapshotProvider(std::function<QHash<QString, WaterAmount::ProfileDefaults>()> provider) {
+        m_profileBrewSnapshot = std::move(provider);
+    }
 
     // Async queries — results via signals (QVariantList of toVariantMap()).
     // QML-visible view of Recipe::saveValidationPasses (the wizard's Save gate).
@@ -435,7 +439,7 @@ public:
 
     // Stores recipe.equipmentId as its live package (see liveEquipmentId in
     // the .cpp); updateRecipeFieldsStatic does the same for an equipmentId key.
-    static qint64 insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe);
+    static qint64 insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe, WaterAmount::ValidationContext profileContext = {}, QString* waterError = nullptr);
     // Migration 41: repoint recipes still linked to a package a grinder edit
     // retired (edits used to move bags but not recipes). *healed = rows moved.
     static bool healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed = nullptr);
@@ -461,7 +465,8 @@ public:
     // comparison is exact.
     static int countRecipesUsingProfileStatic(QSqlDatabase& db, const QString& profileTitle);
     // Update only the columns named in `fields` (camelCase Recipe keys).
-    static bool updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields);
+    static bool updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields,
+                                        WaterAmount::ValidationContext profileContext = {}, QString* waterError = nullptr);
 
     // Resolve the recipe's bean identity to the current open bag: beanbase_id
     // match first, else case-insensitive roaster+coffee identity; in-inventory
@@ -611,14 +616,8 @@ signals:
     // Successful request-scoped updates also carry the committed row so native
     // caches can reconcile before the request completion is delivered.
     void recipeChangedWithSnapshot(qint64 recipeId, const QVariantMap& recipe);
-    // Emitted immediately BEFORE recipeUpdated(id, false) when the update failed
-    // for a reason the caller can act on — currently only "nameInUse"
-    // (block-duplicate-active-names). Additive: recipeUpdated stays the terminal
-    // status every caller waits on; this only lets a surface report WHY, so the
-    // app, MCP and ShotServer can each name the SAME cause for a rename collision.
-    // The cause code and the emission ordering are what is shared — the wording of
-    // each surface's message is its own (a REST body and an inline form label do
-    // not read alike).
+    // Actionable failure before recipeUpdated(id, false): a cause code or
+    // WaterAmount::validationFailure containing the validation message.
     void recipeUpdateFailed(qint64 recipeId, const QString& reason);
     void recipeDeleted(qint64 recipeId, bool success);
     // Domain event emitted after every committed deletion, including requests
@@ -640,6 +639,7 @@ signals:
     void recipesChanged();
 
 private:
+    std::function<QHash<QString, WaterAmount::ProfileDefaults>()> m_profileBrewSnapshot;
     void requestUpdateRecipeImpl(qint64 recipeId, const QVariantMap& fields,
                                  QObject* completionContext,
                                  RecipeUpdateCompletion completion,

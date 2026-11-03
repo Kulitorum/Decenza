@@ -5,6 +5,7 @@
 #include <QVariantMap>
 #include <cmath>
 #include <optional>
+#include "../core/wateramount.h"
 
 struct ShotWaterResult {
     QString status;
@@ -12,6 +13,7 @@ struct ShotWaterResult {
     std::optional<double> weightG;
     std::optional<double> volumeMl;
     std::optional<double> temperatureC;
+    std::optional<double> targetWeightG;
 
     bool isRecorded() const {
         return status == QLatin1String("dispensed") || status == QLatin1String("interrupted")
@@ -23,6 +25,8 @@ struct ShotWaterResult {
         if (!isRecorded()) return {};
         QVariantMap result{{QStringLiteral("status"), status},
                            {QStringLiteral("amountSource"), QStringLiteral("unavailable")}};
+        if (targetWeightG && std::isfinite(*targetWeightG) && *targetWeightG > 0)
+            result.insert(QStringLiteral("targetWeightG"), *targetWeightG);
         if (status == QLatin1String("notDispensed")) return result;
         const auto validAmount = [](const std::optional<double>& value) {
             return value && std::isfinite(*value) && *value >= 0;
@@ -54,6 +58,7 @@ struct ShotWaterResult {
         result.weightG = number("weightG");
         result.volumeMl = number("volumeMl");
         result.temperatureC = number("temperatureC");
+        result.targetWeightG = number("targetWeightG");
         return result;
     }
     static ShotWaterResult fromJson(const QString& json) {
@@ -63,6 +68,16 @@ struct ShotWaterResult {
         ShotWaterResult result;
         result.status = QStringLiteral("notDispensed");
         return result;
+    }
+    QString specWithCapturedTarget(const QString& spec) const {
+        const auto captured = toMap();
+        const double target = captured.value(QStringLiteral("targetWeightG")).toDouble();
+        if (target <= 0) return spec;
+        auto water = QJsonDocument::fromJson(spec.toUtf8()).object();
+        if (!WaterAmount::isRatio(water)
+            || water.value(QStringLiteral("resolvedTargetG")).toDouble() == target) return spec;
+        water.insert(QStringLiteral("resolvedTargetG"), target);
+        return QString::fromUtf8(QJsonDocument(water).toJson(QJsonDocument::Compact));
     }
     // Normalize legacy intent once on the host; never expose its target as an outcome.
     static QVariantMap legacySetting(const QString& spec) {

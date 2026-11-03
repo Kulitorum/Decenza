@@ -533,9 +533,10 @@ double ProfileManager::targetWeight() const {
     //
     // The deliberate mid-shot +10 g bump is unaffected — it writes
     // MachineState::setTargetWeight() directly and never comes through here.
-    if (m_shotLatched)
-        return m_latchedTargetG;
+    return m_shotLatched ? m_latchedTargetG : configuredTargetWeight();
+}
 
+double ProfileManager::configuredTargetWeight() const {
     if (!brewOverridesApply())
         return m_currentProfile.targetWeight();
 
@@ -547,7 +548,7 @@ double ProfileManager::targetWeight() const {
     if (m_settings) {
         SettingsBrew* brew = m_settings->brew();
         return YieldSpec::resolveGrams(brew->brewYieldMode(), brew->brewYieldOverride(),
-                                       brewByRatioDose(), m_currentProfile.targetWeight());
+                                       m_settings->dye()->dyeBeanWeight(), m_currentProfile.targetWeight());
     }
     return m_currentProfile.targetWeight();
 }
@@ -1611,6 +1612,17 @@ QHash<QString, double> ProfileManager::espressoTempByTitleSnapshot() const {
     for (const ProfileInfo& info : m_allProfiles)
         map.insert(info.title.trimmed().toLower(), info.espressoTemperature);
     return map;
+}
+
+QHash<QString, WaterAmount::ProfileDefaults> ProfileManager::recipeBrewDefaultsSnapshot() const {
+    QHash<QString, WaterAmount::ProfileDefaults> defaults;
+    defaults.reserve(m_allProfiles.size());
+    for (const auto& profile : m_allProfiles) {
+        // Match activation's first exact title and retain typed catalog metadata.
+        if (!defaults.contains(profile.title)) defaults.insert(profile.title, {
+            profile.targetWeight, profile.hasRecommendedDose ? profile.recommendedDose : 0.0});
+    }
+    return defaults;
 }
 
 QHash<QString, RecipeProfileDisplayNumbers> ProfileManager::recipeProfileDisplaySnapshot() const {

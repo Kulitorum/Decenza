@@ -19,6 +19,7 @@
 #include "../core/settings_network.h"
 #include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
+#include "../core/wateramount.h"
 #include "../history/coffeebagstorage.h"
 #include "../profile/profile.h"  // profileJsonToDouble — tolerant string/number parse
 #include "../history/recipepromotion.h"
@@ -339,6 +340,12 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
             return;
         }
+        const QString waterError = RecipeEditFields::waterError(fields.value("profileTitle").toString(),
+            fields.value("hotWaterJson").toString());
+        if (!waterError.isEmpty()) {
+            respondJson(QJsonObject{{"error", waterError}}, 400);
+            return;
+        }
         if (!Recipe::saveValidationPasses(fields.value("name").toString(),
                                           fields.value("profileTitle").toString(),
                                           fields.value("hotWaterJson").toString())) {
@@ -372,6 +379,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 if (recipeId <= 0) {
                     if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                    else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                        respondJson(waterFailure, 400);
                     else
                         respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                 } else {
@@ -430,6 +439,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         if (recipeId <= 0) {
                             if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                                 respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                            else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                                respondJson(waterFailure, 400);
                             else
                                 respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                         } else {
@@ -571,6 +582,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         } else if (reason == QLatin1String("nameInUse")) {
                             respondJson(QJsonObject{{"code", "nameInUse"},
                                                     {"error", "That name is already in use by another active recipe"}}, 409);
+                        } else if (const auto waterFailure = WaterAmount::validationResponse(reason); !waterFailure.isEmpty()) {
+                            respondJson(waterFailure, 400);
                         } else if (reason == QLatin1String("invalidPrecondition")) {
                             respondJson(QJsonObject{{"error", "expectedName is only valid with a name-only update"}}, 400);
                         } else {
@@ -599,6 +612,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         respondJson(QJsonObject{{"updated", true}, {"recipeId", recipeId}});
                     else if (*failReason == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respondJson(waterFailure, 400);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found or update failed"}}, 404);
                 });
@@ -634,6 +649,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     if (newId <= 0) {
                         if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                             respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                        else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                            respondJson(waterFailure, 400);
                         else
                             respondJson(QJsonObject{{"error", "Clone failed"}}, 500);
                     } else {
@@ -691,6 +708,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     else if (*failReason == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "An active recipe already uses this name — "
                                                           "rename that one first"}}, 409);
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respondJson(waterFailure, 400);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found"}}, 404);
                 });
@@ -876,6 +895,7 @@ QString ShotServer::generateRecipesPage() const
     html += WEB_JS_GRIND_DATALIST;
     html += R"HTML(
         let editingId = null;
+        let editingWater = {};
         let recipes = [];          // full list (active + archived), as fetched
         let bags = [];
         let bagsLoaded = false;
@@ -1208,6 +1228,7 @@ QString ShotServer::generateRecipesPage() const
             el('fSteamFlow').value = steam.flow || '';
             el('fSteamTemp').value = steam.temperatureC || '';
             const water = r.hotWater || {};
+            editingWater = Object.assign({}, water);
             el('fHasWater').checked = !!water.hasWater;
             el('fVessel').value = water.vesselName || '';
             el('fWaterOrder').value = water.order === 'before' ? 'before' : 'after';
@@ -1242,9 +1263,9 @@ QString ShotServer::generateRecipesPage() const
                 const stemp = parseFloat(el('fSteamTemp').value);
                 if (stemp > 0) steam.temperatureC = stemp;
             }
-            const hotWater = {};
-            if (hasWater) hotWater.hasWater = true;
             const vessel = el('fVessel').value.trim();
+            const hotWater = vessel === editingWater.vesselName ? Object.assign({}, editingWater) : {};
+            hotWater.hasWater = hasWater;
             if (vessel) hotWater.vesselName = vessel;
             hotWater.order = el('fWaterOrder').value === 'before' ? 'before' : 'after';
             const bodyData = {

@@ -31,6 +31,7 @@
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
 #include "core/yieldspec.h"
+#include "history/recipestorage.h"
 #include "mcp/mcpresourceregistry.h"
 #include "network/webdebuglogger.h"
 #include "ble/protocol/de1characteristics.h"
@@ -2436,6 +2437,7 @@ private slots:
         // 1. A dose write (scale capture, MCP, settings import).
         f.settings.dye()->setDyeBeanWeight(20.0);
         QCOMPARE(f.profileManager.targetWeight(), 45.0);
+        QCOMPARE(f.profileManager.configuredTargetWeight(), 50.0);
 
         // 2. An anchor CLEAR — what a bean switch does (the real-world bug).
         f.settings.brew()->clearAllBrewOverrides();
@@ -2444,6 +2446,7 @@ private slots:
         // 3. An anchor WRITE (recipe activation, MCP/web edit).
         f.settings.brew()->setBrewYieldOverride(80.0);
         QCOMPARE(f.profileManager.targetWeight(), 45.0);
+        QCOMPARE(f.profileManager.configuredTargetWeight(), 80.0);
 
         // 4. A ratio anchor write.
         f.settings.brew()->setBrewRatioAnchor(1.0);
@@ -2802,6 +2805,63 @@ private slots:
         f.profileManager.loadProfile(fileName);
         // The write is deferred to the next event-loop turn.
         QCoreApplication::processEvents();
+    }
+
+    void recipeWaterValidationUsesRealInstalledCatalogMetadata() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        for (const bool enabled : {true, false}) {
+            auto profile = makeDFlowJson(enabled ? QStringLiteral("D-Flow / Water dose enabled")
+                                                : QStringLiteral("D-Flow / Water dose disabled"));
+            profile["target_weight"] = enabled ? 0 : 40;
+            profile["recommended_dose"] = 18;
+            profile["has_recommended_dose"] = enabled;
+            QFile file(f.profileManager.userProfilesPath() + (enabled
+                ? QStringLiteral("/water_dose_enabled.json") : QStringLiteral("/water_dose_disabled.json")));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(QJsonDocument(profile).toJson());
+        }
+        f.profileManager.refreshProfiles();
+        const auto snapshot = f.profileManager.recipeBrewDefaultsSnapshot();
+        QVERIFY(snapshot.contains(QStringLiteral("D-Flow / Water dose enabled")));
+        QCOMPARE(snapshot.value(QStringLiteral("D-Flow / Water dose enabled")).targetG, 0.0);
+        QCOMPARE(snapshot.value(QStringLiteral("D-Flow / Water dose enabled")).doseG, 18.0);
+        QCOMPARE(snapshot.value(QStringLiteral("D-Flow / Water dose disabled")).targetG, 40.0);
+        QCOMPARE(snapshot.value(QStringLiteral("D-Flow / Water dose disabled")).doseG, 0.0);
+
+        QTemporaryDir dir;
+        const auto path = dir.filePath(QStringLiteral("recipe-water.db"));
+        QVERIFY(withTempDb(path, QStringLiteral("water_catalog_seed"), [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+        }));
+        RecipeStorage storage;
+        storage.initialize(path);
+        storage.setProfileBrewSnapshotProvider([&f] {
+            return f.profileManager.recipeBrewDefaultsSnapshot();
+        });
+        QSignalSpy created(&storage, &RecipeStorage::recipeCreated);
+        const QVariantMap fields{{"name", "Real catalog water"},
+            {"profileTitle", "D-Flow / Water dose enabled"}, {"yieldMode", "ratio"}, {"yieldValue", 2.0},
+            {"hotWaterJson", R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})"}};
+        storage.requestCreateRecipe(fields);
+        QTRY_COMPARE(created.count(), 1);
+        const auto id = created.first().at(0).toLongLong();
+        QVERIFY(id > 0);
+        storage.requestCloneRecipe(id, QStringLiteral("Real catalog clone"));
+        QTRY_COMPARE(created.count(), 2);
+        QVERIFY(created.last().at(0).toLongLong() > 0);
+        QSignalSpy updated(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{"yieldValue", 20.0}});
+        QTRY_COMPARE(updated.count(), 1);
+        QVERIFY(!updated.last().at(1).toBool());
+        auto inherited = fields;
+        inherited["name"] = "Real profile target";
+        inherited["profileTitle"] = "D-Flow / Water dose disabled";
+        inherited["yieldMode"] = "none";
+        inherited["yieldValue"] = 0;
+        storage.requestCreateRecipe(inherited);
+        QTRY_COMPARE(created.count(), 3);
+        QVERIFY(created.last().at(0).toLongLong() > 0);
     }
 
     // The profile is the LAST rung. With nothing else active it supplies the

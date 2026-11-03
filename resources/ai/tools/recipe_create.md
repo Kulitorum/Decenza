@@ -16,3 +16,11 @@ identity fields instead resolves them to that bean's open bag ONCE, at save time
 Omit `grindPinned` to adopt the linked bag's current dial as this recipe's own starting grind —
 this is the recommended path. Set it explicitly to pin a different value. An explicitly empty
 string stores no grind at all.
+
+## Added water
+
+For fixed water, use `hotWater.volumeMl` and `mode` (`weight` for grams,
+`volume` for ml). For recipe-only ratio water, set `amountMode: "ratio"` and
+`waterToEspressoRatio`, for example 2.5 for 100 g added water at a 40 g espresso
+target. Omit `volumeMl` in ratio mode. The ratio is editable and follows target
+yield changes, never measured shot output; standalone vessel presets stay fixed.

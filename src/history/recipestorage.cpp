@@ -7,6 +7,7 @@
 #include "editableprecondition.h"
 #include "referenceddelete.h"
 #include "core/yieldspec.h"
+#include "core/brewbaseline.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -25,6 +26,26 @@
 #include <utility>
 
 namespace {
+QString recipeWaterError(QSqlDatabase& db, const Recipe& recipe, WaterAmount::ValidationContext context);
+WaterAmount::ValidationContext waterContext(const QHash<QString, WaterAmount::ProfileDefaults>& catalog, const QString& title, bool available)
+{
+    WaterAmount::ValidationContext context;
+    context.catalogAvailable = available;
+    if (catalog.contains(title)) {
+        const auto profile = catalog.value(title);
+        context.installedTargetG = profile.targetG;
+        context.installedDoseG = profile.doseG;
+    }
+    return context;
+}
+QString writableWaterJson(const QString& json)
+{
+    if (json.isEmpty()) return {};
+    const auto water = QJsonDocument::fromJson(json.toUtf8()).object();
+    const auto writable = WaterAmount::writableSnapshot(water);
+    return writable == water ? json
+        : QString::fromUtf8(QJsonDocument(writable).toJson(QJsonDocument::Compact));
+}
 
 QVariant nullIfEmpty(const QString& s) {
     return s.isEmpty() ? QVariant() : QVariant(s);
@@ -636,8 +657,10 @@ void RecipeStorage::requestCreateRecipeImpl(const QVariantMap& recipeMap,
     auto created = std::make_shared<QVariantMap>();
     if (!requestToken.isEmpty())
         created->insert(QStringLiteral("requestToken"), requestToken);
+    const auto profileDefaults = m_profileBrewSnapshot ? m_profileBrewSnapshot() : QHash<QString, WaterAmount::ProfileDefaults>();
+    const bool hasProfileSnapshot = static_cast<bool>(m_profileBrewSnapshot);
     runAsync("recipes_create",
-        [recipeMap, newId, created, requestToken](QSqlDatabase& db) {
+        [recipeMap, newId, created, requestToken, profileDefaults, hasProfileSnapshot](QSqlDatabase& db) {
             Recipe recipe = Recipe::fromVariantMap(recipeMap);
             recipe.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
             // Bag-link normalization: a caller that supplies bean identity
@@ -689,7 +712,10 @@ void RecipeStorage::requestCreateRecipeImpl(const QVariantMap& recipeMap,
                 created->insert(QStringLiteral("error"), QStringLiteral("nameInUse"));
                 return;  // *newId stays -1
             }
-            *newId = insertRecipeStatic(db, recipe);
+            QString waterError;
+            *newId = insertRecipeStatic(db, recipe,
+                waterContext(profileDefaults, recipe.profileTitle, hasProfileSnapshot), &waterError);
+            if (!waterError.isEmpty()) created->insert(QStringLiteral("error"), WaterAmount::validationFailure(waterError));
             if (*newId > 0) {
                 *created = loadRecipeStatic(db, *newId).toVariantMap();
                 if (!requestToken.isEmpty())
@@ -793,9 +819,11 @@ void RecipeStorage::requestUpdateRecipeImpl(
         complete(false, QStringLiteral("updateFailed"), QString());
         return;
     }
+    const auto profileDefaults = m_profileBrewSnapshot ? m_profileBrewSnapshot() : QHash<QString, WaterAmount::ProfileDefaults>();
+    const bool hasProfileSnapshot = static_cast<bool>(m_profileBrewSnapshot);
     runAsync("recipes_update",
         [recipeId, patchFields = std::move(patch), hintedBev, success, committedRow, failReason,
-         expectedName, expectedEditable, conflictCurrentName](QSqlDatabase& db) {
+         expectedName, expectedEditable, conflictCurrentName, profileDefaults, hasProfileSnapshot](QSqlDatabase& db) {
             // The whole update is transactional so the validity check below
             // can reject the patch without leaving a half-applied row. It reads
             // (loadRecipeStatic) before it writes, so it must take the write
@@ -868,7 +896,13 @@ void RecipeStorage::requestUpdateRecipeImpl(
                     }
                 }
             }
-            *success = updateRecipeFieldsStatic(db, recipeId, mergedFields);
+            auto waterCandidate = before.toVariantMap();
+            for (auto it = mergedFields.cbegin(); it != mergedFields.cend(); ++it) waterCandidate.insert(it.key(), it.value());
+            const auto candidate = Recipe::fromVariantMap(waterCandidate);
+            QString waterError;
+            *success = updateRecipeFieldsStatic(db, recipeId, mergedFields,
+                waterContext(profileDefaults, candidate.profileTitle, hasProfileSnapshot), &waterError);
+            if (!waterError.isEmpty()) *failReason = WaterAmount::validationFailure(waterError);
             if (!*success)
                 return;  // txn rolls back on the way out
             const Recipe updated = loadRecipeStatic(db, recipeId);
@@ -1014,8 +1048,10 @@ void RecipeStorage::requestCloneRecipeImpl(qint64 sourceId, const QString& newNa
     auto created = std::make_shared<QVariantMap>();
     if (!requestToken.isEmpty())
         created->insert(QStringLiteral("requestToken"), requestToken);
+    const auto profileDefaults = m_profileBrewSnapshot ? m_profileBrewSnapshot() : QHash<QString, WaterAmount::ProfileDefaults>();
     runAsync("recipes_clone",
-        [sourceId, newName, newId, created, requestToken](QSqlDatabase& db) {
+        [sourceId, newName, newId, created, requestToken, profileDefaults,
+         hasProfileSnapshot = static_cast<bool>(m_profileBrewSnapshot)](QSqlDatabase& db) {
             Recipe source = loadRecipeStatic(db, sourceId);
             if (!source.isValid()) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "clone source" << sourceId << "not found";
@@ -1036,7 +1072,10 @@ void RecipeStorage::requestCloneRecipeImpl(qint64 sourceId, const QString& newNa
                 created->insert(QStringLiteral("error"), QStringLiteral("nameInUse"));
                 return;  // *newId stays -1
             }
-            *newId = insertRecipeStatic(db, copy);
+            QString waterError;
+            *newId = insertRecipeStatic(db, copy,
+                waterContext(profileDefaults, copy.profileTitle, hasProfileSnapshot), &waterError);
+            if (!waterError.isEmpty()) created->insert(QStringLiteral("error"), WaterAmount::validationFailure(waterError));
             if (*newId > 0) {
                 *created = loadRecipeStatic(db, *newId).toVariantMap();
                 if (!requestToken.isEmpty())
@@ -1223,9 +1262,43 @@ static qint64 liveEquipmentId(QSqlDatabase& db, qint64 equipmentId)
     return live > 0 ? live : equipmentId;
 }
 
-qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input)
+namespace {
+QString recipeWaterError(QSqlDatabase& db, const Recipe& recipe, WaterAmount::ValidationContext context)
 {
+    const auto water = QJsonDocument::fromJson(recipe.hotWaterJson.toUtf8()).object();
+    if (!water.value(QStringLiteral("hasWater")).toBool()) return {};
+    const auto spec = WaterAmount::parse(water, !recipe.profileTitle.trimmed().isEmpty(), true);
+    if (!spec.error.isEmpty()) return spec.error;
+    if (spec.kind == WaterAmount::Kind::LegacyPreset) return {};
+    if (!spec.ratio()) return WaterAmount::resolve(spec, 0).error;
+    const auto bag = recipe.bagId > 0 ? CoffeeBagStorage::loadBagStatic(db, recipe.bagId) : CoffeeBag();
+    const auto embeddedProfile = QJsonDocument::fromJson(recipe.profileJson.toUtf8()).object();
+    const double profileTarget = context.installedTargetG.value_or(
+        embeddedProfile.value(QStringLiteral("target_weight")).toVariant().toDouble());
+    const double profileDose = context.installedDoseG.value_or(
+        embeddedProfile.value(QStringLiteral("has_recommended_dose")).toVariant().toBool()
+            ? embeddedProfile.value(QStringLiteral("recommended_dose")).toVariant().toDouble() : 0);
+    const auto yield = BrewBaseline::resolveYield(recipe.toVariantMap(), bag.yieldMode, bag.yieldValue, profileTarget);
+    const double dose = recipe.doseG > 0 ? recipe.doseG
+        : bag.doseWeightG > 0 ? bag.doseWeightG : profileDose;
+    const double target = YieldSpec::resolveGrams(yield.mode, yield.value, dose, profileTarget);
+    const bool needsProfileFallback = !yield.isStoreAnchor()
+        || (yield.mode == YieldSpec::modeRatio() && dose <= 0);
+    // A ratio anchor without a dose also inherits the unavailable profile target.
+    if (target <= 0 && !context.catalogAvailable && !context.installedTargetG
+        && recipe.profileJson.isEmpty() && needsProfileFallback) return {};
+    return WaterAmount::resolve(water, target).error;
+}
+}
+
+qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input,
+                                         WaterAmount::ValidationContext context, QString* waterError)
+{
+    const auto error = recipeWaterError(db, input, context);
+    if (waterError) *waterError = error;
+    if (!error.isEmpty()) return -1;
     Recipe recipe = input;
+    recipe.hotWaterJson = writableWaterJson(recipe.hotWaterJson);
     recipe.equipmentId = liveEquipmentId(db, recipe.equipmentId);
 
     // Column list, placeholders, and binds all derived from the writable
@@ -1460,8 +1533,17 @@ QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bo
     return recipes;
 }
 
-bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields)
+bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& inputFields,
+                                             WaterAmount::ValidationContext context, QString* waterError)
 {
+    auto fields = inputFields;
+    auto merged = loadRecipeStatic(db, recipeId).toVariantMap();
+    for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
+    const auto error = recipeWaterError(db, Recipe::fromVariantMap(merged), context);
+    if (waterError) *waterError = error;
+    if (!error.isEmpty()) return false;
+    if (fields.contains(QStringLiteral("hotWaterJson")))
+        fields.insert(QStringLiteral("hotWaterJson"), writableWaterJson(fields.value(QStringLiteral("hotWaterJson")).toString()));
     const QHash<QString, const RecipeCol*>& kColumnFor = recipeColumnForKey();
 
     QStringList assignments;

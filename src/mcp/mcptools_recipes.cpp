@@ -21,6 +21,7 @@
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../core/yieldspec.h"
+#include "../core/wateramount.h"
 #include "../history/shothistorystorage.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/recipestorage.h"
@@ -67,6 +68,9 @@ QJsonObject hotWaterBlockToMcp(const QJsonObject& native)
     if (native.contains("flowRate"))    o["flowMlPerSec"] = native["flowRate"].toDouble() / kWaterFlowScale;
     if (native.contains("temperatureC")) o["temperatureC"] = native["temperatureC"];
     if (native.contains("order"))       o["order"]       = native["order"];
+    if (native.contains("amountMode")) o["amountMode"] = native["amountMode"];
+    if (native.contains("waterToEspressoRatio")) o["waterToEspressoRatio"] = native["waterToEspressoRatio"];
+    if (native.contains("resolvedTargetG")) o["resolvedTargetG"] = native["resolvedTargetG"];
     return o;
 }
 
@@ -80,6 +84,8 @@ QJsonObject hotWaterBlockFromMcp(const QJsonObject& mcp)
     if (mcp.contains("flowMlPerSec")) o["flowRate"]   = qRound(mcp["flowMlPerSec"].toDouble() * kWaterFlowScale);
     if (mcp.contains("temperatureC")) o["temperatureC"] = mcp["temperatureC"];
     if (mcp.contains("order"))        o["order"]      = mcp["order"];
+    if (mcp.contains("amountMode")) o["amountMode"] = mcp["amountMode"];
+    if (mcp.contains("waterToEspressoRatio")) o["waterToEspressoRatio"] = mcp["waterToEspressoRatio"];
     return o;
 }
 
@@ -279,6 +285,10 @@ QJsonObject hotWaterBlockSchema()
         {"properties", QJsonObject{
             {"hasWater", QJsonObject{{"type", "boolean"}}},
             {"vesselName", QJsonObject{{"type", "string"}}},
+            {"amountMode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"fixed", "ratio"}},
+                {"description", "Fixed amount or recipe-only ratio to target espresso yield. Default fixed."}}},
+            {"waterToEspressoRatio", QJsonObject{{"type", "number"},
+                {"description", "Added water grams per gram of target espresso. Positive; ratio mode only, no volumeMl."}}},
             {"volumeMl", QJsonObject{{"type", "integer"},
                 {"description", "Water amount — mL when mode='volume', grams when mode='weight' "
                                 "(matches the water_vessel tool's volumeMl)"}}},
@@ -479,6 +489,12 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     "filter, americano, long_black, latte, latte_hotwater, tea, tea_hotwater").arg(requestedType)}});
                 return;
             }
+            const QString waterError = RecipeEditFields::waterError(fields.value("profileTitle").toString(),
+                fields.value("hotWaterJson").toString());
+            if (!waterError.isEmpty()) {
+                respond(QJsonObject{{"error", waterError}});
+                return;
+            }
             if (!Recipe::saveValidationPasses(fields.value("name").toString(),
                                               fields.value("profileTitle").toString(),
                                               fields.value("hotWaterJson").toString())) {
@@ -513,6 +529,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     if (recipeId <= 0) {
                         if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                             respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                        else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                            respond(waterFailure);
                         else
                             respond(QJsonObject{{"error", "Could not create the recipe"}});
                         return;
@@ -633,6 +651,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                         respond(QJsonObject{{"updated", true}, {"recipeId", recipeId}});
                     else if (*failReason == QLatin1String("nameInUse"))
                         respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respond(waterFailure);
                     else
                         respond(QJsonObject{{"error", QString("Recipe %1 not found or update failed").arg(recipeId)}});
                 });
@@ -709,6 +729,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                             if (recipeId <= 0) {
                                 if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                                     respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                                else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                                    respond(waterFailure);
                                 else
                                     respond(QJsonObject{{"error", "Could not create the recipe"}});
                                 return;
@@ -759,6 +781,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     if (recipeId <= 0) {
                         if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
                             respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                        else if (const auto waterFailure = WaterAmount::validationResponse(recipe.value(QStringLiteral("error")).toString()); !waterFailure.isEmpty())
+                            respond(waterFailure);
                         else
                             respond(QJsonObject{{"error", "Clone failed (source recipe not found?)"}});
                         return;
@@ -846,6 +870,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     else if (*failReason == QLatin1String("nameInUse"))
                         respond(QJsonObject{{"error", QString("Recipe %1 cannot be restored: an active "
                             "recipe already uses its name — rename that one first").arg(recipeId)}});
+                    else if (const auto waterFailure = WaterAmount::validationResponse(*failReason); !waterFailure.isEmpty())
+                        respond(waterFailure);
                     else
                         respond(QJsonObject{{"error", QString("Recipe %1 not found").arg(recipeId)}});
                 });

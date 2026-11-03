@@ -1,4 +1,35 @@
 #include "recipecontextservice.h"
+#include "core/wateramount.h"
+#include "core/brewbaseline.h"
+
+QVariantMap RecipeContextService::waterVesselSnapshot(const QVariantMap& water, const QVariantMap& preset) const
+{
+    return WaterAmount::withPresetFallback(QJsonObject::fromVariantMap(water),
+        QJsonObject::fromVariantMap(preset)).toVariantMap();
+}
+
+double RecipeContextService::recipeYieldPreview(const QVariantMap& recipe, const QVariantMap& bag,
+                                               double profileTargetG, const QVariantMap& profile) const
+{
+    const auto yield = BrewBaseline::resolveYield(recipe, bag.value(QStringLiteral("yieldMode")).toString(),
+        bag.value(QStringLiteral("yieldValue")).toDouble(), profileTargetG);
+    const bool hasProfileDose = profile.value(QStringLiteral("hasRecommendedDose"),
+        profile.value(QStringLiteral("has_recommended_dose"))).toBool();
+    const double profileDose = hasProfileDose
+        ? profile.value(QStringLiteral("recommendedDose"),
+            profile.value(QStringLiteral("recommended_dose"))).toDouble() : 0;
+    const double recipeDose = recipe.value(QStringLiteral("doseG")).toDouble();
+    const double bagDose = bag.value(QStringLiteral("doseWeightG")).toDouble();
+    const double dose = recipeDose > 0 ? recipeDose : bagDose > 0 ? bagDose : profileDose;
+    return YieldSpec::resolveGrams(yield.mode, yield.value, dose, profileTargetG);
+}
+
+QVariantMap RecipeContextService::waterAmountPreview(const QVariantMap& water, double espressoTargetG) const
+{
+    const auto result = WaterAmount::resolve(QJsonObject::fromVariantMap(water), espressoTargetG);
+    return {{QStringLiteral("valid"), result.valid()}, {QStringLiteral("amountG"), result.amount},
+            {QStringLiteral("error"), result.error}};
+}
 
 #include <QMetaObject>
 #include <QJSEngine>

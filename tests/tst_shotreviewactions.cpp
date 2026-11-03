@@ -510,6 +510,31 @@ private slots:
     }
     void init() { QTest::failOnWarning(); }
 
+    void waterStartSnapshotsShareBoundedOperationLifetime()
+    {
+        ShotReviewBaselines baselines;
+        ShotReviewSetup setup;
+        baselines.started(1, setup, QStringLiteral("first water"));
+        baselines.started(2, setup, QStringLiteral("second water"));
+        baselines.associateWater(1, QStringLiteral("associated first water"));
+        QCOMPARE(baselines.waterSpec(1), QStringLiteral("associated first water"));
+        QCOMPARE(baselines.waterSpec(2), QStringLiteral("second water"));
+        QVERIFY(baselines.take(1));
+        QVERIFY(baselines.waterSpec(1).isEmpty());
+        QCOMPARE(baselines.waterSpec(2), QStringLiteral("second water"));
+        // Preheat aborts/disconnects can have no history completion at all.
+        // Their water snapshots obey the same existing bound as review setup.
+        for (qint64 operation = 3; operation <= 130; ++operation)
+            baselines.started(operation, setup, QString::number(operation));
+        QVERIFY(baselines.waterSpec(2).isEmpty());
+        QVERIFY(!baselines.take(2));
+        baselines.associateWater(2, QStringLiteral("late orphan"));
+        QVERIFY(baselines.waterSpec(2).isEmpty());
+        QCOMPARE(baselines.waterSpec(130), QStringLiteral("130"));
+        QVERIFY(baselines.take(130));
+        QVERIFY(baselines.waterSpec(130).isEmpty());
+    }
+
     void reviewLeasesAreBoundToClientViewAndShot()
     {
         ShotReviewSessions sessions;

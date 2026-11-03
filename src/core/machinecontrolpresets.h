@@ -2,6 +2,7 @@
 
 #include "settings_brew.h"
 #include "settings_hardware.h"
+#include "wateramount.h"
 
 #include <QVariantMap>
 #include <QMetaType>
@@ -13,6 +14,38 @@
 // Shared settings-only half of Home preset selection. MainController supplies
 // the machine-apply callback so callers do not duplicate preset field mapping.
 namespace MachineControlPresets {
+
+// Apply one resolved plan without rewriting an existing shared fixed row.
+inline bool applyWaterPlan(SettingsBrew* brew, SettingsHardware* hardware,
+                           const WaterAmount::Plan& plan, const std::function<void()>& apply)
+{
+    if (!brew || !hardware || !plan.enabled() || !plan.valid()) return false;
+    const QString name = plan.spec.snapshot.value(QStringLiteral("vesselName")).toString();
+    if (name.trimmed().isEmpty()) return false;
+    int index = -1;
+    const auto presets = brew->waterVesselPresets();
+    for (qsizetype i = 0; i < presets.size(); ++i) {
+        if (presets.at(i).toMap().value(QStringLiteral("name")).toString().compare(name, Qt::CaseInsensitive) == 0) {
+            index = static_cast<int>(i);
+            break;
+        }
+    }
+    if (index < 0) {
+        brew->addWaterVesselPreset(name, plan.result.amount, plan.mode, plan.flowRate, plan.temperatureC);
+        if (brew->waterVesselPresets().size() != presets.size() + 1) return false;
+        index = static_cast<int>(presets.size());
+    }
+    const bool changed = brew->selectedWaterVessel() != index || brew->waterVolume() != plan.result.amount
+        || brew->waterVolumeMode() != plan.mode || brew->waterTemperature() != plan.temperatureC
+        || hardware->hotWaterFlowRate() != plan.flowRate;
+    brew->setSelectedWaterCup(index);
+    brew->setWaterVolume(plan.result.amount);
+    brew->setWaterVolumeMode(plan.mode);
+    brew->setWaterTemperature(plan.temperatureC);
+    hardware->setHotWaterFlowRate(plan.flowRate);
+    if (changed && apply) apply();
+    return true;
+}
 
 inline bool matchesSnapshot(const QVariantMap& expected, const QVariantMap& current)
 {

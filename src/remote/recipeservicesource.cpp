@@ -344,6 +344,12 @@ void NativeRecipeServiceSource::execute(QString requestId, QString operation,
     }
 
     if (operation == QLatin1String("create")) {
+        const QString waterError = RecipeEditFields::waterError(
+            fields.value(QStringLiteral("profileTitle")).toString(), fields.value(QStringLiteral("hotWaterJson")).toString());
+        if (!waterError.isEmpty()) {
+            finishOperation(requestId, operation, false, recipeId, waterError);
+            return;
+        }
         if (recipeId > 0 || !expectedEditable.isEmpty() || !validCreateFields(&fields)) {
             finishOperation(requestId, operation, false, recipeId, QStringLiteral("invalidRequest"));
             return;

@@ -507,7 +507,11 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/QrCode.qml` | 26 | native + Wasm | presentation; `SettingsAITab.qml` (20/24) |
 | `qml/components/QualityBadges.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/RatingInput.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/RatioChoiceDialog.qml` | 26 | native + Wasm | shared chooser presentation; add-recipe-water-ratios 3.1 |
 | `qml/components/RatioPresetDialog.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/WaterRatioDialog.qml` | 26 | native + Wasm | recipe water-ratio chooser; add-recipe-water-ratios 3.2 |
+| `qml/components/WaterAmountModeSelector.qml` | 26 | native + Wasm | shared vessel amount mode state/control; add-recipe-water-ratios 3.2 |
+| `qml/components/WaterVesselDialog.qml` | 26 | native + Wasm | shared vessel editor; add-recipe-water-ratios 3.3–3.4 |
 | `qml/components/RecipeCardText.js` | 26 | native + Wasm | policy/data producer; `RecipeWizardPage.qml` (26.2) |
 | `qml/components/RecipeDrinkCard.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
 | `qml/components/RecipeDrinkCardStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `RecipeWizardPage.qml` (26.2) |
@@ -733,6 +737,7 @@ The following files are explicitly tracked outside the app presentation denomina
 | `tests/qml/GrindRowSourceRecipeContext.qml` | Test fixture; 27.2 |
 | `tests/qml/tst_operationcompletionoverlay.qml` | Test fixture; 27.2 |
 | `tests/qml/tst_sharedformcontrols.qml` | Test fixture; 27.2 |
+| `tests/qml/tst_wateramountmodeselector.qml` | Production water amount mode pointer/state test; add-recipe-water-ratios 3.2 |
 | `tests/qml/tst_mcpconfirmdialog.qml` | Production confirmation pointer/ID test; 24.3 / 27.2 |
 | `tests/qml/McpConfirmationTheme.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
 | `tests/qml/McpConfirmationAccessibilityManager.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |

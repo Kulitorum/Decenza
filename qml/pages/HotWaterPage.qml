@@ -192,14 +192,7 @@ T.Page {
                 AppShell.dismissRequested()
                 return
             }
-            if (operation === "update") editVesselPopup.close()
-            else if (operation === "remove") editVesselPopup.close()
-            else if (operation === "add") {
-                addVesselDialog.close()
-                const index = presetDraft.presets.length - 1
-                if (index >= 0)
-                    page.selectVessel(index, presetDraft.presetAt(index))
-            }
+
         }
     }
 
@@ -212,8 +205,7 @@ T.Page {
         const continueBack = pendingBackAfterDraft
         pendingBackAfterDraft = false
         pendingSelectionIndex = -1
-        editVesselPopup.close()
-        addVesselDialog.close()
+        waterVesselEditor.close()
         if (continueBack)
             requestBack()
     }
@@ -226,13 +218,13 @@ T.Page {
     // Use StackView.onActivated (not Component.onCompleted) so side effects
     // run when the page is actually shown, not during construction. This
     // also re-fires on pop-back if the page is ever pushed below another.
-    // Skip the preset apply and tare while dispensing so a
-    // re-activation mid-session doesn't clobber in-progress state.
+    // Vessel selection/settings application belongs to explicit actions, not
+    // navigation: reopening must preserve temporary settings (including MCP
+    // overrides). Skip the tare while dispensing as well.
     StackView.onActivated: {
         if (openedFromSettingsSearch)
             return
         if (!page.isDispensing) {
-            page.applySelection()
             // Tare immediately so display shows 0g instead of current scale weight.
             if (!page.isVolumeMode) {
                 SteamService.request("tare", {}, SteamService.state.controlContextId)
@@ -310,16 +302,11 @@ T.Page {
     }
 
     function openEditVessel(index, name) {
-        editingVesselIndex = index
-        editingExpectedName = String(name)
-        editingRevision = Number(RecipeContext.revision)
-        editVesselNameInput.text = String(name)
-        editVesselPopup.open()
+        waterVesselEditor.openFor(presetDraft.presetAt(index), index)
     }
 
     function openAddVessel() {
-        addDialogRevision = Number(RecipeContext.revision)
-        addVesselDialog.open()
+        waterVesselEditor.openFor({}, -1)
     }
 
     ColumnLayout {
@@ -1092,274 +1079,11 @@ T.Page {
     }
 
 
-    // Edit vessel preset popup
-    DecenzaDialog {
-        id: editVesselPopup
-        x: (parent.width - width) / 2
-        y: editVesselPopup.editVesselPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
-        padding: 20
-        modal: true
-        focus: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
-
-        property bool editVesselPopupAtTop: false
-        onOpened: {
-            editVesselPopup.editVesselPopupAtTop = false
-            editVesselNameInput.forceActiveFocus()
-        }
-        onClosed: editVesselPopup.editVesselPopupAtTop = false
-
-        Connections {
-            target: Keyboard
-            function onVisibleChanged() {
-                if (Keyboard.visible && editVesselPopup.opened) {
-                    editVesselPopup.editVesselPopupAtTop = true
-                }
-            }
-        }
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.color: Theme.textSecondaryColor
-            border.width: 1
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(15)
-
-            Tr {
-                key: "hotwater.popup.editVesselPreset"
-                fallback: "Edit Vessel Preset"
-                color: Theme.textColor
-                font: Theme.subtitleFont
-            }
-
-            Rectangle {
-                Layout.preferredWidth: Theme.scaled(280)
-                Layout.preferredHeight: Theme.scaled(44)
-                color: Theme.backgroundColor
-                border.color: Theme.textSecondaryColor
-                border.width: 1
-                radius: Theme.scaled(4)
-
-                TextInput {
-                    id: editVesselNameInput
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(10)
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    verticalAlignment: TextInput.AlignVCenter
-                    inputMethodHints: Qt.ImhNoPredictiveText
-                    activeFocusOnTab: true
-                    Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("hotwater.accessible.renameVessel", "Rename water vessel")
-                    Accessible.description: text
-                    Accessible.focusable: true
-                    KeyNavigation.tab: deleteVesselButton
-                    KeyNavigation.backtab: saveVesselButton
-
-                    Tr {
-                        anchors.fill: parent
-                        verticalAlignment: Text.AlignVCenter
-                        key: "hotwater.placeholder.vesselName"
-                        fallback: "Vessel name"
-                        color: Theme.textSecondaryColor
-                        font: parent.font
-                        visible: !parent.text && !parent.activeFocus
-                        Accessible.ignored: true
-                    }
-                }
-            }
-
-            RowLayout {
-                spacing: Theme.scaled(10)
-
-                AccessibleButton {
-                    id: deleteVesselButton
-                    text: TranslationManager.translate("hotwater.button.delete", "Delete")
-                    accessibleName: TranslationManager.translate("hotWater.deleteVesselPreset", "Delete this water vessel preset")
-                    destructive: true
-                    enabled: RecipeContext.ready && !presetDraft.pending
-                    KeyNavigation.tab: cancelEditVesselButton
-                    KeyNavigation.backtab: editVesselNameInput
-                    onClicked: {
-                        presetDraft.remove(page.editingVesselIndex, page.editingExpectedName, page.editingRevision)
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AccessibleButton {
-                    id: cancelEditVesselButton
-                    text: TranslationManager.translate("hotwater.button.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("hotWater.cancelEditingVessel", "Cancel editing water vessel")
-                    KeyNavigation.tab: saveVesselButton
-                    KeyNavigation.backtab: deleteVesselButton
-                    onClicked: editVesselPopup.close()
-                }
-
-                AccessibleButton {
-                    id: saveVesselButton
-                    primary: true
-                    text: TranslationManager.translate("hotwater.button.save", "Save")
-                    accessibleName: TranslationManager.translate("hotWater.saveVesselChanges", "Save changes to water vessel preset")
-                    KeyNavigation.tab: editVesselNameInput
-                    KeyNavigation.backtab: cancelEditVesselButton
-                    // A vessel is identified by its NAME everywhere it is used —
-                    // recipes snapshot it by name, and the recipe wizard matches
-                    // its tiles on it. So a blank name (nothing can refer to it)
-                    // and a name another vessel already holds (two vessels that
-                    // cannot be told apart) are both refused, as in the Add
-                    // dialog. ignoreIndex is this preset: keeping its own name is
-                    // not a clash.
-                    enabled: editVesselNameInput.text.trim().length > 0
-                        && RecipeContext.ready && !presetDraft.pending
-                        && !presetDraft.nameTaken(editVesselNameInput.text, page.editingVesselIndex)
-                    onClicked: {
-                        Keyboard.commit()
-                        if (editVesselNameInput.text.trim().length === 0
-                                || presetDraft.nameTaken(editVesselNameInput.text, page.editingVesselIndex))
-                            return
-                        presetDraft.updateName(page.editingVesselIndex, editVesselNameInput.text.trim(), page.editingExpectedName, page.editingRevision)
-                    }
-                }
-            }
-        }
-    }
-
-    // Add vessel dialog
-    DecenzaDialog {
-        id: addVesselDialog
-        x: (parent.width - width) / 2
-        y: addVesselDialog.addVesselDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
-        padding: 20
-        modal: true
-        focus: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
-
-        property bool addVesselDialogAtTop: false
-        onOpened: {
-            addVesselDialog.addVesselDialogAtTop = false
-            newVesselNameInput.text = ""
-            newVesselNameInput.forceActiveFocus()
-        }
-        onClosed: addVesselDialog.addVesselDialogAtTop = false
-
-        Connections {
-            target: Keyboard
-            function onVisibleChanged() {
-                if (Keyboard.visible && addVesselDialog.opened) {
-                    addVesselDialog.addVesselDialogAtTop = true
-                }
-            }
-        }
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.color: Theme.textSecondaryColor
-            border.width: 1
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(15)
-
-            Tr {
-                key: "hotwater.popup.addVesselPreset"
-                fallback: "Add Vessel Preset"
-                color: Theme.textColor
-                font: Theme.subtitleFont
-            }
-
-            Rectangle {
-                Layout.preferredWidth: Theme.scaled(280)
-                Layout.preferredHeight: Theme.scaled(44)
-                color: Theme.backgroundColor
-                border.color: Theme.textSecondaryColor
-                border.width: 1
-                radius: Theme.scaled(4)
-
-                TextInput {
-                    id: newVesselNameInput
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(10)
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    verticalAlignment: TextInput.AlignVCenter
-                    inputMethodHints: Qt.ImhNoPredictiveText
-                    activeFocusOnTab: true
-                    Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("hotwater.accessible.newVesselName", "New water vessel name")
-                    Accessible.description: text
-                    Accessible.focusable: true
-                    KeyNavigation.tab: cancelAddVesselButton
-                    KeyNavigation.backtab: addVesselConfirmButton
-
-                    Tr {
-                        anchors.fill: parent
-                        verticalAlignment: Text.AlignVCenter
-                        key: "hotwater.placeholder.vesselName"
-                        fallback: "Vessel name"
-                        color: Theme.textSecondaryColor
-                        font: parent.font
-                        visible: !parent.text && !parent.activeFocus
-                        Accessible.ignored: true
-                    }
-                }
-            }
-
-            // Two vessels sharing a name are indistinguishable everywhere they
-            // are used — recipes snapshot the vessel BY NAME — so the clash is
-            // named here rather than letting the setter drop the write silently.
-            Label {
-                visible: newVesselNameInput.text.trim().length > 0
-                    && presetDraft.nameTaken(newVesselNameInput.text, -1)
-                Layout.fillWidth: true
-                text: TranslationManager.translate("hotwater.vesselNameInUse",
-                          "That name is already used by another vessel — choose a different one.")
-                font: Theme.captionFont
-                color: Theme.warningColor
-                wrapMode: Text.WordWrap
-                Accessible.role: Accessible.StaticText
-                Accessible.name: text
-            }
-
-            RowLayout {
-                spacing: Theme.scaled(10)
-
-                Item { Layout.fillWidth: true }
-
-                AccessibleButton {
-                    id: cancelAddVesselButton
-                    text: TranslationManager.translate("hotwater.button.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("hotWater.cancelAddingVessel", "Cancel adding new water vessel")
-                    KeyNavigation.tab: addVesselConfirmButton
-                    KeyNavigation.backtab: newVesselNameInput
-                    onClicked: addVesselDialog.close()
-                }
-
-                AccessibleButton {
-                    id: addVesselConfirmButton
-                    primary: true
-                    text: TranslationManager.translate("hotwater.button.add", "Add")
-                    accessibleName: TranslationManager.translate("hotWater.addNewVessel", "Add new water vessel with entered name")
-                    enabled: RecipeContext.ready && !presetDraft.pending
-                        && newVesselNameInput.text.trim().length > 0
-                        && !presetDraft.nameTaken(newVesselNameInput.text, -1)
-                    KeyNavigation.tab: newVesselNameInput
-                    KeyNavigation.backtab: cancelAddVesselButton
-                    onClicked: {
-                        Keyboard.commit()
-                        if (newVesselNameInput.text.length > 0) {
-                            presetDraft.add(newVesselNameInput.text.trim(), {
-                                volume: 200, mode: "weight", flowRate: 40,
-                                temperature: Number(RecipeContext.preferences.waterTemperature)
-                            }, page.addDialogRevision)
-                        }
-                    }
-                }
-            }
+    WaterVesselDialog {
+        id: waterVesselEditor
+        allowDelete: true
+        onSaved: function(vessel, index, preset, added) {
+            if (added) page.selectVessel(index, preset)
         }
     }
 

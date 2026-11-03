@@ -1,5 +1,6 @@
 #pragma once
 
+#include "recipeapplyqueue.h"
 #include "history/shotwaterjoin.h"
 
 #include <QHash>
@@ -76,6 +77,7 @@ class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
+class RecipeWaterController;
 class TranslationManager;
 class ScaleDeviceProxy;
 class SteamAutoFlushController;
@@ -519,6 +521,8 @@ public slots:
 
     void applySteamSettings() override;  // also satisfies SideEffectPort
     void applyHotWaterSettings();
+    void applySelectedWaterVessel();
+    QString recipeWaterStartError();
     void applyFlushSettings();
 
     // Real-time hot water setting updates
@@ -857,6 +861,10 @@ private:
     SteamAutoFlushController* m_steamAutoFlush = nullptr;
     DrinkSequenceController* m_drinkSequence = nullptr;
     ShotWaterJoin m_waterResultJoin;
+    RecipeApplyQueue m_recipeApplyQueue;
+    RecipeWaterController* m_recipeWater = nullptr;
+    void queueRecipeBrewWrite(std::function<void(Settings*)> write);
+    void refreshRecipeWater(bool targetEdited = false);
     void persistWaterResult(const std::optional<ShotWaterJoin::Write>& write);
     SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;
@@ -1059,6 +1067,8 @@ private:
     bool waterVesselDiverged(const QString& hotWaterJson) const override;
     bool yieldRestorePending() const override;
     // SideEffectPort:
+    quint64 beginRecipeRefresh() override;
+    void finishRecipeRefresh(quint64 generation) override;
     void emitActiveRecipeChanged() override;
     void deactivate() override;
     void deactivateForProfileDivergence(qint64 recipeId, const QString& recipeProfileTitle,

@@ -147,9 +147,14 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             return result;
         }, QStringLiteral("Start steaming milk")),
         McpRegistryHelpers::syncAction("hot_water", "control",
-        [device, startGuard](const QJsonObject&) -> QJsonObject {
+        [device, startGuard, mainController](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!startGuard(result)) return result;
+            const QString waterError = mainController ? mainController->recipeWaterStartError() : QString();
+            if (!waterError.isEmpty()) {
+                result["error"] = waterError;
+                return result;
+            }
             device->startHotWater();
             result["success"] = true;
             result["message"] = "Hot water started";

@@ -808,6 +808,8 @@ set(SOURCES
     src/controllers/steamautoflushcontroller.h
     src/controllers/drinksequencecontroller.cpp
     src/controllers/drinksequencecontroller.h
+    src/controllers/recipewaterstate.h
+    src/controllers/recipewatercontroller.h
     src/core/preparationstate.cpp
     src/core/preparationstate.h
     src/core/stableweightcapture.cpp
@@ -1739,7 +1741,7 @@ set(QML_FILES
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
     qml/components/PortalStatusIndicator.qml
-    qml/components/RatioPresetDialog.qml
+    qml/components/RatioPresetDialog.qml qml/components/RatioChoiceDialog.qml qml/components/WaterRatioDialog.qml qml/components/WaterVesselDialog.qml qml/components/WaterAmountModeSelector.qml
     qml/components/TempPickerDialog.qml
     qml/components/GrindField.qml
     qml/components/GrindPickerDialog.qml

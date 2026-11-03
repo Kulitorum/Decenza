@@ -67,7 +67,7 @@ public:
 signals:
     void pendingStepChanged();
     void activeChanged();
-    void waterEspressoAssociated(qint64 operation);
+    void waterEspressoAssociated(qint64 operation, const QString& waterSpec);
     void waterResultReady(qint64 operation, const QVariantMap& result);
 
 private:
@@ -96,6 +96,7 @@ private:
     QTimer m_startTimeout;
     QString m_recipeName;
     struct WaterCapture {
+        QString waterSpec;
         qint64 espressoOperation = 0;
         quint64 waterCycle = 0;
         QVariantMap result;

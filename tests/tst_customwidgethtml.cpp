@@ -115,6 +115,9 @@ private slots:
     void everyGestureHandlerCanActuallyFire();
     void compiledSleepTileFollowsItsOptions();
     void sharedPresetDraftUsesCapturedRevisionAndExplicitReload();
+    void vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts();
+    void recipeWaterEditorPreservesLegacyValuesAndConvertsTea();
+    void recipeWaterPreviewPassesSelectedProfileRecommendation();
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
     void hotWaterAndFlushInputsStayBoundToSharedDrafts();
     void grindDialInUsesOneCombinedPreferenceRequest();
@@ -160,6 +163,8 @@ const auto kCustomEditor    = QStringLiteral("/qml/components/layout/CustomEdito
 const auto kReadoutOptions  = QStringLiteral("/qml/components/layout/ReadoutOptionsPopup.qml");
 const auto kItemDelegate    = QStringLiteral("/qml/components/layout/LayoutItemDelegate.qml");
 const auto kShotHistoryPage = QStringLiteral("/qml/pages/ShotHistoryPage.qml");
+const auto kWaterVesselDialog = QStringLiteral("/qml/components/WaterVesselDialog.qml");
+const auto kRecipeWizard = QStringLiteral("/qml/pages/RecipeWizardPage.qml");
 const auto kSharedPresetDraft = QStringLiteral("/qml/components/SharedPresetDraft.qml");
 const auto kBrewDialog = QStringLiteral("/qml/components/BrewDialog.qml");
 const auto kWebLayout       = QStringLiteral("/src/network/shotserver_layout.cpp");
@@ -1410,6 +1415,154 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
     }
 }
 
+void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts()
+{
+    const auto source = readSource(SrcPath::kWaterVesselDialog);
+    QString methods;
+    for (const auto* name : {"snapshot", "openFor", "saveVessel"}) {
+        const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
+        QVERIFY(!method.isEmpty());
+        methods += method + QLatin1Char('\n');
+    }
+    const auto completed = liftHandler(source, "SharedPresetDraft {", "onCompleted:", "finishSave");
+    QVERIFY(!completed.isEmpty());
+    QJSEngine engine;
+    auto result = engine.evaluate(QStringLiteral(R"JS(
+        var RecipeContext = {revision: 4, preferences: {waterTemperature: 90},
+            waterAmountPreview: function(v, target) {
+                return {valid: v.hasWater === true && v.amountMode === "ratio" && target > 0,
+                        amountG: Math.round((v.waterToEspressoRatio || 0) * target)};
+            }};
+        var Keyboard = {commit: function() {}};
+        var nameField = {text: "Cup"};
+        var root = {allowRatio: true, recipeEditing: true, espressoTargetG: 40, validName: true, validAmount: true,
+            vesselName: "Cup", amountMode: "ratio", waterRatio: 2.7, measureMode: "weight",
+            flowRate: 40, temperatureC: 90, fixedAmount: 100, presetIndex: 0,
+            capturedPreset: {volume: 200, mode: "weight"}, capturedName: "Cup", capturedRevision: 4,
+            preview: {valid: true, amountG: 108}, emitted: null,
+            saved: function(value) {this.emitted = value;}, close: function() {}, open: function() {}};
+        var writer = {pending: false, selectedIndex: 0, presets: [{}], savedPresetResult: {index: 0, preset: {}},
+            presetAt: function(index) {return index < 0 ? {} : {name: "Cup", volume: 200, mode: "weight"};},
+            submit: function(op, fields) {this.operation = op; this.fields = fields; this.pending = true;}};
+        %1
+        %2
+        root.snapshot = snapshot;
+        saveVessel();
+        root.vesselName = "Later edit";
+        root.temperatureC = 99;
+        finishSave("update", true, "");
+        var frozen = root.emitted.name === "Cup" && root.emitted.temperatureC === 90
+            && root.emitted.waterToEspressoRatio === 2.7 && writer.fields.volume === 200
+            && writer.operation === "update";
+        writer.pending = false;
+        root.recipeEditing = false;
+        nameField.text = "Renamed selected cup";
+        saveVessel();
+        var selectedCommit = writer.operation === "commit";
+        writer.pending = false;
+        writer.selectedIndex = 1;
+        saveVessel();
+        var unselectedUpdate = writer.operation === "update";
+        writer.pending = false;
+        root.allowRatio = false;
+        openFor({name: "Cup", hasWater: true, amountMode: "ratio", waterToEspressoRatio: 2.7}, 0);
+        var fixed = snapshot();
+        var fixedOnly = fixed.amountMode === "fixed" && fixed.volume === 108
+            && fixed.waterToEspressoRatio === undefined;
+        openFor({}, -1);
+        frozen && selectedCommit && unselectedUpdate && fixedOnly
+            && root.amountMode === "fixed" && root.fixedAmount === 100;
+    )JS").arg(methods, completed));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
+void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea()
+{
+    const auto source = readSource(SrcPath::kRecipeWizard);
+    QString methods;
+    for (const auto* name : {"applyHotWaterJson", "recipeVesselSnapshot", "buildHotWaterJson", "vesselTileModel", "selectDrinkType"}) {
+        const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
+        QVERIFY(!method.isEmpty());
+        methods += method + QLatin1Char('\n');
+    }
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var fHasWater = true, fVesselName = "Cup", fWaterAmountMode = "fixed", fWaterRatio = 2.5;
+        var fVesselMode = "weight", fVesselVolume = 0, fVesselFlowRate = 40, fVesselTemperatureC = 0;
+        var fWaterOrder = "after", fDrinkType = "americano", waterEspressoTargetG = 40;
+        var templates = {americano: {bagKind: "coffee", water: true}, tea_hotwater: {bagKind: "tea", water: true}};
+        var RecipeService = {requestLastEquipmentForDrinkType: function() {}};
+        function suggestName() {}
+        function stepDone() {}
+        // The facade's real fixed/ratio projection is covered by RecipeContextServiceTest.
+        // These fixture values check the shipping editor's selection/save wiring.
+        var RecipeContext = {preferences: {waterVesselPresets: [{name: "Cup", volume: 200,
+                mode: "volume", temperature: 85, flowRate: 31}]},
+            waterVesselSnapshot: function(v, preset) {
+                return v.amountMode === undefined && !v.volume ? Object.assign({}, v,
+                    {volume: preset.volume, mode: preset.mode, temperatureC: preset.temperature, flowRate: preset.flowRate}) : v;
+            },
+            waterAmountPreview: function() {return {valid: true, amountG: 100};}};
+        %1
+        applyHotWaterJson('{"hasWater":true,"vesselName":"Cup"}');
+        var water = JSON.parse(buildHotWaterJson());
+        var tile = vesselTileModel()[0];
+        var legacy = water.volume === 200 && water.temperatureC === 85 && water.mode === "volume"
+            && tile.volume === 200 && tile.temperature === 85;
+        fWaterAmountMode = "ratio";
+        fVesselTemperatureC = 85;
+        selectDrinkType("tea_hotwater");
+        var tea = JSON.parse(buildHotWaterJson());
+        legacy && tea.amountMode === "fixed" && tea.volume === 100 && tea.mode === "weight"
+            && tea.waterToEspressoRatio === undefined;
+    )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
+void TestCustomWidgetHtml::recipeWaterPreviewPassesSelectedProfileRecommendation()
+{
+    const auto source = readSource(SrcPath::kRecipeWizard);
+    const auto signature = QStringLiteral("readonly property real waterEspressoTargetG:");
+    auto preview = liftFunction(source, signature);
+    QVERIFY(!preview.isEmpty());
+    preview.replace(signature, QStringLiteral("function previewTarget()"));
+    const auto resolve = liftFunction(source, QStringLiteral("function resolveProfileObj("));
+    QVERIFY(!resolve.isEmpty());
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var fProfileTitle = "Selected profile", fProfileYieldG = 0;
+        var fProfileJson = '{"has_recommended_dose":true,"recommended_dose":19}';
+        var selected = {hasRecommendedDose: true, recommendedDose: 18};
+        var ProfileService = {profileSummaryForTitle: function(title) {
+            return title === "Selected profile" ? selected : {};
+        }};
+        var fYieldMode = "ratio", ratioField = {text: "2"}, yieldField = {text: ""};
+        var doseField = {text: ""}, fBagId = 7;
+        var _bags = [{id: 7, doseWeightG: 20}];
+        var captured;
+        var RecipeContext = {recipeYieldPreview: function(recipe, bag, target, profile) {
+            captured = {recipe: recipe, bag: bag, target: target, profile: profile};
+            return 36;
+        }};
+        %1
+        %2
+        var installed = previewTarget() === 36 && captured.recipe.doseG === 0
+            && captured.bag.doseWeightG === 20 && captured.target === 0
+            && captured.profile === selected;
+        selected = {};
+        previewTarget();
+        var embedded = captured.profile.has_recommended_dose === true
+            && captured.profile.recommended_dose === 19;
+        fProfileTitle = "";
+        previewTarget();
+        installed && embedded && Object.keys(captured.profile).length === 0;
+    )JS").arg(resolve, preview));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
 void TestCustomWidgetHtml::sharedPresetDraftUsesCapturedRevisionAndExplicitReload()
 {
     const QString src = readSource(SrcPath::kSharedPresetDraft);
@@ -1892,6 +2045,25 @@ void TestCustomWidgetHtml::hotWaterAndFlushInputsStayBoundToSharedDrafts()
     const QString flush = readSource(SrcPath::kFlushPage);
     QVERIFY2(!hotWater.isEmpty(), "could not read HotWaterPage.qml");
     QVERIFY2(!flush.isEmpty(), "could not read FlushPage.qml");
+
+    // Execute the shipping activation handler: opening/reopening the screen
+    // must not turn a temporary 150 g override back into its 200 g preset.
+    const auto activate = liftHandler(hotWater, "id: page", "StackView.onActivated:", "activate");
+    QVERIFY(!activate.isEmpty());
+    QJSEngine engine;
+    const auto activationResult = engine.evaluate(QStringLiteral(R"JS(
+        var amount = 150;
+        var openedFromSettingsSearch = false;
+        var page = {isDispensing: false, isVolumeMode: false,
+                    applySelection: function() { amount = 200; }};
+        var SteamService = {state: {controlContextId: "test"}, request: function() {}};
+        var volumeInput = {forceActiveFocus: function() {}};
+        %1
+        activate(); activate();
+        amount;
+    )JS").arg(activate));
+    QVERIFY2(!activationResult.isError(), qPrintable(activationResult.toString()));
+    QCOMPARE(activationResult.toInt(), 150);
 
     // ValueInput.value is a live binding. Assigning it from a handler severs
     // that binding, so a later remote/native selection never reaches the view.

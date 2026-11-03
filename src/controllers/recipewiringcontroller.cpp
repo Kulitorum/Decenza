@@ -108,6 +108,7 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
             return;
         }
     }
+    const auto generation = m_effects.beginRecipeRefresh();
     const qint64 resolvedBagId = m_activeRecipe.value(
         QStringLiteral("resolvedBagId"), m_dial.activeBagId()).toLongLong();
     m_activeRecipe = recipe;
@@ -170,6 +171,7 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
                 m_dial.setGrinderRpm(static_cast<int>(rpm));
         }
     }
+    m_effects.finishRecipeRefresh(generation);
 }
 
 bool RecipeWiringController::shouldDeactivateOnBagChange(bool applyingRecipe) const {

@@ -1144,7 +1144,11 @@ void MachineState::beginWaterCapture()
     m_waterVolume = 0;
     m_waterResult = ShotWaterResult();
     m_waterResult.status = QStringLiteral("dispensed");
-    if (m_settings) m_waterResult.temperatureC = m_settings->brew()->waterTemperature();
+    if (m_settings) {
+        m_waterResult.temperatureC = m_settings->brew()->waterTemperature();
+        if (m_settings->brew()->waterVolumeMode() == QLatin1String("weight"))
+            m_waterResult.targetWeightG = m_settings->brew()->waterVolume();
+    }
 }
 
 void MachineState::captureWaterWeight(double weight)

@@ -2578,7 +2578,7 @@ int main(int argc, char *argv[])
     NativeRecipeContextSource recipeContextSource(&settings, mainController.shotHistory());
     QObject::connect(&recipeContextSource, &NativeRecipeContextSource::presetApplyRequested,
                      &mainController, [&mainController](const QString& domain) {
-        if (domain == QLatin1String("waterVessel")) mainController.applyHotWaterSettings();
+        if (domain == QLatin1String("waterVessel")) mainController.applySelectedWaterVessel();
         else if (domain == QLatin1String("flush")) mainController.applyFlushSettings();
     });
     NativeBeanSearchServiceSource beanSearchServiceSource(mainController.bagStorage(), &settings,

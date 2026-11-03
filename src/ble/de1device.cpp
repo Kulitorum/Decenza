@@ -1580,31 +1580,39 @@ void DE1Device::startSteam() {
     requestState(DE1::State::Steam);
 }
 
-void DE1Device::startHotWater() {
+bool DE1Device::startHotWater() {
+    const QString error = hotWaterStartError();
+    if (!error.isEmpty()) {
+        emit errorOccurred(error);
+        return false;
+    }
     writeMMR(DE1::MMR::GHC_MODE, 1, QStringLiteral("startHotWater"));
 
     if (m_state != DE1::State::Idle) {
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::HotWater);
+    return true;
 }
 
-void DE1Device::startUnattended(DE1::State state) {
+bool DE1Device::startUnattended(DE1::State state) {
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator && !m_isHeadless
         && !m_simulator->acceptsUnattendedStart(state)) {
         DEVICE_WARN(QStringLiteral("Simulated GHC refused %1: it needs a tap on the machine")
                         .arg(DE1::stateToString(state)));
-        return;
+        return false;
     }
 #endif
     if (state == DE1::State::HotWater)
-        startHotWater();
-    else if (state == DE1::State::Espresso)
+        return startHotWater();
+    if (state == DE1::State::Espresso) {
         startEspresso();
-    else
-        DEVICE_WARN(QStringLiteral("startUnattended has no start for %1; nothing requested")
-                        .arg(DE1::stateToString(state)));
+        return true;
+    }
+    DEVICE_WARN(QStringLiteral("startUnattended has no start for %1; nothing requested")
+                    .arg(DE1::stateToString(state)));
+    return false;
 }
 
 void DE1Device::startSteamPurge() {

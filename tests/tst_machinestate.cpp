@@ -1,3 +1,4 @@
+#include <QScopeGuard>
 #include <QtTest>
 #include <QSignalSpy>
 #include <QRegularExpression>
@@ -7,6 +8,7 @@
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
 #include "controllers/drinksequencecontroller.h"
+#include "controllers/recipewatercontroller.h"
 #include "history/shotwaterjoin.h"
 #include "controllers/shottimingcontroller.h"
 #include "core/settings.h"
@@ -73,6 +75,7 @@ private:
         MockScaleDevice scale;
         MachineState state{&device};
         QVariantMap recipe;
+        std::unique_ptr<RecipeWaterController> water;
         DrinkSequenceController sequence{&device, &state, [this] { return recipe; }};
 
         explicit SequenceFixture(const QString& order) {
@@ -86,6 +89,15 @@ private:
                                                       "\"order\":\"%1\"}").arg(order)}};
             notify(DE1::State::Idle, DE1::SubState::Ready);
             transport.clearWrites();
+            water = std::make_unique<RecipeWaterController>(&settings, &device, &state, &sequence, [] {}, &state);
+            device.setHotWaterStartGuard([this] { return water->startError(false); });
+        }
+        void setupWater(double target, double ratio = 2.5, bool editedTarget = false) {
+            const QJsonObject spec{{"hasWater", true}, {"vesselName", "Runtime cup"}, {"amountMode", "ratio"},
+                {"waterToEspressoRatio", ratio}, {"mode", "weight"}, {"temperatureC", 90}, {"flowRate", 40},
+                {"order", recipe.value("hotWaterJson").toString().contains("before") ? "before" : "after"}};
+            recipe.insert("hotWaterJson", QString::fromUtf8(QJsonDocument(spec).toJson(QJsonDocument::Compact)));
+            water->recipeSetup(1, spec, target, editedTarget);
         }
         void notify(DE1::State s, DE1::SubState ss) {
             QByteArray d;
@@ -101,6 +113,262 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void standaloneSettingsOverridesSurviveWaterCompletion() {
+        SequenceFixture f("after");
+        auto* brew = f.settings.brew();
+        brew->addWaterVesselPreset("Standalone override cup", 200, "weight", 40, 85);
+        const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        QVERIFY(f.water->selectVessel(index));
+        brew->setWaterVolume(150);
+        brew->setWaterTemperature(91);
+        f.settings.hardware()->setHotWaterFlowRate(55);
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        QCOMPARE(f.water->state().effectivePlan().result.amount, 150);
+        QCOMPARE(f.water->state().effectivePlan().temperatureC, 91.0);
+        QCOMPARE(f.water->state().effectivePlan().flowRate, 55);
+        brew->setWaterVolume(160); // Another explicit edit belongs to the next setup.
+        QCOMPARE(f.water->state().effectivePlan().result.amount, 150);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(brew->waterVolume(), 160);
+        QCOMPARE(brew->waterTemperature(), 91.0);
+        QCOMPARE(f.settings.hardware()->hotWaterFlowRate(), 55);
+        QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 200);
+    }
+
+    void selectedPresetEditsApplyWithAnEspressoOnlyRecipe() {
+        SequenceFixture f("after");
+        auto* brew = f.settings.brew();
+        brew->addWaterVesselPreset("Espresso only water", 100, "weight", 40, 85);
+        const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        QVERIFY(f.water->selectVessel(index));
+        for (const auto& disabled : {QJsonObject{}, QJsonObject{{"hasWater", false}}}) {
+            f.water->recipeSetup(7, disabled, 40, false);
+            brew->updateWaterVesselPreset(index, "Espresso only water", 180, "volume", 35, 90);
+            f.water->presetEdited();
+            QCOMPARE(brew->waterVolume(), 180);
+            QCOMPARE(brew->waterVolumeMode(), QStringLiteral("volume"));
+            QCOMPARE(brew->waterTemperature(), 90.0);
+            QCOMPARE(f.settings.hardware()->hotWaterFlowRate(), 35);
+            brew->setWaterVolume(100);
+        }
+    }
+
+    void waterApplicationFailureBlocksStartsAndRecovers() {
+        SequenceFixture f("after");
+        const auto originalRows = f.settings.value("water/vesselPresets");
+        const int originalIndex = f.settings.brew()->selectedWaterVessel();
+        const auto restore = qScopeGuard([&] {
+            f.settings.setValue("water/vesselPresets", originalRows);
+            f.settings.brew()->setSelectedWaterCup(originalIndex);
+        });
+        f.settings.brew()->setWaterVolume(200);
+        f.settings.setValue("water/vesselPresets", QByteArray("{}"));
+        for (int i = 0; i < 4; ++i)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*water/vesselPresets.*not an array.*"));
+        const QJsonObject spec{{"hasWater", true}, {"vesselName", "Application recovery cup"},
+            {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+        f.water->recipeSetup(1, spec, 40, false);
+        QCOMPARE(f.settings.brew()->waterVolume(), 200);
+        QVERIFY(!f.water->startError(false).isEmpty());
+        QVERIFY(!f.device.startHotWater());
+        QVERIFY(f.requested().isEmpty());
+        f.settings.setValue("water/vesselPresets", originalRows);
+        f.water->apply();
+        QVERIFY(f.water->startError(false).isEmpty());
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+    }
+
+    void recipeVesselNamesUseCanonicalWhitespace() {
+        SequenceFixture f("after");
+        f.setupWater(40);
+        const auto count = f.settings.brew()->waterVesselPresets().size();
+        auto spec = QJsonDocument::fromJson(f.recipe.value("hotWaterJson").toString().toUtf8()).object();
+        spec.insert("vesselName", " Runtime cup ");
+        f.water->recipeSetup(1, spec, 40, false);
+        QVERIFY(f.water->startError(false).isEmpty());
+        QCOMPARE(f.settings.brew()->waterVesselPresets().size(), count);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        QCOMPARE(f.water->historySnapshot().value("vesselName").toString(), QStringLiteral("Runtime cup"));
+    }
+
+    void waterRuntimeRequiresAnExplicitVessel() {
+        SequenceFixture f("after");
+        const auto original = f.settings.brew()->selectedWaterVessel();
+        for (const auto& spec : {
+                QJsonObject{{"hasWater", true}, {"order", "after"}},
+                QJsonObject{{"hasWater", true}, {"volume", 100}, {"amountMode", "fixed"}},
+                QJsonObject{{"hasWater", true}, {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}}}) {
+            f.water->recipeSetup(1, spec, 40, false);
+            QVERIFY(!f.water->startError(false).isEmpty());
+            QCOMPARE(f.settings.brew()->selectedWaterVessel(), original);
+            QVERIFY(!f.device.startHotWater());
+        }
+        f.setupWater(40);
+        QVERIFY(f.water->startError(false).isEmpty());
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+    }
+
+    void waterRuntimeRestoresAndEditsFixedSnapshots() {
+        SequenceFixture f("after");
+        f.settings.brew()->setWaterVolume(200);
+        QJsonObject fixed{{"hasWater", true}, {"vesselName", "Runtime fixed cup"}, {"volume", 100},
+            {"mode", "weight"}, {"flowRate", 31}, {"temperatureC", 85}};
+        f.water->recipeSetup(1, fixed, 40, false);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        fixed.insert("volume", 150);
+        fixed.insert("mode", "volume");
+        fixed.insert("flowRate", 51);
+        fixed.insert("temperatureC", 92);
+        f.water->recipeSetup(1, fixed, 40, false);
+        QCOMPARE(f.settings.brew()->waterVolume(), 150);
+        QCOMPARE(f.settings.brew()->waterVolumeMode(), QStringLiteral("volume"));
+        QCOMPARE(f.settings.hardware()->hotWaterFlowRate(), 51);
+        QCOMPARE(f.settings.brew()->waterTemperature(), 92.0);
+        f.setupWater(40);
+        const int index = f.settings.brew()->selectedWaterVessel();
+        f.settings.brew()->updateWaterVesselPreset(index, "Renamed shared cup", 200, "volume", 30, 85);
+        f.water->presetEdited();
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        QCOMPARE(f.water->state().setupRecipeId(), 1);
+    }
+
+    void waterRuntimeKeepsFrozenSpecAndActualTarget() {
+        SequenceFixture f("after");
+        f.setupWater(40);
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        QSignalSpy results(&f.sequence, &DrinkSequenceController::waterResultReady);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.water->bindEspresso(42);
+        const auto originalSpec = QString::fromUtf8(QJsonDocument(f.water->historySnapshot()).toJson(QJsonDocument::Compact));
+        f.setupWater(40, 3);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        f.water->espressoTargetEdited(42, 45);
+        QCOMPARE(f.settings.brew()->waterVolume(), 113);
+        f.water->espressoTargetEdited(42, 40);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        f.sequence.onShotSettled();
+        QTRY_VERIFY(f.requested().contains(SequenceFixture::one(DE1::State::HotWater)));
+        f.setupWater(42, 3, true);
+        QCOMPARE(f.settings.brew()->waterVolume(), 105);
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        QVERIFY(f.water->state().waterCaptured());
+        f.setupWater(44, 3, true);
+        QCOMPARE(f.settings.brew()->waterVolume(), 105);
+        QCOMPARE(f.water->historySnapshot().value("waterToEspressoRatio").toDouble(), 2.5);
+        f.state.m_waterSettle.setInterval(1);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(f.settings.brew()->waterVolume(), 132);
+        QTRY_COMPARE(results.count(), 1);
+        const auto result = ShotWaterResult::fromMap(results.first().at(1).toMap());
+        QCOMPARE(result.targetWeightG.value_or(0), 105.0);
+        const auto savedSpec = QJsonDocument::fromJson(result.specWithCapturedTarget(originalSpec).toUtf8()).object();
+        QCOMPARE(savedSpec.value("resolvedTargetG").toDouble(), 105.0);
+        QCOMPARE(savedSpec.value("waterToEspressoRatio").toDouble(), 2.5);
+    }
+
+    void longBlackReplacementDefersSettingsUntilDrinkEnds() {
+        SequenceFixture f("before");
+        f.setupWater(40);
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        f.sequence.expectRecipeWater();
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.settings.brew()->addWaterVesselPreset("Next standalone cup", 180, "weight", 35, 85);
+        const int next = static_cast<int>(f.settings.brew()->waterVesselPresets().size()) - 1;
+        QVERIFY(f.water->selectVessel(next));
+        f.water->recipeSetup(0, {}, 0, false);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        QCOMPARE(f.water->historySnapshot().value("resolvedTargetG").toInt(), 100);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_VERIFY(f.requested().contains(SequenceFixture::one(DE1::State::Espresso)));
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.water->bindEspresso(42);
+        QCOMPARE(f.settings.brew()->waterVolume(), 100);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(f.settings.brew()->waterVolume(), 180);
+        QVERIFY(!f.water->state().drinking());
+    }
+
+    void skippedWaterRetainsLatestPlannedTarget() {
+        SequenceFixture f("after");
+        f.setupWater(40);
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        QVariantMap result;
+        QObject::connect(&f.sequence, &DrinkSequenceController::waterResultReady, &f.state,
+            [&](qint64 operation, const QVariantMap& raw) { result = f.water->waterResult(operation, raw); });
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.water->bindEspresso(42);
+        const auto original = QString::fromUtf8(QJsonDocument(f.water->historySnapshot()).toJson(QJsonDocument::Compact));
+        f.water->espressoTargetEdited(42, 45);
+        f.sequence.skip();
+        QCOMPARE(result.value("status").toString(), QStringLiteral("notDispensed"));
+        QCOMPARE(result.value("targetWeightG").toInt(), 113);
+        QVERIFY(!result.contains("weightG"));
+        const auto saved = QJsonDocument::fromJson(ShotWaterResult::fromMap(result).specWithCapturedTarget(original).toUtf8()).object();
+        QCOMPARE(saved.value("resolvedTargetG").toInt(), 113);
+    }
+
+    void waterRuntimeRejectsInvalidAndRecoversWithoutPendingHold() {
+        SequenceFixture f("after");
+        f.setupWater(300);
+        QSignalSpy errors(&f.device, &DE1Device::errorOccurred);
+        QVERIFY(!f.device.startHotWater());
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(f.requested().isEmpty());
+        f.setupWater(40);
+        QVERIFY(f.device.startHotWater());
+        QVERIFY(!f.water->state().waterCaptured());
+        f.setupWater(42, 2.5, true);
+        QCOMPARE(f.settings.brew()->waterVolume(), 105);
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.setupWater(44, 2.5, true);
+        QCOMPARE(f.settings.brew()->waterVolume(), 105);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(f.settings.brew()->waterVolume(), 110);
+    }
+
+    void invalidRecipeWaterBlocksManualAndSequencedStarts() {
+        SequenceFixture f("after");
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        QSignalSpy results(&f.sequence, &DrinkSequenceController::waterResultReady);
+        f.device.setHotWaterStartGuard([] { return QStringLiteral("Water target is invalid"); });
+        QCOMPARE(f.device.hotWaterStartError(), QStringLiteral("Water target is invalid"));
+        QSignalSpy errors(&f.device, &DE1Device::errorOccurred);
+        f.device.startHotWater();
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(f.requested().isEmpty());
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        f.sequence.onShotSettled();
+        QTRY_COMPARE(errors.count(), 2);
+        QVERIFY(f.requested().isEmpty());
+        QVERIFY(!f.sequence.isActive());
+        QCOMPARE(results.count(), 1);
+        QCOMPARE(results.first().at(1).toMap().value("status").toString(), QStringLiteral("notDispensed"));
+        f.device.setHotWaterStartGuard({});
+        QVERIFY(f.device.hotWaterStartError().isEmpty());
+        f.device.startHotWater();
+        QTRY_VERIFY(f.requested().contains(SequenceFixture::one(DE1::State::HotWater)));
+    }
+
+    void waterResultRetainsTargetSeparateFromMeasurement() {
+        TestFixture f;
+        f.settings.brew()->setWaterVolumeMode("weight");
+        f.settings.brew()->setWaterVolume(105);
+        f.scale.mockSetConnected(true);
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.scale.mockSetWeight(107);
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(result.count(), 1);
+        const auto water = ShotWaterResult::fromMap(result.first().at(1).toMap());
+        QCOMPARE(water.targetWeightG.value_or(0), 105.0);
+        QCOMPARE(water.weightG.value_or(0), 107.0);
+        QCOMPARE(ShotWaterResult::fromJson(water.toJson()).targetWeightG.value_or(0), 105.0);
+    }
 
     void waterCaptureMeasuresNetFinalDropsAndIgnoresCupLift() {
         TestFixture f;
