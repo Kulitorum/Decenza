@@ -2472,8 +2472,10 @@ int main(int argc, char *argv[])
     NativeHostStatusServiceSource hostStatusSource(&weatherManager, &batteryManager);
     NativePreparationServiceSource preparationSource(mainController.preparation());
     if (auto* server = mainController.shotServer()) {
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened,
+                         &preparationSource, &NativePreparationServiceSource::openClient);
         QObject::connect(server, &ShotServer::remoteObjectClientClosed,
-                         mainController.preparation(), &PreparationController::releaseMilkClient);
+                         &preparationSource, &NativePreparationServiceSource::closeClient);
     }
     NativeHostSessionServiceSource hostSessionSource(&settings, &de1Device,
         &machineState, &mainController, &scaleProxy, &bleManager,
@@ -2528,6 +2530,7 @@ int main(int argc, char *argv[])
     NativeShotReviewActionSource shotReviewActionSource(&mainController, &settings, &bleManager, &refractometerProxy);
     shotReviewActionSource.setRemoteAccess(&remoteAccess);
     shotReviewActionSource.openClient(nativeConversationId, true);
+    preparationSource.openClient(nativeConversationId);
     if (auto* server = mainController.shotServer()) {
         const auto updateReportUrl = [&conversationSessionSource, server] {
             conversationSessionSource.setReportUrl(server->isRunning()

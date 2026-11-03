@@ -33,8 +33,7 @@ public:
     bool selectMode(const QString& mode) override;
     bool startMilkAttempt(const QString& owner) override;
     bool cancelMilkAttempt(const QString& owner) override;
-    // A closed remote session cannot withdraw its own offers.
-    void releaseMilkClient(const QString& clientId);
+    void releaseMilkClient(const QString& clientId) override;
     bool setMilkTimeLocked(bool locked) override;
     // The next start's duration, or the actual timeout of an active steam.
     int plannedSteamDurationSec() const;

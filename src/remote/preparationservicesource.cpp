@@ -25,6 +25,19 @@ void NativePreparationServiceSource::publish()
     setReady(m_preparation && m_preparation->available());
 }
 
+void NativePreparationServiceSource::openClient(const QString& clientId)
+{
+    if (!clientId.isEmpty())
+        m_clients.insert(clientId);
+}
+
+void NativePreparationServiceSource::closeClient(const QString& clientId)
+{
+    m_clients.remove(clientId);
+    if (m_preparation)
+        m_preparation->releaseMilkClient(clientId);
+}
+
 void NativePreparationServiceSource::execute(QString requestId, QString action, QString owner)
 {
     if (QUuid::fromString(requestId).isNull()) {
@@ -46,6 +59,9 @@ void NativePreparationServiceSource::execute(QString requestId, QString action, 
     } else if ((action == QLatin1String("milk-start") || action == QLatin1String("milk-cancel"))
                && owner.isEmpty()) {
         message = tr("The milk sample has no owner.");
+    } else if (action == QLatin1String("milk-start")
+               && !m_clients.contains(PreparationSnapshot::milkOwnerClient(owner))) {
+        message = tr("The milk sample's client is not connected.");
     } else if (action == QLatin1String("milk-start")) {
         success = m_preparation->startMilkAttempt(owner);
     } else if (action == QLatin1String("milk-cancel")) {

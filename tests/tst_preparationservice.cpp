@@ -20,8 +20,10 @@ public:
     { owners.append(owner); return command(QStringLiteral("milk-cancel")); }
     bool setMilkTimeLocked(bool locked) override
     { return command(locked ? QStringLiteral("milk-lock") : QStringLiteral("milk-unlock")); }
+    void releaseMilkClient(const QString& clientId) override { released.append(clientId); }
     QStringList calls;
     QStringList owners;
+    QStringList released;
     bool accept = true;
 private:
     bool command(const QString& action) { calls.append(action); return accept; }
@@ -60,6 +62,7 @@ private slots:
     {
         PreparationControllerStub controller;
         NativePreparationServiceSource source(&controller);
+        source.openClient(QStringLiteral("client"));
         QSignalSpy completed(&source, &PreparationServiceStateSimpleSource::operationCompleted);
         const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         controller.accept = false;
@@ -101,6 +104,31 @@ private slots:
         QTRY_COMPARE(completed.size(), 13);
         QVERIFY(!completed.last().at(2).toBool());
         QCOMPARE(controller.calls.size(), 9);
+    }
+
+    // An offer the host could never release (a client that is not connected, or no
+    // surface) is refused; closing a client releases its offers.
+    void milkOffersComeOnlyFromConnectedClients()
+    {
+        PreparationControllerStub controller;
+        NativePreparationServiceSource source(&controller);
+        QSignalSpy completed(&source, &PreparationServiceStateSimpleSource::operationCompleted);
+        const auto offer = [&source](const QString& owner) {
+            source.execute(QUuid::createUuid().toString(QUuid::WithoutBraces),
+                           QStringLiteral("milk-start"), owner);
+        };
+        source.openClient(QStringLiteral("client"));
+        offer(QStringLiteral("stranger/review"));
+        offer(QStringLiteral("client/"));
+        offer(QStringLiteral("client/review"));
+        source.closeClient(QStringLiteral("client"));
+        offer(QStringLiteral("client/review"));
+        QTRY_COMPARE(completed.size(), 4);
+        QCOMPARE(controller.owners, QStringList{QStringLiteral("client/review")});
+        QCOMPARE(controller.released, QStringList{QStringLiteral("client")});
+        const QList<bool> accepted{false, false, true, false};
+        for (qsizetype index = 0; index < completed.size(); ++index)
+            QCOMPARE(completed.at(index).at(2).toBool(), accepted.at(index));
     }
 
     void completionMatchesUuidAndActionAndDisconnectNeverReplays()

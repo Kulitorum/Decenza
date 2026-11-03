@@ -38,6 +38,12 @@ struct PreparationSnapshot {
     // shared by every owner of that client.
     static QString milkOwner(const QString& clientId, const QString& surface)
     { return clientId + QLatin1Char('/') + surface; }
+    // The client of an owner, or "" when the owner is not "<clientId>/<surface>".
+    static QString milkOwnerClient(const QString& owner)
+    {
+        const qsizetype slash = owner.indexOf(QLatin1Char('/'));
+        return slash > 0 && slash + 1 < owner.size() ? owner.left(slash) : QString();
+    }
     QJsonObject toJson() const;
     static bool parse(const QJsonObject&, PreparationSnapshot*, QString* error = nullptr);
 };
@@ -103,6 +109,8 @@ public:
     // id (PreparationSnapshot::milkOwner).
     Q_INVOKABLE virtual bool startMilkAttempt(const QString& owner) = 0;
     Q_INVOKABLE virtual bool cancelMilkAttempt(const QString& owner) = 0;
+    // A closed client cannot withdraw its own offers. Only the host holds them.
+    virtual void releaseMilkClient(const QString& clientId) { Q_UNUSED(clientId) }
     Q_INVOKABLE virtual bool setMilkTimeLocked(bool locked) = 0;
 signals:
     void changed();

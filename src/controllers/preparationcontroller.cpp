@@ -480,32 +480,35 @@ int PreparationController::scaledSteamDurationAtStart(QString* source) const
 int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher,
     bool milkAutoCaptureEnabled, double secondsPerGram, QString* source) const
 {
-    if (!m_snapshot.milkTimeLocked) {
-        if (source)
-            *source = QStringLiteral("not scaled: time unlocked");
-        return 0;
-    }
-
     // Only a capture changes the time: a load on the scale at steam start (a cup
     // on the drip tray) is not milk.
     const double milk = m_snapshot.sessionMeasuredMilkG;
-    const int seconds = SteamCalculations::scaledSteamTime(
-        pitcher, milkAutoCaptureEnabled, secondsPerGram, milk);
+    const int seconds = m_snapshot.milkTimeLocked
+        ? SteamCalculations::scaledSteamTime(pitcher, milkAutoCaptureEnabled, secondsPerGram, milk)
+        : 0;
     if (source) {
         const char* blocker = SteamCalculations::steamScalingBlocker(
             pitcher, milkAutoCaptureEnabled, secondsPerGram);
-        if (seconds > 0)
-            *source = QStringLiteral("%1 g captured").arg(formatGrams(milk));
-        else if (blocker)
-            *source = QStringLiteral("not scaled: %1").arg(QLatin1String(blocker));
-        else {
+        QString why;
+        if (seconds > 0) {
+            why = QStringLiteral("%1 g captured").arg(formatGrams(milk));
+        } else if (!m_snapshot.milkTimeLocked) {
+            why = QStringLiteral("not scaled: time unlocked");
+        } else if (blocker) {
+            why = QStringLiteral("not scaled: %1").arg(QLatin1String(blocker));
+        } else {
             const char* sample = milkSampleBlocker();
-            *source = QStringLiteral("no milk captured (pitcher=%1, sample %2, %3)")
-                .arg(formatGrams(selectedPitcherWeight()),
-                     sample ? QLatin1String(sample) : QLatin1String("offered, not settled"),
+            why = QStringLiteral("no milk captured (sample %1, %2)")
+                .arg(sample ? QLatin1String(sample) : QLatin1String("offered, not settled"),
                      m_snapshot.milk.loadPresent ? QLatin1String("load on scale")
                                                  : QLatin1String("scale empty"));
         }
+        *source = why + QStringLiteral(" [milk=%1 g weight-timed=%2 rate=%3 s/g pitcher=%4 empty=%5 g]")
+            .arg(formatGrams(milk), milkAutoCaptureEnabled ? QLatin1String("on") : QLatin1String("off"),
+                 QString::number(secondsPerGram, 'g', 3),
+                 pitcher.isEmpty() ? QStringLiteral("none")
+                                   : pitcher.value(QStringLiteral("name")).toString(),
+                 formatGrams(selectedPitcherWeight()));
     }
     return seconds;
 }
@@ -556,7 +559,6 @@ void PreparationController::finishSteamSession()
     m_steamElapsedTracker = 0.0;
     m_snapshot.sessionMeasuredMilkG = 0.0;
     m_snapshot.steamTimeoutScaled = false;
-    closeMilkAttempt();
     m_snapshot.milkTimeLocked = true;
 
     if (m_brew) {
@@ -605,9 +607,9 @@ void PreparationController::applyModeFromPhase()
         return;
     const QString operationMode = modeForOperationPhase(m_machineState->phase());
     if (!operationMode.isEmpty()) {
-        // Any other operation ends an attempt; a steam ends it in finishSteamSession().
-        if (operationMode != QLatin1String("steam"))
-            closeMilkAttempt();
+        // Any operation ends an offer. onPhaseChanged() runs a steam's start decision
+        // first, so that decision still sees the offer it logs.
+        closeMilkAttempt();
         m_snapshot.mode = operationMode;
     }
 }

@@ -14,7 +14,7 @@ Milk auto-capture was armed whenever the preparation mode was `steam`. The mode 
 - Selecting a different pitcher in the Steam row or popup asks for a new sample, since a capture is the old pitcher's. Leaving the idle page closes the Steam row and popup, so they never show a weight that is not being captured.
 - The legacy HTTP `milk-start`/`milk-cancel` routes are removed: they had no callers, and their fixed owner could never be released.
 - On the review page, tapping the button while a sample is offered cycles the pitcher instead of cancelling; the offer stays open for the new pitcher.
-- The host keeps one attempt per offer owner (client id + surface) and releases a client's offers when its remote session closes, so a closed browser cannot leave capture armed. Withdrawing during a running steam does not restore the earlier milk.
+- The host keeps one attempt per offer owner (client id + surface) and releases a client's offers when its remote session closes, so a closed browser cannot leave capture armed. An offer from a client that is not connected is refused. Withdrawing during a running steam does not restore the earlier milk.
 - The live net-milk weight shows on the selected pitcher's pill only; the other pills weighed the same load against their own empty weights.
 - Steam time comes only from captured milk. A load resting on the scale at steam start, a pitcher lifted before it settled, and the steam page's live expected-time preview no longer change it. Offering a sample keeps the earlier capture; selecting another pitcher clears it.
 

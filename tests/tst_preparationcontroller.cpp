@@ -410,6 +410,7 @@ private slots:
         else
             f.device.setSimulatedState(DE1::State::Espresso, DE1::SubState::Preinfusion);
         QTRY_VERIFY(phaseChanged.count() > 0);
+        QVERIFY(!f.preparation.milkAttemptOpen());
         if (steam) {
             const qsizetype steamChanges = phaseChanged.count();
             f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
@@ -419,6 +420,21 @@ private slots:
         QVERIFY(!f.preparation.milkAttemptOpen());
         f.captureMilk();
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);
+    }
+
+    // A capture that cannot scale the time still says what it had to work with.
+    void steamStartFallbackLogsItsInputs()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.captureMilk();
+        f.settings.brew()->setSteamSecondsPerGram(0.0);
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral(
+            "Steam start: preset duration \\d+ s, not scaled: no steam seconds-per-gram rate "
+            "\\[milk=100\\.0 g weight-timed=on rate=0 s/g pitcher=Test pitcher empty=50\\.0 g\\]")));
+        QSignalSpy phaseChanged(&f.machine, &MachineState::phaseChanged);
+        f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
+        QTRY_VERIFY(phaseChanged.count() > 0);
     }
 
     // The new scale's reading before its first sample can be the old scale's.

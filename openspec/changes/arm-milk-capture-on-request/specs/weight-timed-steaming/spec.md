@@ -2,7 +2,7 @@
 
 ### Requirement: Automatic milk capture before steaming
 
-The system SHALL capture milk only for a sample the user asks for: from the review-page milk button, or from the steam pitchers shown on the idle screen (the Steam row, or the compact Steam popup on the idle page). The selected pitcher SHALL be weight-timed (weight-timed steaming on and not a heater-off preset) with a saved empty-pitcher weight. Each request SHALL collect one sample, using the shared virtual-zero stable-weight capture (robust to an un-zeroed scale), give the standard capture confirmation (ding + transient banner), and lock the scaled time. The request SHALL end on capture, when the surface that made it closes, or when any operation starts. Selecting a different pitcher from the idle pitchers SHALL request a new sample. Leaving the idle page SHALL close the idle pitchers. Selecting the steam mode, opening the steam page and finishing a steam SHALL NOT start one.
+The system SHALL capture milk only for a sample the user asks for: from the review-page milk button, or from the steam pitchers shown on the idle screen (the Steam row, or the compact Steam popup on the idle page). The selected pitcher SHALL be weight-timed (weight-timed steaming on and not a heater-off preset) with a saved empty-pitcher weight. Each request SHALL collect one sample, using the shared virtual-zero stable-weight capture (robust to an un-zeroed scale), give the standard capture confirmation (ding + transient banner), and lock the scaled time. The request SHALL end on capture, when the surface that made it closes, or when any operation starts. Selecting a different pitcher from the idle pitchers SHALL request a new sample. Leaving the idle page SHALL close the idle pitchers. The host SHALL accept a request only from a connected client, so closing that client always ends it. Selecting the steam mode, opening the steam page and finishing a steam SHALL NOT start one.
 
 #### Scenario: Milk settles and the time locks
 - **WHEN** the user opens the idle pitchers and the pitcher with milk holds steady within tolerance for the dwell
@@ -27,6 +27,10 @@ The system SHALL capture milk only for a sample the user asks for: from the revi
 #### Scenario: Leaving the idle page closes the pitchers
 - **WHEN** the idle pitchers are showing and the user leaves the idle page
 - **THEN** the pitchers are closed when the user returns, and nothing is captured until they are opened again
+
+#### Scenario: Steam start ends the request
+- **WHEN** a sample is requested and steam starts from the group head before anything is captured
+- **THEN** the request ends as the steam starts, and the steam uses the earlier capture or the preset time
 
 #### Scenario: Pitcher without an empty weight
 - **WHEN** the user opens the idle pitchers with a pitcher selected that has no saved empty weight
