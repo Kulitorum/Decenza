@@ -24,7 +24,6 @@ struct PreparationSnapshot {
     bool milkTimeLocked = true;
     bool milkAttemptOpen = false;
     double sessionMeasuredMilkG = 0;
-    double lastOnScaleMilkG = 0;
     bool steamTimeoutScaled = false;
     double lastBeanGrams = 0;
     double lastMilkGrams = 0;
@@ -72,7 +71,6 @@ class PreparationState : public QObject {
     Q_PROPERTY(WeightCaptureState* bean READ bean CONSTANT FINAL)
     Q_PROPERTY(WeightCaptureState* milk READ milk CONSTANT FINAL)
     Q_PROPERTY(double sessionMeasuredMilkG READ sessionMeasuredMilkG NOTIFY changed FINAL)
-    Q_PROPERTY(double lastOnScaleMilkG READ lastOnScaleMilkG NOTIFY changed FINAL)
     Q_PROPERTY(bool steamTimeoutScaled READ steamTimeoutScaled NOTIFY changed FINAL)
     Q_PROPERTY(double milkScaleLoadG READ milkScaleLoadG NOTIFY changed FINAL)
     Q_PROPERTY(bool milkTimeLocked READ milkTimeLocked NOTIFY changed FINAL)
@@ -84,7 +82,6 @@ public:
     WeightCaptureState* bean() { return &m_bean; }
     WeightCaptureState* milk() { return &m_milk; }
     double sessionMeasuredMilkG() const { return m_snapshot.sessionMeasuredMilkG; }
-    double lastOnScaleMilkG() const { return m_snapshot.lastOnScaleMilkG; }
     bool steamTimeoutScaled() const { return m_snapshot.steamTimeoutScaled; }
     double milkScaleLoadG() const;
     // What is on the scale above the empty reading the milk capture learned: the

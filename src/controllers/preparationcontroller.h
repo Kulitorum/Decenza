@@ -62,7 +62,6 @@ private:
     void onTareCompleted();
     void onPitcherChanged();
     void onPitcherPresetsChanged();
-    void cacheLastLiveMilk(double scaleWeight);
     void finishSteamSession();
     void beginSteamSession();
     int scaledSteamDurationAtStart(QString* source = nullptr) const;
@@ -72,8 +71,6 @@ private:
                       std::optional<qint64> milkWake);
     void disconnectScaleConnections();
     void applyModeFromPhase();
-    // Ends the attempt with no owner left, restoring the milk measured before it.
-    void abandonMilkAttempt();
     void closeMilkAttempt();
     bool canCaptureInPreparationPhase() const;
     bool scaleCanCapture() const { return !scaleCaptureBlocker(); }
@@ -115,7 +112,6 @@ private:
     double m_fallbackPitcherEmptyWeightG = 0.0;
     std::optional<double> m_rejectedMilkRaw;
     std::optional<double> m_rejectedMilkNet;
-    double m_milkBeforeAttempt = 0.0;
     QSet<QString> m_milkOwners;
     double m_steamElapsedTracker = 0.0;
     bool m_wasSteaming = false;

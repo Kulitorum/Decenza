@@ -68,7 +68,6 @@ QJsonObject PreparationSnapshot::toJson() const
             {QStringLiteral("milkTimeLocked"), milkTimeLocked},
             {QStringLiteral("milkAttemptOpen"), milkAttemptOpen},
             {QStringLiteral("sessionMeasuredMilkG"), sessionMeasuredMilkG},
-            {QStringLiteral("lastOnScaleMilkG"), lastOnScaleMilkG},
             {QStringLiteral("steamTimeoutScaled"), steamTimeoutScaled},
             {QStringLiteral("lastBeanGrams"), lastBeanGrams},
             {QStringLiteral("lastMilkGrams"), lastMilkGrams},
@@ -98,7 +97,6 @@ bool PreparationSnapshot::parse(const QJsonObject& object, PreparationSnapshot* 
     if (!readBool(object, QStringLiteral("milkAttemptOpen"), &state.milkAttemptOpen)) return bad("milkAttemptOpen");
     if (!readBool(object, QStringLiteral("steamTimeoutScaled"), &state.steamTimeoutScaled)) return bad("steamTimeoutScaled");
     if (!grams("sessionMeasuredMilkG", &state.sessionMeasuredMilkG)) return bad("sessionMeasuredMilkG");
-    if (!grams("lastOnScaleMilkG", &state.lastOnScaleMilkG)) return bad("lastOnScaleMilkG");
     if (!grams("lastBeanGrams", &state.lastBeanGrams)) return bad("lastBeanGrams");
     if (!grams("lastMilkGrams", &state.lastMilkGrams)) return bad("lastMilkGrams");
     if (!readSequence(object, QStringLiteral("beanCaptureSequence"), &state.beanCaptureSequence)) return bad("beanCaptureSequence");

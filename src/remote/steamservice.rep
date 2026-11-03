@@ -48,8 +48,6 @@ class SteamState
     PROP(double steamAutoFlushCountdown READONLY)
     PROP(bool steamTimeoutScaled READONLY)
     PROP(double milkScaleLoadG READONLY)
-    PROP(double measuredMilkG READONLY)
-    PROP(int scaledSteamTimeout READONLY)
     PROP(int lastSteamEffectiveDurationSec READONLY)
 
     PROP(QString cueText READONLY)

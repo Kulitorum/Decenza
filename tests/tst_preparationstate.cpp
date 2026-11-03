@@ -24,7 +24,6 @@ private slots:
         state.milk.cupWeight = 160;
         state.milk.maxNet = 1500;
         state.sessionMeasuredMilkG = 250;
-        state.lastOnScaleMilkG = 130;
         state.steamTimeoutScaled = true;
         PreparationSnapshot parsed;
         QString error;
@@ -46,9 +45,9 @@ private slots:
         bad.insert(QStringLiteral("milkCaptureSequence"), 0.5);
         QVERIFY(!PreparationSnapshot::parse(bad, &parsed, &error));
         bad = valid;
-        bad.insert(QStringLiteral("lastOnScaleMilkG"), -1.0);
+        bad.insert(QStringLiteral("sessionMeasuredMilkG"), -1.0);
         QVERIFY(!PreparationSnapshot::parse(bad, &parsed, &error));
-        QCOMPARE(error, QStringLiteral("Invalid preparation field lastOnScaleMilkG"));
+        QCOMPARE(error, QStringLiteral("Invalid preparation field sessionMeasuredMilkG"));
         bad = valid;
         bad.insert(QStringLiteral("steamTimeoutScaled"), 1);
         QVERIFY(!PreparationSnapshot::parse(bad, &parsed, &error));
@@ -120,10 +119,10 @@ private slots:
     {
         TestPreparation model;
         PreparationSnapshot snapshot;
-        snapshot.lastOnScaleMilkG = 120.0;
+        snapshot.sessionMeasuredMilkG = 120.0;
         snapshot.steamTimeoutScaled = true;
         model.applySnapshot(snapshot, true, false);
-        QCOMPARE(model.lastOnScaleMilkG(), 120.0);
+        QCOMPARE(model.sessionMeasuredMilkG(), 120.0);
         QVERIFY(model.steamTimeoutScaled());
     }
 };

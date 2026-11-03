@@ -390,20 +390,6 @@ T.Page {
         return firstLiveActionButton()
     }
 
-    // --- Weight-scaled steaming (calibrated presets) -------------------------
-    // The native host computes these values from the selected preset and scale;
-    // the shared page only presents the replicated result.
-
-    // Net milk currently on the scale for the selected pitcher (0 if none/invalid).
-    function currentMeasuredMilk() {
-        return SteamService.state.measuredMilkG
-    }
-
-    // Scaled steam time for the milk currently on the scale (0 → use fixed duration).
-    function scaledSteamTimeout() {
-        return SteamService.state.scaledSteamTimeout
-    }
-
     // Weighing an empty pitcher stores the reading straight away and confirms with a
     // toast — the value also appears in the pitcher-weight field, so no dialog is
     // needed. (The old confirm dialog rendered white-on-white in dark themes and just
@@ -2076,41 +2062,6 @@ T.Page {
                     }
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
-
-                    // Live expected steam time for the milk currently on the scale
-                    // (only when the preset is calibrated and milk is present).
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(16)
-                        visible: !steamPage.currentPitcherDisabled
-                                 && steamPage.realScaleConnected
-                                 && steamPage.scaledSteamTimeout() > 0
-
-                        Column {
-                            Tr {
-                                key: "steam.label.expectedSteamTime"
-                                fallback: "Expected steam time"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(24)
-                            }
-                            Text {
-                                text: TranslationManager.translate("steam.hint.forMilkOnScale", "for the %1 g now on the scale").arg(steamPage.currentMeasuredMilk().toFixed(0))
-                                color: Theme.textSecondaryColor
-                                font: Theme.labelFont
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Text {
-                            text: steamPage.scaledSteamTimeout() + " s"
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(28)
-                            font.bold: true
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && steamPage.realScaleConnected && steamPage.scaledSteamTimeout() > 0 }
 
                     // ── Coaching (GLOBAL — not per-pitcher): live cues while steaming.
                     // Every row above changes with the selected pitcher preset; these two

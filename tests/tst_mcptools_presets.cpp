@@ -27,7 +27,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
 // rule it dispatches (which values a pitcher writes, and what the built-in
 // entry skips) is asserted directly against SettingsBrew in tst_settings, where
 // it lives and where no stub can hollow it out.
-void MainController::selectSteamPitcher(int, double) {}
+void MainController::selectSteamPitcher(int) {}
 
 // Exercises the steam-pitcher and hot-water-vessel MCP tools: unit conversions
 // (steam flow ×100, water flow ×10), partial-update merge (editing one field must

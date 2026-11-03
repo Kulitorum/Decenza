@@ -3417,22 +3417,15 @@ void MainController::sendMachineSettings(const QString& reason) {
     m_device->writeMMR(DE1::MMR::FLUSH_TIMEOUT, secondsValue, mmrReason);
 }
 
-void MainController::selectSteamPitcher(int index, double milkFallbackG) {
+void MainController::selectSteamPitcher(int index) {
     if (!m_settings) return;
     auto* brew = m_settings->brew();
 
     brew->setSelectedSteamCup(index);
 
-    // Net milk on the scale now; the caller's fallback otherwise. This is the one
-    // part that legitimately differs per surface, which is why it is resolved
-    // here and the values themselves are applied by SettingsBrew.
-    double milk = 0.0;
-    if (m_machineState && m_machineState->scale() && !m_machineState->scale()->isFlowScale())
-        milk = brew->netMilkForPitcher(index, m_preparation
-            ? m_preparation->loadOnScaleG(m_machineState->scaleWeight())
-            : m_machineState->scaleWeight());
-    if (milk <= 0.0)
-        milk = milkFallbackG;
+    // Read after the selection: a different pitcher has just cleared the capture.
+    // Only captured milk scales the time, never a load resting on the scale.
+    const double milk = m_preparation ? m_preparation->sessionMeasuredMilkG() : 0.0;
 
     // Selecting a pitcher never GRANTS permission — the row says what the user
     // would steam with, not whether the boiler runs. Selecting "Heater off" IS
@@ -3511,14 +3504,6 @@ bool MainController::steamPageOperationAllowed(const QString& action)
     return false;
 }
 
-double MainController::steamPageMilkFallback() const
-{
-    if (!m_preparation)
-        return 0.0;
-    const double captured = m_preparation->sessionMeasuredMilkG();
-    return captured > 0.0 ? captured : m_preparation->lastOnScaleMilkG();
-}
-
 bool MainController::prepareSteamPage()
 {
     const QString action = QStringLiteral("steam-prepare");
@@ -3538,16 +3523,12 @@ bool MainController::prepareSteamPage()
         return false;
     }
 
-    // Capture before selectMode(): switching into steam may reset the previous
-    // preparation snapshot. The selectedPitcher application still prefers a
-    // valid live scale reading, then uses this captured host value.
-    const double milkFallbackG = steamPageMilkFallback();
     if (!m_preparation->selectMode(QStringLiteral("steam"))) {
         failSteamPageAction(action, QStringLiteral("Steam preparation is unavailable right now."));
         return false;
     }
 
-    selectSteamPitcher(index, milkFallbackG);
+    selectSteamPitcher(index);
     if (!preset.value(QStringLiteral("disabled")).toBool())
         startSteamHeating(QStringLiteral("steampage-activated"));
     return true;
@@ -3572,7 +3553,7 @@ bool MainController::selectSteamPagePitcher(int index)
         return false;
     }
 
-    selectSteamPitcher(index, steamPageMilkFallback());
+    selectSteamPitcher(index);
     if (heaterOff)
         return true;
 

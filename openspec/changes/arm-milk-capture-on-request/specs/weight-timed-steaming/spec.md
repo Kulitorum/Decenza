@@ -50,7 +50,7 @@ Tapping the milk-weigh button SHALL start the same capture attempt as opening th
 
 ### Requirement: Review-page capture states
 
-While a capture is in progress the button SHALL show "Place pitcher" until a load is on the scale and "Weighing…" while it settles. A settled load that is not captured SHALL be explained, here and on the idle screen: "Add milk" under 50 g, "Not <pitcher>?" when lighter than the empty pitcher. Tapping the button again SHALL select the next usable pitcher, show its name for about two seconds, and keep the capture in progress. Leaving the page SHALL end the capture and restore any milk captured before it.
+While a capture is in progress the button SHALL show "Place pitcher" until a load is on the scale and "Weighing…" while it settles. A settled load that is not captured SHALL be explained, here and on the idle screen: "Add milk" under 50 g, "Not <pitcher>?" when lighter than the empty pitcher. Tapping the button again SHALL select the next usable pitcher, show its name for about two seconds, and keep the capture in progress. Leaving the page SHALL end the capture; milk captured before it stands.
 
 #### Scenario: Too little milk to capture
 - **WHEN** the pitcher settles on the scale with less than 50 g of milk
@@ -107,3 +107,49 @@ The idle page SHALL show a "Place the milk pitcher on the scale" prompt below th
 
 - **WHEN** the user places a pitcher (load above the detection threshold) on the scale
 - **THEN** the prompt disappears
+
+### Requirement: Fallback-to-fixed-duration is diagnosable from the debug log
+
+When weight-timed steaming applies the fixed duration instead of a weight-scaled one, the debug log SHALL show why: the captured milk, the toggle, the steam rate, the selected pitcher, the computed and the applied duration. It SHALL cover the steam-start decision and the page-activation/pitcher-lift sync, whether steam was started from the app or the group head.
+
+#### Scenario: Fallback due to missing calibration is visible in the log
+- **WHEN** steaming starts with milk captured but the global steam-seconds-per-gram rate is uncalibrated
+- **THEN** the debug log shows the captured milk value, the toggle as enabled, the calibration value as unset/zero, and the applied duration as the fixed fallback
+
+#### Scenario: Fallback due to no captured milk is distinguishable from a calibration gap
+- **WHEN** steaming starts with no milk captured
+- **THEN** the debug log says no milk was captured, distinguishing this case from an uncalibrated-but-milk-present fallback
+
+#### Scenario: Successful scaling is also logged
+- **WHEN** steaming starts with milk captured, the toggle enabled, a valid calibration, and an enabled pitcher
+- **THEN** the debug log shows the computed scaled duration and records it as the applied source, not the fallback
+
+## ADDED Requirements
+
+### Requirement: Steam time changes only on a capture
+
+The planned and applied steam time SHALL be scaled only from captured milk. A load on the scale that was not captured (a pitcher lifted before it settled, or a cup on the scale at steam start) SHALL NOT change it. Offering or withdrawing a sample SHALL keep the earlier capture; selecting a different pitcher SHALL clear it. A capture SHALL survive lifting the pitcher and the change to the steam page, whichever screen captured it.
+
+#### Scenario: Plan holds while a pitcher settles
+- **WHEN** milk was captured earlier and the user places another pitcher of milk on the scale with a sample offered
+- **THEN** the plan line keeps the earlier milk and time until the new capture lands
+
+#### Scenario: Cup on the scale at steam start
+- **WHEN** no milk was captured and steam starts with a cup resting on the scale
+- **THEN** the steam uses the preset time
+
+#### Scenario: Review-page capture survives the page change
+- **WHEN** milk is captured on the post-shot review page and the steam page then opens before steaming starts
+- **THEN** the steam page shows and sends the time scaled from that milk, not the pitcher's base duration
+
+## REMOVED Requirements
+
+### Requirement: Scaled time applies even when the pitcher never leaves the scale
+
+**Reason**: It scaled the steam from whatever rested on the scale at steam start, which counts a cup as milk. A pitcher resting on the scale is captured as soon as a sample is offered.
+**Migration**: Open the idle pitchers or tap the review-page milk button with the pitcher on the scale.
+
+### Requirement: Live expected-time feedback
+
+**Reason**: The steam page previewed a time for whatever was on the scale, which is not what the steam uses; only a capture changes the time.
+**Migration**: The steam plan line shows the time from the captured milk.

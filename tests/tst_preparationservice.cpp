@@ -161,7 +161,6 @@ private slots:
         snapshot.lastBeanGrams = 18.0;
         snapshot.lastMilkGrams = 35.0;
         snapshot.lastMilkSeconds = 5;
-        snapshot.lastOnScaleMilkG = 120.0;
         snapshot.steamTimeoutScaled = true;
         controller.publish(snapshot);
         NativePreparationServiceSource source(&controller);
@@ -177,7 +176,6 @@ private slots:
         QSignalSpy milk(service->state(), &PreparationState::milkCaptured);
         QTRY_VERIFY(service->ready());
         QCOMPARE(service->state()->snapshot().beanCaptureSequence, qint64(4));
-        QCOMPARE(service->state()->lastOnScaleMilkG(), 120.0);
         QVERIFY(service->state()->steamTimeoutScaled());
         QCOMPARE(beans.size(), 0);
         QCOMPARE(milk.size(), 0);
@@ -190,7 +188,6 @@ private slots:
         QCOMPARE(milk.first().at(0).toDouble(), 37.0);
         QCOMPARE(milk.first().at(1).toInt(), 6);
         service->setNode(nullptr);
-        QCOMPARE(service->state()->lastOnScaleMilkG(), 0.0);
         ++snapshot.milkCaptureSequence;
         controller.publish(snapshot);
         // Browser reconnect replaces the node; reusing an in-process replica

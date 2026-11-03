@@ -498,11 +498,7 @@ public slots:
     // recipe activation was a fifth caller that did only half of it, storing the
     // index without applying the values, so activating a recipe heated to the
     // last global temperature instead of its own pitcher's.
-    //
-    // `milkFallbackG` is the surface's own answer for "how much milk" when
-    // nothing is on the scale; it is the one thing that legitimately differs per
-    // caller, so it is a parameter rather than another copy of the function.
-    Q_INVOKABLE void selectSteamPitcher(int index, double milkFallbackG = 0.0);
+    Q_INVOKABLE void selectSteamPitcher(int index);
     // Select a saved home preset and apply all of its canonical settings. These
     // entry points keep Home and the full settings pages from loading only part
     // of the selected preset.
@@ -758,7 +754,6 @@ private:
     bool steamPageServicesAvailable(const QString& action);
     bool steamPageOperationAllowed(const QString& action);
     void failSteamPageAction(const QString& action, const QString& message);
-    double steamPageMilkFallback() const;
     void refreshSteamStopState();
 
     // The instance create() hands to the engine. Not owned here — main's stack object outlives

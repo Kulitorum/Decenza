@@ -138,14 +138,12 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
     m_scaleDeviceProxy = proxy;
     m_scaleTargetAwaitingSample = true;
     m_realScaleSamplePending = false;
-    m_snapshot.lastOnScaleMilkG = 0.0;
     if (proxy) {
         m_scaleConnections.emplace_back(connect(proxy, &ScaleDeviceProxy::connectedChanged,
                                                 this, [this] {
             const bool connected = m_scaleDeviceProxy && m_scaleDeviceProxy->connected();
             if (!connected) {
                 m_scaleTargetAwaitingSample = true;
-                m_snapshot.lastOnScaleMilkG = 0.0;
             }
             DIAG_DEBUG(STEAM, "PreparationController")
                 << QStringLiteral("Scale %1 — capture reset")
@@ -159,7 +157,6 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
             // milk value until the target emits an actual sample.
             m_scaleTargetAwaitingSample = true;
             m_realScaleSamplePending = false;
-            m_snapshot.lastOnScaleMilkG = 0.0;
             DIAG_DEBUG(STEAM, "PreparationController")
                 << "Scale target changed — capture reset, waiting for its first sample";
             refresh(true);
@@ -171,7 +168,6 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
         m_scaleConnections.emplace_back(connect(proxy, &QObject::destroyed, this, [this] {
             m_scaleDeviceProxy = nullptr;
             m_scaleTargetAwaitingSample = true;
-            m_snapshot.lastOnScaleMilkG = 0.0;
             refresh();
         }));
     }
@@ -191,10 +187,8 @@ bool PreparationController::selectMode(const QString& mode)
 
     // A milk sample cannot outlive steam mode: in espresso mode the bean detector
     // would weigh the same load.
-    if (m_snapshot.mode == QLatin1String("steam") && mode != QLatin1String("steam")) {
+    if (m_snapshot.mode == QLatin1String("steam") && mode != QLatin1String("steam"))
         closeMilkAttempt();
-        m_snapshot.lastOnScaleMilkG = 0.0;
-    }
 
     m_snapshot.mode = mode;
     refresh();
@@ -211,12 +205,10 @@ bool PreparationController::startMilkAttempt(const QString& owner)
                                                               : QStringLiteral("machine operating"));
         return false;
     }
+    // The earlier capture stands until this sample replaces it.
     if (!m_snapshot.milkAttemptOpen) {
         m_snapshot.mode = QStringLiteral("steam");
-        m_milkBeforeAttempt = m_snapshot.sessionMeasuredMilkG;
         m_snapshot.milkAttemptOpen = true;
-        m_snapshot.sessionMeasuredMilkG = 0.0;
-        m_snapshot.lastOnScaleMilkG = 0.0;
     }
     m_milkOwners.insert(owner);
     const char* blocker = milkSampleBlocker();
@@ -233,7 +225,7 @@ bool PreparationController::cancelMilkAttempt(const QString& owner)
         return false;
     DIAG_DEBUG(STEAM, "PreparationController") << "Milk sample withdrawn by" << owner;
     if (m_milkOwners.isEmpty())
-        abandonMilkAttempt();
+        closeMilkAttempt();
     refresh();
     return true;
 }
@@ -247,24 +239,14 @@ void PreparationController::releaseMilkClient(const QString& clientId)
         return;
     DIAG_DEBUG(STEAM, "PreparationController") << "Milk sample released: client closed" << clientId;
     if (m_milkOwners.isEmpty())
-        abandonMilkAttempt();
+        closeMilkAttempt();
     refresh();
-}
-
-void PreparationController::abandonMilkAttempt()
-{
-    // Mid-operation the earlier amount is not restored: the running steam already
-    // chose its time, and its end records what this attempt measured.
-    if (!m_machineState || !m_machineState->isOperating())
-        m_snapshot.sessionMeasuredMilkG = m_milkBeforeAttempt;
-    closeMilkAttempt();
 }
 
 void PreparationController::closeMilkAttempt()
 {
     m_milkOwners.clear();
     m_snapshot.milkAttemptOpen = false;
-    m_milkBeforeAttempt = 0.0;
 }
 
 bool PreparationController::setMilkTimeLocked(bool locked)
@@ -421,8 +403,6 @@ void PreparationController::onPhaseChanged()
 
 void PreparationController::onScaleWeightChanged()
 {
-    if (!m_scaleTargetAwaitingSample && scaleCanCapture() && m_machineState)
-        cacheLastLiveMilk(m_machineState->scaleWeight());
     refresh();
 }
 
@@ -435,22 +415,7 @@ void PreparationController::onScaleWeightSampleReceived(double weight)
     }
     m_scaleTargetAwaitingSample = false;
     m_realScaleSamplePending = true;
-    cacheLastLiveMilk(weight);
     refresh();
-}
-
-void PreparationController::cacheLastLiveMilk(double scaleWeight)
-{
-    if (!std::isfinite(scaleWeight) || !m_machineState || !m_brew
-        || m_machineState->phase() == MachineState::Phase::Steaming
-        || !canCaptureInPreparationPhase() || milkSampleBlocker()
-        || !scaleCanCapture()) {
-        return;
-    }
-    const double milk = m_brew->netMilkForPitcher(
-        m_brew->selectedSteamPitcher(), loadOnScaleG(scaleWeight));
-    if (std::isfinite(milk) && milk > 0.0)
-        m_snapshot.lastOnScaleMilkG = milk;
 }
 
 void PreparationController::onShotTimeChanged()
@@ -472,8 +437,9 @@ void PreparationController::onTareCompleted()
 
 void PreparationController::onPitcherChanged()
 {
-    // An open attempt stays open, now waiting for the new pitcher's sample.
-    m_snapshot.lastOnScaleMilkG = 0.0;
+    // A captured net is the old pitcher's. An open attempt stays open, now waiting
+    // for the new pitcher's sample.
+    m_snapshot.sessionMeasuredMilkG = 0.0;
     m_snapshot.steamTimeoutScaled = false;
     m_snapshot.milkTimeLocked = true;
     m_fallbackPitcherIndex = m_brew ? m_brew->selectedSteamPitcher() : -1;
@@ -491,7 +457,6 @@ void PreparationController::onPitcherPresetsChanged()
     const double emptyWeightG = selectedPitcherWeight();
     if (index != m_fallbackPitcherIndex
         || emptyWeightG != m_fallbackPitcherEmptyWeightG) {
-        m_snapshot.lastOnScaleMilkG = 0.0;
         m_rejectedMilkRaw.reset();
         m_rejectedMilkNet.reset();
     }
@@ -519,40 +484,21 @@ int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher
         return 0;
     }
 
-    double milk = 0.0;
-    double liveLoad = std::numeric_limits<double>::quiet_NaN();
-    const char* from = "live load";
-    if (scaleCanCapture() && m_machineState) {
-        liveLoad = loadOnScaleG(m_machineState->scaleWeight());
-        milk = SteamCalculations::netMilkForPitcher(pitcher, liveLoad);
-    }
-    if (!(milk > 0.0)) {
-        milk = m_snapshot.sessionMeasuredMilkG;
-        from = "captured milk";
-    }
-    if (!(milk > 0.0)) {
-        milk = m_snapshot.lastOnScaleMilkG;
-        from = "last on-scale milk";
-    }
-
+    // Only a capture changes the time: a load on the scale at steam start (a cup
+    // on the drip tray) is not milk.
+    const double milk = m_snapshot.sessionMeasuredMilkG;
     const int seconds = SteamCalculations::scaledSteamTime(
         pitcher, milkAutoCaptureEnabled, secondsPerGram, milk);
     if (source) {
         const char* blocker = SteamCalculations::steamScalingBlocker(
             pitcher, milkAutoCaptureEnabled, secondsPerGram);
-        if (seconds > 0) {
-            *source = QStringLiteral("%1 g from %2").arg(formatGrams(milk), QLatin1String(from));
-        } else if (blocker) {
+        if (seconds > 0)
+            *source = QStringLiteral("%1 g captured").arg(formatGrams(milk));
+        else if (blocker)
             *source = QStringLiteral("not scaled: %1").arg(QLatin1String(blocker));
-        } else {
-            *source = QStringLiteral("no usable milk weight (live load=%1, pitcher=%2, "
-                                     "captured=%3, last on-scale=%4)")
-                .arg(std::isfinite(liveLoad) ? formatGrams(liveLoad)
-                                             : QLatin1String(scaleCaptureBlocker()),
-                     formatGrams(selectedPitcherWeight()),
-                     formatGrams(m_snapshot.sessionMeasuredMilkG),
-                     formatGrams(m_snapshot.lastOnScaleMilkG));
-        }
+        else
+            *source = QStringLiteral("no milk captured (pitcher=%1)")
+                .arg(formatGrams(selectedPitcherWeight()));
     }
     return seconds;
 }
@@ -602,7 +548,6 @@ void PreparationController::finishSteamSession()
     }
     m_steamElapsedTracker = 0.0;
     m_snapshot.sessionMeasuredMilkG = 0.0;
-    m_snapshot.lastOnScaleMilkG = 0.0;
     m_snapshot.steamTimeoutScaled = false;
     closeMilkAttempt();
     m_snapshot.milkTimeLocked = true;
@@ -654,10 +599,8 @@ void PreparationController::applyModeFromPhase()
     const QString operationMode = modeForOperationPhase(m_machineState->phase());
     if (!operationMode.isEmpty()) {
         // Any other operation ends an attempt; a steam ends it in finishSteamSession().
-        if (operationMode != QLatin1String("steam")) {
+        if (operationMode != QLatin1String("steam"))
             closeMilkAttempt();
-            m_snapshot.lastOnScaleMilkG = 0.0;
-        }
         m_snapshot.mode = operationMode;
     }
 }
