@@ -1215,7 +1215,7 @@ jobs:
           target: 'desktop'
           arch: 'clang_64'
           modules: ${{ steps.qt_modules.outputs.list }}
-          # No caches on this leg (Qt, ccache, OpenSSL): nobody waits on the macOS
+          # No caches on this leg (Qt, ccache): nobody waits on the macOS
           # build, and its ~2.6 GB was a quarter of the repo's 10 GB cache store.
           cache: false
 
@@ -1251,58 +1251,8 @@ jobs:
           echo "Installed certificates:"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Resolve latest OpenSSL 3.x
-        id: openssl-version
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=$(gh api repos/openssl/openssl/releases --jq '[.[] | select(.tag_name | startswith("openssl-3.")) | .tag_name][0]' | sed 's/openssl-//')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Using OpenSSL $VERSION"
-
-      - name: Build universal OpenSSL
-        run: |
-          OPENSSL_VERSION="${{ steps.openssl-version.outputs.version }}"
-          OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
-          INSTALL_PREFIX="${RUNNER_TEMP}/openssl-universal"
-
-          cd "$RUNNER_TEMP"
-          curl -L "$OPENSSL_URL" | tar xz
-          cd "openssl-${OPENSSL_VERSION}"
-
-          for architecture in arm64 x86_64; do
-            ./Configure "darwin64-${architecture}-cc" shared no-tests \
-              --prefix="${INSTALL_PREFIX}/${architecture}" \
-              -mmacosx-version-min=12.0
-            make -j"$(sysctl -n hw.ncpu)"
-            make install_sw
-            make clean
-          done
-
-          # Create universal libs
-          mkdir -p "${INSTALL_PREFIX}/lib"
-          cp -R "${INSTALL_PREFIX}/arm64/include" "${INSTALL_PREFIX}/"
-          for lib in libssl.a libcrypto.a libssl.3.dylib libcrypto.3.dylib; do
-            lipo -create \
-              "${INSTALL_PREFIX}/arm64/lib/${lib}" \
-              "${INSTALL_PREFIX}/x86_64/lib/${lib}" \
-              -output "${INSTALL_PREFIX}/lib/${lib}"
-          done
-
-          for lib in libssl.3.dylib libcrypto.3.dylib; do
-            install_name_tool -id "@rpath/${lib}" "${INSTALL_PREFIX}/lib/${lib}"
-          done
-          for architecture in arm64 x86_64; do
-            install_name_tool \
-              -change "${INSTALL_PREFIX}/${architecture}/lib/libcrypto.3.dylib" \
-              "@loader_path/libcrypto.3.dylib" \
-              "${INSTALL_PREFIX}/lib/libssl.3.dylib"
-          done
-          echo "Universal OpenSSL installed at ${INSTALL_PREFIX}"
-
       - name: Configure CMake
         run: |
-          OPENSSL_PREFIX="${RUNNER_TEMP}/openssl-universal"
           mkdir -p build/macos
           cd build/macos
           # PCH on (the CMake default here): with no compiler cache there is no
@@ -1316,11 +1266,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/build/macos/Release" \
             -DENABLE_TSNET=ON \
-            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-            -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
-            -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
-            -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
-            -DOPENSSL_SSL_LIBRARY="${OPENSSL_PREFIX}/lib/libssl.a"
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
 
       - name: Compile native app while Wasm builds
         run: |
@@ -1350,20 +1296,6 @@ jobs:
 
           echo "Bundled frameworks:"
           find "$APP_PATH/Contents/Frameworks" -maxdepth 1 | head -20
-
-      - name: Bundle OpenSSL runtime for Qt HTTPS
-        run: |
-          APP_PATH="build/macos/Release/Decenza.app"
-          test -s "$APP_PATH/Contents/PlugIns/tls/libqopensslbackend.dylib"
-          for lib in libssl.3.dylib libcrypto.3.dylib; do
-            bundled="$APP_PATH/Contents/Frameworks/$lib"
-            cp "$RUNNER_TEMP/openssl-universal/lib/$lib" "$bundled"
-            lipo "$bundled" -verify_arch x86_64 arm64
-            if otool -L "$bundled" | grep -F "$RUNNER_TEMP/openssl-universal"; then
-              echo "OpenSSL runtime still references its build directory: $lib" >&2
-              exit 1
-            fi
-          done
 
       - name: Sign the application
         env:

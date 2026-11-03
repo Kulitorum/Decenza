@@ -6,8 +6,9 @@
 /**
  * AES-128 ECB single-block primitives, thin wrapper over platform crypto.
  *
- * Implementation routes to OpenSSL EVP on desktop+Android (already linked)
- * and Apple CommonCrypto on iOS (in libSystem). No new build dependency.
+ * Implementation routes to OpenSSL EVP on Windows, Linux and Android (already
+ * linked) and Apple CommonCrypto on macOS and iOS (in libSystem). No new build
+ * dependency.
  *
  * Surface is the bare minimum needed by the DiFluid R1 driver: one-shot
  * encrypt and decrypt of a single 16-byte block under a 16-byte key. No

@@ -15,7 +15,7 @@
 #include <QtGlobal>
 #include <cstring>
 
-#if defined(Q_OS_IOS)
+#if defined(Q_OS_DARWIN)
 #include <CommonCrypto/CommonCryptor.h>
 #else
 #include <openssl/evp.h>
@@ -25,7 +25,7 @@ namespace decenza::aes128 {
 
 namespace {
 
-#if defined(Q_OS_IOS)
+#if defined(Q_OS_DARWIN)
 
 bool oneBlock(const Key& key, const uint8_t in[16], uint8_t out[16], bool encrypt) {
     size_t outLen = 0;
