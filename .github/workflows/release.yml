@@ -894,6 +894,9 @@ jobs:
           # to invalidate.
           key: 'ios-arm64-xcode26.4.1-s3'
           use_cache: ${{ inputs.use_cache }}
+          # The 500M default could not hold one -O3 -g build: run 41673682254
+          # evicted 334 times and hit 28% while the other legs hit ~73%.
+          max-size: 1000M
 
       - name: Configure ccache for CI
         # Run %compiler% -v so the hash captures the real compiler the shim

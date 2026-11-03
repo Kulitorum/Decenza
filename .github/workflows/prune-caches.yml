@@ -376,10 +376,12 @@ jobs:
       #               build on a different host saves a second full copy. Measured
       #               2026-11-03: a 440 MB `…1014-aws` Qt install on v2.1.0, last
       #               used once, beside the `…1017-azure` one every build uses.
-      #               Family = the key up to its first dotted-version token; within
-      #               a (family, ref), an entry last used more than a day before its
-      #               most recently used sibling is collected. Two entries a build
-      #               actually uses are touched by that same build, minutes apart.
+      #               Family = the key up to its first dotted-version token; an
+      #               entry last used more than a day before its most recently used
+      #               sibling in the family is collected. Siblings share its ref, and
+      #               for a tag entry also include main's, since a tag restores from
+      #               main. Two entries a build actually uses are touched by that same
+      #               build, minutes apart.
       #   main copy   A tag entry whose exact key `main` also holds. A tag build
       #               falls back to `main`'s scope on a miss and saves nothing on an
       #               exact hit, so the tag's copy only doubles the space (441 MB of
@@ -405,12 +407,15 @@ jobs:
                    def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
                    [ .[] | select(.key | test($ts) | not) ] as $stable
                    | [ $stable[] | select(.ref == "refs/heads/main") | .key ] as $mainkeys
-                   | ( $stable | map(select(fam != null)) | group_by(fam + "@@" + .ref)
-                       | map(max_by(.lastAccessedAt | epoch) as $live
-                             | .[] | select(.id != $live.id
-                                     and (.lastAccessedAt | epoch) + 86400 < ($live.lastAccessedAt | epoch))
-                             | . + {why: "superseded by \($live.key)"})
-                       | .[] ),
+                   | [ $stable[] | select(fam != null) ] as $fams
+                   | ( $fams[] as $e
+                       | ($e.ref | test("^(refs/heads/)?refs/tags/")) as $tag
+                       | [ $fams[] | select(fam == ($e | fam)
+                                     and (.ref == $e.ref or ($tag and .ref == "refs/heads/main"))) ]
+                       | max_by(.lastAccessedAt | epoch) as $live
+                       | $e | select(.id != $live.id
+                                and (.lastAccessedAt | epoch) + 86400 < ($live.lastAccessedAt | epoch))
+                       | . + {why: "superseded by \($live.key) on \($live.ref)"} ),
                      ( $stable[] | select(.ref | test("^(refs/heads/)?refs/tags/"))
                        | select(.key as $k | $mainkeys | index($k))
                        | . + {why: "main holds the same key"} )
