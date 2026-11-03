@@ -58,7 +58,7 @@ Acceptance scope: the user selected simulator-only validation on 2026-11-02. Ear
 ## 8. Final GitHub review correction
 
 - [x] 8.1 Capture water-validation defaults from typed installed ProfileInfo metadata, not the lightweight availableProfiles picker projection. Reproduce the missing dose/target through the real ProfileManager catalog and async recipe create/update/clone, rerun native/Wasm and full tests, resolve the reviewed thread, and re-archive before merge.
-- [ ] 8.2 Include the enabled installed or embedded profile dose as the final fallback in the shared recipe editor's yield preview. Cover recipe/bag precedence, disabled recommendations and the shipping QML call, build native/Wasm and run focused/full tests, then resolve the review and re-archive before merging.
+- [x] 8.2 Include the enabled installed or embedded profile dose as the final fallback in the shared recipe editor's yield preview. Cover recipe/bag precedence, disabled recommendations and the shipping QML call, build native/Wasm and run focused/full tests, then resolve the review and re-archive before merging.
 
 ## Workflow follow-up
 
