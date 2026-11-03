@@ -195,6 +195,9 @@ extern "C" const char* __ubsan_default_options()
 #include <QSet>
 #include <QStandardPaths>
 #include <QPixmapCache>
+#ifdef Q_OS_MACOS
+#include <QSslSocket>
+#endif
 #include <QSysInfo>
 #include <memory>
 #include <vector>
@@ -713,6 +716,13 @@ int main(int argc, char *argv[])
     qputenv("QT_MEDIA_BACKEND", "darwin");
 #endif
 
+#ifdef Q_OS_MACOS
+    // TLS is Secure Transport, as on iOS (selected after QApplication below). Before
+    // macOS 15 its PKCS12 import otherwise goes through the login keychain and prompts
+    // for key access (qtls_st.cpp:822-847).
+    qputenv("QT_SSL_USE_TEMPORARY_KEYCHAIN", "1");
+#endif
+
     // Install web debug logger early to capture all output
     WebDebugLogger::install();
 
@@ -755,6 +765,15 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     CrashHandler::refreshDeviceLine();
+
+#ifdef Q_OS_MACOS
+    // The app bundles no OpenSSL, so choose Secure Transport rather than let Qt's OpenSSL
+    // plugin load whatever libssl it finds (Homebrew's, on a dev Mac).
+    if (!QSslSocket::setActiveBackend(QStringLiteral("securetransport"))) {
+        DIAG_WARN(NETWORK, "main") << "Secure Transport TLS backend unavailable; HTTPS will not work. Backends:"
+                                   << QSslSocket::availableBackends();
+    }
+#endif
 
 #ifdef Q_OS_IOS
     // Stops the iOS "Allow Paste" prompt on every return to the app. When the

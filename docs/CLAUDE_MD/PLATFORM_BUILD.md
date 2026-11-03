@@ -112,7 +112,7 @@ Native release CI passes `DECENZA_WEB_BUNDLE_DIR` for the matching Wasm deployme
 
 ### Desktop OpenSSL runtime
 
-Qt's OpenSSL plugin needs shared runtime libraries even when Decenza links OpenSSL statically for certificate generation. macOS CI builds universal static and shared libraries, bundles the shared pair in `Contents/Frameworks` with portable install names, and verifies both architectures before signing. Both Linux AppImages use `scripts/package_linux_appimage.sh` to explicitly deploy `libssl.so.3` and `libcrypto.so.3`; packaging fails if either library or the Qt OpenSSL plugin is missing.
+Qt's OpenSSL plugin needs shared runtime libraries even when Decenza links OpenSSL statically for certificate generation. macOS uses no OpenSSL: like iOS, it generates its RSA certificate with Security.framework, does AES with CommonCrypto, and selects Qt's Secure Transport TLS backend at startup (`main.cpp`). Both Linux AppImages use `scripts/package_linux_appimage.sh` to explicitly deploy `libssl.so.3` and `libcrypto.so.3`; packaging fails if either library or the Qt OpenSSL plugin is missing.
 
 ## Windows Installer
 

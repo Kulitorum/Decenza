@@ -1572,9 +1572,9 @@ add_decenza_test(tst_difluidr1
 # branch below. It briefly lived on the OpenSSL line inside else(), which links
 # fine on desktop and would have failed only on an iOS build.
 target_link_libraries(tst_difluidr1 PRIVATE decenza_refractometerlib)
-# Crypto backend: OpenSSL on desktop+Android, CommonCrypto (in libSystem) on iOS.
-# Match the Q_OS_IOS branch in aes128.cpp exactly — macOS desktop still uses OpenSSL.
-if(IOS)
+# Crypto backend: OpenSSL on Windows/Linux/Android, CommonCrypto (in libSystem) on
+# macOS and iOS. Match the Q_OS_DARWIN branch in aes128.cpp exactly.
+if(APPLE)
     # CommonCrypto is part of libSystem — no extra linkage needed.
 else()
     find_package(OpenSSL REQUIRED)
@@ -2677,7 +2677,7 @@ add_decenza_test(tst_remotesessionserver
     ${CMAKE_SOURCE_DIR}/src/network/remotesessionserver.cpp
 )
 target_link_libraries(tst_remotesessionserver PRIVATE decenza_webrequestguardlib decenza_qtrowebsockettestlib Qt6::WebSockets)
-if(NOT ANDROID AND NOT IOS)
+if(NOT ANDROID AND NOT APPLE)
     target_link_libraries(tst_remotesessionserver PRIVATE OpenSSL::Crypto)
     target_compile_definitions(tst_remotesessionserver PRIVATE DECENZA_TEST_OPENSSL_PEM)
 endif()

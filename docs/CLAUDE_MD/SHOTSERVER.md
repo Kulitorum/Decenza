@@ -4,7 +4,7 @@ The ShotServer is the in-app HTTP server that exposes shot history, settings, la
 
 ## TLS certificate files
 
-Desktop and Android encode PEM with OpenSSL memory BIOs and save through Qt
+Windows, Linux and Android encode PEM with OpenSSL memory BIOs and save through Qt
 (`tlspemwriter.h`). No C runtime file handle crosses into the OpenSSL DLL; this
 avoids Windows' `OPENSSL_Applink` dependency and supports Unicode file paths.
 

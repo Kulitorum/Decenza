@@ -257,8 +257,8 @@ endif()
 
 # OpenSSL for HTTPS/TLS and self-signed certificate generation
 # Android uses KDAB android_openssl (fetched above)
-# iOS uses Apple Security.framework instead (no OpenSSL needed)
-if(NOT ANDROID AND NOT IOS)
+# macOS and iOS use Apple Security.framework instead (no OpenSSL needed)
+if(NOT ANDROID AND NOT APPLE)
     find_package(OpenSSL REQUIRED)
 endif()
 
@@ -1533,10 +1533,12 @@ if(DECENZA_HAS_WEBVIEW)
     target_compile_definitions(Decenza PRIVATE DECENZA_HAS_WEBVIEW)
 endif()
 
-# Link OpenSSL on desktop only (Android uses KDAB add_android_openssl_libraries,
-# iOS uses Apple Security.framework for cert generation)
-if(NOT ANDROID AND NOT IOS)
+# Link OpenSSL on Windows and Linux (Android uses KDAB add_android_openssl_libraries;
+# macOS and iOS use Security.framework for cert generation and Secure Transport for TLS)
+if(NOT ANDROID AND NOT APPLE)
     target_link_libraries(Decenza PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+elseif(APPLE AND NOT IOS)
+    target_link_libraries(Decenza PRIVATE "-framework Security")
 endif()
 
 # Link psapi on Windows (for GetProcessMemoryInfo in MemoryMonitor)

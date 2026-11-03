@@ -77,9 +77,9 @@
 #include <unistd.h>
 #endif
 
-#ifdef Q_OS_IOS
+#ifdef Q_OS_DARWIN
+#include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
-#import <Foundation/Foundation.h>
 #else
 #include "tlspemwriter.h"
 #include <openssl/evp.h>
@@ -94,7 +94,7 @@
 #include "shotservertls.h"
 
 namespace {
-#ifndef Q_OS_IOS
+#ifndef Q_OS_DARWIN
 void logOpenSslFailure(const char* operation)
 {
     const unsigned long error = ERR_peek_last_error();
@@ -3179,8 +3179,9 @@ bool ShotServer::setupTls()
     QString certPath = dataDir + "/server.crt";
     QString keyPath = dataDir + "/server.key";
 
-    // iOS uses RSA keys (SecureTransport requires RSA/DSA for PKCS12), other platforms use EC
-#ifdef Q_OS_IOS
+    // Apple platforms use RSA keys (SecureTransport requires RSA/DSA for PKCS12), others use EC.
+    // An EC key left by an older macOS build fails to load as RSA and is regenerated below.
+#ifdef Q_OS_DARWIN
     const auto keyAlgo = QSsl::Rsa;
 #else
     const auto keyAlgo = QSsl::Ec;
@@ -3240,16 +3241,16 @@ bool ShotServer::setupTls()
     return true;
 }
 
-#ifdef Q_OS_IOS
+#ifdef Q_OS_DARWIN
 // ---------------------------------------------------------------------------
-// iOS: Self-signed certificate generation using Apple Security.framework
+// Apple: Self-signed certificate generation using Apple Security.framework
 // Uses SecKeyCreateRandomKey for RSA-2048 and manual DER/ASN.1 encoding
 // for X509v3 with Subject Alternative Names. No OpenSSL dependency.
 // ---------------------------------------------------------------------------
 
 // ASN.1 DER encoding helpers
-// qsizetype, not int: callers pass QByteArray::size(). Inside #ifdef Q_OS_IOS,
-// so only the iOS build ever compiles this and only iOS reported the narrowing.
+// qsizetype, not int: callers pass QByteArray::size(). Only Apple builds compile this,
+// and only iOS reported the narrowing.
 static QByteArray derLength(qsizetype len)
 {
     QByteArray out;
@@ -3323,14 +3324,15 @@ static QByteArray derExplicitTag(int tagNum, const QByteArray& content)
 }
 
 // OID constants
-static const char OID_SHA256_RSA[] = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b"; // 1.2.840.113549.1.1.11
-static const char OID_RSA[]        = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01"; // 1.2.840.113549.1.1.1
-static const char OID_CN[]         = "\x55\x04\x03";                           // 2.5.4.3
-static const char OID_SAN[]        = "\x55\x1d\x11";                           // 2.5.29.17
+// Not OID_*: macOS's Security/oidsbase.h defines OID_RSA as a macro.
+static const char kOidSha256Rsa[]      = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b"; // 1.2.840.113549.1.1.11
+static const char kOidRsa[]            = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01"; // 1.2.840.113549.1.1.1
+static const char kOidCommonName[]     = "\x55\x04\x03";                           // 2.5.4.3
+static const char kOidSubjectAltName[] = "\x55\x1d\x11";                           // 2.5.29.17
 
 static QByteArray sha256RsaAlgorithm()
 {
-    return derSequence(derOid(OID_SHA256_RSA, 9) + derTag(0x05, QByteArray())); // AlgorithmIdentifier { sha256WithRSA, NULL }
+    return derSequence(derOid(kOidSha256Rsa, 9) + derTag(0x05, QByteArray())); // AlgorithmIdentifier { sha256WithRSA, NULL }
 }
 
 static QByteArray buildSanExtension(const QStringList& sanEntries)
@@ -3352,21 +3354,38 @@ static QByteArray buildSanExtension(const QStringList& sanEntries)
         }
     }
     // Extension: OID + critical=false + OCTET STRING wrapping the GeneralNames SEQUENCE
-    return derSequence(derOid(OID_SAN, 3) + derOctetString(derSequence(generalNames)));
+    return derSequence(derOid(kOidSubjectAltName, 3) + derOctetString(derSequence(generalNames)));
+}
+
+// Describes and releases a CFError the Security calls above returned. Null when the call
+// failed without one.
+static QString takeCfErrorText(CFErrorRef error)
+{
+    if (!error) return QStringLiteral("(no error detail)");
+    CFStringRef description = CFErrorCopyDescription(error);
+    const QString text = QString::fromCFString(description);
+    CFRelease(description);
+    CFRelease(error);
+    return text;
 }
 
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
 {
     // Generate RSA-2048 key pair using Security.framework
-    NSDictionary* keyAttrs = @{
-        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
-        (id)kSecAttrKeySizeInBits: @2048,
-    };
+    const int keyBits = 2048;
+    CFNumberRef keySize = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &keyBits);
+    const void* attrKeys[] = { kSecAttrKeyType, kSecAttrKeySizeInBits };
+    const void* attrValues[] = { kSecAttrKeyTypeRSA, keySize };
+    CFDictionaryRef keyAttrs = CFDictionaryCreate(kCFAllocatorDefault, attrKeys, attrValues, 2,
+                                                  &kCFTypeDictionaryKeyCallBacks,
+                                                  &kCFTypeDictionaryValueCallBacks);
+    CFRelease(keySize);
     CFErrorRef error = nullptr;
-    SecKeyRef privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)keyAttrs, &error);
+    SecKeyRef privateKey = SecKeyCreateRandomKey(keyAttrs, &error);
+    CFRelease(keyAttrs);
     if (!privateKey) {
         if (error) {
-            DIAG_WARN(NETWORK, "ShotServer") << "SecKeyCreateRandomKey failed:" << CFBridgingRelease(error);
+            DIAG_WARN(NETWORK, "ShotServer") << "SecKeyCreateRandomKey failed:" << takeCfErrorText(error);
         }
         return false;
     }
@@ -3383,7 +3402,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     CFRelease(publicKey);
     if (!pubKeyData) {
         CFRelease(privateKey);
-        DIAG_WARN(NETWORK, "ShotServer") << "Failed to export public key:" << CFBridgingRelease(error);
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to export public key:" << takeCfErrorText(error);
         return false;
     }
     QByteArray pubKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(pubKeyData)),
@@ -3394,7 +3413,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     CFDataRef privKeyData = SecKeyCopyExternalRepresentation(privateKey, &error);
     if (!privKeyData) {
         CFRelease(privateKey);
-        DIAG_WARN(NETWORK, "ShotServer") << "Failed to export private key:" << CFBridgingRelease(error);
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to export private key:" << takeCfErrorText(error);
         return false;
     }
     QByteArray privKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(privKeyData)),
@@ -3403,13 +3422,13 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     // Build SubjectPublicKeyInfo: SEQUENCE { AlgorithmIdentifier, BIT STRING { pubkey } }
     QByteArray spki = derSequence(
-        derSequence(derOid(OID_RSA, 9) + derTag(0x05, QByteArray())) +
+        derSequence(derOid(kOidRsa, 9) + derTag(0x05, QByteArray())) +
         derBitString(pubKeyDer)
     );
 
     // Build issuer/subject: RDNSequence with CN=Decenza
     QByteArray rdnSeq = derSequence(
-        derSet(derSequence(derOid(OID_CN, 3) + derUtf8String("Decenza")))
+        derSet(derSequence(derOid(kOidCommonName, 3) + derUtf8String("Decenza")))
     );
 
     // Serial number (16 random bytes).
@@ -3462,7 +3481,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     CFRelease(privateKey);
 
     if (!signature) {
-        DIAG_WARN(NETWORK, "ShotServer") << "SecKeyCreateSignature failed:" << CFBridgingRelease(error);
+        DIAG_WARN(NETWORK, "ShotServer") << "SecKeyCreateSignature failed:" << takeCfErrorText(error);
         return false;
     }
 
@@ -3519,7 +3538,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     // Warn rather than fail: the key is usable, just less protected than intended, and refusing
     // to serve over a permissions quirk would be a worse outcome than saying so. On iOS the app
-    // sandbox already isolates this file; the warning matters on a shared desktop account.
+    // sandbox already isolates this file; the warning matters on a shared Mac account.
     if (!QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
         DIAG_WARN(NETWORK, "ShotServer") << "could not restrict permissions on the private key" << keyPath
                    << "- it may be readable by other users of this machine";
@@ -3527,9 +3546,9 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     return true;
 }
 
-#else // !Q_OS_IOS
+#else // !Q_OS_DARWIN
 // ---------------------------------------------------------------------------
-// Desktop/Android: Self-signed certificate generation using OpenSSL
+// Windows/Linux/Android: Self-signed certificate generation using OpenSSL
 // ---------------------------------------------------------------------------
 
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
@@ -3644,7 +3663,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     return success;
 }
-#endif // Q_OS_IOS
+#endif // Q_OS_DARWIN
 
 // Session management, extractCookie, checkSession, createSession, hasStoredTotpSecret,
 // loadSessions, saveSessions are all in shotserver_auth.cpp
