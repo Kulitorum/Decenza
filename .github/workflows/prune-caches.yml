@@ -20,7 +20,7 @@ name: Prune stale compiler caches
 # group is safe. The last build to finish re-triggers us, so the skip never
 # strands stale entries.
 #
-# That gate applies to three of the four steps. The keep-1 dedupe step runs
+# That gate applies to four of the five steps. The keep-1 dedupe step runs
 # UNGATED, and the reason is a timing one, so state it precisely: the gate does
 # not stop the cleanup from happening, it delays it past the point where the
 # damage is already done and irreversible.
@@ -71,9 +71,10 @@ name: Prune stale compiler caches
 # the OLD keep-2 heuristic ("it had to keep 2 copies per group"), which did need
 # to know whether a save was outstanding. Keep-1 does not.
 #
-# The other three steps stay gated. They delete on a liveness signal — a tag
-# being superseded, a branch being gone, a ref nothing seeds — and none of those
-# facts is self-limiting the way "a newer copy already exists" is.
+# The other four steps stay gated. They delete on a liveness signal — a tag
+# being superseded, a branch being gone, a ref nothing seeds, a key no build
+# restores — and none of those facts is self-limiting the way "a newer copy
+# already exists" is.
 
 on:
   # Called after each native job has saved its cache; workflow_run handles final cleanup.
@@ -88,7 +89,7 @@ on:
       - 'Release all platforms'
       # Added when the sanitizer nightly gained a ccache: it now writes two
       # timestamped entries a night, so it needs pruning like any other. It is
-      # also in the gate regex below — which now covers only the three gated
+      # also in the gate regex below — which now covers only the four gated
       # steps. The keep-1 dedupe step CAN run while the nightly is building, and
       # is safe there for its own reason rather than the gate's: the two legs
       # use distinct key prefixes (`sanitizers-asan-…`, `sanitizers-ubsan-…`),
@@ -221,12 +222,12 @@ jobs:
 
       # Compiler caches left behind by release tags that have SHIPPED.
       #
-      # `!cancelled()` on this and the two steps below, not a bare skip check:
+      # `!cancelled()` on this and the three steps below, not a bare skip check:
       # the keep-1 step above is ungated and exits 1 if it cannot list the
       # cache, and a step that fails would otherwise skip everything after it.
-      # These three collect different things and depend on nothing that step
+      # These four collect different things and depend on nothing that step
       # produces, so one transient `gh cache list` failure during a release must
-      # not also stand down the superseded-tag, main-scope and dead-ref passes.
+      # not also stand down the superseded-tag, stable-key, main-scope and dead-ref passes.
       # `!cancelled()` rather than `always()` so a cancelled job still stops.
       #
       # The step above keeps one copy per (prefix, ref) and is right to. What it
@@ -368,6 +369,84 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
           if [ "$CANDIDATES" -gt 0 ] && [ "$deleted" -eq 0 ]; then
             echo "::error::$CANDIDATES entr(y|ies) on superseded tags and none could be deleted — nothing was reclaimed."
+            exit 1
+          fi
+
+      # Stable-key entries (qt-*, apt-*, gradle-*) that no build will restore again.
+      # No step above touches these on the newest tag or on main, so two kinds
+      # piled up there:
+      #
+      #   superseded  The key embeds a runner image or kernel version
+      #               (`linux-7.0.0-1017-azure`, `ubuntu24-20261026.354.1`), so one
+      #               build on a different host saves a second full copy. Measured
+      #               2026-11-03: a 440 MB `…1014-aws` Qt install on v2.1.0, last
+      #               used once, beside the `…1017-azure` one every build uses.
+      #               Family = the key up to its first dotted-version token; within
+      #               a (family, ref), an entry last used more than a day before its
+      #               most recently used sibling is collected. Two entries a build
+      #               actually uses are touched by that same build, minutes apart.
+      #   main copy   A tag entry whose exact key `main` also holds. A tag build
+      #               falls back to `main`'s scope on a miss and saves nothing on an
+      #               exact hit, so the tag's copy only doubles the space (441 MB of
+      #               Qt Linux on 2026-11-03).
+      - name: Drop superseded and main-duplicated stable-key caches
+        if: ${{ !cancelled() && steps.gate.outputs.skip == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
+
+          if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                       --json id,key,ref,sizeInBytes,lastAccessedAt); then
+            echo "::error::Could not list caches — the stable-key prune did NOT run."
+            exit 1
+          fi
+          if [ "$(printf '%s' "$RAW" | jq length)" -ge 500 ]; then
+            echo "::warning::Cache listing hit the 500-entry limit; this prune may be partial."
+          fi
+          if ! ROWS=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
+                   def fam: (.key | capture("^(?<f>.*?)-[^-]*[0-9]+\\.[0-9]+") | .f) // null;
+                   def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+                   [ .[] | select(.key | test($ts) | not) ] as $stable
+                   | [ $stable[] | select(.ref == "refs/heads/main") | .key ] as $mainkeys
+                   | ( $stable | map(select(fam != null)) | group_by(fam + "@@" + .ref)
+                       | map(max_by(.lastAccessedAt | epoch) as $live
+                             | .[] | select(.id != $live.id
+                                     and (.lastAccessedAt | epoch) + 86400 < ($live.lastAccessedAt | epoch))
+                             | . + {why: "superseded by \($live.key)"})
+                       | .[] ),
+                     ( $stable[] | select(.ref | test("^(refs/heads/)?refs/tags/"))
+                       | select(.key as $k | $mainkeys | index($k))
+                       | . + {why: "main holds the same key"} )
+                   | "\(.id)\t\(.sizeInBytes)\t\(.key)\t\(.why)"
+                 ' | sort -u -t$'\t' -k1,1); then
+            echo "::error::Could not parse the cache listing — the stable-key prune did NOT run."
+            exit 1
+          fi
+          if [ -z "$ROWS" ]; then
+            echo "Listed $(printf '%s' "$RAW" | jq length) caches; no superseded or main-duplicated stable-key entries."
+            exit 0
+          fi
+
+          freed=0
+          deleted=0
+          candidates=$(printf '%s\n' "$ROWS" | grep -c . || true)
+          while IFS=$'\t' read -r id size key why; do
+            [ -n "$id" ] || continue
+            mb=$(( size / 1024 / 1024 ))
+            if err=$(gh cache delete "$id" --repo "$GITHUB_REPOSITORY" 2>&1); then
+              echo "- deleted \`$key\` (${mb} MB) — $why" >> "$GITHUB_STEP_SUMMARY"
+              freed=$(( freed + mb ))
+              deleted=$(( deleted + 1 ))
+            else
+              echo "::warning::Failed to delete cache $key (id $id): $err"
+            fi
+          done <<< "$ROWS"
+          echo "Reclaimed ${freed} MB from ${deleted}/${candidates} stable-key entries." \
+            >> "$GITHUB_STEP_SUMMARY"
+          if [ "$deleted" -eq 0 ]; then
+            echo "::error::$candidates stable-key entr(y|ies) to collect and none could be deleted."
             exit 1
           fi
 
