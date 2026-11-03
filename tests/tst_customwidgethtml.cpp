@@ -117,6 +117,7 @@ private slots:
     void sharedPresetDraftUsesCapturedRevisionAndExplicitReload();
     void vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts();
     void recipeWaterEditorPreservesLegacyValuesAndConvertsTea();
+    void recipeWaterPreviewPassesSelectedProfileRecommendation();
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
     void hotWaterAndFlushInputsStayBoundToSharedDrafts();
     void grindDialInUsesOneCombinedPreferenceRequest();
@@ -1516,6 +1517,48 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         legacy && tea.amountMode === "fixed" && tea.volume === 100 && tea.mode === "weight"
             && tea.waterToEspressoRatio === undefined;
     )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
+void TestCustomWidgetHtml::recipeWaterPreviewPassesSelectedProfileRecommendation()
+{
+    const auto source = readSource(SrcPath::kRecipeWizard);
+    const auto signature = QStringLiteral("readonly property real waterEspressoTargetG:");
+    auto preview = liftFunction(source, signature);
+    QVERIFY(!preview.isEmpty());
+    preview.replace(signature, QStringLiteral("function previewTarget()"));
+    const auto resolve = liftFunction(source, QStringLiteral("function resolveProfileObj("));
+    QVERIFY(!resolve.isEmpty());
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var fProfileTitle = "Selected profile", fProfileYieldG = 0;
+        var fProfileJson = '{"has_recommended_dose":true,"recommended_dose":19}';
+        var selected = {hasRecommendedDose: true, recommendedDose: 18};
+        var ProfileService = {profileSummaryForTitle: function(title) {
+            return title === "Selected profile" ? selected : {};
+        }};
+        var fYieldMode = "ratio", ratioField = {text: "2"}, yieldField = {text: ""};
+        var doseField = {text: ""}, fBagId = 7;
+        var _bags = [{id: 7, doseWeightG: 20}];
+        var captured;
+        var RecipeContext = {recipeYieldPreview: function(recipe, bag, target, profile) {
+            captured = {recipe: recipe, bag: bag, target: target, profile: profile};
+            return 36;
+        }};
+        %1
+        %2
+        var installed = previewTarget() === 36 && captured.recipe.doseG === 0
+            && captured.bag.doseWeightG === 20 && captured.target === 0
+            && captured.profile === selected;
+        selected = {};
+        previewTarget();
+        var embedded = captured.profile.has_recommended_dose === true
+            && captured.profile.recommended_dose === 19;
+        fProfileTitle = "";
+        previewTarget();
+        installed && embedded && Object.keys(captured.profile).length === 0;
+    )JS").arg(resolve, preview));
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     QVERIFY(result.toBool());
 }

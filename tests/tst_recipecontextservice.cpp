@@ -226,6 +226,38 @@ private slots:
         QCOMPARE(f.service->recipeYieldPreview({}, bag, 42), 50.0);
         QVERIFY(!f.service->waterAmountPreview(water, 0).value("valid").toBool());
     }
+    void waterPreviewInheritsOnlyEnabledProfileDoseAfterRecipeAndBag() {
+        Fixture f;
+        QVariantMap recipe{{"yieldMode", "ratio"}, {"yieldValue", 2.0}, {"doseG", 0.0}};
+        QVariantMap bag;
+        QVariantMap profile{{"hasRecommendedDose", true}, {"recommendedDose", 18.0}};
+        const QVariantMap water{{"hasWater", true}, {"vesselName", "Cup"},
+            {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+        auto target = [&] { return f.service->recipeYieldPreview(recipe, bag, 0, profile); };
+        QCOMPARE(target(), 36.0);
+        QCOMPARE(f.service->waterAmountPreview(water, target()).value("amountG").toInt(), 90);
+        f.engine.globalObject().setProperty(QStringLiteral("previewService"), f.engine.newQObject(f.service));
+        const auto jsPreview = f.engine.evaluate(QStringLiteral(
+            "previewService.recipeYieldPreview({yieldMode: 'ratio', yieldValue: 2, doseG: 0},"
+            " {}, 0, {hasRecommendedDose: true, recommendedDose: 18})"));
+        QVERIFY2(!jsPreview.isError(), qPrintable(jsPreview.toString()));
+        QCOMPARE(jsPreview.toNumber(), 36.0);
+        bag.insert("doseWeightG", 20.0);
+        QCOMPARE(target(), 40.0);
+        recipe.insert("doseG", 21.0);
+        QCOMPARE(target(), 42.0);
+        recipe.insert("doseG", 0.0);
+        bag.clear();
+        profile.insert("hasRecommendedDose", false);
+        QCOMPARE(target(), 0.0);
+        QVERIFY(!f.service->waterAmountPreview(water, target()).value("valid").toBool());
+        profile = {{"has_recommended_dose", true}, {"recommended_dose", 19.0}};
+        QCOMPARE(target(), 38.0);
+        profile.insert("has_recommended_dose", false);
+        QCOMPARE(target(), 0.0);
+        recipe = {{"yieldMode", "absolute"}, {"yieldValue", 40.0}};
+        QCOMPARE(target(), 40.0);
+    }
     void shotBaselineIsOneCorrelatedRevisionGuardedOperation()
     {
         Fixture f;

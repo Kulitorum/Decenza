@@ -58,6 +58,7 @@ Acceptance scope: the user selected simulator-only validation on 2026-11-02. Ear
 ## 8. Final GitHub review correction
 
 - [x] 8.1 Capture water-validation defaults from typed installed ProfileInfo metadata, not the lightweight availableProfiles picker projection. Reproduce the missing dose/target through the real ProfileManager catalog and async recipe create/update/clone, rerun native/Wasm and full tests, resolve the reviewed thread, and re-archive before merge.
+- [ ] 8.2 Include the enabled installed or embedded profile dose as the final fallback in the shared recipe editor's yield preview. Cover recipe/bag precedence, disabled recommendations and the shipping QML call, build native/Wasm and run focused/full tests, then resolve the review and re-archive before merging.
 
 ## Workflow follow-up
 
@@ -205,3 +206,10 @@ All nine findings from the read-only review have been addressed:
 - Added a real-catalog-to-async-storage regression using installed test profiles: zero target / enabled 18 g dose, positive inherited target / disabled recommendation, successful create/clone and rejected excessive water on update. Qt Creator run `1793559335371` reproduced the zero-versus-18 g failure before the typed lookup fix.
 - Focused run `1793559335372` passed both profile-manager and recipe-storage targets. Native/packaged Wasm build `1793559335164` succeeded, and full run `1793559335373` passed all **207 tests**, zero failed/skipped/test warnings (39.87 s). The same three local linker environment warnings remain. Strict change validation and whitespace checks pass.
 - This backend catalog correction leaves the shared UI code unchanged; the preceding completed native/browser rename and close/reopen acceptance and verified original-settings restoration remain applicable. No further live app data was changed.
+
+## Final editor preview correction
+
+- The shared wizard now passes the selected installed profile summary, or its existing embedded-profile fallback, to RecipeContext's yield preview. The resolver uses the same recipe → bag → enabled profile dose order as candidate validation; disabled recommendations do not supply a dose.
+- Added service regressions for 18 g / 1:2 → 36 g espresso / 90 g added water, recipe/bag precedence, disabled and embedded recommendations, and the JavaScript-to-facade call. A shipping-QML fixture verifies the wizard passes its selected profile and uses embedded data only when installed data is absent.
+- Native and matching packaged Wasm build `1793559335171` passed, including the QML diagnostics gate (361/361 clean). After the user authorized switching Qt Creator to this checkout, focused run `1793559335378` passed both changed targets, and full run `1793559335379` passed **207 tests**, zero failed/skipped/test warnings (38.02 s). The same three local linker environment warnings remain.
+- This correction changes preview inputs only. No new live acceptance is claimed for the inherited-dose edge case; its coverage is automated. The completed native/browser vessel and close/reopen checks remain recorded above, and no app data or restored settings were changed.

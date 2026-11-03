@@ -305,7 +305,7 @@ T.Page {
             if (_bags[i].id === fBagId) bag = _bags[i]
         return RecipeContext.recipeYieldPreview({yieldMode: fYieldMode,
             yieldValue: fYieldMode === "ratio" ? (parseFloat(ratioField.text) || 0) : (parseFloat(yieldField.text) || 0),
-            doseG: parseFloat(doseField.text) || 0}, bag, fProfileYieldG)
+            doseG: parseFloat(doseField.text) || 0}, bag, fProfileYieldG, resolveProfileObj() || {})
     }
     property string fVesselMode: "weight"
     property int fVesselFlowRate: 40
