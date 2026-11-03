@@ -59,7 +59,7 @@ Acceptance scope: the user selected simulator-only validation on 2026-11-02. Ear
 
 - [x] 8.1 Capture water-validation defaults from typed installed ProfileInfo metadata, not the lightweight availableProfiles picker projection. Reproduce the missing dose/target through the real ProfileManager catalog and async recipe create/update/clone, rerun native/Wasm and full tests, resolve the reviewed thread, and re-archive before merge.
 - [x] 8.2 Include the enabled installed or embedded profile dose as the final fallback in the shared recipe editor's yield preview. Cover recipe/bag precedence, disabled recommendations and the shipping QML call, build native/Wasm and run focused/full tests, then resolve the review and re-archive before merging.
-- [ ] 8.3 Use the embedded profile's enabled dose during import validation and preserve recipe-owned water when its shared vessel is deleted. Reuse existing validation/application paths, add one focused regression for each finding, build native/Wasm, run the full suite, resolve the findings and re-archive before merge.
+- [x] 8.3 Use the embedded profile's enabled dose during import validation and preserve recipe-owned water when its shared vessel is deleted. Reuse existing validation/application paths, add one focused regression for each finding, build native/Wasm, run the full suite, resolve the findings and re-archive before merge.
 
 ## Workflow follow-up
 
