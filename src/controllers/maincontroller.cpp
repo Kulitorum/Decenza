@@ -685,19 +685,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // recipe the user is in the act of leaving (add-recipes).
     m_recipeStorage = new RecipeStorage(this);
     m_recipeStorage->setProfileBrewSnapshotProvider([this] {
-        QHash<QString, WaterAmount::ProfileDefaults> defaults;
-        const auto profiles = m_profileManager->availableProfiles();
-        for (const auto& value : profiles) {
-            const auto profile = value.toMap();
-            const auto title = profile.value(QStringLiteral("title")).toString();
-            // Match findProfileByTitle's first installed title, using the
-            // catalog's already normalized target and enabled dose metadata.
-            if (!defaults.contains(title)) defaults.insert(title, {
-                profile.value(QStringLiteral("targetWeight")).toDouble(),
-                profile.value(QStringLiteral("hasRecommendedDose")).toBool()
-                    ? profile.value(QStringLiteral("recommendedDose")).toDouble() : 0.0});
-        }
-        return defaults;
+        return m_profileManager->recipeBrewDefaultsSnapshot();
     });
     m_recipeStorage->initialize(m_shotHistory->databasePath());
     // Migration 31's deferred temp-offset conversion must be queued on the

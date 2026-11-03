@@ -55,6 +55,10 @@ Acceptance scope: the user selected simulator-only validation on 2026-11-02. Ear
 - [x] 7.2 Include enabled installed-profile dose recommendations in complete-candidate water validation. Cover valid zero-profile-target recipes, invalid resolved amounts, dose precedence and unavailable-context import behavior.
 - [x] 7.3 Remove the unbounded parallel water-snapshot map by sharing the existing bounded operation snapshots. Cover aborted-cycle retention and delayed history association, build native/Wasm, run focused/full tests and update PR #2170.
 
+## 8. Final GitHub review correction
+
+- [ ] 8.1 Capture water-validation defaults from typed installed ProfileInfo metadata, not the lightweight availableProfiles picker projection. Reproduce the missing dose/target through the real ProfileManager catalog and async recipe create/update/clone, rerun native/Wasm and full tests, resolve the reviewed thread, and re-archive before merge.
+
 ## Workflow follow-up
 
 - Once implementation, documentation and required review/validation are complete, archive this change with the CLI before a requested merge, following CLAUDE.md. No merge or archive is part of the design revision.
@@ -192,3 +196,12 @@ All nine findings from the read-only review have been addressed:
 - Selected the original fixed vessel to release recipe ownership, applied a temporary 150 g setting, and closed/reopened Hot Water in both native and browser clients. After each close and reopen the host still held 150 g, while the shared vessel remained fixed at 200 g. No dispensing was started and no shot was created.
 - Removed the one disposable recipe and all three owned vessel rows (including snapshot recreations), then restored the captured original setup. Verified the original recipe’s identity, water JSON, profile, dose/yield, bag, equipment, grind and 19-shot count; the exact three-preset list and selection; and 18 g dose / 36 g espresso / 200 g water / 85°C / 4 ml/s. Both native and browser Home showed Americano Test again; the disposable browser tab was closed.
 - This closes the pending rename acceptance and the earlier close/reopen check. No implementation changes were needed. Native/Wasm build `1793559335160`, focused run `1793559335369` and full run `1793559335370` remain applicable: 207 passed with no failures, skips or test warnings. GitHub text-invariants run `41585512395` passed and Codex reviewed code commit `7fc808bd` with no findings; all inline threads were resolved at the preceding check.
+
+
+## Final installed-catalog integration correction
+
+- Codex identified that the lightweight availableProfiles picker list omits target/dose metadata. The earlier storage tests supplied that context directly, so they did not cover the production catalog boundary.
+- MainController now delegates to ProfileManager::recipeBrewDefaultsSnapshot, which captures typed ProfileInfo fields directly in activation’s first-exact-title order. No QVariant picker projection or per-profile disk read is involved; an enabled dose recommendation is retained and a disabled one contributes no dose.
+- Added a real-catalog-to-async-storage regression using installed test profiles: zero target / enabled 18 g dose, positive inherited target / disabled recommendation, successful create/clone and rejected excessive water on update. Qt Creator run `1793559335371` reproduced the zero-versus-18 g failure before the typed lookup fix.
+- Focused run `1793559335372` passed both profile-manager and recipe-storage targets. Native/packaged Wasm build `1793559335164` succeeded, and full run `1793559335373` passed all **207 tests**, zero failed/skipped/test warnings (39.87 s). The same three local linker environment warnings remain. Strict change validation and whitespace checks pass.
+- This backend catalog correction leaves the shared UI code unchanged; the preceding completed native/browser rename and close/reopen acceptance and verified original-settings restoration remain applicable. No further live app data was changed.

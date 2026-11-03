@@ -11,6 +11,7 @@
 #include "../profile/profile.h"
 #include "../profile/profiledialintext.h"
 #include "../profile/recipeprofiledisplay.h"
+#include "../core/wateramount.h"
 
 class Settings;
 class DE1Device;
@@ -574,6 +575,7 @@ public:
     // Profile frames were already read during refreshProfiles(); request
     // handlers must not reopen profile files on the UI thread.
     QHash<QString, RecipeProfileDisplayNumbers> recipeProfileDisplaySnapshot() const;
+    QHash<QString, WaterAmount::ProfileDefaults> recipeBrewDefaultsSnapshot() const;
 
     // Installed titles, EXACT — not trimmed or lower-cased like the two
     // snapshots above. Those are lookups where a near-match is better than

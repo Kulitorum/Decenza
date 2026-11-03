@@ -1614,6 +1614,17 @@ QHash<QString, double> ProfileManager::espressoTempByTitleSnapshot() const {
     return map;
 }
 
+QHash<QString, WaterAmount::ProfileDefaults> ProfileManager::recipeBrewDefaultsSnapshot() const {
+    QHash<QString, WaterAmount::ProfileDefaults> defaults;
+    defaults.reserve(m_allProfiles.size());
+    for (const auto& profile : m_allProfiles) {
+        // Match activation's first exact title and retain typed catalog metadata.
+        if (!defaults.contains(profile.title)) defaults.insert(profile.title, {
+            profile.targetWeight, profile.hasRecommendedDose ? profile.recommendedDose : 0.0});
+    }
+    return defaults;
+}
+
 QHash<QString, RecipeProfileDisplayNumbers> ProfileManager::recipeProfileDisplaySnapshot() const {
     QHash<QString, RecipeProfileDisplayNumbers> map;
     map.reserve(m_allProfiles.size());
