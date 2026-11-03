@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Live net-milk suffix on steam preset pills
-The idle-page steam preset pill row SHALL append a live net-milk suffix `" (Xg)"` to the selected pitcher's pill only, where `X = round(max(0, scaleWeight − pitcherWeightG))`, updating as the scale weight changes. Unselected pills SHALL show no suffix: only one pitcher is on the scale, so a weight against every other preset's empty weight is noise. The suffix SHALL be shown only when the selected preset has a saved empty-pitcher weight (`pitcherWeightG > 0`), a scale is connected, and the scale is not the FlowScale fallback. Disabled ("Off") presets SHALL never show a suffix.
+The idle-page steam preset pill row SHALL append a live net-milk suffix `" (Xg)"` to the selected pitcher's pill only, where `X = round(max(0, scaleWeight − pitcherWeightG))`, updating as the scale weight changes. Unselected pills SHALL show no suffix. The suffix SHALL be shown only when the selected preset has a saved empty-pitcher weight (`pitcherWeightG > 0`), a scale is connected, and the scale is not the FlowScale fallback. Disabled ("Off") presets SHALL never show a suffix.
 
 #### Scenario: Weigh milk on the pills (1.8.0 flow)
 - **WHEN** the selected pitcher preset has a saved pitcher weight of 300 g, steam presets are shown, and the user places that pitcher with milk on the connected scale so it reads 450 g

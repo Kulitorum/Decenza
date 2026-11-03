@@ -2,7 +2,7 @@
 
 ### Requirement: Automatic milk capture before steaming
 
-The system SHALL capture milk only for a sample the user asks for: from the review-page milk button, or from the steam pitchers shown on the idle screen (the Steam row, or the compact Steam popup on the idle page). The selected pitcher SHALL be weight-timed (weight-timed steaming on and not a heater-off preset) with a saved empty-pitcher weight. Each request SHALL collect one sample, using the shared virtual-zero stable-weight capture (robust to an un-zeroed scale), give the standard capture confirmation (ding + transient banner), and lock the scaled time. The request SHALL end on capture, when the surface that made it closes, or when any operation other than a steam-wand purge starts. Selecting a different pitcher from the idle pitchers SHALL request a new sample. Leaving the idle page SHALL close the idle pitchers. The host SHALL accept a request only from a connected client, so closing that client always ends it. Selecting the steam mode, opening the steam page and finishing a steam SHALL NOT start one.
+The system SHALL capture milk only for a sample the user requests, from the review-page milk button or the idle-screen steam pitchers (Steam row or compact Steam popup). The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL collect one sample, confirm it and lock the scaled time. It SHALL end on capture, when its surface closes, or when any operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
 
 #### Scenario: Milk settles and the time locks
 - **WHEN** the user opens the idle pitchers and the pitcher with milk holds steady within tolerance for the dwell
@@ -19,18 +19,6 @@ The system SHALL capture milk only for a sample the user asks for: from the revi
 #### Scenario: One sample per request
 - **WHEN** milk was captured from the idle pitchers and the user then sets a different load on the scale with the pitchers still showing
 - **THEN** nothing further is captured until the pitchers are opened again
-
-#### Scenario: A different pitcher is weighed again
-- **WHEN** milk was captured from the idle pitchers and the user taps a different pitcher with the pitchers still showing
-- **THEN** the earlier capture is cleared and the milk on the scale is captured against the new pitcher
-
-#### Scenario: Leaving the idle page closes the pitchers
-- **WHEN** the idle pitchers are showing and the user leaves the idle page
-- **THEN** the pitchers are closed when the user returns, and nothing is captured until they are opened again
-
-#### Scenario: A purge keeps the request
-- **WHEN** a sample is requested from the idle Steam row and the user taps Purge
-- **THEN** the row stays open, and the milk set on the scale after the purge is captured
 
 #### Scenario: Steam start ends the request
 - **WHEN** a sample is requested and steam starts from the group head before anything is captured
@@ -165,6 +153,22 @@ Neither the captured milk nor the steam time scaled from it SHALL survive an app
 #### Scenario: Restart returns to the pitcher's time
 - **WHEN** milk was captured, scaling "Small" (65 s) to 25 s, and the app restarts before steaming
 - **THEN** no milk is captured and the steam time is 65 s
+
+### Requirement: A request follows the surface that made it
+
+Selecting a different pitcher from the idle pitchers SHALL request a new sample. Leaving the idle page SHALL close the idle pitchers; a steam-wand purge, which stays on the idle page, SHALL keep them open and their request standing. The host SHALL accept a request only from a connected client, so closing that client always ends it.
+
+#### Scenario: A different pitcher is weighed again
+- **WHEN** milk was captured from the idle pitchers and the user taps a different pitcher with the pitchers still showing
+- **THEN** the earlier capture is cleared and the milk on the scale is captured against the new pitcher
+
+#### Scenario: Leaving the idle page closes the pitchers
+- **WHEN** the idle pitchers are showing and the user leaves the idle page
+- **THEN** the pitchers are closed when the user returns, and nothing is captured until they are opened again
+
+#### Scenario: A purge keeps the request
+- **WHEN** a sample is requested from the idle Steam row and the user taps Purge
+- **THEN** the row stays open, and the milk set on the scale after the purge is captured
 
 ## REMOVED Requirements
 
