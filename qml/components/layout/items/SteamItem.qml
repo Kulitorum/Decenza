@@ -58,17 +58,8 @@ LayoutWidgetItem {
         }
     }
 
-    // The popup's milk offer ends with the idle page, the host connection or any
-    // operation, so the popup closes rather than staying open with the weight unarmed.
+    // Leaving the idle page ends the popup's milk offer, so the popup closes with it.
     onVisibleChanged: if (!visible) presetPopup.close()
-    Connections {
-        target: PreparationService.state
-        function onAvailableChanged() { if (!PreparationService.state.available) presetPopup.close() }
-    }
-    Connections {
-        target: MachineState
-        function onPhaseChanged() { if (MachineState.isOperating) presetPopup.close() }
-    }
 
     function goToSteam() {
             AppShell.steamRequested()

@@ -590,12 +590,8 @@ T.Page {
     }
 
     function preparationStateChanged() {
-        if (!PreparationService.state.available) {
+        if (!PreparationService.state.available)
             _pendingPreparationRowMode = ""
-            // The host released this client's milk offer; see StackView.onStatusChanged.
-            if (activePresetFunction === "steam")
-                activePresetFunction = ""
-        }
         if (StackView.status === StackView.Active) {
             syncPreparationModeToRow()
             _preparationRowSyncPending = false
@@ -743,16 +739,6 @@ T.Page {
         // MRU-first instead of being appended at the tail of the frozen order.
         if (StackView.status === StackView.Active && _openMruRow !== "")
             _liftOrderFreeze(_openMruRow)
-    }
-
-    // An operation ends the milk offer (a purge leaves this page up), so the Steam
-    // row closes with it rather than staying open unarmed.
-    Connections {
-        target: MachineState
-        function onPhaseChanged() {
-            if (MachineState.isOperating && idlePage.activePresetFunction === "steam")
-                idlePage.activePresetFunction = ""
-        }
     }
 
     Connections {

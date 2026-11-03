@@ -397,13 +397,17 @@ private slots:
         QTest::addColumn<int>("subState");
         QTest::addColumn<bool>("backToReady");
         QTest::addColumn<QString>("mode");
+        QTest::addColumn<bool>("offerKept");
         QTest::newRow("espresso") << int(DE1::State::Espresso) << int(DE1::SubState::Preinfusion)
-                                  << false << QStringLiteral("espresso");
+                                  << false << QStringLiteral("espresso") << false;
         QTest::newRow("steam-ended") << int(DE1::State::Steam) << int(DE1::SubState::Steaming)
-                                     << true << QStringLiteral("steam");
-        // A purge has no preparation mode of its own, and the Home Steam row stays open.
-        QTest::newRow("purge-ended") << int(DE1::State::SteamRinse) << int(DE1::SubState::Steaming)
-                                     << true << QStringLiteral("steam");
+                                     << true << QStringLiteral("steam") << false;
+        QTest::newRow("descale-ended") << int(DE1::State::Descale) << int(DE1::SubState::Steaming)
+                                       << true << QStringLiteral("steam") << false;
+        // A purge readies the steam the Steam row is still offering for.
+        QTest::newRow("purge-keeps-the-offer") << int(DE1::State::SteamRinse)
+                                               << int(DE1::SubState::Steaming)
+                                               << true << QStringLiteral("steam") << true;
     }
 
     void anOperationEndsTheOffer()
@@ -412,22 +416,23 @@ private slots:
         QFETCH(int, subState);
         QFETCH(bool, backToReady);
         QFETCH(QString, mode);
+        QFETCH(bool, offerKept);
         Fixture f;
         f.prepareMilkCapture();
 
         QSignalSpy phaseChanged(&f.machine, &MachineState::phaseChanged);
         f.device.setSimulatedState(static_cast<DE1::State>(state), static_cast<DE1::SubState>(subState));
         QTRY_VERIFY(phaseChanged.count() > 0);
-        QVERIFY(!f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.milkAttemptOpen(), offerKept);
         if (backToReady) {
             const qsizetype operationChanges = phaseChanged.count();
             f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
             QTRY_VERIFY(phaseChanged.count() > operationChanges);
         }
         QCOMPARE(f.preparation.mode(), mode);
-        QVERIFY(!f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.milkAttemptOpen(), offerKept);
         f.captureMilk();
-        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, offerKept ? 1 : 0);
     }
 
     // A capture that cannot scale the time still says what it had to work with.

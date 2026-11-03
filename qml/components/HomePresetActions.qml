@@ -104,25 +104,12 @@ QtObject {
     // Milk is weighed only for one sample offered by the idle pitcher row, the compact
     // steam popup on the idle page, or the review-page milk button. The surface that
     // made the offer withdraws it when it closes, so a load set down later (an
-    // espresso cup) is never taken for milk.
-    // The withdraw is sent without checking milkAttemptOpen: in a browser that replica
-    // flag can still be false while the offer is in flight. Reassigned, never mutated,
-    // so bindings on it update.
-    property var milkOfferSurfaces: ({})
+    // espresso cup) is never taken for milk. A withdraw needs no bookkeeping: the host
+    // ignores one for a surface with no open offer.
     function offerMilkSample(surface: string): bool {
-        if (!milkOfferSurfaces[surface]) {
-            const surfaces = Object.assign({}, milkOfferSurfaces)
-            surfaces[surface] = true
-            milkOfferSurfaces = surfaces
-        }
         return PreparationService.state.startMilkAttempt(surface)
     }
     function withdrawMilkSample(surface: string): void {
-        if (!milkOfferSurfaces[surface])
-            return
-        const surfaces = Object.assign({}, milkOfferSurfaces)
-        delete surfaces[surface]
-        milkOfferSurfaces = surfaces
         PreparationService.state.cancelMilkAttempt(surface)
     }
 

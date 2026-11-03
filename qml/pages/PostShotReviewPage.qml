@@ -1865,9 +1865,7 @@ T.Page {
                     readonly property bool realScale: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
                     readonly property real sessionMilk: PreparationService.state.sessionMeasuredMilkG
 
-                    // This page's offer: another client's open offer is not armed here.
                     readonly property bool armed: PreparationService.state.milkAttemptOpen
-                                                  && HomePresetActions.milkOfferSurfaces["review"] === true
                     // While weighing, a tap cycles the pitcher; its name replaces the step briefly.
                     property bool showPitcherName: false
                     onArmedChanged: showPitcherName = false

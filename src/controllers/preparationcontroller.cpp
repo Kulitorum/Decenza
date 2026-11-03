@@ -615,9 +615,10 @@ void PreparationController::applyModeFromPhase()
 {
     if (!m_machineState)
         return;
-    // Any operation ends an offer, a purge or descale included. onPhaseChanged() runs
-    // a steam's start decision first, so that decision still sees the offer it logs.
-    if (m_machineState->isOperating())
+    // Any operation ends an offer except a wand purge, which readies the steam the
+    // Steam row is still offering for. onPhaseChanged() runs a steam's start
+    // decision first, so that decision still sees the offer it logs.
+    if (m_machineState->isOperating() && m_machineState->phase() != MachineState::Phase::SteamPurge)
         closeMilkAttempt();
     const QString operationMode = modeForOperationPhase(m_machineState->phase());
     if (!operationMode.isEmpty())
