@@ -128,6 +128,7 @@ class ShotProjection {
     Q_PROPERTY(qint64 recipeId MEMBER recipeId)
     Q_PROPERTY(QString steamJson MEMBER steamJson)
     Q_PROPERTY(QString hotWaterJson MEMBER hotWaterJson)
+    Q_PROPERTY(QVariantMap hotWaterResult MEMBER hotWaterResult)
     // Recipe DISPLAY fields (history-recipe-identity). Unlike the snapshots
     // above, these are resolved live from the `recipes` row by recipeId at
     // list-query time, so a rename relabels history. Populated only by the
@@ -142,6 +143,8 @@ class ShotProjection {
     Q_PROPERTY(bool skipFirstFrameDetected MEMBER skipFirstFrameDetected)
     Q_PROPERTY(bool pourTruncatedDetected MEMBER pourTruncatedDetected)
 
+    Q_PROPERTY(QString weightSource MEMBER weightSource)
+    Q_PROPERTY(QString portalMountingMode MEMBER portalMountingMode)
     Q_PROPERTY(QVariantList portalSamples MEMBER portalSamples)
     Q_PROPERTY(QVariantList pressure MEMBER pressure)
     Q_PROPERTY(QVariantList flow MEMBER flow)
@@ -166,6 +169,7 @@ class ShotProjection {
     // any current consumer site.
     Q_PROPERTY(QVariantList summaryLines MEMBER summaryLines)
     Q_PROPERTY(QVariantMap detectorResults MEMBER detectorResults)
+    Q_PROPERTY(QVariantMap portalAnalysis MEMBER portalAnalysis)
     Q_PROPERTY(QVariant phaseSummaries MEMBER phaseSummaries)
     Q_PROPERTY(QVariantList phases MEMBER phases)
 
@@ -234,6 +238,7 @@ public:
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QVariantMap hotWaterResult;
     QString recipeName;
     QString recipeDrinkType;
     bool recipeArchived = false;
@@ -248,6 +253,8 @@ public:
     bool skipFirstFrameDetected = false;
     bool pourTruncatedDetected = false;
 
+    QString weightSource;
+    QString portalMountingMode;
     QVariantList portalSamples;
     QVariantList pressure;
     QVariantList flow;
@@ -269,6 +276,7 @@ public:
 
     QVariantList summaryLines;
     QVariantMap detectorResults;
+    QVariantMap portalAnalysis;
     QVariant phaseSummaries;
     QVariantList phases;
 

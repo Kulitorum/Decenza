@@ -126,7 +126,7 @@ bool writeShotJson(const QString& dbPath,
 {
     ShotRecord record;
     bool opened = withTempDb(dbPath, "she_shot", [&](QSqlDatabase& db) {
-        record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+        record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip);
     });
     if (!opened || record.summary.id == 0) {
         DIAG_WARN(STORAGE, "ShotHistoryExporter") << "failed to load shot" << shotId;

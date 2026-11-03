@@ -7,6 +7,7 @@
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
 #include "controllers/drinksequencecontroller.h"
+#include "history/shotwaterjoin.h"
 #include "controllers/shottimingcontroller.h"
 #include "core/settings.h"
 #include "mocks/MockScaleDevice.h"
@@ -100,6 +101,253 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void waterCaptureMeasuresNetFinalDropsAndIgnoresCupLift() {
+        TestFixture f;
+        f.settings.brew()->setWaterVolumeMode("volume");
+        f.settings.brew()->setWaterTemperature(85);
+        f.scale.mockSetConnected(true);
+        f.scale.mockSetWeight(200);
+        f.state.m_preShotZeroOffset = 7;
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.tareScale();
+        f.scale.mockSetWeight(210);
+        f.scale.mockSetWeight(0); // late tare, after 10 g was already added
+        f.scale.mockSetWeight(90);
+        f.state.m_hotWaterFrozenWeight = 98;
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.scale.mockSetWeight(93.2);
+        f.scale.mockSetWeight(-200); // cup removed during completion
+        QTRY_COMPARE(result.count(), 1);
+        const auto r = result.first().at(1).toMap();
+        QCOMPARE(r.value("weightG").toDouble(), 103.2);
+        QCOMPARE(r.value("temperatureC").toDouble(), 85.0);
+        QCOMPARE(r.value("amountSource").toString(), QString("scale"));
+        QCOMPARE(r.value("status").toString(), QString("dispensed"));
+        QCOMPARE(f.state.scaleWeight(), 98.0); // completion display survives capture finalization
+        f.state.tareScale();
+        f.scale.mockSetWeight(0);
+        QCOMPARE(f.state.scaleWeight(), 98.0);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        QCOMPARE(f.state.scaleWeight(), 0.0); // a new operation releases the freeze
+    }
+
+    void waterCaptureUsesFlowWhenScaleIsVirtual_data() {
+        QTest::addColumn<bool>("virtualScale");
+        QTest::newRow("no-scale") << false;
+        QTest::newRow("virtual-scale") << true;
+    }
+    void waterCaptureUsesFlowWhenScaleIsVirtual() {
+        QFETCH(bool, virtualScale);
+        TestFixture f;
+        f.scale.setIsFlowScale(virtualScale);
+        f.scale.mockSetConnected(virtualScale);
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.onFlowSample(10, 1);
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(result.count(), 1);
+        const auto r = result.first().at(1).toMap();
+        QCOMPARE(r.value("volumeMl").toDouble(), 10.0);
+        QCOMPARE(r.value("amountSource").toString(), QString("flowEstimate"));
+        QVERIFY(!r.contains("weightG"));
+    }
+
+    void waterResultFinalizesBeforeAnotherOperationTares() {
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.settings.brew()->setWaterVolumeMode("volume");
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.scale.mockSetWeight(70);
+        const auto token = f.state.hotWaterCycleId();
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Heating);
+        QCOMPARE(result.count(), 1);
+        QCOMPARE(result.first().at(0).toULongLong(), token);
+        QCOMPARE(result.first().at(1).toMap().value("weightG").toDouble(), 70.0);
+        f.scale.mockSetWeight(0);
+        QVERIFY(!f.state.m_waterSettle.isActive());
+    }
+
+    void waterSettlingStillLearnsSawOvershoot() {
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.settings.brew()->setWaterVolumeMode("weight");
+        f.settings.brew()->setWaterVolume(100);
+        f.settings.brew()->setHotWaterSawOffset(2);
+        f.settings.brew()->setHotWaterSawSampleCount(0);
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.tareScale();
+        f.scale.mockSetWeight(0);
+        f.scale.mockSetWeight(98);
+        QVERIFY(f.state.m_stopAtWeightTriggered);
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.scale.mockSetWeight(101);
+        QTRY_COMPARE(result.count(), 1);
+        QCOMPARE(f.settings.brew()->hotWaterSawSampleCount(), 1);
+        QCOMPARE(f.settings.brew()->hotWaterSawOffset(), 2.5);
+        QCOMPARE(result.first().at(1).toMap().value("weightG").toDouble(), 101.0);
+    }
+
+    void waterCaptureInvalidScaleFallsBackAndDisconnectIsPartial() {
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.settings.brew()->setWaterVolumeMode("volume");
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.onFlowSample(10, 1);
+        f.scale.mockSetWeight(std::numeric_limits<double>::quiet_NaN());
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(result.count(), 1);
+        QCOMPARE(result.first().at(1).toMap().value("amountSource").toString(), QString("flowEstimate"));
+        f.scale.mockSetWeight(200);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.scale.mockSetWeight(250);
+        f.device.m_simulationMode = false;
+        f.state.updatePhase();
+        QCOMPARE(result.count(), 2);
+        QCOMPARE(result.last().at(1).toMap().value("status").toString(), QString("interrupted"));
+        QCOMPARE(result.last().at(1).toMap().value("weightG").toDouble(), 50.0);
+    }
+
+    void waterDisconnectAfterFlowStoppedIsComplete() {
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.settings.brew()->setWaterVolumeMode("volume");
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.scale.mockSetWeight(50);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QVERIFY(f.state.m_waterSettle.isActive());
+        f.device.m_simulationMode = false;
+        f.state.updatePhase();
+        QCOMPARE(result.count(), 1);
+        QCOMPARE(result.first().at(1).toMap().value("status").toString(), QString("dispensed"));
+        QCOMPARE(result.first().at(1).toMap().value("weightG").toDouble(), 50.0);
+    }
+
+    void waterLateTareFromAnAlreadyZeroedCup_data() {
+        QTest::addColumn<double>("beforeTare");
+        QTest::newRow("large-reset") << 10.0;
+        QTest::newRow("small-reset") << 1.5;
+        QTest::newRow("sub-gram-reset") << 0.5;
+    }
+    void waterLateTareFromAnAlreadyZeroedCup() {
+        QFETCH(double, beforeTare);
+        TestFixture f;
+        f.scale.mockSetConnected(true);
+        f.settings.brew()->setWaterVolumeMode("volume");
+        QSignalSpy result(&f.state, &MachineState::hotWaterResultReady);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.tareScale();
+        f.scale.mockSetWeight(0); // an ordinary zero sample before the command takes effect
+        f.scale.mockSetWeight(beforeTare);
+        f.scale.mockSetWeight(0); // actual delayed tare
+        f.scale.mockSetWeight(100 - beforeTare);
+        f.state.m_waterSettle.setInterval(1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(result.count(), 1);
+        QCOMPARE(result.first().at(1).toMap().value("amountSource").toString(), QString("scale"));
+        QCOMPARE(result.first().at(1).toMap().value("weightG").toDouble(), 100.0);
+    }
+
+    void waterJoinKeepsBothCompletionOrders() {
+        const QVariantMap water{{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 103.2}};
+        ShotWaterJoin join;
+        join.expect(10);
+        join.expect(11);
+        QVERIFY(!join.saved(10, 100, "older"));
+        QVERIFY(!join.result(11, water));
+        const auto older = join.result(10, water);
+        QVERIFY(older);
+        QCOMPARE(older->shotId, qint64(100));
+        QCOMPARE(older->uuid, QString("older"));
+        const auto newer = join.saved(11, 101, "newer");
+        QVERIFY(newer);
+        QCOMPARE(newer->shotId, qint64(101));
+        QVERIFY(!join.result(10, water));
+        join.expect(12);
+        join.discard(12);
+        QVERIFY(!join.result(12, water));
+        QVERIFY(!join.saved(12, 102, "discarded"));
+    }
+
+    void sequenceSkippedOrRefusedWaterIsNotDispensed_data() {
+        QTest::addColumn<bool>("refused");
+        QTest::newRow("skipped") << false;
+        QTest::newRow("refused") << true;
+    }
+    void sequenceSkippedOrRefusedWaterIsNotDispensed() {
+        QFETCH(bool, refused);
+        SequenceFixture f("after");
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        QSignalSpy result(&f.sequence, &DrinkSequenceController::waterResultReady);
+        if (refused) QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*did not start within.*"));
+        f.notify(DE1::State::Espresso, DE1::SubState::Pouring);
+        if (refused) {
+            f.notify(DE1::State::Idle, DE1::SubState::Ready);
+            f.sequence.onShotSettled();
+            QTRY_COMPARE(result.count(), 1);
+        } else {
+            f.sequence.skip();
+            QCOMPARE(result.count(), 1);
+        }
+        QCOMPARE(result.first().at(0).toLongLong(), qint64(42));
+        QCOMPARE(result.first().at(1).toMap().value("status").toString(), QString("notDispensed"));
+        QVERIFY(!result.first().at(1).toMap().contains("weightG"));
+    }
+
+    void sequencePublishesWaterForItsEspresso_data() {
+        QTest::addColumn<QString>("order");
+        QTest::addColumn<bool>("manual");
+        QTest::newRow("americano") << QString("after") << false;
+        QTest::newRow("long-black") << QString("before") << false;
+        QTest::newRow("americano-manual") << QString("after") << true;
+        QTest::newRow("long-black-manual") << QString("before") << true;
+    }
+    void sequencePublishesWaterForItsEspresso() {
+        QFETCH(QString, order);
+        QFETCH(bool, manual);
+        SequenceFixture f(order);
+        if (manual) f.sequence.setIdleDelayForTesting(1000);
+        f.sequence.setEspressoOperationProvider([] { return 42; });
+        f.settings.brew()->setWaterVolumeMode("volume");
+        f.scale.mockSetConnected(true);
+        QSignalSpy result(&f.sequence, &DrinkSequenceController::waterResultReady);
+        QSignalSpy association(&f.sequence, &DrinkSequenceController::waterEspressoAssociated);
+        const bool before = order == "before";
+        if (before) f.sequence.expectRecipeWater();
+        f.notify(before ? DE1::State::HotWater : DE1::State::Espresso, DE1::SubState::Pouring);
+        if (before) f.scale.mockSetWeight(100);
+        f.state.m_waterSettle.setInterval(1);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        // MainController also processes the water-only completion (operation 0)
+        // before the long black's espresso has started or received an identity.
+        if (before) f.sequence.discardWaterForOperation(0);
+        if (!before) f.sequence.onShotSettled();
+        if (!manual) QTRY_VERIFY(!f.requested().isEmpty());
+        f.recipe.clear(); // completion must not re-read current recipe selection
+        // Espresso may enter preheating before its flow-start association arrives.
+        if (manual && before) f.notify(DE1::State::Espresso, DE1::SubState::Heating);
+        f.notify(before ? DE1::State::Espresso : DE1::State::HotWater, DE1::SubState::Pouring);
+        QCOMPARE(f.sequence.pendingStep(), DrinkSequenceController::Step::None);
+        if (manual) QVERIFY(f.requested().isEmpty());
+        if (!before) f.scale.mockSetWeight(100);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(result.count(), 1);
+        QCOMPARE(association.count(), 1);
+        QCOMPARE(result.first().at(0).toLongLong(), qint64(42));
+        QCOMPARE(result.first().at(1).toMap().value("weightG").toDouble(), 100.0);
+        QCOMPARE(result.first().at(1).toMap().value("status").toString(), QString("dispensed"));
+        if (manual) QVERIFY(f.requested().isEmpty());
+    }
 
     void drinkSequenceRequestsTheSecondStepOnceAtIdle_data() {
         QTest::addColumn<QString>("order");

@@ -110,6 +110,10 @@ void ComparisonServiceTest::shotInfoKeepsRecordedValuesAcrossPagingAndRebase()
             "(2, 'b', 2000, 'Test', 30, 18.2, '9', 0), "
             "(3, 'c', 3000, 'Test', 30, 0, '', 93), "
             "(4, 'd', 4000, 'Test', 30, 19, '8', 94)")));
+        QVERIFY(ShotHistoryStorage::updateShotWaterResultStatic(db, 1, "a",
+            {{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 100.0}, {"temperatureC", 85.0}}));
+        QVERIFY(ShotHistoryStorage::updateShotWaterResultStatic(db, 2, "b",
+            {{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 120.0}, {"temperatureC", 90.0}}));
         db.close();
     }
     QSqlDatabase::removeDatabase(QStringLiteral("comparison-info-seed"));
@@ -129,6 +133,8 @@ void ComparisonServiceTest::shotInfoKeepsRecordedValuesAcrossPagingAndRebase()
     model.setBaseShot(2);
     QTRY_VERIFY(!model.loading());
     QCOMPARE(model.getShotInfo(0).value(QStringLiteral("doseG")).toDouble(), 18.2);
+    const auto compared = model.comparison().value("shots").toList();
+    QCOMPARE(compared.first().toMap().value("hotWaterResult").toMap().value("weightG").toDouble(), 120.0);
     QVERIFY(model.getShotInfo(0).value(QStringLiteral("isBase")).toBool());
 }
 

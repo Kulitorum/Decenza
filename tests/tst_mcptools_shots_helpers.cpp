@@ -175,6 +175,7 @@ void TstMcpToolsShotsHelpers::strip_keepsSummaryArraysAndScalars()
         {"phases", QJsonArray{QJsonObject{{"time", 0.0}, {"label", QStringLiteral("preinfusion")}}}},
         {"phaseSummaries", QJsonArray{QJsonObject{{"name", QStringLiteral("pour")}}}},
         {"detectorResults", QJsonObject{{"verdictCategory", QStringLiteral("clean")}}},
+        {"hotWaterResult", QJsonObject{{"status", "dispensed"}, {"amountSource", "scale"}, {"weightG", 103.2}, {"temperatureC", 85.0}}},
         {"id", 42},
         {"profileName", QStringLiteral("D-Flow/Q")},
         {"enjoyment0to100", 80},
@@ -185,6 +186,8 @@ void TstMcpToolsShotsHelpers::strip_keepsSummaryArraysAndScalars()
     QCOMPARE(obj.value("summaryLines").toArray().size(), 1);
     QCOMPARE(obj.value("phases").toArray().size(), 1);
     QCOMPARE(obj.value("phaseSummaries").toArray().size(), 1);
+    QCOMPARE(obj.value("hotWaterResult").toObject().value("weightG").toDouble(), 103.2);
+    QCOMPARE(obj.value("hotWaterResult").toObject().value("temperatureC").toDouble(), 85.0);
     // detectorResults is an object, so the array sweep must not touch it.
     QVERIFY(obj.contains("detectorResults"));
     // Scalars are untouched: adding one must not require an edit here.

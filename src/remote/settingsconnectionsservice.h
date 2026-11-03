@@ -21,6 +21,7 @@ class SettingsConnectionsService final : public RemoteService
 {
     Q_OBJECT
     Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantMap portalCalibration READ portalCalibration NOTIFY portalCalibrationChanged FINAL)
     Q_PROPERTY(bool ready READ ready NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged FINAL)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged FINAL)
@@ -29,6 +30,7 @@ public:
     ~SettingsConnectionsService() override;
     static SettingsConnectionsService* create(QQmlEngine* engine, QJSEngine* jsEngine);
     QVariantMap snapshot() const;
+    QVariantMap portalCalibration() const;
     bool ready() const;
     bool busy() const { return !m_pending.isEmpty(); }
     QString errorMessage() const;
@@ -46,6 +48,7 @@ public:
                                 const QVariantMap& arguments = {});
 
 signals:
+    void portalCalibrationChanged();
     void stateChanged();
     void busyChanged();
     void operationCompleted(const QString& requestId, const QString& operation,

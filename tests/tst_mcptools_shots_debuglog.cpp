@@ -283,6 +283,38 @@ private slots:
     // It used to return only the shots it resolved, so a caller could detect the
     // loss only by comparing counts and could never learn WHICH id was bad.
 
+    // MCP and the in-app advisor share one PORTAL format, described by the shared prompt.
+    void shotDetailSendsTheAdvisorPortalBlock() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("portal.db")));
+        registerShotTools(&f.registry, &storage);
+
+        ShotRecord shot;
+        shot.summary.uuid = QStringLiteral("portal-detail");
+        shot.summary.timestamp = 1700000000;
+        shot.summary.profileName = QStringLiteral("Test");
+        shot.summary.duration = 25.0;
+        shot.summary.doseWeight = 16.0;
+        shot.summary.finalWeight = 32.0;
+        shot.weightSource = QStringLiteral("physical_scale");
+        shot.portalMountingMode = QStringLiteral("onScale");
+        shot.pressure = {{0.0, 2.0}, {25.0, 5.0}};
+        for (int s = 5; s <= 25; ++s)
+            shot.weight.append(QPointF(s, (s - 5) * 1.6));
+        for (int i = 0; i <= 250; ++i)
+            shot.portalSamples.append(PortalSample{i * 0.1, 8.0, 60.0, i == 0});
+        const qint64 id = storage.importShotRecord(shot, true);
+        QVERIFY(id > 0);
+
+        const QJsonObject result = f.callAsyncTool("shots_get_detail", QJsonObject{{"shotId", id}});
+        QVERIFY(!result.contains("portalAnalysis"));
+        const QJsonObject portal = result.value("portal").toObject();
+        QVERIFY(portal.value("valid").toBool());
+        QCOMPARE(portal.value("tailMean5gRawEc").toDouble(), 8.0);
+        QVERIFY(!portal.contains("M5"));
+    }
+
     void shotsCompareNamesUnresolvedIds() {
         McpTestFixture f;
         ShotHistoryStorage storage;

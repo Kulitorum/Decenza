@@ -1,5 +1,6 @@
 #include "settings_hardware.h"
 #include "settings.h"
+#include "ai/portaltailanalyzer.h"
 
 // For the [Bluetooth][ConnectionPriority] marker on the two persist-failure warnings
 // below. They are the failure half of a story whose other half is in
@@ -14,11 +15,23 @@ namespace {
 constexpr auto portalAddressKey = "portal/address";
 constexpr auto portalNameKey = "portal/name";
 constexpr auto portalSyncDisplayKey = "portal/syncDisplay";
+constexpr auto portalMountingModeKey = "portal/mountingMode";
+
+QString normalizePortalMountingMode(const QString& mode)
+{
+    const auto decoded = PortalTailAnalyzer::mountingModeFromString(mode, Qt::CaseInsensitive);
+    return PortalTailAnalyzer::mountingModeToString(decoded == PortalTailAnalyzer::MountingMode::Unknown
+        ? PortalTailAnalyzer::MountingMode::OnScale : decoded);
+}
 }
 
 QString SettingsHardware::portalAddress() const { return m_settings.value(portalAddressKey).toString(); }
 QString SettingsHardware::portalName() const { return m_settings.value(portalNameKey).toString(); }
 bool SettingsHardware::portalSyncDisplay() const { return m_settings.value(portalSyncDisplayKey, true).toBool(); }
+QString SettingsHardware::portalMountingMode() const
+{
+    return normalizePortalMountingMode(m_settings.value(portalMountingModeKey).toString());
+}
 
 void SettingsHardware::setPortalDevice(const QString& address, const QString& name)
 {
@@ -33,6 +46,14 @@ void SettingsHardware::setPortalSyncDisplay(bool enabled)
     if (portalSyncDisplay() == enabled) return;
     m_settings.setValue(portalSyncDisplayKey, enabled);
     emit portalSyncDisplayChanged();
+}
+
+void SettingsHardware::setPortalMountingMode(const QString& mode)
+{
+    const QString normalized = normalizePortalMountingMode(mode);
+    if (portalMountingMode() == normalized) return;
+    m_settings.setValue(portalMountingModeKey, normalized);
+    emit portalMountingModeChanged();
 }
 
 SettingsHardware::SettingsHardware(QObject* parent)

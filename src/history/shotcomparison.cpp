@@ -1,4 +1,5 @@
 #include "shotcomparison.h"
+#include "shotwaterresult.h"
 
 #include "shotprojection.h"
 #include "../ai/dialing_helpers.h"
@@ -173,7 +174,6 @@ double shownDelta(double base, double shot, int decimals)
 InputDiff diffInputs(const ShotProjection& base, const ShotProjection& shot)
 {
     InputDiff d;
-
     InputField profile;
     profile.key = QStringLiteral("profile");
     profile.baseText = base.profileName;
@@ -216,6 +216,16 @@ InputDiff diffInputs(const ShotProjection& base, const ShotProjection& shot)
 
     d.fields << groupField(QStringLiteral("barista"), { &ShotProjection::barista }, base, shot);
 
+    const auto waterA = ShotWaterResult::setting(base.hotWaterResult, base.hotWaterJson);
+    const auto waterB = ShotWaterResult::setting(shot.hotWaterResult, shot.hotWaterJson);
+    auto waterTemp = numericField(QStringLiteral("waterTemperatureC"), QStringLiteral("celsius"),
+                                 waterA.value_or(-1), waterB.value_or(-1), kTemperatureToleranceC);
+    waterTemp.state = waterA.has_value() != waterB.has_value() ? FieldState::OneSided
+        : waterA && std::abs(*waterA - *waterB) > kTemperatureToleranceC ? FieldState::Changed : FieldState::Same;
+    waterTemp.delta = waterTemp.state == FieldState::Changed ? std::optional<double>(*waterB - *waterA) : std::nullopt;
+    waterTemp.dialIn = false;
+    d.fields << waterTemp;
+
     // A grind Δ needs one dial: the same grinder and burrs on both shots.
     InputField* g = nullptr;
     for (InputField& f : d.fields)
@@ -246,6 +256,8 @@ const QList<MetricDef>& metricDefs()
         { "durationSec",           "s",            1, false, 1.0  },
         { "yieldG",                "g",            1, false, 1.0  },
         { "ratio",                 "",             1, false, 0.1  },
+        { "waterWeightG",          "g",            1, false, 0.0  },
+        { "waterVolumeMl",         "ml",           1, false, 0.0  },
         { "firstDropSec",          "s",            1, false, 0.5  },
         { "peakPressureBar",       "bar",          1, false, 0.3  },
         { "meanFlowMlPerSec",      "mlPerSec",     2, false, 0.15 },
@@ -266,6 +278,11 @@ const QList<MetricDef>& metricDefs()
 QMap<QString, double> metricsFor(const ShotProjection& shot)
 {
     QMap<QString, double> m;
+    const auto water = ShotWaterResult::fromMap(shot.hotWaterResult).toMap();
+    if (water.contains(QStringLiteral("weightG")))
+        m[QStringLiteral("waterWeightG")] = water.value(QStringLiteral("weightG")).toDouble();
+    if (water.contains(QStringLiteral("volumeMl")))
+        m[QStringLiteral("waterVolumeMl")] = water.value(QStringLiteral("volumeMl")).toDouble();
     const double duration = shot.durationSec;
     if (duration > 0) m[QStringLiteral("durationSec")] = duration;
     if (shot.finalWeightG > 0) m[QStringLiteral("yieldG")] = shot.finalWeightG;
@@ -358,7 +375,8 @@ QJsonValue inputValue(const InputField& f, bool base)
 {
     if (f.numeric) {
         const double v = base ? f.baseValue : f.shotValue;
-        return v > 0 || f.key == QLatin1String("grinderSetting") ? QJsonValue(v) : QJsonValue();
+        return v > 0 || f.key == QLatin1String("grinderSetting")
+            || (f.key == QLatin1String("waterTemperatureC") && v >= 0) ? QJsonValue(v) : QJsonValue();
     }
     const QString t = base ? f.baseText : f.shotText;
     return t.isEmpty() ? QJsonValue() : QJsonValue(t);
@@ -405,6 +423,19 @@ QJsonObject profileDiff(const ShotProjection& base, const ShotProjection& shot)
     return out;
 }
 
+bool waterMetric(const QString& key)
+{
+    return key == QLatin1String("waterWeightG") || key == QLatin1String("waterVolumeMl");
+}
+
+bool comparableMetric(const QString& key, const ShotProjection& a, const ShotProjection& b)
+{
+    if (!waterMetric(key)) return true;
+    const auto wa = ShotWaterResult::fromMap(a.hotWaterResult);
+    const auto wb = ShotWaterResult::fromMap(b.hotWaterResult);
+    return wa.isComplete() && wb.isComplete() && wa.amountSource == wb.amountSource;
+}
+
 QJsonObject shotJson(const ShotProjection& s, bool isBase)
 {
     QJsonObject o;
@@ -412,6 +443,8 @@ QJsonObject shotJson(const ShotProjection& s, bool isBase)
     o[QStringLiteral("isBase")] = isBase;
     o[QStringLiteral("timestamp")] = s.timestampIso;
     o[QStringLiteral("profileName")] = s.profileName;
+    const auto water = ShotWaterResult::fromMap(s.hotWaterResult).toMap();
+    if (!water.isEmpty()) o[QStringLiteral("hotWaterResult")] = QJsonObject::fromVariantMap(water);
     const double target = effectiveTargetWeightG(s);
     o[QStringLiteral("targetYieldG")] = target > 0 ? QJsonValue(target) : QJsonValue();
     o[QStringLiteral("stoppedBy")] = s.stoppedBy.isEmpty() ? QJsonValue() : QJsonValue(s.stoppedBy);
@@ -447,7 +480,7 @@ QJsonObject buildPairChanges(const ShotProjection& from, const ShotProjection& t
     for (const MetricDef& def : metricDefs()) {
         if (def.more) continue;
         const QString key = QLatin1String(def.key);
-        if (!ma.contains(key) || !mb.contains(key)) continue;
+        if (!ma.contains(key) || !mb.contains(key) || !comparableMetric(key, from, to)) continue;
         const double delta = shownDelta(ma.value(key), mb.value(key), def.decimals);
         if (delta == 0.0) continue;
         outcomes[key] = fromTo(roundTo(ma.value(key), def.decimals), roundTo(mb.value(key), def.decimals), delta);
@@ -511,7 +544,8 @@ QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex, Met
         for (const InputDiff& d : diffs) differs |= d.fields[f].state != FieldState::Same;
         const InputField& first = diffs.first().fields[f];
         if (!differs) {
-            if (!first.baseText.isEmpty() || (first.numeric && first.baseValue > 0)) {
+            if (!first.baseText.isEmpty() || (first.numeric && (first.baseValue > 0
+                || (first.key == QLatin1String("waterTemperatureC") && first.baseValue >= 0)))) {
                 unchanged.append(QJsonObject{
                     { QStringLiteral("key"), first.key },
                     { QStringLiteral("unit"), first.unit },
@@ -551,13 +585,27 @@ QJsonObject compare(const QList<ShotProjection>& input, qsizetype baseIndex, Met
         const QString key = QLatin1String(def.key);
         bool any = false;
         for (const auto& m : metrics) any |= m.contains(key);
-        if (!any && !(rows == MetricRows::Defaults && !def.more)) continue;
+        if (waterMetric(key)) {
+            if (!any) {
+                bool hasResult = false, hasAmount = false;
+                for (qsizetype i = 0; i < shots.size(); ++i) {
+                    hasResult |= !shots[i]->hotWaterResult.isEmpty();
+                    hasAmount |= metrics[i].contains(QStringLiteral("waterWeightG"))
+                        || metrics[i].contains(QStringLiteral("waterVolumeMl"));
+                }
+                if (!(key == QLatin1String("waterWeightG") && hasResult && !hasAmount)) continue;
+            }
+        } else if (!any && !(rows == MetricRows::Defaults && !def.more)) continue;
         QJsonArray cells;
         for (qsizetype i = 0; i < metrics.size(); ++i) {
             QJsonObject cell;
+            if (waterMetric(key))
+                cell[QStringLiteral("water")] = QJsonObject::fromVariantMap(
+                    ShotWaterResult::fromMap(shots[i]->hotWaterResult).toMap());
             cell[QStringLiteral("value")] = metrics[i].contains(key) ? QJsonValue(metrics[i].value(key)) : QJsonValue();
             QJsonValue delta;
-            if (i > 0 && metrics[0].contains(key) && metrics[i].contains(key)) {
+            if (i > 0 && metrics[0].contains(key) && metrics[i].contains(key)
+                && comparableMetric(key, *shots[0], *shots[i])) {
                 const double d = shownDelta(metrics[0].value(key), metrics[i].value(key), def.decimals);
                 if (d != 0.0) delta = d;
             }

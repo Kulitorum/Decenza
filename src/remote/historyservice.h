@@ -68,6 +68,7 @@ signals:
                             bool success, const QVariantMap& result,
                             const QString& reason);
     void historyDataChanged();
+    void shotWaterResultUpdated(qint64 shotId, const QVariantMap& result);
     void shotReady(qint64 shotId, const QVariantMap& shot);
     void shotOutcomeReady(qint64 shotId, const QVariantMap& outcome);
     void decentUploadStateReady(qint64 shotId, const QVariantMap& state);

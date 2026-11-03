@@ -70,6 +70,7 @@ struct ShotMetadata {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QString hotWaterResultJson;
 
     // Yield anchor provenance (add-yield-ratio-anchor): the anchor that
     // produced the shot's resolved gram target. Local history only — never

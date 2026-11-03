@@ -460,6 +460,21 @@ void DE1Simulator::onSimulationTimerTick()
         m_scaleWeight = m_outputVolume;  // 1:1 for water
         double scaleNoise = fractalNoise(elapsed * 2.0 + 200, 2) * SCALE_NOISE_AMP;
         emit scaleWeightChanged(qMax(0.0, m_scaleWeight + scaleNoise));
+
+        // Feed the same telemetry path as hardware so the host can integrate
+        // water volume even when the simulated scale is switched off.
+        if (m_tickCount % 2 == 0
+            && (m_state == DE1::State::HotWater || m_state == DE1::State::HotWaterRinse)) {
+            ShotSample sample;
+            sample.timestamp = QDateTime::currentMSecsSinceEpoch();
+            sample.timer = m_shotTimer.elapsed() / 1000.0;
+            sample.groupPressure = m_pressure;
+            sample.groupFlow = m_flow;
+            sample.headTemp = m_groupTemp;
+            sample.mixTemp = m_mixTemp;
+            sample.steamTemp = m_steamTemp;
+            emit shotSampleReceived(sample);
+        }
     } else if (m_state == DE1::State::Descale || m_state == DE1::State::Clean) {
         // Descale: substates 8→12 (5 steps), Clean: substates 13→16 (4 steps).
         // The simulator advances these states on an accelerated fixed interval;

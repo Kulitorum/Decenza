@@ -16,13 +16,16 @@ Rectangle {
     // The previous shot's time as a label, from the same outcome as `comparison`.
     property string previousWhen: ""
     property bool showMore: false
+    property bool includeWaterResults: true
 
     readonly property var shots: comparison.shots || []
     readonly property int me: shots.length - 1
     readonly property var shot: me >= 0 ? shots[me] : ({})
     readonly property var previous: shots.length > 1 ? shots[0] : null
     readonly property var pair: (comparison.comparisons || [])[0] || null
-    readonly property var metricRows: comparison.metrics || []
+    readonly property var metricRows: (comparison.metrics || []).filter(function(r) {
+        return root.includeWaterResults || (r.key !== "waterWeightG" && r.key !== "waterVolumeMl")
+    })
     readonly property var visibleMetrics: metricRows.filter(function(r) { return !r.more || root.showMore })
     readonly property int hiddenMetricCount: metricRows.filter(function(r) { return r.more }).length
     readonly property var changedInputs: {
@@ -51,7 +54,7 @@ Rectangle {
     radius: Theme.cardRadius
 
     function valueText(row, cell) {
-        const t = ComparisonText.metricText(row, cell.value)
+        const t = ComparisonText.metricCellText(row, cell)
         const target = root.shot.targetYieldG
         if (row.key === "yieldG" && target && cell.value !== null && cell.value !== undefined)
             return TranslationManager.translate("shotpage.yieldOfTarget", "%1 of %2").arg(t).arg(target.toFixed(1))

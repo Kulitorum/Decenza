@@ -8,6 +8,7 @@
 #include <QList>
 #include <optional>
 
+#include "ai/portaltailanalyzer.h"
 #include "ai/shotanalysis.h"
 #include "history/bagid.h"
 #include "models/portalsample.h"
@@ -113,8 +114,14 @@ struct ShotRecord {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QString hotWaterResultJson;
 
+    QString weightSource;
+    QString portalMountingMode;
     QVector<PortalSample> portalSamples;
+    PortalTailAnalyzer::PersistedSummary portalSummary;
+    QVector<PortalTailAnalyzer::CalibrationPoint> portalCalibrationPoints;
+    bool portalCalibrationFailed = false; // The reference read failed (logged); not "no references".
 
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
@@ -410,6 +417,7 @@ struct ShotSaveData {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+    QString hotWaterResultJson;
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;
@@ -425,6 +433,12 @@ struct ShotSaveData {
 
     // Phase summaries JSON (per-phase metrics for UI display)
     QString phaseSummariesJson;
+
+    // PORTAL columns (migration 51).
+    PortalTailAnalyzer::PersistedSummary portalSummary;
+    QString weightSource;
+    bool portalPresent = false;
+    QString portalMountingMode;
 
     // Pre-compressed sample data blob
     QByteArray compressedSamples;

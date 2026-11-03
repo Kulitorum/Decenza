@@ -1,5 +1,7 @@
 #pragma once
 
+#include "history/shotwaterjoin.h"
+
 #include <QHash>
 #include <QSet>
 #include <QObject>
@@ -854,6 +856,8 @@ private:
     SteamPageEditor* m_steamPageEditor = nullptr;
     SteamAutoFlushController* m_steamAutoFlush = nullptr;
     DrinkSequenceController* m_drinkSequence = nullptr;
+    ShotWaterJoin m_waterResultJoin;
+    void persistWaterResult(const std::optional<ShotWaterJoin::Write>& write);
     SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;
     ProfileStorage* m_profileStorage = nullptr;

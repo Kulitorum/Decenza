@@ -54,3 +54,5 @@ Coverage on both paths (LAN device-to-device and `.dcbackup` full archive):
 
 ### What rides inside "Shots"
 The Shots import ships the whole `shots.db` file, so several tables travel and are row-remapped during the merge (`ShotHistoryStorage::importDatabaseStatic`), in order: **equipment** (`importEquipmentStatic`) → **coffee bags** (`importBagsStatic`, remaps `equipment_id`) → **recipes** (`importRecipesStatic`, remaps `equipment_id`; a legacy source's absolute `temp_override_c` is staged and converted to a relative `temp_offset_c`) → **shots** (remaps `equipment_id`, `bag_id`, `recipe_id`, and carries `steam_json`/`hot_water_json`). These are not separate UI buttons — they fold into "Shots" and transfer even when the source has no shots.
+
+Added-water outcomes travel in the shot-only `hot_water_result_json` column (migration 47), independently of the vessel specification. Current-source imports preserve the result, measurement source and configured temperature; sources lacking the column import NULL (unrecorded), never a result inferred from the vessel target. Merge/replace imports and metadata edits retain the same distinction.

@@ -232,6 +232,7 @@ ColumnLayout {
             Layout.fillWidth: true
             labelWidth: root.labelColW
             cellWidth: root.cellW
+            wrapValues: modelData.key === "waterTemperatureC"
             label: ComparisonText.inputLabel(modelData.key)
             cells: modelData.cells
             textFor: function(cell) { return ComparisonText.inputText(inputRow.modelData, cell) }
@@ -252,6 +253,9 @@ ColumnLayout {
         font: Theme.labelFont
         color: Theme.textSecondaryColor
         wrapMode: Text.WordWrap
+        Accessible.role: Accessible.StaticText
+        Accessible.name: text
+        Accessible.focusable: true
     }
 
     Text {
@@ -265,6 +269,9 @@ ColumnLayout {
         color: Theme.textSecondaryColor
         wrapMode: Text.WordWrap
         lineHeight: 1.2
+        Accessible.role: Accessible.StaticText
+        Accessible.name: text
+        Accessible.focusable: true
     }
 
     Repeater {
@@ -295,10 +302,11 @@ ColumnLayout {
             Layout.fillWidth: true
             labelWidth: root.labelColW
             cellWidth: root.cellW
+            wrapValues: modelData.key === "waterWeightG" || modelData.key === "waterVolumeMl"
             label: ComparisonText.metricLabel(modelData.key)
             unit: ComparisonText.unitLabel(modelData.unit)
             cells: modelData.cells
-            textFor: function(cell) { return ComparisonText.metricText(metricRow.modelData, cell.value) }
+            textFor: function(cell) { return ComparisonText.metricCellText(metricRow.modelData, cell) }
             deltaFor: function(cell) { return ComparisonText.metricDelta(metricRow.modelData, cell.delta) }
             deltaSignFor: function(cell) { return cell.delta === null || cell.delta === undefined ? 0 : Math.sign(cell.delta) }
             mutedFor: function(cell) { return false }

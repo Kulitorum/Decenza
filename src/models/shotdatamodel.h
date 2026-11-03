@@ -95,9 +95,14 @@ public:
     const QList<PhaseMarker>& phaseMarkersList() const { return m_phaseMarkers; }
 
 public slots:
+    const QString& weightSource() const { return m_weightSource; }
+    void recordWeightSource(const QString& source);
+    const QString& portalMountingMode() const { return m_portalMountingMode; }
+    void setPortalMountingMode(const QString& mode) { m_portalMountingMode = mode; }
     void clear();
     void clearWeightData();  // Clear only weight samples (call when tare completes)
-    void addPortalSample(double time, double ecRaw, double temperatureC);
+    void addPortalSample(double time, double ecRaw, double temperatureC,
+                         std::optional<double> auxiliaryTemperatureRaw = std::nullopt);
     void markPortalGap() { m_portalGap = true; }
 
     // Data ingestion - vector append, chart update deferred to 33ms timer
@@ -146,6 +151,8 @@ private slots:
 private:
     // Data storage - fast vector appends
     QVector<QPointF> m_pressurePoints;
+    QString m_weightSource;
+    QString m_portalMountingMode;
     QVector<PortalSample> m_portalSamples;
     bool m_portalGap = true;
     bool m_portalDirty = false;

@@ -86,7 +86,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 46;
+    static constexpr int kCurrentSchemaVersion = 51;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -310,9 +310,11 @@ public:
     // connection so the DB converges with the current detector logic. outBadgesPersisted
     // (when non-null) is set true when a write happened, false otherwise — used by
     // requestShot to decide whether to emit shotBadgesUpdated.
+    enum class PortalCalibration { Include, Skip };
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId,
                                             bool* outBadgesPersisted = nullptr,
-                                            const char* requestedBy = "unspecified");
+                                            const char* requestedBy = "unspecified",
+                                            PortalCalibration portalCalibration = PortalCalibration::Include);
 
     // Compute resistance, conductance, Darcy resistance, and the conductance
     // derivative from a shot's own raw pressure/flow data. Called
@@ -324,6 +326,14 @@ public:
     // Compute per-phase summaries (avg pressure, flow, weight gained, etc.) from raw curves
     // and phase markers for legacy shots that lack phaseSummariesJson.
     static void computePhaseSummaries(ShotRecord& record);
+
+    // Paired or rated PORTAL measurements for this bag/bean; no logs or sample blobs.
+    // nullopt (logged) when a query fails, so a failure never reads as "no references".
+    static std::optional<QVector<PortalTailAnalyzer::CalibrationPoint>> loadPortalCalibrationPointsStatic(QSqlDatabase& db, qint64 bagId,
+        const QString& beanBrand, const QString& beanType);
+    void requestPortalCalibration(const QString& requestId, qint64 bagId,
+                                  const QString& beanBrand, const QString& beanType,
+                                  PortalTailAnalyzer::MountingMode mountingMode);
 
     // Query observed grinder settings for one equipment package + beverage type.
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
@@ -379,12 +389,15 @@ public:
     void requestDeleteShotForRequest(const QString& requestId, qint64 shotId);
     void requestDistinctBaristasForRequest(const QString& requestId);
 
-    // Thread-safe metadata update: caller provides their own connection.
+    // Metadata update owns a write transaction on the caller's connection.
     // Safe to call from any thread (does not use m_db). Returns true on success.
     // `refusal`, when given, receives why the write was refused (a bag id that
     // names no bag); "" for any other failure.
     static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata,
                                          QString* refusal = nullptr);
+    // Caller owns a DbWriteTxn spanning validation and this write (MCP shots_update).
+    static bool updateShotMetadataInTransaction(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata,
+                                                QString* refusal = nullptr);
     // Strict input guard for requestShotMetadataUpdate transports. The legacy
     // static writer remains permissive for its established native callers.
     static bool validateShotMetadataRequest(const QVariantMap& metadata,
@@ -410,6 +423,9 @@ public:
 
     // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
+    void requestUpdateShotWaterResult(qint64 shotId, const QString& uuid, const QVariantMap& result);
+    static bool updateShotWaterResultStatic(QSqlDatabase& db, qint64 shotId, const QString& uuid,
+                                            const QVariantMap& result);
     void requestUpdateShotMetadataForRequest(const QString& requestId, qint64 shotId,
                                              const QVariantMap& metadata);
 
@@ -714,9 +730,12 @@ public:
     [[nodiscard]] std::optional<QSet<qint64>> existingShotIds(const QSet<qint64>& ids) const;
 
 signals:
+    void portalCalibrationReady(const QString& requestId, const QVariantMap& calibration,
+                                const QString& reason);
     void readyChanged();
     void totalShotsChanged();
     void shotSaved(qint64 shotId);
+    void shotSavedWithUuid(qint64 shotId, const QString& uuid);
     void shotDeleted(qint64 shotId);
     void shotsDeleted(const QVariantList& shotIds);
     void shotsDeleteRequestFinished(const QString& requestId, bool success,
@@ -769,6 +788,8 @@ signals:
     // Emitted on the owning thread after an imported database commits.
     void importedDatabaseChanged();
     void shotMetadataUpdated(qint64 shotId, bool success);
+    void shotWaterResultUpdated(qint64 shotId, const QVariantMap& result);
+    void shotWaterResultUpdateFinished(qint64 shotId, bool success);
     void shotMetadataUpdateRequestFinished(const QString& requestId, qint64 shotId,
                                            bool success, const QString& reason);
     // A Visualizer pull changed these metadata keys (from `previous` to `written`).
@@ -898,6 +919,8 @@ private:
 public:
     static QString grinderModelMatchSql(const QString& placeholder);
 private:
+
+    static bool refreshPortalEligibilityInTransaction(QSqlDatabase& db, qint64 shotId);
 
     // Run a SELECT DISTINCT against m_db and return the non-empty values.
     // THE single place these getters touch the database.

@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QVariantMap>
+#include <QHash>
 
 #include <functional>
 
@@ -55,6 +56,8 @@ public:
     void skip();
     // The espresso's settled end (ShotTimingController::shotProcessingReady).
     void onShotSettled();
+    void setEspressoOperationProvider(std::function<qint64()> provider) { m_espressoOperation = std::move(provider); }
+    void discardWaterForOperation(qint64 operation);
 
 #ifdef DECENZA_TESTING
     void setIdleDelayForTesting(int ms) { m_idleDelay.setInterval(ms); }
@@ -64,6 +67,8 @@ public:
 signals:
     void pendingStepChanged();
     void activeChanged();
+    void waterEspressoAssociated(qint64 operation);
+    void waterResultReady(qint64 operation, const QVariantMap& result);
 
 private:
     enum class Stage { Idle, Pending, AwaitingStart, Running };
@@ -90,4 +95,16 @@ private:
     QElapsedTimer m_sinceIdle;
     QTimer m_startTimeout;
     QString m_recipeName;
+    struct WaterCapture {
+        qint64 espressoOperation = 0;
+        quint64 waterCycle = 0;
+        QVariantMap result;
+    };
+    quint64 m_nextCaptureId = 0;
+    quint64 m_activeCaptureId = 0;
+    QHash<quint64, WaterCapture> m_waterCaptures;
+    std::function<qint64()> m_espressoOperation;
+    void publishWaterResult(quint64 captureId);
+    void associateEspresso(quint64 captureId);
+
 };

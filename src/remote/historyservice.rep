@@ -30,6 +30,7 @@ class HistoryState
     SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
                               QVariantMap result, QString reason))
     SIGNAL(historyDataChanged())
+    SIGNAL(shotWaterResultUpdated(qint64 shotId, QVariantMap result))
     SIGNAL(shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected,
                              bool skipFirstFrameDetected, bool pourTruncatedDetected))
     SIGNAL(shotPulledFromVisualizer(qint64 shotId, QVariantMap previous, QVariantMap written))

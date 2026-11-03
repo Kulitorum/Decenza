@@ -418,6 +418,8 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         b["tasteBalance"] = best.tasteBalance;
     if (!best.tasteBody.isEmpty())
         b["tasteBody"] = best.tasteBody;
+    const QJsonObject portal = ShotSummarizer::buildPortalBlock(best.portalAnalysis);
+    if (!portal.isEmpty()) b["portal"] = portal;
     if (best.doseWeightG > 0)
         b["ratio"] = QString("1:%1").arg(best.finalWeightG / best.doseWeightG, 0, 'f', 2);
     if (best.timestamp > 0) {

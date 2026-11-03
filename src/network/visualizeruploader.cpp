@@ -130,7 +130,7 @@ void VisualizerUploader::attemptSavedShot(qint64 shotId, Send how)
         bool dirtyRead = false;
         withTempDb(dbPath, "viz_upload", [&](QSqlDatabase& db) {
             shot = ShotHistoryStorage::convertShotRecord(
-                ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO));
+                ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip));
             dirtyRead = ShotHistoryStorage::readVisualizerDirtyStatic(db, shotId, &dirty, &seq);
         });
         QMetaObject::invokeMethod(qApp, [self, shot, shotId, how, dirty, seq, dirtyRead]() {
@@ -1330,8 +1330,11 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
                                                  const QJsonObject& machineState)
 {
     QJsonObject root;
-    if (includePortal && !shotData.portalSamples.isEmpty())
+    if (includePortal && !shotData.portalSamples.isEmpty()) {
         root["decenza_portal_samples"] = QJsonArray::fromVariantList(shotData.portalSamples);
+        root["decenza_weight_source"] = shotData.weightSource;
+        root["decenza_portal_mounting_mode"] = shotData.portalMountingMode;
+    }
     root["version"] = 2;
 
     // Use original timestamp from the shot

@@ -248,3 +248,5 @@ This application implements the DE1 Bluetooth LE protocol based on publicly avai
 ## Disclaimer
 
 Decenza is an independent, community-developed application and is not affiliated with, endorsed by, or supported by Decent Espresso. "Decent" and "DE1" are trademarks of Decent Espresso.
+
+Fork-specific PORTAL features: [short user guide](docs/PORTAL.md).

@@ -22,6 +22,7 @@ ColumnLayout {
     property var mutedFor: function(cell) { return false }
     property var warnFor: function(cell) { return false }
     property font numberFont: Theme.bodyFont
+    property bool wrapValues: false
 
     // Direction only: neither colour means better.
     readonly property color increaseColor: Theme.warningColor
@@ -30,6 +31,7 @@ ColumnLayout {
     spacing: 0
 
     Accessible.role: Accessible.StaticText
+    Accessible.focusable: true
     Accessible.name: {
         let parts = [row.label + (row.unit ? " " + row.unit : "")]
         for (let i = 0; i < row.cells.length; i++) {
@@ -57,12 +59,15 @@ ColumnLayout {
             Layout.alignment: Qt.AlignBaseline
             spacing: Theme.scaled(4)
             Text {
+                width: row.wrapValues ? Math.max(0, row.labelWidth - (unitText.visible ? unitText.width + Theme.scaled(4) : 0)) : implicitWidth
+                wrapMode: row.wrapValues ? Text.WordWrap : Text.NoWrap
                 text: row.label
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
                 Accessible.ignored: true
             }
             Text {
+                id: unitText
                 visible: row.unit.length > 0
                 text: row.unit
                 font: Theme.captionFont
@@ -93,7 +98,9 @@ ColumnLayout {
                     font.features: ({ "tnum": 1 })
                     color: row.warnFor(cellItem.modelData) ? Theme.warningColor
                          : row.mutedFor(cellItem.modelData) ? Theme.textSecondaryColor : Theme.textColor
-                    elide: Text.ElideRight
+                    Layout.preferredWidth: row.wrapValues ? Math.max(0, row.cellWidth - (pill.visible ? pill.width + Theme.scaled(6) : 0)) : implicitWidth
+                    wrapMode: row.wrapValues ? Text.WordWrap : Text.NoWrap
+                    elide: row.wrapValues ? Text.ElideNone : Text.ElideRight
                     Accessible.ignored: true
                 }
                 Rectangle {

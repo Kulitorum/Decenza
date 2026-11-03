@@ -69,7 +69,7 @@ void FlowCalibrationModel::loadRecentShots() {
             } else if (query.exec()) {
                 while (query.next()) {
                     qint64 id = query.value(0).toLongLong();
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO);
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip);
                     if (!record.weightFlowRate.isEmpty()) {
                         shotIds.append(id);
                         if (shotIds.size() == 1) {
@@ -173,7 +173,7 @@ void FlowCalibrationModel::loadCurrentShot() {
     QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         ShotRecord record;
         bool dbFailed = !withTempDb(dbPath, "fcm_shot", [&](QSqlDatabase& db) {
-            record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+            record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO, ShotHistoryStorage::PortalCalibration::Skip);
         });
 
         QMetaObject::invokeMethod(this, [this, ownedRecord = std::move(record), dbFailed, destroyed]() {

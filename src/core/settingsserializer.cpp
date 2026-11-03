@@ -57,7 +57,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     root["portal"] = QJsonObject{{"address", settings->hardware()->portalAddress()},
         {"name", settings->hardware()->portalName()},
-        {"syncDisplay", settings->hardware()->portalSyncDisplay()}};
+        {"syncDisplay", settings->hardware()->portalSyncDisplay()},
+        {"mountingMode", settings->hardware()->portalMountingMode()}};
 
     // Espresso settings
     QJsonObject espresso;
@@ -451,6 +452,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // would also tear down a live connection via portalDeviceChanged).
         if (portal.contains("syncDisplay"))
             settings->hardware()->setPortalSyncDisplay(portal.value("syncDisplay").toBool(true));
+        if (portal.contains("mountingMode"))
+            settings->hardware()->setPortalMountingMode(portal.value("mountingMode").toString());
         if (portal.contains("address") || portal.contains("name"))
             settings->hardware()->setPortalDevice(
                 portal.value("address").toString(settings->hardware()->portalAddress()),
