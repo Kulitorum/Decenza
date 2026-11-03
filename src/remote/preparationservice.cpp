@@ -99,7 +99,7 @@ bool PreparationService::sendMilk(const QString& action, const QString& surface)
         }, Qt::QueuedConnection);
         return false;
     }
-    return send(action, clientId + QLatin1Char('/') + surface);
+    return send(action, PreparationSnapshot::milkOwner(clientId, surface));
 }
 
 bool PreparationService::send(const QString& action, const QString& owner)

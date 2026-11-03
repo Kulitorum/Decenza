@@ -2,7 +2,7 @@
 
 ### Requirement: Automatic milk capture before steaming
 
-The system SHALL capture milk only for a sample the user asks for: from the review-page milk button, or from the steam pitchers shown on the idle screen (the Steam row, or the compact Steam popup on the idle page). The selected pitcher SHALL be weight-timed (weight-timed steaming on and not a heater-off preset) with a saved empty-pitcher weight. Each request SHALL collect one sample, using the shared virtual-zero stable-weight capture (robust to an un-zeroed scale), give the standard capture confirmation (ding + transient banner), and lock the scaled time. The request SHALL end on capture, when the surface that made it closes, or when any operation starts. Selecting the steam mode, opening the steam page and finishing a steam SHALL NOT start one.
+The system SHALL capture milk only for a sample the user asks for: from the review-page milk button, or from the steam pitchers shown on the idle screen (the Steam row, or the compact Steam popup on the idle page). The selected pitcher SHALL be weight-timed (weight-timed steaming on and not a heater-off preset) with a saved empty-pitcher weight. Each request SHALL collect one sample, using the shared virtual-zero stable-weight capture (robust to an un-zeroed scale), give the standard capture confirmation (ding + transient banner), and lock the scaled time. The request SHALL end on capture, when the surface that made it closes, or when any operation starts. Selecting a different pitcher from the idle pitchers SHALL request a new sample. Leaving the idle page SHALL close the idle pitchers. Selecting the steam mode, opening the steam page and finishing a steam SHALL NOT start one.
 
 #### Scenario: Milk settles and the time locks
 - **WHEN** the user opens the idle pitchers and the pitcher with milk holds steady within tolerance for the dwell
@@ -19,6 +19,14 @@ The system SHALL capture milk only for a sample the user asks for: from the revi
 #### Scenario: One sample per request
 - **WHEN** milk was captured from the idle pitchers and the user then sets a different load on the scale with the pitchers still showing
 - **THEN** nothing further is captured until the pitchers are opened again
+
+#### Scenario: A different pitcher is weighed again
+- **WHEN** milk was captured from the idle pitchers and the user taps a different pitcher with the pitchers still showing
+- **THEN** the earlier capture is cleared and the milk on the scale is captured against the new pitcher
+
+#### Scenario: Leaving the idle page closes the pitchers
+- **WHEN** the idle pitchers are showing and the user leaves the idle page
+- **THEN** the pitchers are closed when the user returns, and nothing is captured until they are opened again
 
 #### Scenario: Pitcher without an empty weight
 - **WHEN** the user opens the idle pitchers with a pitcher selected that has no saved empty weight
@@ -66,7 +74,7 @@ While a capture is in progress the button SHALL show "Place pitcher" until a loa
 
 #### Scenario: Cancel keeps the earlier capture
 - **WHEN** 180 g was captured on the idle screen, and on the review page the user taps the button and then leaves the page
-- **THEN** the capture stops and the session's milk weight is 180 g again
+- **THEN** the capture stops and the session's milk weight stays 180 g
 
 ### Requirement: Pitcher selection from the review-page milk button
 

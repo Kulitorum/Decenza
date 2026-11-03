@@ -14,8 +14,6 @@ enum class Action {
     Steam,
     Hotwater,
     Flush,
-    MilkStart,
-    MilkCancel,
     MilkLock,
     MilkUnlock,
     PortalReconnect,

@@ -514,12 +514,6 @@ void ShotServer::handleSessionAction(QTcpSocket* socket, const QString& method,
     case SessionActionRequest::Action::Flush:
         accepted = preparation->selectMode(QStringLiteral("flush"));
         break;
-    case SessionActionRequest::Action::MilkStart:
-        accepted = preparation->startMilkAttempt(QStringLiteral("legacy-web"));
-        break;
-    case SessionActionRequest::Action::MilkCancel:
-        accepted = preparation->cancelMilkAttempt(QStringLiteral("legacy-web"));
-        break;
     case SessionActionRequest::Action::MilkLock:
         accepted = preparation->setMilkTimeLocked(true);
         break;

@@ -153,8 +153,8 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
         m_scaleConnections.emplace_back(connect(proxy, &ScaleDeviceProxy::targetChanged,
                                                 this, [this] {
             // MachineState may have switched its scale immediately before the proxy
-            // is re-pointed. Do not reuse its current reading as this target's live
-            // milk value until the target emits an actual sample.
+            // is re-pointed. Do not weigh with its current reading until the target
+            // emits an actual sample.
             m_scaleTargetAwaitingSample = true;
             m_realScaleSamplePending = false;
             DIAG_DEBUG(STEAM, "PreparationController")
@@ -198,7 +198,7 @@ bool PreparationController::selectMode(const QString& mode)
 bool PreparationController::startMilkAttempt(const QString& owner)
 {
     if (!available() || owner.isEmpty() || (m_machineState && m_machineState->isOperating())) {
-        DIAG_DEBUG(STEAM, "PreparationController")
+        DIAG_WARN(STEAM, "PreparationController")
             << QStringLiteral("Milk sample refused for %1: %2")
                    .arg(owner, owner.isEmpty() ? QStringLiteral("no owner")
                                                : !available() ? QStringLiteral("unavailable")
@@ -221,8 +221,10 @@ bool PreparationController::startMilkAttempt(const QString& owner)
 
 bool PreparationController::cancelMilkAttempt(const QString& owner)
 {
+    // A capture or an operation has already closed the offer; withdrawing it then
+    // is not a failure.
     if (!m_milkOwners.remove(owner))
-        return false;
+        return true;
     DIAG_DEBUG(STEAM, "PreparationController") << "Milk sample withdrawn by" << owner;
     if (m_milkOwners.isEmpty())
         closeMilkAttempt();
@@ -232,7 +234,7 @@ bool PreparationController::cancelMilkAttempt(const QString& owner)
 
 void PreparationController::releaseMilkClient(const QString& clientId)
 {
-    const QString prefix = clientId + QLatin1Char('/');
+    const QString prefix = PreparationSnapshot::milkOwner(clientId, QString());
     const qsizetype before = m_milkOwners.size();
     m_milkOwners.removeIf([&prefix](const QString& owner) { return owner.startsWith(prefix); });
     if (m_milkOwners.size() == before)
@@ -496,9 +498,14 @@ int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher
             *source = QStringLiteral("%1 g captured").arg(formatGrams(milk));
         else if (blocker)
             *source = QStringLiteral("not scaled: %1").arg(QLatin1String(blocker));
-        else
-            *source = QStringLiteral("no milk captured (pitcher=%1)")
-                .arg(formatGrams(selectedPitcherWeight()));
+        else {
+            const char* sample = milkSampleBlocker();
+            *source = QStringLiteral("no milk captured (pitcher=%1, sample %2, %3)")
+                .arg(formatGrams(selectedPitcherWeight()),
+                     sample ? QLatin1String(sample) : QLatin1String("offered, not settled"),
+                     m_snapshot.milk.loadPresent ? QLatin1String("load on scale")
+                                                 : QLatin1String("scale empty"));
+        }
     }
     return seconds;
 }
@@ -748,6 +755,8 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
     const double grams = *result.capturedGrams;
     int seconds = 0;
     m_snapshot.sessionMeasuredMilkG = grams;
+    QStringList owners(m_milkOwners.cbegin(), m_milkOwners.cend());
+    owners.sort();
     closeMilkAttempt();
     if (m_snapshot.milkTimeLocked) {
         seconds = m_brew->scaledSteamTime(m_brew->selectedSteamPitcher(), grams);
@@ -758,9 +767,9 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
         }
     }
     const char* blocker = steamTimeBlocker();
-    DIAG_DEBUG(STEAM, "PreparationController")
-        << QStringLiteral("Milk captured %1 g -> %2")
-               .arg(formatGrams(grams),
+    DIAG_INFO(STEAM, "PreparationController")
+        << QStringLiteral("Milk captured %1 g for %2 -> %3")
+               .arg(formatGrams(grams), owners.join(QLatin1String(", ")),
                     seconds > 0 ? QStringLiteral("%1 s steam").arg(seconds)
                                 : QStringLiteral("time not scaled: %1")
                                       .arg(QLatin1String(blocker ? blocker : "rate gave 0 s")));

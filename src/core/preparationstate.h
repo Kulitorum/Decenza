@@ -34,6 +34,10 @@ struct PreparationSnapshot {
     WeightCaptureSnapshot milk;
 
     static bool isMode(const QString& mode);
+    // A milk-offer owner: "<clientId>/<surface>". An empty surface gives the prefix
+    // shared by every owner of that client.
+    static QString milkOwner(const QString& clientId, const QString& surface)
+    { return clientId + QLatin1Char('/') + surface; }
     QJsonObject toJson() const;
     static bool parse(const QJsonObject&, PreparationSnapshot*, QString* error = nullptr);
 };
@@ -95,7 +99,8 @@ public:
     Q_INVOKABLE bool isPreparationMode(const QString& mode) const { return PreparationSnapshot::isMode(mode); }
     Q_INVOKABLE virtual bool selectMode(const QString& mode) = 0;
     // A milk sample is offered by an owner and stays open while any owner holds it.
-    // Clients pass the offering surface; the host qualifies it with the client id.
+    // Clients pass the offering surface; the client view qualifies it with its client
+    // id (PreparationSnapshot::milkOwner).
     Q_INVOKABLE virtual bool startMilkAttempt(const QString& owner) = 0;
     Q_INVOKABLE virtual bool cancelMilkAttempt(const QString& owner) = 0;
     Q_INVOKABLE virtual bool setMilkTimeLocked(bool locked) = 0;

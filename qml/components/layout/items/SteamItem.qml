@@ -58,6 +58,14 @@ LayoutWidgetItem {
         }
     }
 
+    // The popup's milk offer ends with the idle page or the host connection, so the
+    // popup closes rather than staying open with the weight unarmed.
+    onVisibleChanged: if (!visible) presetPopup.close()
+    Connections {
+        target: PreparationService.state
+        function onAvailableChanged() { if (!PreparationService.state.available) presetPopup.close() }
+    }
+
     function goToSteam() {
             AppShell.steamRequested()
     }
@@ -131,11 +139,17 @@ LayoutWidgetItem {
             HomePresetActions.withdrawMilkSample("idlePopup")
             if (root.idlePage) root.idlePage.releasePanelClearance()
         }
+        function updatePanelClearance(): void {
+            if (!root.idlePage || !visible)
+                return
+            let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+            root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+        }
+        // The placement prompt appears after the popup opens and makes it taller.
+        onHeightChanged: updatePanelClearance()
+        onYChanged: updatePanelClearance()
         onOpened: {
-            if (root.idlePage) {
-                let rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
-                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
-            }
+            updatePanelClearance()
 
             // Full-mode steam path runs IdlePage.onActivePresetFunctionChanged which
             // announces the preset list to TalkBack. The compact-mode popup bypasses
@@ -206,6 +220,7 @@ LayoutWidgetItem {
 
         contentItem: SteamPitcherPicker {
             maxWidth: Theme.scaled(600)
+            milkSurface: root.idlePage ? "idlePopup" : ""
             onOperationStarted: presetPopup.close()
         }
     }

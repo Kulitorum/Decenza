@@ -106,16 +106,23 @@ QtObject {
     // made the offer withdraws it when it closes, so a load set down later (an
     // espresso cup) is never taken for milk.
     // The withdraw is sent without checking milkAttemptOpen: in a browser that replica
-    // flag can still be false while the offer is in flight.
+    // flag can still be false while the offer is in flight. Reassigned, never mutated,
+    // so bindings on it update.
     property var milkOfferSurfaces: ({})
     function offerMilkSample(surface: string): bool {
-        milkOfferSurfaces[surface] = true
+        if (!milkOfferSurfaces[surface]) {
+            const surfaces = Object.assign({}, milkOfferSurfaces)
+            surfaces[surface] = true
+            milkOfferSurfaces = surfaces
+        }
         return PreparationService.state.startMilkAttempt(surface)
     }
     function withdrawMilkSample(surface: string): void {
         if (!milkOfferSurfaces[surface])
             return
-        delete milkOfferSurfaces[surface]
+        const surfaces = Object.assign({}, milkOfferSurfaces)
+        delete surfaces[surface]
+        milkOfferSurfaces = surfaces
         PreparationService.state.cancelMilkAttempt(surface)
     }
 

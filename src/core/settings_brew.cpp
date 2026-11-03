@@ -942,10 +942,6 @@ void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
     }
 }
 
-double SettingsBrew::netMilkForPitcher(int index, double scaleReading) const {
-    return SteamCalculations::netMilkForPitcher(getSteamPitcherPreset(index), scaleReading);
-}
-
 int SettingsBrew::scaledSteamTime(int index, double milkG) const {
     return SteamCalculations::scaledSteamTime(getSteamPitcherPreset(index),
                                                milkAutoCaptureEnabled(),

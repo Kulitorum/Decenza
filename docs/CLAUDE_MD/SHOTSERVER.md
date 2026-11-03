@@ -296,7 +296,7 @@ HTTP recipe list/detail reads retain optional `shotPlan` facts (`available`, `ba
 
 ### Preparation actions
 
-`POST /api/session/preparation/{espresso,steam,hotwater,flush,milk-start,milk-cancel,milk-lock,milk-unlock}`
+`POST /api/session/preparation/{espresso,steam,hotwater,flush,milk-lock,milk-unlock}`
 remains available for existing API callers and uses the identity-only request, 4 KiB cap, exact-route validation and bounded
 request-ID deduplication as scale actions. Mode selection never starts a machine
 operation. The host rejects changes that conflict with an active operation. Page

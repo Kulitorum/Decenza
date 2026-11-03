@@ -590,8 +590,12 @@ T.Page {
     }
 
     function preparationStateChanged() {
-        if (!PreparationService.state.available)
+        if (!PreparationService.state.available) {
             _pendingPreparationRowMode = ""
+            // The host released this client's milk offer; see StackView.onStatusChanged.
+            if (activePresetFunction === "steam")
+                activePresetFunction = ""
+        }
         if (StackView.status === StackView.Active) {
             syncPreparationModeToRow()
             _preparationRowSyncPending = false
@@ -721,8 +725,13 @@ T.Page {
     }
 
     StackView.onStatusChanged: {
-        if (StackView.status !== StackView.Active)
+        // The milk offer ends with the page, so the Steam row closes with it rather
+        // than coming back showing the weight unarmed.
+        if (StackView.status !== StackView.Active) {
+            if (activePresetFunction === "steam")
+                activePresetFunction = ""
             HomePresetActions.withdrawMilkSample("idleRow")
+        }
         if (StackView.status === StackView.Active && _preparationRowSyncPending) {
             syncPreparationModeToRow()
             _preparationRowSyncPending = false
@@ -991,6 +1000,7 @@ T.Page {
                 sourceComponent: SteamPitcherPicker {
                     width: parent ? parent.width : 0
                     maxWidth: steamPresetLoader.width
+                    milkSurface: "idleRow"
                 }
             }
 

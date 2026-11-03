@@ -7,6 +7,8 @@ Column {
     id: root
 
     property real maxWidth: 0
+    // The milk-offer owner for this surface, or "" where it offers none.
+    property string milkSurface: ""
     readonly property WeightCaptureState milk: PreparationService.state.milk
     // Refreshes the live net-milk pill suffix.
     property int suffixVersion: 0
@@ -39,8 +41,7 @@ Column {
         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
         pillSuffixVersion: root.suffixVersion
 
-        // Display only: steam-time scaling uses netMilkForPitcher(), whose 50–1500 g
-        // window would zero small amounts here. Only the selected pitcher is on the scale.
+        // Only the selected pitcher is on the scale.
         pillSuffixFn: function(preset, index) {
             return index === pills.selectedIndex ? SteamLabels.pitcherPillSuffix(preset) : ""
         }
@@ -49,6 +50,9 @@ Column {
         onPresetSelected: function(index) {
             if (HomePresetActions.tapSteamRowEntry(index))
                 root.operationStarted()
+            else if (root.milkSurface !== "")
+                // A capture closed the offer and was the old pitcher's: weigh again.
+                HomePresetActions.offerMilkSample(root.milkSurface)
         }
 
         // Long-press a pitcher to open its settings on the steam page.
