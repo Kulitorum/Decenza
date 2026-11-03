@@ -37,7 +37,7 @@ On tag push: the producer and all native jobs use the same bumped version code a
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)
 
-Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x64 builds, one under **UBSan** and one under **ASan**, each running the full `ctest` suite. Uploads nothing, never touches `versioncode.txt`, never interacts with a Release.
+Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x64 builds, one under **UBSan** and one under **ASan**, each running the full `ctest` suite. Uploads nothing, never touches `versioncode.txt`, never interacts with a Release. It keeps **no compiler cache**, so every night builds cold with the PCH on: nobody waits on it, and its 1.75 GB of ccache entries were space the release builds need under the 10 GB cap.
 
 This native test job explicitly sets `DECENZA_WEB_BUNDLE_MODE=OFF`. Normal local builds default to LOCAL and require the one-time Wasm SDK setup; release workflows require their matching PREBUILT artifact.
 
@@ -72,8 +72,9 @@ Do not read the cadence off the version-tag list: those land every 1-2 weeks and
 
 **Cache pruning:** `prune-caches.yml` is called after each native job has saved its cache, and is triggered when the release or sanitizer workflow completes, with a daily fallback. Keep-one deduplication runs during builds; cleanup based on live refs waits until no build workflow is active. It:
 
-1. **Deletes all but the newest timestamped ccache/sccache entry per (prefix, ref).** Stable-keyed `qt-*`/`openssl-*` caches are never touched.
-2. **Deletes caches whose ref no longer exists** — deleted branches and closed/merged PRs. This is a *different* problem from stale generations and needed its own fix: every entry on a dead branch is the newest of its group, so step 1 inspects them and correctly finds nothing to collapse. Measured 2026-07-19, hours after one branch was merged and deleted: **5.0 GB — half the 10 GB cap — held by a deleted branch and its merged PR**, while the repo sat at 9.91/10 GB LRU-evicting live entries. Conservative by design: tags are never touched, and a branch is only considered dead when `git ls-remote` says so. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside the former macOS workflow, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
+1. **Deletes all but the newest timestamped ccache/sccache entry per (prefix, ref).** Stable-keyed `qt-*`/`apt-*`/`gradle-*` caches are left to step 2.
+2. **Deletes stable-key entries no build restores** (gated). An entry whose key differs from a sibling only after its first dotted version (a runner image or kernel, e.g. `…1014-aws` beside `…1017-azure`) is dropped once that sibling has been used a day later than it, siblings being on the same ref or, for a tag entry, on `main`; and a tag entry whose exact key `main` also holds is dropped, since the tag falls back to `main`'s copy. Measured 2026-11-03: 0.95 GB of the 9.13 GB store.
+3. **Deletes caches whose ref no longer exists** — deleted branches and closed/merged PRs. This is a *different* problem from stale generations and needed its own fix: every entry on a dead branch is the newest of its group, so step 1 inspects them and correctly finds nothing to collapse. Measured 2026-07-19, hours after one branch was merged and deleted: **5.0 GB — half the 10 GB cap — held by a deleted branch and its merged PR**, while the repo sat at 9.91/10 GB LRU-evicting live entries. Conservative by design: tags are never touched, and a branch is only considered dead when `git ls-remote` says so. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside the former macOS workflow, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
 
 ### Quick commands
 ```bash
@@ -200,7 +201,7 @@ This triggers all 6 platform builds simultaneously. Each workflow will:
 
 The **first** build of a new tag has an empty tag scope and so builds cold. A `warm-main-cache.yml` workflow used to cover that gap by dispatching all 6 builds on `main` when a release was promoted out of pre-release (issue #1213), but that event is rarely reached here — four firings in three months — so `main`'s copies decayed while still costing ~950 MB. It was removed in July 2026 and `prune-caches.yml` now collects main-scoped platform compiler caches. One cold build per platform per release, out of roughly nine.
 
-Untouched by that: `main`-scoped **Qt SDK, gradle and openssl** caches, which use stable keys, are restored by every run, and are excluded from every prune. Also untouched: the nightly sanitizer job's own `ccache-sanitizers-*` entries, which legitimately live on `main` because that job runs there.
+Untouched by that: `main`-scoped **Qt SDK, gradle and openssl** caches, which use stable keys and are restored by every run; they are pruned only when superseded (step 2 above).
 
 #### Updating an existing pre-release
 To rebuild an existing pre-release at the current HEAD:
