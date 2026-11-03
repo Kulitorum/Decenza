@@ -154,6 +154,14 @@ The planned and applied steam time SHALL be scaled only from captured milk. A lo
 - **WHEN** milk is captured on the post-shot review page and the steam page then opens before steaming starts
 - **THEN** the steam page shows and sends the time scaled from that milk, not the pitcher's base duration
 
+### Requirement: A capture does not survive a restart
+
+Neither the captured milk nor the steam time scaled from it SHALL survive an app restart. After a restart the steam time SHALL be the selected pitcher's own.
+
+#### Scenario: Restart returns to the pitcher's time
+- **WHEN** milk was captured, scaling "Small" (65 s) to 25 s, and the app restarts before steaming
+- **THEN** no milk is captured and the steam time is 65 s
+
 ## REMOVED Requirements
 
 ### Requirement: Scaled time applies even when the pitcher never leaves the scale

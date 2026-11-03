@@ -104,6 +104,9 @@ PreparationController::PreparationController(Settings* settings, MachineState* m
     }
 
     if (m_brew) {
+        // A capture scales only the session that took it; the saved timeout may be one.
+        if (!m_wasSteaming)
+            restorePitcherSteamDuration();
         m_fallbackPitcherIndex = m_brew->selectedSteamPitcher();
         m_fallbackPitcherEmptyWeightG = selectedPitcherWeight();
         connect(m_brew, &SettingsBrew::doseCupTareWeightChanged,
@@ -562,14 +565,21 @@ void PreparationController::finishSteamSession()
     m_snapshot.milkTimeLocked = true;
 
     if (m_brew) {
-        const int selectedPitcher = m_brew->selectedSteamPitcher();
-        const QVariantMap pitcher = m_brew->getSteamPitcherPreset(selectedPitcher);
-        if (!pitcher.isEmpty() && !pitcher.value(QStringLiteral("disabled")).toBool()) {
-            m_brew->setSteamTimeout(m_brew->effectiveSteamDurationSec(selectedPitcher, 0.0));
+        const QVariantMap pitcher = restorePitcherSteamDuration();
+        if (!pitcher.isEmpty())
             m_brew->setSteamFlow(pitcher.value(QStringLiteral("flow"), 150).toInt());
-        }
     }
     emit steamSessionEndedRequested();
+}
+
+QVariantMap PreparationController::restorePitcherSteamDuration()
+{
+    const int selected = m_brew->selectedSteamPitcher();
+    const QVariantMap pitcher = m_brew->getSteamPitcherPreset(selected);
+    if (pitcher.isEmpty() || pitcher.value(QStringLiteral("disabled")).toBool())
+        return {};
+    m_brew->setSteamTimeout(m_brew->effectiveSteamDurationSec(selected, 0.0));
+    return pitcher;
 }
 
 void PreparationController::scheduleWake(std::optional<qint64> beanWake,

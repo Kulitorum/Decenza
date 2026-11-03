@@ -10,9 +10,10 @@
 - [x] 2.7 Review button counts only its own offer as armed
 - [x] 1.5 Withdraw is idempotent; remove the legacy HTTP `milk-start`/`milk-cancel` routes and dead `netMilkForPitcher`
 - [x] 1.6 Close the offer at steam start; log the steam-start inputs on every path; accept an offer only from a connected client (Codex review)
+- [x] 1.7 A restart restores the selected pitcher's steam time; a capture does not outlive its session
 - [x] 2.4 One `SteamPitcherPicker` for the Home row and the bar popup; picking a pitcher keeps the popup open, starting steam or a purge closes it
 - [x] 2.5 Live net-milk weight on the selected pitcher's pill only
 - [x] 2.3 Review button: tap offers, further taps cycle the pitcher (the label shows the new name for 2 s), leaving the page withdraws
 - [x] 3.1 Controller tests: no capture without an offer, after a steam, or after the one sample; offer gated on pitcher; pitcher change keeps the offer
-- [x] 3.2 Full suite green through Qt Creator (207/207 after 1.6)
+- [x] 3.2 Full suite green through Qt Creator (207/207 after 1.7)
 - [x] 3.3 Wiki manual: no change — the manual already describes this flow; the fix removes capture it never documented

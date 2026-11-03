@@ -62,6 +62,9 @@ private:
     void onPitcherChanged();
     void onPitcherPresetsChanged();
     void finishSteamSession();
+    // Writes the selected pitcher's own duration; returns that pitcher, or {} for
+    // none or heater-off.
+    QVariantMap restorePitcherSteamDuration();
     void beginSteamSession();
     int scaledSteamDurationAtStart(QString* source = nullptr) const;
     int scaledSteamDurationAtStart(const QVariantMap& pitcher, bool milkAutoCaptureEnabled,

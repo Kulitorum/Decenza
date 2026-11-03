@@ -437,6 +437,20 @@ private slots:
         QTRY_VERIFY(phaseChanged.count() > 0);
     }
 
+    // The capture is held in memory only, so its scaled time must not outlive it.
+    void restartRestoresThePitchersSteamTime()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.settings.brew()->setSteamSecondsPerGram(0.27);
+        f.captureMilk();
+        QCOMPARE(f.settings.brew()->steamTimeout(), 27); // 100 g x 0.27 s/g; the preset is 20 s
+
+        PreparationController restarted(&f.settings, &f.machine);
+        QCOMPARE(restarted.sessionMeasuredMilkG(), 0.0);
+        QCOMPARE(f.settings.brew()->steamTimeout(), 20);
+    }
+
     // The new scale's reading before its first sample can be the old scale's.
     void scaleTargetChangeWaitsForTheNewScalesFirstSample()
     {
