@@ -1,8 +1,11 @@
 #include <QtTest>
+#include <QJsonDocument>
 
 #include <memory>
 
 #include "controllers/recipewiringcontroller.h"
+#include "controllers/recipeapplyqueue.h"
+#include "controllers/recipewaterstate.h"
 
 // The active-recipe write-through wiring (Flow-3, the echo-guard, Bug B2 — a
 // re-read racing a write-through — and the 2026-07-28 three-shots-wrong
@@ -31,6 +34,7 @@ struct FakeDial : DialPort {
     // Optional shared order log (see FakeEffects): records the grind push so an
     // ordering test can pin it relative to the brew-override upload.
     QStringList* seq = nullptr;
+    std::function<void()> onSetActiveRecipe;
 
     qint64 activeRecipeId() const override { return recipeId; }
     qint64 activeBagId() const override { return bagId; }
@@ -44,6 +48,7 @@ struct FakeDial : DialPort {
         ++setActiveRecipeCalls;
         lastSetActiveRecipeId = id;
         lastSetActiveRecipeDose = doseG;
+        if (onSetActiveRecipe) onSetActiveRecipe();
     }
 };
 
@@ -70,6 +75,9 @@ struct FakeLiveState : LiveStatePort {
 };
 
 struct FakeEffects : SideEffectPort {
+    std::function<quint64()> onBeginRefresh;
+    std::function<void(quint64)> onFinishRefresh;
+    std::function<void()> onApplyOverrides;
     int activeRecipeChangedEmits = 0;
     int plainDeactivates = 0;
     int profileDivergenceDeactivates = 0;
@@ -83,6 +91,8 @@ struct FakeEffects : SideEffectPort {
     // test can prove it fires BEFORE the grind push (Flow-3 sequence).
     QStringList* seq = nullptr;
 
+    quint64 beginRecipeRefresh() override { return onBeginRefresh ? onBeginRefresh() : 0; }
+    void finishRecipeRefresh(quint64 generation) override { if (onFinishRefresh) onFinishRefresh(generation); }
     void emitActiveRecipeChanged() override { ++activeRecipeChangedEmits; }
     void deactivate() override { ++plainDeactivates; }
     void deactivateForProfileDivergence(qint64, const QString&, const QString&) override {
@@ -94,6 +104,7 @@ struct FakeEffects : SideEffectPort {
     }
     void applySteamSettings() override { ++steamApplies; }
     void applyRecipeBrewOverridesAndUpload(const QVariantMap&) override {
+        if (onApplyOverrides) onApplyOverrides();
         if (overrideArmed) {
             ++brewOverrideUploads;
             if (seq) seq->append(QStringLiteral("override"));
@@ -150,6 +161,45 @@ class tst_RecipeWiringController : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void recipeRefreshDoesNotRetargetRunningDrink() {
+        auto* c = make();
+        dial.recipeId = 7;
+        QObject owner;
+        RecipeApplyQueue queue;
+        RecipeWaterState water;
+        const QJsonObject original{{"hasWater", true}, {"vesselName", "Cup"},
+            {"amountMode", "ratio"}, {"waterToEspressoRatio", 2.5}};
+        double configuredTarget = 42;
+        water.setup(7, original, configuredTarget);
+        water.bindEspresso(12);
+        auto edited = original;
+        edited.insert("waterToEspressoRatio", 3.0);
+        const auto publishTarget = [&](double target) {
+            configuredTarget = target;
+            if (!queue.pending()) water.setup(7, edited, configuredTarget, true);
+        };
+        effects.onBeginRefresh = [&] { return queue.begin(); };
+        effects.onFinishRefresh = [&](quint64 generation) {
+            queue.finishLater(&owner, generation, [&](bool current) {
+                if (current) water.setup(7, edited, configuredTarget);
+            });
+        };
+        dial.onSetActiveRecipe = [&] { QVERIFY(queue.pending()); };
+        effects.onApplyOverrides = [&] {
+            publishTarget(36); // Clear the temporary override to the profile.
+            queue.writeLater(&owner, [&] { publishTarget(40); }); // Restore the recipe anchor.
+        };
+        auto row = coffeeRow(7, "3.2");
+        row.insert("hotWaterJson", QString::fromUtf8(QJsonDocument(edited).toJson(QJsonDocument::Compact)));
+        c->onRecipeChangedWithSnapshot(7, row);
+        QCOMPARE(water.effectivePlan().result.amount, 105);
+        QTRY_VERIFY(!queue.pending());
+        QCOMPARE(water.effectivePlan().result.amount, 105);
+        QCOMPARE(water.setupPlan().result.amount, 120);
+        publishTarget(44); // A deliberate live edit still affects this drink.
+        QCOMPARE(water.effectivePlan().result.amount, 110);
+    }
 
     // --- Active-edit → dial refresh (Flow-3) --------------------------------
     void activeEditRefreshesDial() {

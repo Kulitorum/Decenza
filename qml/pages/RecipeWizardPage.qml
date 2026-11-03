@@ -724,7 +724,7 @@ T.Page {
             fHasWater = !!w.hasWater
             fVesselName = w.vesselName || ""
             fVesselVolume = w.volume || 0
-            fWaterAmountMode = w.amountMode || "fixed"
+            fWaterAmountMode = w.amountMode ?? ""
             fWaterRatio = Number(w.waterToEspressoRatio ?? 2.5)
             fVesselMode = w.mode || "weight"
             fVesselFlowRate = w.flowRate || 40
@@ -1303,8 +1303,9 @@ T.Page {
     // recipe is saved, and an index would then silently point at someone else's
     // vessel. Called by the hot-water window's tiles.
     function recipeVesselSnapshot() {
-        const vessel = {name: fVesselName, vesselName: fVesselName, amountMode: fWaterAmountMode, mode: fVesselMode,
+        const vessel = {name: fVesselName, vesselName: fVesselName, mode: fVesselMode,
             flowRate: fVesselFlowRate, temperatureC: fVesselTemperatureC}
+        if (fWaterAmountMode !== "") vessel.amountMode = fWaterAmountMode
         if (fWaterAmountMode === "ratio") vessel.waterToEspressoRatio = fWaterRatio
         else vessel.volume = fVesselVolume
         const presets = RecipeContext.preferences.waterVesselPresets || []
@@ -1312,6 +1313,7 @@ T.Page {
         for (let i = 0; i < presets.length; ++i)
             if (String(presets[i].name).toLowerCase() === fVesselName.toLowerCase()) preset = presets[i]
         const result = RecipeContext.waterVesselSnapshot(vessel, preset)
+        if (result.amountMode === undefined && result.volume > 0) result.amountMode = "fixed"
         result.temperature = result.temperatureC
         return result
     }
@@ -1323,7 +1325,9 @@ T.Page {
             for (let i = 0; i < presets.length; ++i)
                 if (String(presets[i].name).toLowerCase() === fVesselName.toLowerCase()) index = i
         }
-        recipeVesselEditor.openFor(addNew ? {} : recipeVesselSnapshot(), index)
+        const vessel = addNew ? {} : recipeVesselSnapshot()
+        if (!addNew && vessel.amountMode === undefined) vessel.amountMode = "fixed"
+        recipeVesselEditor.openFor(vessel, index)
     }
 
     function selectVessel(preset) {

@@ -735,7 +735,7 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
             return;
         }
         if (operation == QLatin1String("apply-hot-water-settings"))
-            m_controller->applySelectedWaterVessel();
+            m_controller->applyHotWaterSettings();
         else
             m_controller->applyFlushSettings();
         finish(requestId, operation, true);

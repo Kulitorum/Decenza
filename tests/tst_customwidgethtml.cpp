@@ -1469,7 +1469,7 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
 {
     const auto source = readSource(SrcPath::kRecipeWizard);
     QString methods;
-    for (const auto* name : {"recipeVesselSnapshot", "buildHotWaterJson", "vesselTileModel", "selectDrinkType"}) {
+    for (const auto* name : {"applyHotWaterJson", "recipeVesselSnapshot", "buildHotWaterJson", "vesselTileModel", "selectDrinkType"}) {
         const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
         QVERIFY(!method.isEmpty());
         methods += method + QLatin1Char('\n');
@@ -1488,11 +1488,12 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         var RecipeContext = {preferences: {waterVesselPresets: [{name: "Cup", volume: 200,
                 mode: "volume", temperature: 85, flowRate: 31}]},
             waterVesselSnapshot: function(v, preset) {
-                return v.amountMode !== "ratio" && !v.volume ? Object.assign({}, v,
+                return v.amountMode === undefined && !v.volume ? Object.assign({}, v,
                     {volume: preset.volume, mode: preset.mode, temperatureC: preset.temperature, flowRate: preset.flowRate}) : v;
             },
             waterAmountPreview: function() {return {valid: true, amountG: 100};}};
         %1
+        applyHotWaterJson('{"hasWater":true,"vesselName":"Cup"}');
         var water = JSON.parse(buildHotWaterJson());
         var tile = vesselTileModel()[0];
         var legacy = water.volume === 200 && water.temperatureC === 85 && water.mode === "volume"
@@ -1990,6 +1991,25 @@ void TestCustomWidgetHtml::hotWaterAndFlushInputsStayBoundToSharedDrafts()
     const QString flush = readSource(SrcPath::kFlushPage);
     QVERIFY2(!hotWater.isEmpty(), "could not read HotWaterPage.qml");
     QVERIFY2(!flush.isEmpty(), "could not read FlushPage.qml");
+
+    // Execute the shipping activation handler: opening/reopening the screen
+    // must not turn a temporary 150 g override back into its 200 g preset.
+    const auto activate = liftHandler(hotWater, "id: page", "StackView.onActivated:", "activate");
+    QVERIFY(!activate.isEmpty());
+    QJSEngine engine;
+    const auto activationResult = engine.evaluate(QStringLiteral(R"JS(
+        var amount = 150;
+        var openedFromSettingsSearch = false;
+        var page = {isDispensing: false, isVolumeMode: false,
+                    applySelection: function() { amount = 200; }};
+        var SteamService = {state: {controlContextId: "test"}, request: function() {}};
+        var volumeInput = {forceActiveFocus: function() {}};
+        %1
+        activate(); activate();
+        amount;
+    )JS").arg(activate));
+    QVERIFY2(!activationResult.isError(), qPrintable(activationResult.toString()));
+    QCOMPARE(activationResult.toInt(), 150);
 
     // ValueInput.value is a live binding. Assigning it from a handler severs
     // that binding, so a later remote/native selection never reaches the view.

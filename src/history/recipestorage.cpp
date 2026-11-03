@@ -1272,11 +1272,13 @@ QString recipeWaterError(QSqlDatabase& db, const Recipe& recipe, WaterAmount::Va
         QJsonDocument::fromJson(recipe.profileJson.toUtf8()).object()
             .value(QStringLiteral("target_weight")).toVariant().toDouble());
     const auto yield = BrewBaseline::resolveYield(recipe.toVariantMap(), bag.yieldMode, bag.yieldValue, profileTarget);
-    const double target = YieldSpec::resolveGrams(yield.mode, yield.value,
-        recipe.doseG > 0 ? recipe.doseG : bag.doseWeightG, profileTarget);
-    // Title-only legacy recipes resolve their installed profile on activation.
+    const double dose = recipe.doseG > 0 ? recipe.doseG : bag.doseWeightG;
+    const double target = YieldSpec::resolveGrams(yield.mode, yield.value, dose, profileTarget);
+    const bool needsProfileFallback = !yield.isStoreAnchor()
+        || (yield.mode == YieldSpec::modeRatio() && dose <= 0);
+    // A ratio anchor without a dose also inherits the unavailable profile target.
     if (target <= 0 && !context.catalogAvailable && !context.installedTargetG
-        && recipe.profileJson.isEmpty() && !yield.isStoreAnchor()) return {};
+        && recipe.profileJson.isEmpty() && needsProfileFallback) return {};
     return WaterAmount::resolve(water, target).error;
 }
 }

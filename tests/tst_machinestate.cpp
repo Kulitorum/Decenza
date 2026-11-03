@@ -114,6 +114,28 @@ private:
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void standaloneSettingsOverridesSurviveWaterCompletion() {
+        SequenceFixture f("after");
+        auto* brew = f.settings.brew();
+        brew->addWaterVesselPreset("Standalone override cup", 200, "weight", 40, 85);
+        const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        QVERIFY(f.water->selectVessel(index));
+        brew->setWaterVolume(150);
+        brew->setWaterTemperature(91);
+        f.settings.hardware()->setHotWaterFlowRate(55);
+        f.notify(DE1::State::HotWater, DE1::SubState::Pouring);
+        QCOMPARE(f.water->state().effectivePlan().result.amount, 150);
+        QCOMPARE(f.water->state().effectivePlan().temperatureC, 91.0);
+        QCOMPARE(f.water->state().effectivePlan().flowRate, 55);
+        brew->setWaterVolume(160); // Another explicit edit belongs to the next setup.
+        QCOMPARE(f.water->state().effectivePlan().result.amount, 150);
+        f.notify(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(brew->waterVolume(), 160);
+        QCOMPARE(brew->waterTemperature(), 91.0);
+        QCOMPARE(f.settings.hardware()->hotWaterFlowRate(), 55);
+        QCOMPARE(brew->getWaterVesselPreset(index).value("volume").toInt(), 200);
+    }
+
     void selectedPresetEditsApplyWithAnEspressoOnlyRecipe() {
         SequenceFixture f("after");
         auto* brew = f.settings.brew();

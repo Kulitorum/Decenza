@@ -218,13 +218,13 @@ T.Page {
     // Use StackView.onActivated (not Component.onCompleted) so side effects
     // run when the page is actually shown, not during construction. This
     // also re-fires on pop-back if the page is ever pushed below another.
-    // Skip the preset apply and tare while dispensing so a
-    // re-activation mid-session doesn't clobber in-progress state.
+    // Vessel selection/settings application belongs to explicit actions, not
+    // navigation: reopening must preserve temporary settings (including MCP
+    // overrides). Skip the tare while dispensing as well.
     StackView.onActivated: {
         if (openedFromSettingsSearch)
             return
         if (!page.isDispensing) {
-            page.applySelection()
             // Tare immediately so display shows 0g instead of current scale weight.
             if (!page.isVolumeMode) {
                 SteamService.request("tare", {}, SteamService.state.controlContextId)
@@ -1085,10 +1085,7 @@ T.Page {
         onRemoved: page.applySelection()
         onSaved: function(vessel, index, preset, added) {
             if (added) page.selectVessel(index, preset)
-            else if (index === presetDraft.selectedIndex) {
-                page.pendingPageActionId = MachineControlService.applyHotWaterSettings(SteamService.state.controlContextId)
-                page.pendingPageAction = "apply"
-            }
+            else if (index === presetDraft.selectedIndex) page.selectVessel(index, preset)
         }
     }
 

@@ -2974,6 +2974,16 @@ bool MainController::waterVesselDiverged(const QString& hotWaterJson) const {
 }
 
 // SideEffectPort
+quint64 MainController::beginRecipeRefresh() {
+    return m_recipeApplyQueue.begin();
+}
+
+void MainController::finishRecipeRefresh(quint64 generation) {
+    m_recipeApplyQueue.finishLater(this, generation, [this](bool current) {
+        if (current) refreshRecipeWater();
+    });
+}
+
 void MainController::emitActiveRecipeChanged() { emit activeRecipeChanged(); }
 
 void MainController::deactivate() { deactivateRecipe(); }

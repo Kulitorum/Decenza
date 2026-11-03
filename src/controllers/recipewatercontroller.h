@@ -17,6 +17,12 @@ public:
                           std::function<void()> differentVesselSelected = {})
         : QObject(parent), m_settings(settings), m_machine(machine), m_sequence(sequence), m_send(std::move(send)),
           m_differentVesselSelected(std::move(differentVesselSelected)) {
+        auto* brew = settings->brew();
+        const auto edited = [this] { standaloneSettingsEdited(); };
+        connect(brew, &SettingsBrew::waterVolumeChanged, this, edited);
+        connect(brew, &SettingsBrew::waterVolumeModeChanged, this, edited);
+        connect(brew, &SettingsBrew::waterTemperatureChanged, this, edited);
+        connect(settings->hardware(), &SettingsHardware::hotWaterFlowRateChanged, this, edited);
         connect(machine, &MachineState::espressoCycleStarted, this, [this] { m_state.beginDrink(); });
         connect(machine, &MachineState::espressoCycleEnded, this, [this] {
             if (!m_sequence->isActive()) finish();
@@ -99,6 +105,12 @@ public:
     }
 
 private:
+    void standaloneSettingsEdited() {
+        if (m_applying || (m_state.setupRecipeId() > 0 && m_state.setupPlan().enabled())) return;
+        const auto plan = livePlan();
+        if (plan.spec.snapshot.value(QStringLiteral("vesselName")).toString().isEmpty()) return;
+        m_state.setup(0, plan.spec.snapshot, 0);
+    }
     QJsonObject normalize(QJsonObject water) const {
         water = WaterAmount::writableSnapshot(water);
         const auto name = water.value(QStringLiteral("vesselName")).toString();

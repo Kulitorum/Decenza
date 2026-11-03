@@ -50,6 +50,8 @@ struct LiveStatePort {
 struct SideEffectPort {
     virtual ~SideEffectPort() = default;
 
+    virtual quint64 beginRecipeRefresh() = 0;
+    virtual void finishRecipeRefresh(quint64 generation) = 0;
     virtual void emitActiveRecipeChanged() = 0;
 
     // Unlogged: the row vanished or was archived.

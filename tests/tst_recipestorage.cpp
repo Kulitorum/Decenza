@@ -1246,6 +1246,60 @@ private slots:
         });
     }
 
+    void ratioYieldWithoutDoseSurvivesStaticImport() {
+        withRawDb(freshDbPath(), "water_ratio_yield_import_source", [this](QSqlDatabase& source) {
+            QVERIFY(RecipeStorage::ensureTableStatic(source));
+            Recipe recipe;
+            recipe.name = "Installed profile fallback";
+            recipe.profileTitle = "Installed profile";
+            recipe.yieldMode = "ratio";
+            recipe.yieldValue = 2;
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})";
+            const auto id = RecipeStorage::insertRecipeStatic(source, recipe, {true, 40.0});
+            QVERIFY(id > 0);
+            withRawDb(freshDbPath(), "water_ratio_yield_import_destination", [&](QSqlDatabase& destination) {
+                QVERIFY(RecipeStorage::ensureTableStatic(destination));
+                QVERIFY(CoffeeBagStorage::ensureTableStatic(destination));
+                QHash<qint64, qint64> ids;
+                QVERIFY(RecipeStorage::importRecipesStatic(source, destination, false, ids, {}, {}));
+                const auto imported = RecipeStorage::loadRecipeStatic(destination, ids.value(id));
+                QCOMPARE(imported.yieldMode, recipe.yieldMode);
+                QCOMPARE(imported.yieldValue, recipe.yieldValue);
+                QCOMPARE(imported.hotWaterJson, recipe.hotWaterJson);
+                QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(destination, imported.id,
+                    {{"name", "Invalid known target"}}, {true, 300.0}));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destination, imported.id).name, recipe.name);
+            });
+        });
+    }
+
+    void explicitInvalidFixedWaterNeverFallsBackToPreset() {
+        withRawDb(freshDbPath(), "invalid_fixed_water", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe;
+            recipe.name = "Fixed water";
+            recipe.profileTitle = "Espresso";
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"fixed","volume":150})";
+            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+            const QJsonObject preset{{"volume", 200}, {"mode", "weight"}, {"temperature", 85}};
+            for (const auto& amount : QJsonArray{0, -1, 1, 501, 1e100, 150.5, "150", QJsonValue(QJsonValue::Null)}) {
+                auto water = QJsonDocument::fromJson(recipe.hotWaterJson.toUtf8()).object();
+                water.insert("volume", amount);
+                QCOMPARE(WaterAmount::withPresetFallback(water, preset), water);
+                const auto json = QString::fromUtf8(QJsonDocument(water).toJson(QJsonDocument::Compact));
+                QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id,
+                    {{"name", "Must not save"}, {"hotWaterJson", json}}));
+                const auto unchanged = RecipeStorage::loadRecipeStatic(db, id);
+                QCOMPARE(unchanged.name, recipe.name);
+                QCOMPARE(unchanged.hotWaterJson, recipe.hotWaterJson);
+                auto invalid = recipe;
+                invalid.hotWaterJson = json;
+                QVERIFY(RecipeStorage::insertRecipeStatic(db, invalid) < 0);
+            }
+        });
+    }
+
     void waterValidationContextAndDerivedTargets() {
         withRawDb(freshDbPath(), "water_context", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));

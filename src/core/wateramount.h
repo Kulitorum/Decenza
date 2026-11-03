@@ -28,7 +28,7 @@ inline bool isRatio(const QJsonObject& water)
 
 inline QJsonObject withPresetFallback(const QJsonObject& water, const QJsonObject& preset)
 {
-    if (isRatio(water) || water.value(QStringLiteral("volume")).toInt() > 0)
+    if (water.contains(QStringLiteral("amountMode")) || water.value(QStringLiteral("volume")).toInt() > 0)
         return water;
     auto result = water;
     for (const auto* key : {"volume", "mode", "flowRate"}) {
@@ -51,9 +51,17 @@ inline QString definitionError(const QJsonObject& water, bool hasProfile, bool r
         return QStringLiteral("Unknown water amount mode.");
     if (requireVessel && water.value(QStringLiteral("vesselName")).toString().trimmed().isEmpty())
         return QStringLiteral("Choose a vessel for added water.");
-    if (!isRatio(water))
-        return water.contains(QStringLiteral("waterToEspressoRatio"))
-            ? QStringLiteral("Choose either a fixed water amount or a water ratio.") : QString();
+    if (!isRatio(water)) {
+        if (water.contains(QStringLiteral("waterToEspressoRatio")))
+            return QStringLiteral("Choose either a fixed water amount or a water ratio.");
+        if (amountMode == QLatin1String("fixed")) {
+            const auto amount = water.value(QStringLiteral("volume"));
+            if (!amount.isDouble() || !std::isfinite(amount.toDouble())
+                || amount.toDouble() <= 0 || amount.toDouble() != std::floor(amount.toDouble()))
+                return QStringLiteral("Fixed water amount must be a positive whole number.");
+        }
+        return {};
+    }
     if (!hasProfile)
         return QStringLiteral("Ratio water requires an espresso target yield.");
     const auto ratio = water.value(QStringLiteral("waterToEspressoRatio"));
@@ -95,7 +103,8 @@ inline Specification parse(const QJsonObject& water, bool hasProfile = true, boo
     spec.error = definitionError(water, hasProfile, requireVessel);
     if (!spec.error.isEmpty() || !water.value(QStringLiteral("hasWater")).toBool()) return spec;
     if (isRatio(water)) spec.kind = Kind::Ratio;
-    else if (water.value(QStringLiteral("volume")).toInt() <= 0) spec.kind = Kind::LegacyPreset;
+    else if (!water.contains(QStringLiteral("amountMode"))
+             && water.value(QStringLiteral("volume")).toInt() <= 0) spec.kind = Kind::LegacyPreset;
     else spec.kind = water.value(QStringLiteral("mode")).toString() == QLatin1String("volume")
         ? Kind::FixedVolume : Kind::FixedWeight;
     return spec;

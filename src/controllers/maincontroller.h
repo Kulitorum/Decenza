@@ -1068,6 +1068,8 @@ private:
     bool waterVesselDiverged(const QString& hotWaterJson) const override;
     bool yieldRestorePending() const override;
     // SideEffectPort:
+    quint64 beginRecipeRefresh() override;
+    void finishRecipeRefresh(quint64 generation) override;
     void emitActiveRecipeChanged() override;
     void deactivate() override;
     void deactivateForProfileDivergence(qint64 recipeId, const QString& recipeProfileTitle,
