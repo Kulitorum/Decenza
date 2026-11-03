@@ -38,37 +38,15 @@ name: Nightly sanitizers
 
 on:
   schedule:
-    # 04:23 UTC — offset from prune-caches.yml's 03:17 cron so the prune has
-    # settled before this writes new cache generations.
     - cron: '23 4 * * *'
   workflow_dispatch:
-    inputs:
-      use_cache:
-        description: 'Use the compiler cache (auto-yields when cache space is tight)'
-        required: false
-        default: true
-        type: boolean
 
-# The sanitizer cache is the FIRST thing that should go when the cache store
-# fills. Nobody waits on this job, so its cache is pure convenience, while the
-# release and Qt caches it would evict are on paths people do wait on.
-#
-# Below this much free space, the job yields: it builds cold AND deletes its own
-# cache entries, handing the space back rather than merely declining to grow.
-# Disabling without reclaiming would leave ~1.2 GB parked while pretending to
-# have helped.
-env:
-  CACHE_HEADROOM_MIN_GB: '2'
-
-# actions: write is for the yield path below, which deletes this job's own
-# ccache entries to hand the space back. That listing works on a read token is
-# measured — run 30211328841 logged `Contents: read, Metadata: read`, no Actions
-# scope, and the yield's `gh cache list` still returned. That deleting needs
-# write is inferred from the REST docs, not observed: the key-prefix bug meant a
-# delete was never once attempted before this.
+# No compiler cache. Nobody waits on this job, and its two ccache entries
+# (1.75 GB on 2026-11-03) held space the release builds need: a release saves a
+# fresh compiler cache per job before pruning the old one, and that transient
+# has to fit under the 10 GB cap. Every night builds cold, with the PCH on.
 permissions:
   contents: read
-  actions: write
 
 # Per ref, so a dispatch on one branch cannot cancel another branch's run.
 concurrency:
@@ -82,10 +60,9 @@ jobs:
     timeout-minutes: 120
 
     strategy:
-      # Independent builds: ASan and UBSan objects never hash-match, so they
-      # cannot share a ccache. fail-fast off because a finding from one
-      # sanitizer says nothing about the other, and cancelling the survivor
-      # would throw away the half of the night's signal that still works.
+      # Independent builds, one per sanitizer. fail-fast off because a finding
+      # from one sanitizer says nothing about the other, and cancelling the
+      # survivor would throw away the half of the night's signal that still works.
       fail-fast: false
       matrix:
         include:
@@ -95,12 +72,6 @@ jobs:
             cmake_flag: -DENABLE_ASAN=ON
 
     name: ${{ matrix.sanitizer }}
-
-    # One definition for the cache key. The reclaim filter below needs the same
-    # string with ccache-action's variant prefix on the front; two literals 70
-    # lines apart is how they drifted the first time.
-    env:
-      CACHE_KEY: sanitizers-${{ matrix.sanitizer }}-linux-x86_64
 
     steps:
       - name: Checkout code
@@ -127,237 +98,17 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-linux-v4'
 
-      # ccache, one entry per sanitizer. ASan and UBSan objects never
-      # hash-match, so they cannot share one; hence the matrix value in the key.
-      #
-      # This job originally ran WITHOUT a cache, reasoning that nobody waits on
-      # a nightly and the repo sat near GitHub's 10 GB cap, where two sanitizer
-      # caches would evict the entries keeping release builds warm. The premise
-      # was right and the conclusion was wrong: the cap pressure was not from
-      # live caches at all. Half the store — 5.0 GB — belonged to a deleted
-      # branch and a merged PR. See the dead-ref step in prune-caches.yml,
-      # which now reclaims that automatically.
-      #
-      # With the space back, the trade no longer holds: a cold build costs ~24
-      # minutes to run a 36-second suite (measured 2026-07-19, build 23m50s of
-      # a 25m45s job).
-      - name: Yield the compiler cache when space is tight
-        id: cachefit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # NOT `event_name == 'workflow_dispatch' && inputs.use_cache || true`.
-          # GitHub's `A && B || C` yields C whenever B is falsy, so unchecking
-          # the box gave `true && false` → false → `false || true` → true: the
-          # override was discarded on every run and the early-exit below was
-          # dead code. Written as an implication instead, which has no falsy-B
-          # hole.
-          #
-          # `github.event.inputs.use_cache` rather than the bare `inputs.use_cache`
-          # used before — belt-and-braces, not a fix for an observed bug. Run
-          # 30502511739 (2026-07-30) was checked as the suspected case of a
-          # workflow_dispatch losing the declared `default: true` above when
-          # dispatched with no `-f use_cache=...`: its own step-env dump showed
-          # `MANUAL: true`, so that was never the mechanism — GitHub does apply
-          # the declared default to an omitted input, dispatch or UI alike. That
-          # run went cold from the SPACE-based yield a few lines down (free space
-          # was under CACHE_HEADROOM_MIN_GB at the time), working exactly as
-          # intended. Comparing against the literal string 'false' here is still
-          # the more explicit form — immune to `inputs` ever being empty/absent
-          # for some future trigger type — but it is not what made that run cold.
-          MANUAL: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.use_cache != 'false' }}
-          # Must carry the prefix ccache-action puts in front of whatever key it
-          # is handed — its own VARIANT name, so `ccache-` here and `sccache-`
-          # on the Windows job (visible in the store as
-          # `sccache-sccache-windows-x64-…`). Derived from CACHE_KEY rather than
-          # written out, so the reclaim filter and the cache key cannot drift
-          # apart — they did, and that is the bug this fixed: the filter read
-          # `sanitizers-…` while the stored entries were
-          # `ccache-sanitizers-<san>-linux-x86_64-<timestamp>`, matched nothing,
-          # and yielded silently. Measured 2026-07-28: both legs' entries from
-          # 2026-07-26 still resident and untouched while every run since
-          # rebuilt cold, their 540 MB helping hold free space under the
-          # threshold that triggers the yield in the first place.
-          MINE: ccache-${{ env.CACHE_KEY }}
-        run: |
-          set -uo pipefail
-          if [ "$MANUAL" != "true" ]; then
-            echo "use_cache=false" >> "$GITHUB_OUTPUT"
-            echo "Compiler cache disabled by workflow input." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # Sum the cache LIST, not the usage endpoint. The usage endpoint lags:
-          # observed reporting 8.57 GB / 19 entries immediately after a deletion
-          # the list already showed as complete at 5.1 GB / 9 entries. Deciding
-          # on a stale total would keep caching exactly when space ran out.
-          #
-          # --limit 500 is the ceiling on what gh will return, and it fails
-          # silently in the direction that matters: the listing is ordered by
-          # last-accessed descending, so a truncated tail is exactly the stale
-          # entries this arithmetic is meant to notice. Both this sum and the
-          # reclaim below check for it.
-          COUNT=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
-                    --json id --jq 'length' 2>/dev/null || echo "0")
-          if [ "$COUNT" -ge 500 ]; then
-            echo "::warning::Cache listing hit the 500-entry limit; the free-space total and the reclaim below may both be partial."
-          fi
-          USED=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
-                   --json sizeInBytes --jq '[.[].sizeInBytes] | add // 0' 2>/dev/null || echo "")
-          if [ -z "$USED" ]; then
-            # Never fail the sanitizer run over a cache decision.
-            echo "use_cache=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::Could not read cache usage; proceeding with the cache."
-            exit 0
-          fi
-
-          CAP=$((10 * 1024 * 1024 * 1024))
-          FREE=$(( CAP - USED ))
-          MIN=$(( CACHE_HEADROOM_MIN_GB * 1024 * 1024 * 1024 ))
-          FREE_GB=$(awk "BEGIN{printf \"%.2f\", $FREE/1073741824}")
-
-          if [ "$FREE" -ge "$MIN" ]; then
-            echo "use_cache=true" >> "$GITHUB_OUTPUT"
-            echo "Compiler cache in use (${FREE_GB} GB free, need ${CACHE_HEADROOM_MIN_GB} GB)." \
-              >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # Yield: build cold, and hand back what this leg is holding.
-          echo "use_cache=false" >> "$GITHUB_OUTPUT"
-          {
-            echo "### Compiler cache yielded"
-            echo ""
-            echo "Only **${FREE_GB} GB** free (threshold ${CACHE_HEADROOM_MIN_GB} GB)."
-            echo "Building cold and releasing this leg's cache entries."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          # Only this leg's own entries — the other sanitizer leg manages its
-          # own, so the two matrix jobs cannot race on the same ids.
-          #
-          # Listed, filtered and counted as three separate observable steps, so
-          # the four ways this can end are distinguishable in the log. They were
-          # not: a first version reported a failed `gh cache list`, a jq error,
-          # a refused delete and "there was legitimately nothing to release"
-          # with one identical message blaming the key prefix — which is the
-          # same dead end as the bug this step was rewritten to fix.
-          #
-          # Note the benign case is the COMMON one. A yield builds cold with
-          # save: false, so a leg that yielded last night holds nothing tonight;
-          # under sustained pressure MATCHED=0 is the steady state and must not
-          # warn, or the warning is noise inside a week.
-          #
-          # Never exits non-zero HERE: this step runs before the build, so
-          # aborting would cost the night's sanitizer signal over cache
-          # bookkeeping. Instead it records a verdict in reclaim_status, and the
-          # Summarise step at the end — which is `if: always()` and is this
-          # file's designated fail-at-the-end hook — turns a real failure into a
-          # red tick once the tests have run. That matters because the file's
-          # own conclusion, stated at the ctest summary below, is that nightlies
-          # are read by the tick; leaving this as an annotation would make it
-          # the one assertion here that nobody sees.
-          if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes); then
-            echo "reclaim_status=list-failed" >> "$GITHUB_OUTPUT"
-            echo "::error::Could not list caches — this leg's entries were NOT released and the space was not handed back."
-            exit 0
-          fi
-          if ! MATCHES=$(printf '%s' "$RAW" | jq -r --arg mine "$MINE" \
-               '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"'); then
-            echo "reclaim_status=parse-failed" >> "$GITHUB_OUTPUT"
-            echo "::error::Could not parse the cache listing (renamed --json field?) — this leg's entries were NOT released."
-            exit 0
-          fi
-          MATCHED=$(printf '%s' "$MATCHES" | grep -c . || true)
-          RELEASED=0
-          while IFS=$'\t' read -r id size key; do
-            [ -n "$id" ] || continue
-            if err=$(gh cache delete "$id" --repo "$GITHUB_REPOSITORY" 2>&1); then
-              RELEASED=$(( RELEASED + 1 ))
-              echo "- released \`$key\` ($(( size / 1024 / 1024 )) MB)" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "::warning::Could not delete cache '$key': $err"
-            fi
-          done <<< "$MATCHES"
-          if [ "$MATCHED" -eq 0 ]; then
-            echo "reclaim_status=nothing-held" >> "$GITHUB_OUTPUT"
-            echo "Nothing held under '$MINE' — this leg is already cold, no space to hand back."
-          elif [ "$RELEASED" -eq 0 ]; then
-            echo "reclaim_status=refused" >> "$GITHUB_OUTPUT"
-            echo "::error::Matched $MATCHED entr(y|ies) under '$MINE' but released none — every delete was refused. The space was not handed back."
-          else
-            echo "reclaim_status=released" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up ccache
-        uses: ./.github/actions/setup-compiler-cache
-        with:
-          key: ${{ env.CACHE_KEY }}
-          use_cache: ${{ steps.cachefit.outputs.use_cache }}
-          # Sized to hold ONE full build, with the ceiling set by this job's own
-          # yield threshold above (CACHE_HEADROOM_MIN_GB=2), not by the 10 GB cap.
-          #
-          # History, because the number has moved twice and each move had a
-          # different cause. 600M kept this permanently full (2026-07-29: 0.6/0.6
-          # GB, 56.62% hit rate). 800M was then chosen against a repo sitting at
-          # 7.15/10 GB, which left only ~1.9G above the yield floor for both legs.
-          #
-          # 800M was sized while a PCH was still on, when only ~10% of compiles
-          # were cacheable at all. #1829 turned the PCH off and the cacheable pool
-          # went 84/875 to 878/878, so the working set roughly decupled and 800M
-          # stopped fitting a single build: run 32185501571 ended at 0.8/0.8 GB
-          # (100.4% — it evicted DURING the run) with 502 hits / 376 misses.
-          #
-          # 1.2G/leg, measured 2026-08-18 after deleting a stale
-          # gradle-android-qt6.11.1 entry the 6.11.2 upgrade orphaned (0.36 GB,
-          # unreachable — the workflow keys on a qt6.11.2- prefix):
-          #
-          #   repo total 6.26/10 GB, so 3.74 GB free, 1.74 GB above the floor
-          #   the two sanitizer entries are 1.48 GB of that (0.74 GB each: an
-          #     0.8 GB ccache dir stores as a 0.74 GB entry, since ccache already
-          #     compresses and the archive barely shrinks)
-          #   at 1.2G/leg they become ~2.23 GB -> 7.01 GB total, 2.99 GB free,
-          #     ~1.0 GB still above the floor
-          #
-          # A full build is ~878 objects at ~1.08 MB each (run 32176361096 stored
-          # 742 objects to fill 0.8 GB), so ~0.95 GB — 1.2G fits it with ~26% to
-          # spare. 1.5G/leg would also clear the floor now (2.43 GB free) but is
-          # not taken: the margin is shared with every other cached leg, and the
-          # macOS ccache alone is already 1.21 GB and subject to the same
-          # PCH-off growth this job just went through.
-          #
-          # This does NOT eliminate eviction across many commits, which is normal
-          # and what LRU is for. It removes the pathological case where a single
-          # build cannot fit in its own cache.
-          #
-          # Re-check if CACHE_HEADROOM_MIN_GB changes, if another leg's cache
-          # grows, or if the object count moves materially.
-          max-size: 1200M
-
-      # Hash on file CONTENT rather than mtime, so a fresh checkout (every run
-      # here) still hits. Mirrors linux-release.yml.
-      - name: Configure ccache for CI
-        run: ccache --set-config=compiler_check=content
-
       - name: Configure CMake
         env:
           SANITIZER_FLAG: ${{ matrix.cmake_flag }}
         run: |
           mkdir -p build
           cd build
-          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
-          # on made ccache miss ~90% of this leg's compiles. See PR #1738.
-          #
-          # This leg was omitted when #1738 turned the PCH off on the four legs
-          # that carry a warm ccache, because it predates that change (#1560).
-          # The cost was invisible: the cache restored and reported a healthy
-          # 83% hit rate, on the 9.6% of calls that were cacheable at all --
-          # measured on run 31996391080, where Build was 1792 s of a 1913 s job
-          # while the tests it exists to run took 59 s.
-          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+          # PCH on (the CMake default on Linux): with no compiler cache it costs
+          # no hits, and it is pure speed on a cold build, as on macOS.
+          "$QT_ROOT_DIR/bin/qt-cmake" .. -G Ninja \
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DDECENZA_ENABLE_PCH=OFF \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_TESTS=ON \
             "$SANITIZER_FLAG"
 
@@ -367,39 +118,7 @@ jobs:
       - name: Build
         run: |
           cd build
-          ninja -j$(nproc) build_tests
-
-      # Prove the compiler cache was actually WIRED UP, not merely installed.
-      #
-      # This exists because it silently was not. The ccache step was added, went
-      # green, and cached nothing for three runs: the action installs ccache and
-      # restores/saves its directory, but CMake only routes compilation through
-      # it when CMAKE_{C,CXX}_COMPILER_LAUNCHER is set — and that was missing
-      # here while linux-release.yml had it. The only visible symptom was a line
-      # nobody reads: "Cache size (GB): 0.0 / 0.6 (0.00%)". Build times were
-      # unchanged and every step reported success.
-      #
-      # A cache that caches nothing is the same shape as a sanitizer that is not
-      # applied, which is why this job carries canaries. Same remedy: make the
-      # mechanism assert its own effect.
-      #
-      # The assertion is on CMakeCache.txt rather than on `ccache -s` output,
-      # deliberately: it tests the exact thing that was missing, and does not
-      # depend on the stats format of whichever ccache version the runner has.
-      - name: Verify the compiler cache is wired in
-        run: |
-          set -uo pipefail
-          if ! grep -qE "^CMAKE_CXX_COMPILER_LAUNCHER:.*ccache" build/CMakeCache.txt; then
-            echo "::error::CMAKE_CXX_COMPILER_LAUNCHER is not set to ccache — the cache is inert and every build is cold."
-            exit 1
-          fi
-          echo "Compiler launcher wired: $(grep -E '^CMAKE_CXX_COMPILER_LAUNCHER:' build/CMakeCache.txt)"
-          {
-            echo "### Compiler cache"
-            echo '```'
-            ccache -s || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          ninja -j"$(nproc)" build_tests
 
       # The QML diagnostics gate — the ratchet over qml-diagnostics-baseline.json,
       # whose per-file ceilings may fall and never rise. It lives here rather than
@@ -459,8 +178,7 @@ jobs:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan-suppressions.txt:print_suppressions=1
         run: |
           # A mechanism that cannot assert its own effect is the failure mode
-          # this workflow exists to avoid -- see the ccache and qmllint_check
-          # gates above.
+          # this workflow exists to avoid -- see the qmllint_check gate above.
           #
           # This check is load-bearing, not belt-and-braces. LSan reads the
           # suppressions file LAZILY -- only when it has a leak to check -- so a
@@ -484,16 +202,12 @@ jobs:
           # --repeat until-pass:3 absorbs the rare timing flake in the two
           # clock-cadence tests (tst_settling, tst_decentscalewifi) under CPU
           # contention. A real failure still fails all 3 attempts.
-          ctest --output-on-failure -j$(nproc) --repeat until-pass:3 2>&1 | tee ctest.log
+          ctest --output-on-failure -j"$(nproc)" --repeat until-pass:3 2>&1 | tee ctest.log
 
       - name: Summarise
         if: always()
         env:
           SANITIZER: ${{ matrix.sanitizer }}
-          # Empty when cachefit exited before reaching a verdict (cache in use,
-          # disabled by input, usage unreadable) — all states where there was no
-          # reclaim to judge.
-          RECLAIM_STATUS: ${{ steps.cachefit.outputs.reclaim_status }}
         run: |
           LOG=build/ctest.log
           # Set when a sanitizer report is present in the log, regardless of
@@ -542,20 +256,3 @@ jobs:
             echo "::error::Sanitizer finding present in the log; failing the job even though ctest may have passed on retry."
             exit 1
           fi
-
-          # Same argument applied to the cache reclaim. The cachefit step cannot
-          # fail the job itself — it runs before the build, and a cache decision
-          # must not cost the night's sanitizer signal — so it records a verdict
-          # and this step raises it after the tests have had their say.
-          #
-          # Only the states where the mechanism is BROKEN fail: the listing or
-          # its parse died, or entries matched and every delete was refused.
-          # `nothing-held` is the normal steady state under sustained pressure
-          # (a leg that yielded last night saved nothing, so it holds nothing
-          # tonight) and must stay green, or the signal is noise within a week.
-          case "$RECLAIM_STATUS" in
-            list-failed|parse-failed|refused)
-              echo "::error::Compiler-cache reclaim failed ($RECLAIM_STATUS) — the yield did not hand its space back. The sanitizer results above still stand."
-              exit 1
-              ;;
-          esac

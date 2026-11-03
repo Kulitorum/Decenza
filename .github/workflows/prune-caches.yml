@@ -29,9 +29,10 @@ name: Prune stale compiler caches
 # prefix. For the ~14 minutes until the last one finishes, the gate holds prune
 # off and the store carries every duplicate at once — over GitHub's 10 GB cap.
 # GitHub evicts to get back under it, and what it takes is the least recently
-# used LIVE entry. That is always a `ccache-sanitizers-*` entry: every other
-# entry is tag-scoped and rewritten on each release, while the nightly's two are
-# touched once every 24 h. Eviction is not undone by the prune that follows.
+# used LIVE entry. While the nightly kept a compiler cache that was always a
+# `ccache-sanitizers-*` entry, touched once every 24 h; the nightly builds cold
+# now, which is what returned that space. Eviction is not undone by the prune
+# that follows.
 #
 # Two evictions, two different legs, on consecutive days:
 #
@@ -87,15 +88,9 @@ on:
   workflow_run:
     workflows:
       - 'Release all platforms'
-      # Added when the sanitizer nightly gained a ccache: it now writes two
-      # timestamped entries a night, so it needs pruning like any other. It is
-      # also in the gate regex below — which now covers only the four gated
-      # steps. The keep-1 dedupe step CAN run while the nightly is building, and
-      # is safe there for its own reason rather than the gate's: the two legs
-      # use distinct key prefixes (`sanitizers-asan-…`, `sanitizers-ubsan-…`),
-      # so a leg that has not saved yet has a single entry in its group and
-      # nothing is deleted for it. Do not restore "a prune cannot run while it
-      # is still building" here; it stopped being true.
+      # The nightly no longer keeps a compiler cache, but it still restores and
+      # can save the stable `qt-linux-v4` install on main, so it stays here and
+      # in the gate regex below.
       - 'Nightly sanitizers'
     types: [completed]
   # Nearly all builds run on TAG pushes, and GitHub's docs don't clearly
@@ -466,11 +461,10 @@ jobs:
       # tag's own cache, and this project re-tags repeatedly (nine v2.0.0 macOS
       # builds in three days), so it is one build in nine, not one in one.
       #
-      # EXCLUDES ccache-sanitizers-*, which main legitimately owns: the nightly
-      # runs on main, rewrites them nightly, and restores them the next night.
-      # Collecting those would undo the reclaim the nightly half of this work
-      # exists to fix. Stable-key entries (qt-*, openssl-*, gradle-*) carry no
-      # timestamp and are excluded by TS, as everywhere else here.
+      # Includes the `ccache-sanitizers-*` entries the nightly left when it
+      # stopped caching (1.75 GB on 2026-11-03). Stable-key entries (qt-*,
+      # openssl-*, gradle-*) carry no timestamp and are excluded by TS, as
+      # everywhere else here.
       - name: Drop main-scoped platform compiler caches
         if: ${{ !cancelled() && steps.gate.outputs.skip == 'false' }}
         env:
@@ -478,18 +472,16 @@ jobs:
         run: |
           set -uo pipefail
           TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
-          KEEP='^ccache-sanitizers-'
 
           if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
                        --json id,key,ref,sizeInBytes); then
             echo "::error::Could not list caches — the main-scope prune did NOT run."
             exit 1
           fi
-          ROWS=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" --arg keep "$KEEP" '
+          ROWS=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
                    .[]
                    | select(.ref == "refs/heads/main")
                    | select(.key | test($ts))
-                   | select(.key | test($keep) | not)
                    | "\(.id)\t\(.sizeInBytes)\t\(.key)"
                  ')
           if [ -z "$ROWS" ]; then

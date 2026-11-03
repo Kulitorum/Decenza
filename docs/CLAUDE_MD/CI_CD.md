@@ -37,7 +37,7 @@ On tag push: the producer and all native jobs use the same bumped version code a
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)
 
-Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x64 builds, one under **UBSan** and one under **ASan**, each running the full `ctest` suite. Uploads nothing, never touches `versioncode.txt`, never interacts with a Release.
+Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x64 builds, one under **UBSan** and one under **ASan**, each running the full `ctest` suite. Uploads nothing, never touches `versioncode.txt`, never interacts with a Release. It keeps **no compiler cache**, so every night builds cold with the PCH on: nobody waits on it, and its 1.75 GB of ccache entries were space the release builds need under the 10 GB cap.
 
 This native test job explicitly sets `DECENZA_WEB_BUNDLE_MODE=OFF`. Normal local builds default to LOCAL and require the one-time Wasm SDK setup; release workflows require their matching PREBUILT artifact.
 
@@ -201,7 +201,7 @@ This triggers all 6 platform builds simultaneously. Each workflow will:
 
 The **first** build of a new tag has an empty tag scope and so builds cold. A `warm-main-cache.yml` workflow used to cover that gap by dispatching all 6 builds on `main` when a release was promoted out of pre-release (issue #1213), but that event is rarely reached here — four firings in three months — so `main`'s copies decayed while still costing ~950 MB. It was removed in July 2026 and `prune-caches.yml` now collects main-scoped platform compiler caches. One cold build per platform per release, out of roughly nine.
 
-Untouched by that: `main`-scoped **Qt SDK, gradle and openssl** caches, which use stable keys, are restored by every run, and are excluded from every prune. Also untouched: the nightly sanitizer job's own `ccache-sanitizers-*` entries, which legitimately live on `main` because that job runs there.
+Untouched by that: `main`-scoped **Qt SDK, gradle and openssl** caches, which use stable keys and are restored by every run; they are pruned only when superseded (step 2 above).
 
 #### Updating an existing pre-release
 To rebuild an existing pre-release at the current HEAD:
