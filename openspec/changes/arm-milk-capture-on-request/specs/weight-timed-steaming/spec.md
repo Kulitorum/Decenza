@@ -50,7 +50,7 @@ Tapping the milk-weigh button SHALL start the same capture attempt as opening th
 
 ### Requirement: Review-page capture states
 
-While a capture is in progress the button SHALL show "Place pitcher" until a load is on the scale and "Weighing…" while it settles. A settled load that is not captured SHALL be explained, here and on the idle screen: "Add milk" under 50 g, "Not <pitcher>?" when lighter than the empty pitcher. Tapping the button again SHALL select the next usable pitcher and keep the capture in progress. Leaving the page SHALL end the capture and restore any milk captured before it.
+While a capture is in progress the button SHALL show "Place pitcher" until a load is on the scale and "Weighing…" while it settles. A settled load that is not captured SHALL be explained, here and on the idle screen: "Add milk" under 50 g, "Not <pitcher>?" when lighter than the empty pitcher. Tapping the button again SHALL select the next usable pitcher, show its name for about two seconds, and keep the capture in progress. Leaving the page SHALL end the capture and restore any milk captured before it.
 
 #### Scenario: Too little milk to capture
 - **WHEN** the pitcher settles on the scale with less than 50 g of milk
@@ -62,7 +62,7 @@ While a capture is in progress the button SHALL show "Place pitcher" until a loa
 
 #### Scenario: Tapping again cycles the pitcher
 - **WHEN** the user taps the button, "Small" and "Large" are usable, and the user taps it again before a capture
-- **THEN** "Large" is selected and the capture stays in progress for "Large"
+- **THEN** "Large" is selected, the button shows "Large" for about two seconds and then "Place pitcher" again, and the capture stays in progress for "Large"
 
 #### Scenario: Cancel keeps the earlier capture
 - **WHEN** 180 g was captured on the idle screen, and on the review page the user taps the button and then leaves the page

@@ -8,7 +8,7 @@
 - [x] 2.2 Idle Steam row and compact Steam popup offer on open and withdraw on close or page change
 - [x] 2.4 One `SteamPitcherPicker` for the Home row and the bar popup; picking a pitcher keeps the popup open, starting steam or a purge closes it
 - [x] 2.5 Live net-milk weight on the selected pitcher's pill only
-- [x] 2.3 Review button: tap offers, further taps cycle the pitcher, leaving the page withdraws
+- [x] 2.3 Review button: tap offers, further taps cycle the pitcher (the label shows the new name for 2 s), leaving the page withdraws
 - [x] 3.1 Controller tests: no capture without an offer, after a steam, or after the one sample; offer gated on pitcher; pitcher change keeps the offer
 - [x] 3.2 Full suite green through Qt Creator (207/207 after 2.5)
 - [ ] 3.3 Wiki manual: weight-timed steaming entry describes when milk is weighed (drafted in the local wiki clone, not yet published)

@@ -1866,6 +1866,9 @@ T.Page {
                     readonly property real sessionMilk: PreparationService.state.sessionMeasuredMilkG
 
                     readonly property bool armed: PreparationService.state.milkAttemptOpen
+                    // While weighing, a tap cycles the pitcher; its name replaces the step briefly.
+                    property bool showPitcherName: false
+                    onArmedChanged: showPitcherName = false
 
                     // One sample per offer: it ends on capture or when the page is left.
                     function arm() {
@@ -1876,6 +1879,10 @@ T.Page {
                             return
                         var pos = usablePitchers.indexOf(selected)
                         HomePresetActions.selectSteamPitcher(usablePitchers[(pos + 1) % usablePitchers.length])
+                        if (armed) {
+                            showPitcherName = true
+                            pitcherNameTimer.restart()
+                        }
                         if (AccessibilityManager.enabled)
                             AccessibilityManager.announce(milkWeighButton.pitcherName)
                     }
@@ -1884,6 +1891,8 @@ T.Page {
                         if (!selectedUsable)
                             return TranslationManager.translate("postshotreview.milk.choosePitcher", "Choose pitcher")
                         if (armed) {
+                            if (showPitcherName)
+                                return pitcherName
                             if (!milkCapture.loadPresent)
                                 return TranslationManager.translate("postshotreview.milk.placePitcher", "Place pitcher")
                             const hint = SteamLabels.captureHint(milkCapture)
@@ -1921,6 +1930,12 @@ T.Page {
                     }
                     onLongPressed: selectNextPitcher()
                     onIncreaseRequested: selectNextPitcher()
+
+                    Timer {
+                        id: pitcherNameTimer
+                        interval: 2000
+                        onTriggered: milkWeighButton.showPitcherName = false
+                    }
 
                     MilkCapture {
                         id: milkCapture
