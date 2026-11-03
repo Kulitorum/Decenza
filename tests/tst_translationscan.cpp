@@ -207,10 +207,15 @@ private slots:
     void escapesAreDecodedTheWayTheRuntimeSeesThem()
     {
         const QString qml = QStringLiteral(
-            "Text { text: TranslationManager.translate(\"chart.mlPerSec\", \"ml\\u00B7s\\u207B\\u00B9\") }\n");
+            "Text { text: TranslationManager.translate(\"chart.mlPerSec\", \"ml\\u00B7s\\u207B\\u00B9\") }\n"
+            "Text { text: TranslationManager.translate(\"recipes.missing\", \"Its profile \\\"%1\\\" is gone\") }\n"
+            "Tr { key: \"recipes.list.missing\"; fallback: \"Profile \\\"%1\\\" is missing\" }\n");
 
         const QMap<QString, QString> found = asMap(TranslationManager::parseTranslatableStrings(qml));
         QCOMPARE(found.value(QStringLiteral("chart.mlPerSec")), QStringLiteral("ml·s⁻¹"));
+        // An escaped quote does not end the literal.
+        QCOMPARE(found.value(QStringLiteral("recipes.missing")), QStringLiteral("Its profile \"%1\" is gone"));
+        QCOMPARE(found.value(QStringLiteral("recipes.list.missing")), QStringLiteral("Profile \"%1\" is missing"));
     }
 
     // --- The scan ---------------------------------------------------------------------------

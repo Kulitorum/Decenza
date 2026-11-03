@@ -1715,6 +1715,7 @@ set(QML_FILES
     qml/components/StatusToast.qml
     qml/components/layout/LayoutWidgetItem.qml
     qml/components/PresetPillRow.qml
+    qml/components/SteamPitcherPicker.qml
     qml/components/PromptPulse.qml
     qml/components/OnDemandLoader.qml
     qml/components/SharedAppNavigation.qml

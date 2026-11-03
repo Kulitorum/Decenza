@@ -97,8 +97,10 @@ public:
 
     Q_INVOKABLE bool isPreparationMode(const QString& mode) const { return PreparationSnapshot::isMode(mode); }
     Q_INVOKABLE virtual bool selectMode(const QString& mode) = 0;
-    Q_INVOKABLE virtual bool startMilkAttempt() = 0;
-    Q_INVOKABLE virtual bool cancelMilkAttempt() = 0;
+    // A milk sample is offered by an owner and stays open while any owner holds it.
+    // Clients pass the offering surface; the host qualifies it with the client id.
+    Q_INVOKABLE virtual bool startMilkAttempt(const QString& owner) = 0;
+    Q_INVOKABLE virtual bool cancelMilkAttempt(const QString& owner) = 0;
     Q_INVOKABLE virtual bool setMilkTimeLocked(bool locked) = 0;
 signals:
     void changed();

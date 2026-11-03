@@ -7,8 +7,8 @@ class TestPreparation final : public PreparationState {
 public:
     using PreparationState::applySnapshot;
     bool selectMode(const QString&) override { return false; }
-    bool startMilkAttempt() override { return false; }
-    bool cancelMilkAttempt() override { return false; }
+    bool startMilkAttempt(const QString&) override { return false; }
+    bool cancelMilkAttempt(const QString&) override { return false; }
     bool setMilkTimeLocked(bool) override { return false; }
 };
 

@@ -2467,6 +2467,10 @@ int main(int argc, char *argv[])
         &machineState, &de1Device, &scaleProxy);
     NativeHostStatusServiceSource hostStatusSource(&weatherManager, &batteryManager);
     NativePreparationServiceSource preparationSource(mainController.preparation());
+    if (auto* server = mainController.shotServer()) {
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         mainController.preparation(), &PreparationController::releaseMilkClient);
+    }
     NativeHostSessionServiceSource hostSessionSource(&settings, &de1Device,
         &machineState, &mainController, &scaleProxy, &bleManager,
 #ifndef Q_OS_IOS

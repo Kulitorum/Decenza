@@ -575,6 +575,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/StatusToast.qml` | 16 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
 | `qml/components/SteamGraph.qml` | 26 | native + Wasm | presentation; `SteamPage.qml` (14/17) |
 | `qml/components/SteamLabels.qml` | 17 | native + Wasm | shared steam label/format producer; Steam and Home (17/22.3) |
+| `qml/components/SteamPitcherPicker.qml` | 14 / 22 | native + Wasm | presentation; `IdlePage.qml` (14), `SteamItem.qml` (22.3) |
 | `qml/components/SteamPlanText.qml` | 17 | native + Wasm | presentation; `ShotPlanItem.qml` (22.3) |
 | `qml/components/StrangeAttractorScreensaver.qml` | 25 | native + Wasm | presentation; `ScreensaverPage.qml` (25) |
 | `qml/components/StyledComboBox.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |

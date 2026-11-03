@@ -17,10 +17,10 @@ FocusScope {
     property int focusedIndex: 0  // Currently focused pill for keyboard nav
     property real maxWidth: Math.min(Theme.scaled(825), parent ? parent.width - Theme.scaled(24) : Theme.scaled(825))  // Clamp to parent width with margins
     property bool supportLongPress: false  // Enable long-press on pills
-    property var pillSuffixFn: null  // Optional: function(index) => string suffix appended to pill text (e.g. " (125g)")
+    property var pillSuffixFn: null  // Optional: function(preset, index) => string suffix appended to pill text (e.g. " (125g)")
     property int pillSuffixVersion: 0  // Increment from outside to force pill text refresh without full layout recalc
     property real pillSuffixMaxWidth: 0  // Reserve extra horizontal space per pill for the suffix
-    property var pillLabelFn: null  // Optional: function(index, name) => transformed base label (e.g. append " Pitcher")
+    property var pillLabelFn: null  // Optional: function(preset, name) => transformed base label (e.g. append " Pitcher")
     // When true AND a pill is selected, append an "unsaved" marker to that pill.
     // Callers opt in by binding this to their own dirty state — e.g.
     // ProfileManager.profileModified for the espresso row. Rows that have no
@@ -155,7 +155,7 @@ FocusScope {
         var _ = pillSuffixVersion  // Track for reactivity
         var name = pillLayoutName(index)
         if (pillSuffixFn) {
-            let suffix = pillSuffixFn(presets[index])
+            let suffix = pillSuffixFn(presets[index], index)
             if (suffix) name = name + suffix
         }
         return name

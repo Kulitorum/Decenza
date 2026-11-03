@@ -10,6 +10,10 @@
 #include "machine/machinestate.h"
 #include "mocks/MockScaleDevice.h"
 
+namespace {
+const QString kIdleRow = QStringLiteral("client-a/idleRow");
+}
+
 class tst_PreparationController : public QObject
 {
     Q_OBJECT
@@ -76,7 +80,9 @@ class tst_PreparationController : public QObject
         void prepareMilkCapture()
         {
             addTestPitcher();
+            // What opening the idle steam row does: select steam, then offer a sample.
             QVERIFY(preparation.selectMode(QStringLiteral("steam")));
+            QVERIFY(preparation.startMilkAttempt(kIdleRow));
             // Starting a new mode disarms the prior espresso baseline.
             setWeight(0.0);
             advance(1000);
@@ -164,37 +170,143 @@ private slots:
         f.prepareMilkCapture();
         f.captureMilk();
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
-        QVERIFY(f.preparation.startMilkAttempt());
+        QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
-        QVERIFY(f.preparation.cancelMilkAttempt());
+        // Cycling pitchers inside the attempt keeps the amount to restore.
+        f.settings.brew()->addSteamPitcherPreset(QStringLiteral("Second pitcher"), 20, 20, 160.0);
+        f.settings.brew()->setSteamPitcherWeight(1, 40.0);
+        f.settings.brew()->setSelectedSteamCup(1);
+        QVERIFY(f.preparation.cancelMilkAttempt(kIdleRow));
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
         QVERIFY(!f.preparation.milk()->active());
-        QVERIFY(f.preparation.startMilkAttempt());
+        QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         QVERIFY(f.preparation.milk()->active());
     }
 
-    void pitcherChangeClosesAttemptAndKeepsScaleBaseline()
+    // Tapping the review button again, or another idle pill, cycles the pitcher
+    // within the same offer.
+    void pitcherChangeKeepsAttemptOpenAndScaleBaseline()
     {
         Fixture f;
         f.prepareMilkCapture();
         f.captureMilk();
-        QVERIFY(f.preparation.startMilkAttempt());
+        QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
         f.settings.brew()->addSteamPitcherPreset(QStringLiteral("Second pitcher"), 20, 20, 160.0);
         f.settings.brew()->setSteamPitcherWeight(1, 40.0);
-        // Editing an unselected pitcher does not restore or replace the attempt's
-        // saved amount; selecting it closes the attempt through the cancel path.
-        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
         f.settings.brew()->setSelectedSteamCup(1);
-        // A captured net amount remains valid; only the live fallback depends on
-        // which empty pitcher is currently selected.
-        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
-        QVERIFY(!f.preparation.milkAttemptOpen());
+        QVERIFY(f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
         // The prior 150 g sample remains a real load over the original zero
         // baseline; changing the cup tare must not adopt it as a new baseline.
         f.advance(2500);
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 2);
         QCOMPARE(f.preparation.snapshot().lastMilkGrams, 110.0);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 110.0);
+        QVERIFY(!f.preparation.milkAttemptOpen());
+    }
+
+    // Field log, 2026-11-01/02: after a steam the mode stayed "steam", and the
+    // espresso cup set down next was captured as 206.8 g / 211.8 g of milk,
+    // rewriting the next steam's time. Only an offered sample may be taken.
+    void milkIsCapturedOnlyForOneOfferedSample()
+    {
+        Fixture f;
+        f.addTestPitcher();
+        QVERIFY(f.preparation.selectMode(QStringLiteral("steam")));
+        f.setWeight(400.0);
+        f.advance(5000);
+        QVERIFY(!f.preparation.milk()->active());
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);
+        QCOMPARE(f.preparation.lastOnScaleMilkG(), 0.0);
+
+        f.settleBaseline();
+        QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
+        f.captureMilk();
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        f.setWeight(0.0);
+        f.advance(1000);
+        f.setWeight(400.0);
+        f.advance(5000);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+
+        // phaseChanged is queued behind the getter, so wait for each delivery.
+        QSignalSpy phaseChanged(&f.machine, &MachineState::phaseChanged);
+        f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
+        QTRY_VERIFY(phaseChanged.count() > 0);
+        const qsizetype steamChanges = phaseChanged.count();
+        f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_VERIFY(phaseChanged.count() > steamChanges);
+        QCOMPARE(f.machine.phase(), MachineState::Phase::Ready);
+        QCOMPARE(f.preparation.mode(), QStringLiteral("steam"));
+        f.setWeight(0.0);
+        f.advance(1000);
+        f.setWeight(400.0);
+        f.advance(5000);
+        QVERIFY(!f.preparation.milk()->active());
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+        QCOMPARE(f.preparation.lastOnScaleMilkG(), 0.0);
+    }
+
+    // The host holds one attempt for every surface and client that offered it.
+    void milkOfferIsHeldPerOwnerAndReleasedWithItsClient()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.captureMilk();
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+        QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
+        QVERIFY(f.preparation.startMilkAttempt(QStringLiteral("client-b/review")));
+        QVERIFY(!f.preparation.cancelMilkAttempt(QStringLiteral("client-a/idlePopup")));
+        QVERIFY(f.preparation.cancelMilkAttempt(kIdleRow));
+        QVERIFY(f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
+
+        // A browser that closes cannot withdraw; its session close does.
+        f.preparation.releaseMilkClient(QStringLiteral("client-a"));
+        QVERIFY(f.preparation.milkAttemptOpen());
+        f.preparation.releaseMilkClient(QStringLiteral("client-b"));
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+    }
+
+    // Starting steam from the idle row pushes the steam page, which withdraws the row's
+    // offer while steaming. That must not swap in the milk from before the attempt.
+    void withdrawDuringSteamDoesNotRestoreEarlierMilk()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.captureMilk();
+        QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
+        QSignalSpy phaseChanged(&f.machine, &MachineState::phaseChanged);
+        f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
+        QTRY_VERIFY(phaseChanged.count() > 0);
+        QVERIFY(f.preparation.cancelMilkAttempt(kIdleRow));
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
+    }
+
+    void offeredSampleNeedsWeightTimedPitcherWithEmptyWeight_data()
+    {
+        QTest::addColumn<QString>("missing");
+        QTest::newRow("weight-timed-steaming-off") << QStringLiteral("toggle");
+        QTest::newRow("no-empty-pitcher-weight") << QStringLiteral("weight");
+    }
+
+    void offeredSampleNeedsWeightTimedPitcherWithEmptyWeight()
+    {
+        QFETCH(QString, missing);
+        Fixture f;
+        f.prepareMilkCapture();
+        if (missing == QLatin1String("toggle"))
+            f.settings.brew()->setMilkAutoCaptureEnabled(false);
+        else
+            f.settings.brew()->setSteamPitcherWeight(0, 0.0);
+        f.captureMilk();
+        QVERIFY(f.preparation.milkAttemptOpen());
+        QVERIFY(!f.preparation.milk()->active());
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);
     }
 
     void pitcherFallbackTracksOnlySelectionAndEmptyWeight()
@@ -259,14 +371,27 @@ private slots:
         QVERIFY(!f.preparation.milkTimeLocked());
     }
 
+    void connectedFiniteRemovalSampleRelocksManualSteamTime_data()
+    {
+        QTest::addColumn<bool>("offered");
+        QTest::newRow("after-the-sample") << true;
+        QTest::newRow("never-offered") << false;
+    }
+
     void connectedFiniteRemovalSampleRelocksManualSteamTime()
     {
+        QFETCH(bool, offered);
         Fixture f;
-        f.prepareMilkCapture();
-        f.settings.brew()->setMilkAutoCaptureEnabled(true);
+        if (offered) {
+            f.prepareMilkCapture();
+        } else {
+            f.addTestPitcher();
+            QVERIFY(f.preparation.selectMode(QStringLiteral("steam")));
+        }
         f.setWeight(150.0);
         f.advance(2500);
         QVERIFY(f.preparation.snapshot().milk.loadPresent);
+        QVERIFY(!f.preparation.milkAttemptOpen());
         QVERIFY(f.preparation.setMilkTimeLocked(false));
 
         f.setWeight(0.0);
@@ -305,11 +430,10 @@ private slots:
         f.captureMilk();
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
 
-        // A later live reading is retained as the fallback, but the captured milk
-        // from this session takes precedence once the pitcher is off the scale.
+        // The sample is taken, so a later reading is not measured as milk; the
+        // captured amount is what a steam started with the pitcher off uses.
         f.setWeight(160.0); // 110 g net
-        QTRY_COMPARE(f.preparation.lastOnScaleMilkG(), 110.0);
-        QCOMPARE(f.preparation.lastOnScaleMilkG(), 110.0);
+        QCOMPARE(f.preparation.lastOnScaleMilkG(), 100.0);
         f.setWeight(0.0); // Pitcher lifted; scale stays connected.
         f.preparation.evaluateForTesting();
         f.settings.brew()->setSteamSecondsPerGram(0.3);
@@ -470,19 +594,10 @@ private slots:
             brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), 70), 70);
     }
 
-    // #2058, on both surfaces that weigh milk: the idle screen's Steam row and the
-    // shot review's milk button. The scale reads -450 g empty because nothing tares it,
-    // and the pitcher (50 g + 100 g milk) is already on it when capture is armed.
-    void pitcherPlacedBeforeArmingIsMeasuredFromTheEmptyReading_data()
-    {
-        QTest::addColumn<bool>("reviewButton");
-        QTest::newRow("idle-steam-row") << false;
-        QTest::newRow("review-milk-button") << true;
-    }
-
+    // #2058: the scale reads -450 g empty because nothing tares it, and the pitcher
+    // (50 g + 100 g milk) is already on it when the sample is offered.
     void pitcherPlacedBeforeArmingIsMeasuredFromTheEmptyReading()
     {
-        QFETCH(bool, reviewButton);
         Fixture f;
         f.addTestPitcher();
         f.settings.brew()->setMilkAutoCaptureEnabled(true);
@@ -492,10 +607,7 @@ private slots:
         f.advance(5000);
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);
 
-        if (reviewButton)
-            QVERIFY(f.preparation.startMilkAttempt());
-        else
-            QVERIFY(f.preparation.selectMode(QStringLiteral("steam")));
+        QVERIFY(f.preparation.startMilkAttempt(QStringLiteral("client-a/review")));
         QVERIFY(f.preparation.milk()->active());
         QCOMPARE(f.preparation.milk()->virtualZero(), -450.0);
         QCOMPARE(f.preparation.milkScaleLoadG(), 150.0);

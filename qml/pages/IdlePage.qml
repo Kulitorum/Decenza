@@ -560,6 +560,8 @@ T.Page {
                     _pendingPreparationRowMode = ""
                 return
             }
+            if (mode === "steam")
+                HomePresetActions.offerMilkSample("idleRow")
             if (PreparationService.state.mode === mode) {
                 _pendingPreparationRowMode = ""
                 activePresetFunction = mode
@@ -640,18 +642,14 @@ T.Page {
         value: idlePage.visible && idlePage.beanCaptureShown
     }
 
-    // The host owns milk capture and steam-time learning. This page only presents
-    // a transient confirmation for a capture while IdlePage is active.
+    // The host owns milk capture and steam-time learning. This page offers a sample
+    // when the user opens the Steam row and shows the confirmation.
     property bool milkCaptureShown: false
     property string milkCaptureText: ""
     Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
     MilkCapture {
         id: idleMilkCapture
-        // Host-owned milk auto-capture is only presented while
-        // the steam flow is showing AND this page is the active StackView page — so a
-        // stray weight never silently changes the steam stop time, and the capture
-        // can't double-fire alongside SteamPage's own copy when SteamPage is pushed
-        // on top (long-press) while activePresetFunction is still "steam".
+        // Banner only while this page is the active page.
         onMilkCaptured: function(milk, t) {
             if (idlePage.StackView.status !== StackView.Active
                     || PreparationService.state.mode !== "steam")
@@ -723,6 +721,8 @@ T.Page {
     }
 
     StackView.onStatusChanged: {
+        if (StackView.status !== StackView.Active)
+            HomePresetActions.withdrawMilkSample("idleRow")
         if (StackView.status === StackView.Active && _preparationRowSyncPending) {
             syncPreparationModeToRow()
             _preparationRowSyncPending = false
@@ -752,6 +752,8 @@ T.Page {
         // request so a late host echo cannot reopen a row over the user's choice.
         if (_pendingPreparationRowMode !== "" && activePresetFunction !== _pendingPreparationRowMode)
             _pendingPreparationRowMode = ""
+        if (activePresetFunction !== "steam")
+            HomePresetActions.withdrawMilkSample("idleRow")
         // An MRU row just closed → lift its order freeze and adopt the real MRU
         // order for the next open (see _liftOrderFreeze / _orderFrozen).
         var nowOpen = (activePresetFunction === "recipes" || activePresetFunction === "beans"
@@ -986,92 +988,9 @@ T.Page {
                 active: idlePage.activePresetFunction === "steam"
                 visible: active
 
-                // Track scale weight changes and bump version to refresh the live
-                // net-milk pill suffix (see pillSuffixFn below)
-                property int steamPillSuffixVersion: 0
-                Connections {
-                    target: MachineState
-                    function onScaleWeightChanged() {
-                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
-                    }
-                }
-                Connections {
-                    target: PreparationService.state
-                    function onChanged() {
-                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
-                    }
-                }
-                Connections {
-                    target: SteamService
-                    function onStateChanged() {
-                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
-                    }
-                }
-
-                sourceComponent: Column {
+                sourceComponent: SteamPitcherPicker {
                     width: parent ? parent.width : 0
-                    spacing: Theme.scaled(8)
-
-                    PresetPillRow {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        maxWidth: steamPresetLoader.width
-                        presets: SteamLabels.steamRow(SteamService.state.steamPitcherPresets)
-                        selectedIndex: SteamService.state.selectedSteamPitcherDisplayIndex
-                        supportLongPress: true
-                        pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
-                        pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
-
-                        // Live milk weigh: the load above the learned empty reading minus
-                        // the saved empty-pitcher weight, updating as milk is poured. Display only — steam-time scaling uses netMilkForPitcher(),
-                        // whose 50–1500 g window is sized for time scaling and would zero small amounts
-                        // here. The rule itself is SteamLabels' — this only wires it in,
-                        // so the SteamItem popup cannot drift from it.
-                        pillSuffixFn: function(preset) { return SteamLabels.pitcherPillSuffix(preset) }
-
-                        // "<name> Pitcher" (e.g. "Small Pitcher"), except where the
-                        // name already says pitcher and for the built-in entry.
-                        pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
-
-                        onPresetSelected: function(index) { HomePresetActions.tapSteamRowEntry(index) }
-
-                        // Long-press a pitcher to open the steam page settings, where you set
-                        // the duration and either tap "Weigh" next to Reference milk (with milk
-                        // on the scale) or "Use as baseline" to teach this pitcher its
-                        // milk-weight -> steam-time reference.
-                        onPresetLongPressed: function(index) {
-                            if (SteamLabels.isPurgePill(presets[index]))
-                                return
-                            HomePresetActions.selectSteamPitcher(index)
-                            AppShell.steamRequested()
-                        }
-                    }
-
-                    // "Place the milk pitcher on the scale" — same position as the bean prompt (below
-                    // the pills). Shown while the host milk detector is active and its
-                    // seeded baseline sees no pitcher load yet. Blinks three times.
-                    // "or lift and replace": the empty reading is learned while the scale is connected,
-                    // but one never seen empty (connected, or tared, with the pitcher already on) takes
-                    // the pitcher as empty until it is lifted and set back.
-                    // The hint promises a beep ONLY when the capture sound will actually play — the
-                    // ding is separately gated on doseCaptureSoundEnabled (default off).
-                    Text {
-                        id: steamPlacePrompt
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        horizontalAlignment: Text.AlignHCenter
-                        visible: idleMilkCapture.active && idleMilkCapture.seeded
-                                 && idleMilkCapture.rawWeight - idleMilkCapture.virtualZero < 50
-                        text: TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale") + "\n"
-                            + (idlePage.brewUiPreferences.doseCaptureSoundEnabled
-                                ? TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
-                                : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
-                        color: Theme.textSecondaryColor
-                        font: Theme.labelFont
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: text
-                        PromptPulse on opacity {
-                            running: steamPlacePrompt.visible
-                        }
-                    }
+                    maxWidth: steamPresetLoader.width
                 }
             }
 

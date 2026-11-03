@@ -25,7 +25,7 @@ void NativePreparationServiceSource::publish()
     setReady(m_preparation && m_preparation->available());
 }
 
-void NativePreparationServiceSource::execute(QString requestId, QString action)
+void NativePreparationServiceSource::execute(QString requestId, QString action, QString owner)
 {
     if (QUuid::fromString(requestId).isNull()) {
         complete(requestId, action, false, tr("Invalid preparation request ID."));
@@ -43,10 +43,13 @@ void NativePreparationServiceSource::execute(QString requestId, QString action)
         message = tr("Preparation is unavailable.");
     } else if (PreparationSnapshot::isMode(action)) {
         success = m_preparation->selectMode(action);
+    } else if ((action == QLatin1String("milk-start") || action == QLatin1String("milk-cancel"))
+               && owner.isEmpty()) {
+        message = tr("The milk sample has no owner.");
     } else if (action == QLatin1String("milk-start")) {
-        success = m_preparation->startMilkAttempt();
+        success = m_preparation->startMilkAttempt(owner);
     } else if (action == QLatin1String("milk-cancel")) {
-        success = m_preparation->cancelMilkAttempt();
+        success = m_preparation->cancelMilkAttempt(owner);
     } else if (action == QLatin1String("milk-lock") || action == QLatin1String("milk-unlock")) {
         success = m_preparation->setMilkTimeLocked(action == QLatin1String("milk-lock"));
     } else {

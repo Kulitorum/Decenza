@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QMetaObject>
 #include <QPointer>
+#include <QSet>
 #include <QTimer>
 
 #include <optional>
@@ -30,8 +31,10 @@ public:
     void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
 
     bool selectMode(const QString& mode) override;
-    bool startMilkAttempt() override;
-    bool cancelMilkAttempt() override;
+    bool startMilkAttempt(const QString& owner) override;
+    bool cancelMilkAttempt(const QString& owner) override;
+    // A closed remote session cannot withdraw its own offers.
+    void releaseMilkClient(const QString& clientId);
     bool setMilkTimeLocked(bool locked) override;
     // The next start's duration, or the actual timeout of an active steam.
     int plannedSteamDurationSec() const;
@@ -69,10 +72,17 @@ private:
                       std::optional<qint64> milkWake);
     void disconnectScaleConnections();
     void applyModeFromPhase();
+    // Ends the attempt with no owner left, restoring the milk measured before it.
+    void abandonMilkAttempt();
+    void closeMilkAttempt();
     bool canCaptureInPreparationPhase() const;
     bool scaleCanCapture() const { return !scaleCaptureBlocker(); }
     // Why the scale cannot feed the detectors, or nullptr when it can.
     const char* scaleCaptureBlocker() const;
+    // Why the milk detector may not sample now, or nullptr: it needs an open attempt,
+    // weight-timed steaming on, and a selected non-heater-off pitcher with a saved
+    // empty weight. Scale and phase are checked separately.
+    const char* milkSampleBlocker() const;
     // Why a milk weight would not scale the steam time, or nullptr when it would.
     const char* steamTimeBlocker() const;
     // reason is a string literal (or nullptr when armed), compared by address.
@@ -106,9 +116,9 @@ private:
     std::optional<double> m_rejectedMilkRaw;
     std::optional<double> m_rejectedMilkNet;
     double m_milkBeforeAttempt = 0.0;
+    QSet<QString> m_milkOwners;
     double m_steamElapsedTracker = 0.0;
     bool m_wasSteaming = false;
-    bool m_milkCaptureSuppressed = false;
     bool m_scaleTargetAwaitingSample = true;
     bool m_realScaleSamplePending = false;
     bool m_refreshing = false;

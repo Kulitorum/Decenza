@@ -174,6 +174,7 @@ T.Page {
     // Flush edits while the page is live; destruction only releases its leases.
     Component.onDestruction: {
         ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
+        HomePresetActions.withdrawMilkSample("review")
         // Only queues network requests: no DB write or Keyboard.commit(), which are
         // unsafe during destruction. A failure is logged by the uploader.
         if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId, _reviewSessionId)
@@ -184,12 +185,13 @@ T.Page {
     // Note this fires only on stack transitions — NOT on app backgrounding,
     // where the suspended event loop is what stops scan activity.
     // Also end the refractometer hunt — continuous scanning is scoped to this
-    // page being the active page.
+    // page being the active page — and withdraw the milk sample offered here.
     StackView.onDeactivating: {
         // The host keeps hunting while another review still observes the device.
         _huntAfterFrame = false
         _reviewActive = false
         ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
+        HomePresetActions.withdrawMilkSample("review")
         autosave()
     }
 
@@ -1841,19 +1843,11 @@ T.Page {
                     readonly property bool realScale: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
                     readonly property real sessionMilk: PreparationService.state.sessionMeasuredMilkG
 
-                    // The shared host owns this attempt state so leaving the page does
-                    // not cancel a capture started here or on another preparation surface.
                     readonly property bool armed: PreparationService.state.milkAttemptOpen
 
+                    // One sample per offer: it ends on capture or when the page is left.
                     function arm() {
-                        return milkCapture.startAttempt()
-                    }
-                    // Explicit cancellation restores the previous session milk when the
-                    // host still owns an open attempt.
-                    function cancel() {
-                        if (!armed)
-                            return
-                        milkCapture.cancelAttempt()
+                        return HomePresetActions.offerMilkSample("review")
                     }
                     function selectNextPitcher() {
                         if (usablePitchers.length === 0)
@@ -1898,10 +1892,8 @@ T.Page {
                         return name + (selectedUsable ? ", " : ". ") + labelText
                     }
                     onClicked: {
-                        if (!selectedUsable)
+                        if (!selectedUsable || armed)
                             selectNextPitcher()
-                        else if (armed)
-                            cancel()
                         else
                             arm()
                     }

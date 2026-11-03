@@ -13,7 +13,7 @@ class NativePreparationServiceSource final : public PreparationServiceStateSimpl
 public:
     explicit NativePreparationServiceSource(PreparationState* preparation,
                                             QObject* parent = nullptr);
-    void execute(QString requestId, QString action) override;
+    void execute(QString requestId, QString action, QString owner) override;
 private:
     void publish();
     void complete(const QString& requestId, const QString& action,

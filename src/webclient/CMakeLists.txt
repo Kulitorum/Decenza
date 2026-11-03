@@ -142,7 +142,7 @@ set(shared_qml_files
     ActionButton.qml SteamPlanText.qml
     DecentMachineChooser.qml TranslationErrorToast.qml UploadAccountSection.qml UploadDestinationCard.qml ChecklistRow.qml UploadMissingShots.qml ScrollDownIndicator.qml
     SubsystemLogView.qml SettingsActionRow.qml graphs/AutoRangingAxis.qml SettingsCard.qml SettingsSearchRegistry.qml ColorEditor.qml ColorSwatch.qml
-    StatusBar.qml PortalStatusIndicator.qml PresetPillRow.qml PromptPulse.qml TempPickerDialog.qml
+    StatusBar.qml PortalStatusIndicator.qml PresetPillRow.qml SteamPitcherPicker.qml PromptPulse.qml TempPickerDialog.qml
     layout/ShotPlanConfig.js layout/LayoutWrite.qml
     layout/LayoutWidgetItem.qml
     layout/LayoutItemDelegate.qml

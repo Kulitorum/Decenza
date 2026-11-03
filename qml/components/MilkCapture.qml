@@ -22,14 +22,6 @@ Item {
 
     signal milkCaptured(real milk, int seconds)
 
-    function startAttempt() {
-        return PreparationService.state.startMilkAttempt()
-    }
-
-    function cancelAttempt() {
-        return PreparationService.state.cancelMilkAttempt()
-    }
-
     Connections {
         target: PreparationService.state
         function onMilkCaptured(milk, seconds) {

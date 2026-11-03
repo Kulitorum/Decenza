@@ -101,16 +101,36 @@ QtObject {
         }
     }
 
+    // Milk is weighed only for one sample offered by the idle pitcher row, the compact
+    // steam popup on the idle page, or the review-page milk button. The surface that
+    // made the offer withdraws it when it closes, so a load set down later (an
+    // espresso cup) is never taken for milk.
+    // The withdraw is sent without checking milkAttemptOpen: in a browser that replica
+    // flag can still be false while the offer is in flight.
+    property var milkOfferSurfaces: ({})
+    function offerMilkSample(surface: string): bool {
+        milkOfferSurfaces[surface] = true
+        return PreparationService.state.startMilkAttempt(surface)
+    }
+    function withdrawMilkSample(surface: string): void {
+        if (!milkOfferSurfaces[surface])
+            return
+        delete milkOfferSurfaces[surface]
+        PreparationService.state.cancelMilkAttempt(surface)
+    }
+
     function selectSteamPitcher(index: int): void {
         trackControl(MachineControlService.selectSteamPitcher(index, SteamService.getSteamPitcherPreset(index)))
     }
 
     // A tap anywhere in the steam row: a pitcher, or the purge entry after them.
-    function tapSteamRowEntry(index: int): void {
-        if (index >= (SteamService.state.steamPitcherPresets || []).length)
+    // True when the tap started steam or a purge rather than selecting a pitcher.
+    function tapSteamRowEntry(index: int): bool {
+        if (index >= (SteamService.state.steamPitcherPresets || []).length) {
             startSteamPurge()
-        else
-            tapSteamPitcher(index)
+            return true
+        }
+        return tapSteamPitcher(index)
     }
 
     function startSteamPurge(): void {
@@ -119,12 +139,14 @@ QtObject {
         trackControl(MachineControlService.startSteamPurge(SteamService.state.controlContextId))
     }
 
-    function tapSteamPitcher(index: int): void {
+    function tapSteamPitcher(index: int): bool {
         const preset = SteamService.getSteamPitcherPreset(index)
-        if (!preset.disabled && index === SteamService.state.selectedSteamPitcherDisplayIndex)
+        if (!preset.disabled && index === SteamService.state.selectedSteamPitcherDisplayIndex) {
             startSteam()
-        else
-            selectSteamPitcher(index)
+            return true
+        }
+        selectSteamPitcher(index)
+        return false
     }
 
     function tapWaterVessel(index: int): void {

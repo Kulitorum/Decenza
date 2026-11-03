@@ -14,10 +14,10 @@ PreparationServiceView::PreparationServiceView(PreparationService* service)
 
 bool PreparationServiceView::selectMode(const QString& mode)
 { return PreparationSnapshot::isMode(mode) && m_service->send(mode); }
-bool PreparationServiceView::startMilkAttempt()
-{ return m_service->send(QStringLiteral("milk-start")); }
-bool PreparationServiceView::cancelMilkAttempt()
-{ return m_service->send(QStringLiteral("milk-cancel")); }
+bool PreparationServiceView::startMilkAttempt(const QString& surface)
+{ return m_service->sendMilk(QStringLiteral("milk-start"), surface); }
+bool PreparationServiceView::cancelMilkAttempt(const QString& surface)
+{ return m_service->sendMilk(QStringLiteral("milk-cancel"), surface); }
 bool PreparationServiceView::setMilkTimeLocked(bool locked)
 { return m_service->send(locked ? QStringLiteral("milk-lock") : QStringLiteral("milk-unlock")); }
 
@@ -88,7 +88,21 @@ void PreparationService::refresh()
     m_view.update(snapshot, true, deliverEvents);
 }
 
-bool PreparationService::send(const QString& action)
+// The client id lets the host release this client's offers when its session closes.
+bool PreparationService::sendMilk(const QString& action, const QString& surface)
+{
+    const QString clientId = m_node ? m_node->property("decenzaClientId").toString() : QString();
+    if (clientId.isEmpty() || surface.isEmpty()) {
+        const QString requestId = ServiceOperation::newId();
+        QMetaObject::invokeMethod(this, [this, requestId, action] {
+            report(requestId, action, false, tr("The milk sample has no owner."));
+        }, Qt::QueuedConnection);
+        return false;
+    }
+    return send(action, clientId + QLatin1Char('/') + surface);
+}
+
+bool PreparationService::send(const QString& action, const QString& owner)
 {
     const QString requestId = ServiceOperation::newId();
     if (!ready() || m_pending.size() >= 128) {
@@ -100,7 +114,7 @@ bool PreparationService::send(const QString& action)
         return false;
     }
     m_pending.insert(requestId, action);
-    m_replica->execute(requestId, action);
+    m_replica->execute(requestId, action, owner);
     return true;
 }
 
