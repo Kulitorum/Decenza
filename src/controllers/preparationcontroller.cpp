@@ -615,13 +615,13 @@ void PreparationController::applyModeFromPhase()
 {
     if (!m_machineState)
         return;
-    const QString operationMode = modeForOperationPhase(m_machineState->phase());
-    if (!operationMode.isEmpty()) {
-        // Any operation ends an offer. onPhaseChanged() runs a steam's start decision
-        // first, so that decision still sees the offer it logs.
+    // Any operation ends an offer, a purge or descale included. onPhaseChanged() runs
+    // a steam's start decision first, so that decision still sees the offer it logs.
+    if (m_machineState->isOperating())
         closeMilkAttempt();
+    const QString operationMode = modeForOperationPhase(m_machineState->phase());
+    if (!operationMode.isEmpty())
         m_snapshot.mode = operationMode;
-    }
 }
 
 bool PreparationController::canCaptureInPreparationPhase() const

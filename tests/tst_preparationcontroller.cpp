@@ -393,30 +393,38 @@ private slots:
 
     void anOperationEndsTheOffer_data()
     {
-        QTest::addColumn<bool>("steam");
-        QTest::newRow("espresso") << false;
-        QTest::newRow("steam-ended") << true;
+        QTest::addColumn<int>("state");
+        QTest::addColumn<int>("subState");
+        QTest::addColumn<bool>("backToReady");
+        QTest::addColumn<QString>("mode");
+        QTest::newRow("espresso") << int(DE1::State::Espresso) << int(DE1::SubState::Preinfusion)
+                                  << false << QStringLiteral("espresso");
+        QTest::newRow("steam-ended") << int(DE1::State::Steam) << int(DE1::SubState::Steaming)
+                                     << true << QStringLiteral("steam");
+        // A purge has no preparation mode of its own, and the Home Steam row stays open.
+        QTest::newRow("purge-ended") << int(DE1::State::SteamRinse) << int(DE1::SubState::Steaming)
+                                     << true << QStringLiteral("steam");
     }
 
     void anOperationEndsTheOffer()
     {
-        QFETCH(bool, steam);
+        QFETCH(int, state);
+        QFETCH(int, subState);
+        QFETCH(bool, backToReady);
+        QFETCH(QString, mode);
         Fixture f;
         f.prepareMilkCapture();
 
         QSignalSpy phaseChanged(&f.machine, &MachineState::phaseChanged);
-        if (steam)
-            f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
-        else
-            f.device.setSimulatedState(DE1::State::Espresso, DE1::SubState::Preinfusion);
+        f.device.setSimulatedState(static_cast<DE1::State>(state), static_cast<DE1::SubState>(subState));
         QTRY_VERIFY(phaseChanged.count() > 0);
         QVERIFY(!f.preparation.milkAttemptOpen());
-        if (steam) {
-            const qsizetype steamChanges = phaseChanged.count();
+        if (backToReady) {
+            const qsizetype operationChanges = phaseChanged.count();
             f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
-            QTRY_VERIFY(phaseChanged.count() > steamChanges);
+            QTRY_VERIFY(phaseChanged.count() > operationChanges);
         }
-        QCOMPARE(f.preparation.mode(), steam ? QStringLiteral("steam") : QStringLiteral("espresso"));
+        QCOMPARE(f.preparation.mode(), mode);
         QVERIFY(!f.preparation.milkAttemptOpen());
         f.captureMilk();
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);

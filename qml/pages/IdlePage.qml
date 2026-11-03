@@ -745,6 +745,16 @@ T.Page {
             _liftOrderFreeze(_openMruRow)
     }
 
+    // An operation ends the milk offer (a purge leaves this page up), so the Steam
+    // row closes with it rather than staying open unarmed.
+    Connections {
+        target: MachineState
+        function onPhaseChanged() {
+            if (MachineState.isOperating && idlePage.activePresetFunction === "steam")
+                idlePage.activePresetFunction = ""
+        }
+    }
+
     Connections {
         target: PreparationService.state
         function onModeChanged() { idlePage.preparationStateChanged() }
