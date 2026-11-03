@@ -864,7 +864,6 @@ private:
     RecipeApplyQueue m_recipeApplyQueue;
     RecipeWaterController* m_recipeWater = nullptr;
     void queueRecipeBrewWrite(std::function<void(Settings*)> write);
-    QHash<qint64, QString> m_shotWaterSpecs;
     void refreshRecipeWater(bool targetEdited = false);
     void persistWaterResult(const std::optional<ShotWaterJoin::Write>& write);
     SteamStopState m_steamStopState;

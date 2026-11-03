@@ -49,6 +49,12 @@ Acceptance scope: the user selected simulator-only validation on 2026-11-02. Ear
 - [x] 6.3 Track explicit standalone water settings in the next setup, ignoring notifications from the settings adapter itself. Verify overrides survive pouring and preset values remain independent.
 - [x] 6.4 Reject explicit invalid fixed amounts before legacy fallback, retain old name-only/zero-placeholder interpretation, and cover atomic storage rejection and editor hydration. Build native/packaged Wasm, run focused and full Qt Creator tests, and update PR #2170 with the results.
 
+## 7. Follow-up review corrections
+
+- [ ] 7.1 Save selected standalone vessel edits through the host commit path, retaining recipe ownership on rename; preserve unselected and recipe-draft save behavior. Add regressions through the shipping editor and host/controller paths.
+- [x] 7.2 Include enabled installed-profile dose recommendations in complete-candidate water validation. Cover valid zero-profile-target recipes, invalid resolved amounts, dose precedence and unavailable-context import behavior.
+- [x] 7.3 Remove the unbounded parallel water-snapshot map by sharing the existing bounded operation snapshots. Cover aborted-cycle retention and delayed history association, build native/Wasm, run focused/full tests and update PR #2170.
+
 ## Workflow follow-up
 
 - Once implementation, documentation and required review/validation are complete, archive this change with the CLI before a requested merge, following CLAUDE.md. No merge or archive is part of the design revision.
@@ -168,3 +174,12 @@ All nine findings from the read-only review have been addressed:
 - Native and packaged Wasm build `1793559335155` succeeded. Final full Qt Creator run `1793559335365`: **207 passed, zero failed/skipped/test warnings (38.58 s)**. The native linker retains three local environment warnings (two OpenSSL deployment-version mismatches and the large unwind-table warning); no compile errors were reported.
 - User-started simulator checks verified 42 g / 2.5× stayed at 105 g while an external water-only edit changed the next recipe to 3× at its stored 40 g. The 5:33 PM simulated drink recorded the frozen 2.5× and 105 g target separately from 116.0 g measured water; completion applied 120 g for the next setup. Native and matching browser legacy editors both showed fixed 150 ml. On the rebuilt navigation path, a completed standalone 150 g pour retained 150 g while its shared vessel remained 200 g.
 - Removed the owned simulated shot, both temporary recipes and the temporary vessel. Verified the original active recipe's water JSON and shot count, original preset list/selection, simulated DE1/scale and 36 g espresso / 200 g water / 85°C / 4 ml/s settings against the captured baseline. The final shared apply-settings close/reopen smoke check awaits the requested restart; it will be recorded before final PR handoff.
+
+
+## Three follow-up review fixes — 2026-11-02
+
+- Selected standalone vessel saves now use the existing revision-checked host commit. A rename preserves an active recipe's cached water plan; unselected and recipe-draft saves remain updates without live selection. The page no longer issues a second selection after an edit.
+- Complete-candidate validation captures the installed profile's normalized target and enabled dose recommendation from existing catalog metadata. Recipe and bag doses retain precedence; unknown-context static import retains its earlier behavior. Async create/update/clone regressions include a dose-less ratio recipe with a zero profile target, excessive resolved water, disabled recommendation and atomic rejection.
+- Removed MainController's parallel unbounded water-specification map. Water specifications now share the existing bounded shot-start records with review baselines, including operation-specific water association and removal on take. A regression runs 130 incomplete cycles and verifies expired snapshots are absent, late orphan association cannot recreate them, and a current operation retains/removes its own water data correctly.
+- Regression run `1793559335367` reproduced the editor operation and valid profile-dose rejection before behavior fixes. Final focused run `1793559335369`: five targets passed without test warnings. Native/packaged Wasm build `1793559335160` succeeded. Full Qt Creator run `1793559335370`: **207 passed, zero failed/skipped/test warnings (39.80 s)**. The native linker retains the same three local environment warnings.
+- Strict OpenSpec validation and whitespace checks pass. No new live acceptance is claimed: the app has not yet been restarted for this build. The native/browser selected-vessel rename check and the preceding close/reopen check remain pending that restart. No live settings, recipes, vessels, profiles or shots were changed during these fixes.

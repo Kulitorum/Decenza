@@ -1434,15 +1434,15 @@ void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts(
             }};
         var Keyboard = {commit: function() {}};
         var nameField = {text: "Cup"};
-        var root = {allowRatio: true, espressoTargetG: 40, validName: true, validAmount: true,
+        var root = {allowRatio: true, recipeEditing: true, espressoTargetG: 40, validName: true, validAmount: true,
             vesselName: "Cup", amountMode: "ratio", waterRatio: 2.7, measureMode: "weight",
             flowRate: 40, temperatureC: 90, fixedAmount: 100, presetIndex: 0,
             capturedPreset: {volume: 200, mode: "weight"}, capturedName: "Cup", capturedRevision: 4,
             preview: {valid: true, amountG: 108}, emitted: null,
             saved: function(value) {this.emitted = value;}, close: function() {}, open: function() {}};
-        var writer = {pending: false, presets: [{}], savedPresetResult: {index: 0, preset: {}},
+        var writer = {pending: false, selectedIndex: 0, presets: [{}], savedPresetResult: {index: 0, preset: {}},
             presetAt: function(index) {return index < 0 ? {} : {name: "Cup", volume: 200, mode: "weight"};},
-            submit: function(op, fields) {this.fields = fields; this.pending = true;}};
+            submit: function(op, fields) {this.operation = op; this.fields = fields; this.pending = true;}};
         %1
         %2
         root.snapshot = snapshot;
@@ -1451,7 +1451,17 @@ void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts(
         root.temperatureC = 99;
         finishSave("update", true, "");
         var frozen = root.emitted.name === "Cup" && root.emitted.temperatureC === 90
-            && root.emitted.waterToEspressoRatio === 2.7 && writer.fields.volume === 200;
+            && root.emitted.waterToEspressoRatio === 2.7 && writer.fields.volume === 200
+            && writer.operation === "update";
+        writer.pending = false;
+        root.recipeEditing = false;
+        nameField.text = "Renamed selected cup";
+        saveVessel();
+        var selectedCommit = writer.operation === "commit";
+        writer.pending = false;
+        writer.selectedIndex = 1;
+        saveVessel();
+        var unselectedUpdate = writer.operation === "update";
         writer.pending = false;
         root.allowRatio = false;
         openFor({name: "Cup", hasWater: true, amountMode: "ratio", waterToEspressoRatio: 2.7}, 0);
@@ -1459,7 +1469,8 @@ void TestCustomWidgetHtml::vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts(
         var fixedOnly = fixed.amountMode === "fixed" && fixed.volume === 108
             && fixed.waterToEspressoRatio === undefined;
         openFor({}, -1);
-        frozen && fixedOnly && root.amountMode === "fixed" && root.fixedAmount === 100;
+        frozen && selectedCommit && unselectedUpdate && fixedOnly
+            && root.amountMode === "fixed" && root.fixedAmount === 100;
     )JS").arg(methods, completed));
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     QVERIFY(result.toBool());

@@ -254,7 +254,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             [this](qint64 operation, const QString& waterSpec) {
         m_waterResultJoin.expect(operation);
         const auto spec = m_recipeWater->historySnapshot();
-        m_shotWaterSpecs.insert(operation, spec.isEmpty() ? waterSpec : compactJson(spec));
+        m_shotReviewBaselines.associateWater(operation, spec.isEmpty() ? waterSpec : compactJson(spec));
     });
     connect(m_drinkSequence, &DrinkSequenceController::waterResultReady, this,
             [this](qint64 operation, const QVariantMap& result) {
@@ -684,12 +684,20 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // override reset that follows a bag change cannot be stamped onto a
     // recipe the user is in the act of leaving (add-recipes).
     m_recipeStorage = new RecipeStorage(this);
-    m_recipeStorage->setProfileYieldSnapshotProvider([this] {
-        QHash<QString, double> targets;
-        const auto snapshot = m_profileManager->recipeProfileDisplaySnapshot();
-        for (auto it = snapshot.cbegin(); it != snapshot.cend(); ++it)
-            if (it->valid) targets.insert(it.key(), it->yieldG);
-        return targets;
+    m_recipeStorage->setProfileBrewSnapshotProvider([this] {
+        QHash<QString, WaterAmount::ProfileDefaults> defaults;
+        const auto profiles = m_profileManager->availableProfiles();
+        for (const auto& value : profiles) {
+            const auto profile = value.toMap();
+            const auto title = profile.value(QStringLiteral("title")).toString();
+            // Match findProfileByTitle's first installed title, using the
+            // catalog's already normalized target and enabled dose metadata.
+            if (!defaults.contains(title)) defaults.insert(title, {
+                profile.value(QStringLiteral("targetWeight")).toDouble(),
+                profile.value(QStringLiteral("hasRecommendedDose")).toBool()
+                    ? profile.value(QStringLiteral("recommendedDose")).toDouble() : 0.0});
+        }
+        return defaults;
     });
     m_recipeStorage->initialize(m_shotHistory->databasePath());
     // Migration 31's deferred temp-offset conversion must be queued on the
@@ -4881,9 +4889,8 @@ void MainController::onEspressoCycleStarted() {
     m_espressoOperationId = m_espressoOperationId >= MaxSafeQmlInteger
         ? 1 : m_espressoOperationId + 1;
     m_recipeWater->bindEspresso(m_espressoOperationId);
-    m_shotWaterSpecs.insert(m_espressoOperationId, currentHotWaterSpecJson());
     if (const auto setup = currentShotReviewSetup())
-        m_shotReviewBaselines.started(m_espressoOperationId, *setup);
+        m_shotReviewBaselines.started(m_espressoOperationId, *setup, currentHotWaterSpecJson());
     emit espressoOperationIdChanged();
 
     // #1161: clear the prior shot's QML-reported stop reason at cycle
@@ -5013,8 +5020,8 @@ void MainController::onEspressoCycleStarted() {
 void MainController::onShotEnded() {
     const qint64 completedOperationId = m_processingEspressoOperations.isEmpty()
         ? 0 : m_processingEspressoOperations.dequeue().operationId;
+    const QString waterSpec = m_shotReviewBaselines.waterSpec(completedOperationId);
     const auto reviewSetup = m_shotReviewBaselines.take(completedOperationId);
-    const QString waterSpec = m_shotWaterSpecs.take(completedOperationId);
     bool waterSaveDispatched = false;
     const auto discardUnsavedWater = qScopeGuard([this, completedOperationId, &waterSaveDispatched] {
         if (waterSaveDispatched) return;

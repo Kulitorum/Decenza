@@ -74,9 +74,15 @@ inline QString definitionError(const QJsonObject& water, bool hasProfile, bool r
     return {};
 }
 
+struct ProfileDefaults {
+    double targetG = 0;
+    double doseG = 0; // Zero when the profile's dose recommendation is disabled.
+};
+
 struct ValidationContext {
     bool catalogAvailable = false;
     std::optional<double> installedTargetG;
+    std::optional<double> installedDoseG = std::nullopt;
 };
 
 enum class Kind { Disabled, LegacyPreset, FixedWeight, FixedVolume, Ratio };

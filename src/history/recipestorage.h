@@ -313,8 +313,8 @@ public:
     // dbPath must be the shot history database (table lives there).
     void initialize(const QString& dbPath);
     QString databasePath() const { return m_dbPath; }
-    void setProfileYieldSnapshotProvider(std::function<QHash<QString, double>()> provider) {
-        m_profileYieldSnapshot = std::move(provider);
+    void setProfileBrewSnapshotProvider(std::function<QHash<QString, WaterAmount::ProfileDefaults>()> provider) {
+        m_profileBrewSnapshot = std::move(provider);
     }
 
     // Async queries — results via signals (QVariantList of toVariantMap()).
@@ -639,7 +639,7 @@ signals:
     void recipesChanged();
 
 private:
-    std::function<QHash<QString, double>()> m_profileYieldSnapshot;
+    std::function<QHash<QString, WaterAmount::ProfileDefaults>()> m_profileBrewSnapshot;
     void requestUpdateRecipeImpl(qint64 recipeId, const QVariantMap& fields,
                                  QObject* completionContext,
                                  RecipeUpdateCompletion completion,

@@ -90,7 +90,11 @@ DecenzaDialog {
         if (root.presetIndex >= 0) {
             fields.index = root.presetIndex
             fields.expectedName = root.capturedName
-            writer.submit("update", fields, root.capturedRevision)
+            // A selected standalone edit commits through the host's existing
+            // recipe-preserving apply path; editing a recipe remains draft-only.
+            const operation = !root.recipeEditing && root.presetIndex === writer.selectedIndex
+                ? "commit" : "update"
+            writer.submit(operation, fields, root.capturedRevision)
         } else {
             writer.add(fields.name, fields, root.capturedRevision)
         }

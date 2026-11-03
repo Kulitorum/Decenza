@@ -1085,7 +1085,6 @@ T.Page {
         onRemoved: page.applySelection()
         onSaved: function(vessel, index, preset, added) {
             if (added) page.selectVessel(index, preset)
-            else if (index === presetDraft.selectedIndex) page.selectVessel(index, preset)
         }
     }
 
