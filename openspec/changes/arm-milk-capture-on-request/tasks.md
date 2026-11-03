@@ -11,4 +11,4 @@
 - [x] 2.3 Review button: tap offers, further taps cycle the pitcher (the label shows the new name for 2 s), leaving the page withdraws
 - [x] 3.1 Controller tests: no capture without an offer, after a steam, or after the one sample; offer gated on pitcher; pitcher change keeps the offer
 - [x] 3.2 Full suite green through Qt Creator (207/207 after 2.5)
-- [ ] 3.3 Wiki manual: weight-timed steaming entry describes when milk is weighed (drafted in the local wiki clone, not yet published)
+- [x] 3.3 Wiki manual: no change — the manual already describes this flow; the fix removes capture it never documented
