@@ -1272,12 +1272,15 @@ QString recipeWaterError(QSqlDatabase& db, const Recipe& recipe, WaterAmount::Va
     if (spec.kind == WaterAmount::Kind::LegacyPreset) return {};
     if (!spec.ratio()) return WaterAmount::resolve(spec, 0).error;
     const auto bag = recipe.bagId > 0 ? CoffeeBagStorage::loadBagStatic(db, recipe.bagId) : CoffeeBag();
+    const auto embeddedProfile = QJsonDocument::fromJson(recipe.profileJson.toUtf8()).object();
     const double profileTarget = context.installedTargetG.value_or(
-        QJsonDocument::fromJson(recipe.profileJson.toUtf8()).object()
-            .value(QStringLiteral("target_weight")).toVariant().toDouble());
+        embeddedProfile.value(QStringLiteral("target_weight")).toVariant().toDouble());
+    const double profileDose = context.installedDoseG.value_or(
+        embeddedProfile.value(QStringLiteral("has_recommended_dose")).toVariant().toBool()
+            ? embeddedProfile.value(QStringLiteral("recommended_dose")).toVariant().toDouble() : 0);
     const auto yield = BrewBaseline::resolveYield(recipe.toVariantMap(), bag.yieldMode, bag.yieldValue, profileTarget);
     const double dose = recipe.doseG > 0 ? recipe.doseG
-        : bag.doseWeightG > 0 ? bag.doseWeightG : context.installedDoseG.value_or(0);
+        : bag.doseWeightG > 0 ? bag.doseWeightG : profileDose;
     const double target = YieldSpec::resolveGrams(yield.mode, yield.value, dose, profileTarget);
     const bool needsProfileFallback = !yield.isStoreAnchor()
         || (yield.mode == YieldSpec::modeRatio() && dose <= 0);

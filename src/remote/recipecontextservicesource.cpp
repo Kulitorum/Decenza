@@ -715,8 +715,11 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             if (valid) {
                 registered = true;
                 m_pendingRequestIds.insert(requestId, QStringLiteral("presetEdit"));
+                const bool wasSelected = brew->selectedWaterVessel() == index;
                 brew->removeWaterVesselPreset(index);
                 accepted = brew->waterVesselPresets().size() + 1 == presets.size();
+                if (accepted && wasSelected)
+                    emit presetApplyRequested(QStringLiteral("waterVessel"));
             }
         } else if (operation == QLatin1String("move")) {
             int from = -1, to = -1;

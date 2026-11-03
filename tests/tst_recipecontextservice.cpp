@@ -258,6 +258,23 @@ private slots:
         recipe = {{"yieldMode", "absolute"}, {"yieldValue", 40.0}};
         QCOMPARE(target(), 40.0);
     }
+    void selectedVesselRemovalRequestsHostApplication() {
+        Settings settings;
+        auto* brew = settings.brew();
+        const int originalSelection = brew->selectedWaterVessel();
+        const auto restore = qScopeGuard([&] { brew->setSelectedWaterCup(originalSelection); });
+        brew->addWaterVesselPreset("Deleted selected vessel", 200, "weight", 40, 85);
+        const int index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+        brew->setSelectedWaterCup(index);
+        NativeRecipeContextSource source(&settings, nullptr);
+        QSignalSpy apply(&source, &NativeRecipeContextSource::presetApplyRequested);
+        source.executePresetEdit(QUuid::createUuid().toString(QUuid::WithoutBraces),
+            "waterVessel", "remove", {{"index", index}, {"expectedName", "Deleted selected vessel"}},
+            source.revision());
+        QCOMPARE(apply.count(), 1);
+        QCOMPARE(apply.first().at(0).toString(), QStringLiteral("waterVessel"));
+    }
+
     void shotBaselineIsOneCorrelatedRevisionGuardedOperation()
     {
         Fixture f;

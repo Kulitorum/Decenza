@@ -49,7 +49,6 @@ DecenzaDialog {
         && fixedAmount <= (measureMode === "volume" ? 255 : 500)
 
     signal saved(var vessel, int index, var preset, bool added)
-    signal removed()
 
     function snapshot() {
         const value = {name: root.vesselName.trim(), hasWater: true, vesselName: root.vesselName.trim(),
@@ -110,7 +109,6 @@ DecenzaDialog {
                 return
             }
             if (operation === "remove") {
-                root.removed()
                 root.close()
                 return
             }

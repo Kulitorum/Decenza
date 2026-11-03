@@ -59,6 +59,7 @@ Acceptance scope: the user selected simulator-only validation on 2026-11-02. Ear
 
 - [x] 8.1 Capture water-validation defaults from typed installed ProfileInfo metadata, not the lightweight availableProfiles picker projection. Reproduce the missing dose/target through the real ProfileManager catalog and async recipe create/update/clone, rerun native/Wasm and full tests, resolve the reviewed thread, and re-archive before merge.
 - [x] 8.2 Include the enabled installed or embedded profile dose as the final fallback in the shared recipe editor's yield preview. Cover recipe/bag precedence, disabled recommendations and the shipping QML call, build native/Wasm and run focused/full tests, then resolve the review and re-archive before merging.
+- [ ] 8.3 Use the embedded profile's enabled dose during import validation and preserve recipe-owned water when its shared vessel is deleted. Reuse existing validation/application paths, add one focused regression for each finding, build native/Wasm, run the full suite, resolve the findings and re-archive before merge.
 
 ## Workflow follow-up
 
@@ -213,3 +214,10 @@ All nine findings from the read-only review have been addressed:
 - Added service regressions for 18 g / 1:2 → 36 g espresso / 90 g added water, recipe/bag precedence, disabled and embedded recommendations, and the JavaScript-to-facade call. A shipping-QML fixture verifies the wizard passes its selected profile and uses embedded data only when installed data is absent.
 - Native and matching packaged Wasm build `1793559335171` passed, including the QML diagnostics gate (361/361 clean). After the user authorized switching Qt Creator to this checkout, focused run `1793559335378` passed both changed targets, and full run `1793559335379` passed **207 tests**, zero failed/skipped/test warnings (38.02 s). The same three local linker environment warnings remain.
 - This correction changes preview inputs only. No new live acceptance is claimed for the inherited-dose edge case; its coverage is automated. The completed native/browser vessel and close/reopen checks remain recorded above, and no app data or restored settings were changed.
+
+## Embedded-dose import and vessel deletion corrections
+
+- Import validation now reads the enabled embedded dose alongside the embedded target, retaining installed-profile precedence. The reported 18 g / 1:2 / 11× case imports as a valid 396 g plan rather than being rejected using the profile's 50 g target.
+- Deleting the selected vessel requests the existing host preset-apply path. That path retains a recipe-owned water plan or applies the surviving standalone preset. Removed the redundant client-side selection callback and its unused signal.
+- Added one focused regression for each report using the existing storage/service fixtures. Qt Creator focused run `1793559335381` passed both targets; full run `1793559335382` passed **207 tests**, zero failed/skipped/test warnings (41.35 s). Native and matching packaged Wasm build `1793559335183` passed with 361/361 QML files clean and the same three local linker environment warnings.
+- These final cases have automated coverage; they were not repeated live. The original live setup remains restored, and no app data was changed during these corrections.

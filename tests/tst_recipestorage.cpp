@@ -1342,6 +1342,30 @@ private slots:
         });
     }
 
+    void embeddedProfileDoseSurvivesStaticImport() {
+        withRawDb(freshDbPath(), "embedded_dose_import_source", [this](QSqlDatabase& source) {
+            QVERIFY(RecipeStorage::ensureTableStatic(source));
+            Recipe recipe;
+            recipe.name = "Embedded dose";
+            recipe.profileTitle = "Embedded profile";
+            recipe.profileJson = R"({"target_weight":50,"has_recommended_dose":true,"recommended_dose":18})";
+            recipe.yieldMode = "ratio";
+            recipe.yieldValue = 2;
+            recipe.hotWaterJson = R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":11})";
+            const auto id = RecipeStorage::insertRecipeStatic(source, recipe, {true, 50.0, 18.0});
+            QVERIFY(id > 0);
+            withRawDb(freshDbPath(), "embedded_dose_import_destination", [&](QSqlDatabase& destination) {
+                QVERIFY(RecipeStorage::ensureTableStatic(destination));
+                QVERIFY(CoffeeBagStorage::ensureTableStatic(destination));
+                QHash<qint64, qint64> ids;
+                QVERIFY(RecipeStorage::importRecipesStatic(source, destination, false, ids, {}, {}));
+                const auto imported = RecipeStorage::loadRecipeStatic(destination, ids.value(id));
+                QCOMPARE(imported.hotWaterJson, recipe.hotWaterJson);
+                QCOMPARE(imported.doseG, 0.0);
+            });
+        });
+    }
+
     void explicitInvalidFixedWaterNeverFallsBackToPreset() {
         withRawDb(freshDbPath(), "invalid_fixed_water", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));

@@ -1082,7 +1082,6 @@ T.Page {
     WaterVesselDialog {
         id: waterVesselEditor
         allowDelete: true
-        onRemoved: page.applySelection()
         onSaved: function(vessel, index, preset, added) {
             if (added) page.selectVessel(index, preset)
         }
