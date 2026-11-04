@@ -7,6 +7,7 @@
 #include <QVariantMap>
 
 #include "../core/backgroundpresets.h"
+#include "../core/themefonts.h"
 #include "../core/graphpreferences.h"
 
 #include <cmath>
@@ -18,12 +19,7 @@ namespace SessionAppearance {
 
 inline const QStringList& fontSizeRoles()
 {
-    static const QStringList roles{
-        QStringLiteral("headingSize"), QStringLiteral("titleSize"),
-        QStringLiteral("subtitleSize"), QStringLiteral("bodySize"),
-        QStringLiteral("labelSize"), QStringLiteral("captionSize"),
-        QStringLiteral("valueSize"), QStringLiteral("timerSize")
-    };
+    static const QStringList roles = ThemeFonts::roles().keys();
     return roles;
 }
 

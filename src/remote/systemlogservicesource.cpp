@@ -214,6 +214,10 @@ void NativeSystemLogServiceSource::execute(QString id, QString operation, QVaria
     if (operation == QLatin1String("prepareLogDownload")) {
         prepareDownload(id, clientId, args.value(QStringLiteral("format")).toString()); return;
     }
+    if (operation == QLatin1String("memorySnapshot")) {
+        if (!m_memorySnapshot) { finish(id, operation, false, {}, QStringLiteral("unavailable")); return; }
+        finish(id, operation, true, m_memorySnapshot()); return;
+    }
     if (operation == QLatin1String("cancelFileOperation")) {
         const QString target = args.value(QStringLiteral("requestId")).toString();
         const bool active = target == m_activeId && clientId == m_activeClient;

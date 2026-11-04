@@ -4,6 +4,7 @@
 
 #include <QPointer>
 #include <QStringList>
+#include <QVariantMap>
 #include <QSet>
 #include <atomic>
 #include <functional>
@@ -13,8 +14,9 @@
 
 class WebDebugLogger;
 
-// Host-owned persisted log reader and one raw live log stream. Bounded history
-// snapshots and ZIP preparation run on the global worker pool.
+// Host-owned persisted log reader, one raw live log stream and the memory
+// monitor snapshot (bounded, answered inline). Bounded history snapshots and
+// ZIP preparation run on the global worker pool.
 class NativeSystemLogServiceSource final : public SystemLogStateSimpleSource
 {
     Q_OBJECT
@@ -29,6 +31,7 @@ public:
     void openClient(const QString& clientId);
     void closeClient(const QString& clientId);
     void setMemorySummaryProvider(std::function<QString()> provider) { m_memorySummary = std::move(provider); }
+    void setMemorySnapshotProvider(std::function<QVariantMap()> provider) { m_memorySnapshot = std::move(provider); }
 
 private:
     static bool validRequestId(const QString& requestId);
@@ -47,6 +50,7 @@ private:
 
     QPointer<WebDebugLogger> m_logger;
     std::function<QString()> m_memorySummary;
+    std::function<QVariantMap()> m_memorySnapshot;
     QSet<QString> m_clients;
     ServiceRequestIds m_requests;
     OpaqueFileBundleStore m_bundles;

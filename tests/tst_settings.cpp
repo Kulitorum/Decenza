@@ -3487,7 +3487,8 @@ private slots:
         QCOMPARE(d.value("captionSize"), 12);
         QCOMPARE(d.value("valueSize"), 48);
         QCOMPARE(d.value("timerSize"), 72);
-        QCOMPARE(d.size(), 8);
+        QCOMPARE(d.value("smallSize"), 10);
+        QCOMPARE(d.size(), 9);
     }
 
     void effectiveFontSizes_defaultsWhenUnset() {

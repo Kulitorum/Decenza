@@ -1017,6 +1017,7 @@ QtObject {
     readonly property font bodyFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.bodySize) })
     readonly property font labelFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.labelSize) })
     readonly property font captionFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.captionSize) })
+    readonly property font smallFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.smallSize) })
     readonly property font valueFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.valueSize), bold: true })
     readonly property font timerFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.timerSize), bold: true })
 

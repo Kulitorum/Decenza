@@ -53,13 +53,6 @@ bool ConversationSession::connected() const
     return RemoteServiceReplica::isReady(m_node, m_replica, s_conversationNode);
 }
 
-QString ConversationSession::reportUrl() const
-{
-    if (!resourceOrigin().isEmpty())
-        return resourceOrigin().resolved(QUrl(QStringLiteral("/ai-conversations"))).toString();
-    return m_state.value(QStringLiteral("reportUrl")).toString();
-}
-
 void ConversationSession::setNode(QRemoteObjectNode* node)
 {
     if (m_node == node && m_replica && (node || !m_nodeDestroyed))

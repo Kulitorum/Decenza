@@ -364,6 +364,9 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/LocalFileTransfer.qml` | 23 | native + Wasm | request-local file-picker/transfer boundary; History/Data import and restore (23) |
 | `qml/components/LocalFileDownload.qml` | 23 | native + Wasm | native Downloads/browser download boundary; exports and diagnostics (23/24) |
 | `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared host log-ticket/download lifecycle; Settings Debug (23/24) |
+| `qml/components/HostFileDownload.qml` | 23 | native + Wasm | shared prepare-then-save host export lifecycle; `SystemLogDownload.qml`, `SettingsHistoryDataTab.qml` backup download (23), `SettingsDebugTab.qml` database download (24) |
+| `qml/components/LocalTextFileReader.qml` | 23 | native + Wasm | client-local small text file read; `SettingsHomeAutomationTab.qml` MQTT CA certificate (21) |
+| `qml/components/MemoryUsageDialog.qml` | 24 / 26 | native + Wasm | presentation; `SettingsDebugTab.qml` (20/24) |
 | `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | state/style/interaction producer; `StringBrowserPage.qml` (24) |
 | `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | state/style/interaction producer; `SettingsLanguageTab.qml` (20/24) |
 | `qml/components/AccessibleButton.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
@@ -400,7 +403,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/ComparisonShotTable.qml` | 26 | native + Wasm | presentation; `ShotComparisonPage.qml` (26.3) |
 | `qml/components/ComparisonText.qml` | 26 | native + Wasm | state/style/interaction producer; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/ConversationOverlay.qml` | 24 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
-| `qml/components/ConversationArchiveDialog.qml` | 8.2 / 24 / 26 | native + Wasm | presentation; `SettingsDebugTab.qml` (20/24) |
+| `qml/components/ConversationArchiveDialog.qml` | 8.2 / 24 / 26 | native + Wasm | presentation; `SettingsDebugTab.qml` (20/24), `ConversationOverlay.qml` Report (26.3) |
 | `qml/components/CrashReportDialog.qml` | 24 / 26 | native + Wasm | presentation; `qml/main.qml` (16/24) |
 | `qml/components/CrtOverlay.qml` | 25 | native + Wasm | presentation; `qml/main.qml` (16) |
 | `qml/components/CrtShaderEffect.qml` | 25 | native + Wasm | presentation; `qml/main.qml` (16) |
@@ -585,6 +588,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/StyledComboBox.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
 | `qml/components/StyledIconButton.qml` | 26 | native + Wasm | presentation; `ProfileEditorPage.qml` (18) |
 | `qml/components/StyledSwitch.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/StyledTabBar.qml` | 20 | native + Wasm | presentation; `SettingsPage.qml`, `ThemeAdvancedDialog.qml` (20) |
 | `qml/components/StyledTabButton.qml` | 20 | native + Wasm | presentation; `SettingsPage.qml` (20) |
 | `qml/components/StyledTextField.qml` | 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
 | `qml/components/SubsystemLogView.qml` | 24 / 26 | native + Wasm | presentation; `SettingsConnectionsTab.qml` (20/24) |

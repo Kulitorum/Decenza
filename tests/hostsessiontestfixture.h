@@ -39,12 +39,7 @@ inline QVariantMap appearance(const QString& preset, bool fahrenheit, int flashP
     return {
         {QStringLiteral("darkMode"), true},
         {QStringLiteral("fahrenheit"), fahrenheit},
-        {QStringLiteral("fontSizes"), QVariantMap{
-            {QStringLiteral("headingSize"), 32}, {QStringLiteral("titleSize"), 24},
-            {QStringLiteral("subtitleSize"), 18}, {QStringLiteral("bodySize"), 18},
-            {QStringLiteral("labelSize"), 14}, {QStringLiteral("captionSize"), 12},
-            {QStringLiteral("valueSize"), 48}, {QStringLiteral("timerSize"), 72}
-        }},
+        {QStringLiteral("fontSizes"), ThemeFonts::sizeDefaultsAsVariantMap()},
         {QStringLiteral("background"), QVariantMap{
             {QStringLiteral("source"), preset.isEmpty() ? QStringLiteral("none")
                                                          : QStringLiteral("colour")},

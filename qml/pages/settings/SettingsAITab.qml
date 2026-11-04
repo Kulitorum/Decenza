@@ -1867,6 +1867,26 @@ KeyboardAwareContainer {
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+                            Text {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("settings.ai.mcp.localUrlLabel", "Local URL:") + " "
+                                    + aiTab.aiState.shotServerUrl + "/mcp"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                wrapMode: Text.WrapAnywhere
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: TranslationManager.translate("settings.ai.mcp.localUrlAccessible",
+                                    "Local MCP URL, for AI apps on this network") + ": " + aiTab.aiState.shotServerUrl + "/mcp"
+                            }
+                            AccessibleButton {
+                                text: TranslationManager.translate("common.button.copy", "Copy")
+                                accessibleName: TranslationManager.translate("settings.ai.mcp.copyLocalUrlAccessible", "Copy local MCP URL to clipboard")
+                                onClicked: aiTab.copyText(aiTab.aiState.shotServerUrl + "/mcp")
+                            }
+                        }
                     }
 
                     // MCP Status line

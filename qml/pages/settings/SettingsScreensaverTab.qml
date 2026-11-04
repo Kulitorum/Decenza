@@ -21,25 +21,75 @@ Item {
     property string mediaStagedTransferId: ""
     property bool mediaCancellationRequested: false
     readonly property bool mediaImportBusy: mediaUpload.busy || mediaImportRequestId.length > 0
+                                            || mediaQueue.length > 0
+    // Files picked together upload one at a time; the host accepts one per transfer.
+    property var mediaQueue: []
+    property int mediaBatchTotal: 0
+    property int mediaBatchAdded: 0
+    property string lastMediaFailure: ""
+    property var personalMediaItems: []
+    property string personalListRequestId: ""
+    property string personalDeleteRequestId: ""
 
+    function refreshPersonalMedia() {
+        if (!ScreensaverService.ready || personalListRequestId.length > 0) return
+        personalListRequestId = ScreensaverService.listPersonalMedia()
+    }
+
+    // success means at least one file was added; reason is the last failure, if any.
     function showMediaImportResult(success, reason) {
-        const message = success
-            ? TranslationManager.translate("settings.screensaver.mediaImported", "Media added to Decenza.")
-            : reason === "cancelled"
-                ? TranslationManager.translate("settings.screensaver.mediaImportCancelled", "Media upload cancelled.")
-                : TranslationManager.translate("settings.screensaver.mediaImportFailed", "Could not add media (%1). Check the file and connection, then try again.").arg(reason)
-        mediaImportResult.error = !success && reason !== "cancelled"
+        const partial = success && mediaBatchAdded < mediaBatchTotal
+        let message
+        if (reason === "cancelled")
+            message = mediaBatchAdded > 0
+                ? TranslationManager.translate("settings.screensaver.mediaBatchCancelled", "Upload cancelled after adding %1 of %2 files.")
+                    .arg(mediaBatchAdded).arg(mediaBatchTotal)
+                : TranslationManager.translate("settings.screensaver.mediaImportCancelled", "Media upload cancelled.")
+        else if (partial)
+            message = TranslationManager.translate("settings.screensaver.mediaBatchPartial", "Added %1 of %2 files. The others could not be added (%3).")
+                .arg(mediaBatchAdded).arg(mediaBatchTotal).arg(reason)
+        else if (success)
+            message = mediaBatchTotal > 1
+                ? TranslationManager.translate("settings.screensaver.mediaBatchImported", "Added %1 of %2 files.")
+                    .arg(mediaBatchAdded).arg(mediaBatchTotal)
+                : TranslationManager.translate("settings.screensaver.mediaImported", "Media added to Decenza.")
+        else
+            message = TranslationManager.translate("settings.screensaver.mediaImportFailed", "Could not add media (%1). Check the file and connection, then try again.").arg(reason)
+        mediaImportResult.error = partial || (!success && reason !== "cancelled")
         mediaImportResult.show(message)
         AccessibilityManager.announce(message)
     }
 
-    function acceptMediaFile(fileUrl) {
-        if (mediaImportBusy || !ScreensaverService.ready || !ImportService.ready) return false
-        return mediaUpload.start([fileUrl], "personalMediaFile", ({}))
+    function acceptMediaFiles(fileUrls) {
+        if (mediaImportBusy || !ScreensaverService.ready || !ImportService.ready || fileUrls.length === 0)
+            return false
+        mediaBatchTotal = fileUrls.length
+        mediaBatchAdded = 0
+        lastMediaFailure = ""
+        mediaQueue = Array.from(fileUrls).slice(1)
+        if (mediaUpload.start([fileUrls[0]], "personalMediaFile", ({}))) return true
+        mediaQueue = []
+        return false
+    }
+
+    // One file finished (added, failed or cancelled): start the next or report the batch.
+    function finishMediaFile(success, reason) {
+        if (success) ++mediaBatchAdded
+        else lastMediaFailure = reason
+        if (reason !== "cancelled" && mediaQueue.length > 0) {
+            const next = mediaQueue[0]
+            mediaQueue = mediaQueue.slice(1)
+            if (mediaUpload.start([next], "personalMediaFile", ({}))) return
+            lastMediaFailure = "uploadUnavailable"
+        }
+        mediaQueue = []
+        refreshPersonalMedia()
+        if (reason === "cancelled") showMediaImportResult(false, "cancelled")
+        else showMediaImportResult(mediaBatchAdded > 0, lastMediaFailure)
     }
 
     function finishMediaUpload(success, result, reason) {
-        if (!success) screensaverTab.showMediaImportResult(false, reason)
+        if (!success) screensaverTab.finishMediaFile(false, reason)
         else {
             screensaverTab.mediaStagedTransferId = result.transferId
             screensaverTab.mediaImportRequestId = ScreensaverService.importMedia(result.transferId)
@@ -53,6 +103,7 @@ Item {
     }
 
     function cancelMediaUpload() {
+        mediaQueue = []
         if (mediaUpload.busy) mediaUpload.abort("cancelled")
         if (mediaImportRequestId.length > 0 && !mediaCancellationRequested) {
             mediaCancellationRequested = true
@@ -69,10 +120,10 @@ Item {
     StatusToast { id: mediaImportResult }
     FileDialog {
         id: mediaFilePicker
-        title: TranslationManager.translate("settings.screensaver.selectMedia", "Select a photo or video")
-        fileMode: FileDialog.OpenFile
+        title: TranslationManager.translate("settings.screensaver.selectMediaFiles", "Select photos or videos")
+        fileMode: FileDialog.OpenFiles
         nameFilters: ["Photos and videos (*.jpg *.jpeg *.png *.gif *.webp *.mp4 *.webm *.mov)"]
-        onAccepted: screensaverTab.acceptMediaFile(selectedFile)
+        onAccepted: screensaverTab.acceptMediaFiles(selectedFiles)
     }
     LocalFileTransfer {
         id: mediaUpload
@@ -140,7 +191,21 @@ Item {
                 screensaverTab.mediaImportRequestId = ""
                 screensaverTab.releaseMediaTransfer()
                 screensaverTab.mediaCancellationRequested = false
-                screensaverTab.showMediaImportResult(success, reason)
+                screensaverTab.finishMediaFile(success, reason)
+                return
+            }
+            if (requestId === screensaverTab.personalListRequestId && operation === "list-personal") {
+                screensaverTab.personalListRequestId = ""
+                if (success) screensaverTab.personalMediaItems = result.items || []
+                else preferenceError.show(TranslationManager.translate("settings.screensaver.listMediaFailed",
+                    "Could not list your media (%1).").arg(reason))
+                return
+            }
+            if (requestId === screensaverTab.personalDeleteRequestId && operation === "delete-personal") {
+                screensaverTab.personalDeleteRequestId = ""
+                if (!success) preferenceError.show(TranslationManager.translate("settings.screensaver.deleteMediaFailed",
+                    "Could not delete this file (%1).").arg(reason))
+                screensaverTab.refreshPersonalMedia()
                 return
             }
             const pendingIndex = screensaverTab.pendingScreensaverOperationIds.indexOf(requestId)
@@ -1453,6 +1518,78 @@ Item {
                     value: mediaUpload.selectedFiles.length > 0
                         ? mediaUpload.offset / mediaUpload.selectedFiles[0].size : 0
                     Accessible.name: TranslationManager.translate("settings.screensaver.mediaUploadProgress", "Media upload progress")
+                }
+                AccessibleButton {
+                    id: personalListToggle
+                    property bool expanded: false
+                    SettingsSearch.title: TranslationManager.translate("settings.search.managePersonalMedia", "Manage my media")
+                    SettingsSearch.keywords: ["delete", "remove", "photo", "video", "personal"]
+                    visible: ScreensaverService.state.personalMediaCount > 0
+                    text: expanded ? TranslationManager.translate("settings.screensaver.hidePersonalMedia", "Hide my media")
+                                   : TranslationManager.translate("settings.screensaver.showPersonalMedia", "Manage my media (%1)")
+                                         .arg(ScreensaverService.state.personalMediaCount)
+                    accessibleName: text
+                    readonly property bool serviceReady: ScreensaverService.ready
+                    onServiceReadyChanged: if (serviceReady && expanded) screensaverTab.refreshPersonalMedia()
+                    onClicked: {
+                        expanded = !expanded
+                        if (expanded) screensaverTab.refreshPersonalMedia()
+                    }
+                }
+                Connections {
+                    target: ScreensaverService.state
+                    function onPersonalMediaCountChanged() {
+                        if (personalListToggle.expanded) screensaverTab.refreshPersonalMedia()
+                    }
+                }
+                Repeater {
+                    id: personalMediaList
+                    SettingsSearch.title: TranslationManager.translate("settings.search.deletePersonalMedia", "Delete one of my media files")
+                    property int confirmingId: -1
+                    model: personalListToggle.expanded && personalListToggle.visible ? screensaverTab.personalMediaItems : []
+                    delegate: RowLayout {
+                        id: mediaRow
+                        required property var modelData
+                        readonly property bool confirming: personalMediaList.confirmingId === mediaRow.modelData.id
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+                        Text {
+                            Layout.fillWidth: true
+                            text: mediaRow.modelData.filename
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                            elide: Text.ElideMiddle
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            text: mediaRow.modelData.bytes > 0
+                                ? (mediaRow.modelData.bytes / (1024 * 1024)).toFixed(1) + " MB" : ""
+                            color: Theme.textSecondaryColor
+                            font: Theme.labelFont
+                            Accessible.ignored: true
+                        }
+                        AccessibleButton {
+                            text: mediaRow.confirming
+                                ? TranslationManager.translate("settings.screensaver.confirmDeleteMedia", "Confirm delete")
+                                : TranslationManager.translate("common.delete", "Delete")
+                            accessibleName: (mediaRow.confirming
+                                ? TranslationManager.translate("settings.screensaver.confirmDeleteMediaAccessible", "Confirm deleting %1")
+                                : TranslationManager.translate("settings.screensaver.deleteMediaAccessible", "Delete %1"))
+                                .arg(mediaRow.modelData.filename)
+                            destructive: mediaRow.confirming
+                            // A delete changes the catalog, which fails an upload in flight.
+                            enabled: screensaverTab.personalDeleteRequestId.length === 0 && !screensaverTab.mediaImportBusy
+                            onClicked: {
+                                if (!mediaRow.confirming) {
+                                    personalMediaList.confirmingId = mediaRow.modelData.id
+                                    return
+                                }
+                                personalMediaList.confirmingId = -1
+                                screensaverTab.personalDeleteRequestId =
+                                    ScreensaverService.deletePersonalMedia(mediaRow.modelData.id)
+                            }
+                        }
+                    }
                 }
             }
 

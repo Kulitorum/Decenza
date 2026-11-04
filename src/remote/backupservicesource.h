@@ -48,8 +48,19 @@ private:
     void managerRestoreFailed(const QString& error);
     void prepareBackupDownload(const QString& requestId, const QString& clientId,
                                const QString& backupId);
+    // Writes the download to the destination path on a worker; returns a failure reason or empty.
+    using DownloadWriter = std::function<QString(const QString& destinationPath,
+                                                 const std::atomic_bool& cancelled)>;
+    void prepareDatabaseDownload(const QString& requestId, const QString& clientId);
+    // Finishes the request with clientUnavailable or busy and returns false when it cannot start.
+    bool admitDownloadPreparation(const QString& requestId, const QString& clientId,
+                                  const QString& operation);
+    void startDownloadPreparation(const QString& requestId, const QString& clientId,
+                                  const QString& operation, const QString& displayName,
+                                  DownloadWriter writer);
     void backupDownloadPrepared(const QString& requestId, const QString& clientId,
-                                const QString& bundleId, const QString& displayName,
+                                const QString& operation, const QString& bundleId,
+                                const QString& displayName,
                                 const std::shared_ptr<QTemporaryDir>& directory,
                                 bool success, const QString& reason);
     void releaseBundleForClient(const QString& clientId);

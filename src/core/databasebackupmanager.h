@@ -76,6 +76,9 @@ public:
     /// File contents and size are verified by the caller on its worker thread.
     QString backupPathForFilename(const QString& filename) const;
 
+    /// Path of the live shot database, or empty when storage is unavailable.
+    QString databasePath() const;
+
     bool isBackupInProgress() const { return m_backupInProgress; }
     bool isRestoreInProgress() const { return m_restoreInProgress; }
 

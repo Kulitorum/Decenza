@@ -5,6 +5,8 @@
 #include "core/databasebackupmanager.h"
 #include "core/settings_app.h"
 #include "core/fullbackuprestore.h"
+#include "core/ziparchive.h"
+#include "history/shothistorystorage.h"
 #include "importservicesource.h"
 #include "filebundlepolicy.h"
 #include "serviceoperation.h"
@@ -12,12 +14,14 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QDate>
 #include <QDir>
 #include <QMetaObject>
 #include <QMetaType>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QRunnable>
+#include <QScopeGuard>
 #include <QThreadPool>
 #include <QTemporaryDir>
 #include <utility>
@@ -211,7 +215,9 @@ void NativeBackupServiceSource::closeClient(const QString& clientId)
 {
     if (!m_clients.remove(clientId)) return;
     const bool cancelPreparation = m_activeClientId == clientId
-        && m_activeOperation == QLatin1String("prepareBackupDownload");
+        && BackupOperationPolicy::isDownloadPreparation(m_activeOperation);
+    const QString retiredOperation = cancelPreparation ? m_activeOperation
+                                                       : QStringLiteral("prepareBackupDownload");
     QString retiredId;
     if (cancelPreparation) {
         retiredId = std::exchange(m_activeId, {});
@@ -228,7 +234,7 @@ void NativeBackupServiceSource::closeClient(const QString& clientId)
         const QPointer<NativeBackupServiceSource> guard(this);
         if (cancelPreparation) publish(true);
         if (!guard) return;
-        finishFileOperation(retiredId, QStringLiteral("prepareBackupDownload"), false, {},
+        finishFileOperation(retiredId, retiredOperation, false, {},
                             QStringLiteral("cancelled"));
     }
 }
@@ -237,44 +243,119 @@ void NativeBackupServiceSource::prepareBackupDownload(const QString& requestId,
                                                       const QString& clientId,
                                                       const QString& backupId)
 {
-    if (!m_manager || !m_clients.contains(clientId)) {
-        finishFileOperation(requestId, QStringLiteral("prepareBackupDownload"), false, {},
-                            QStringLiteral("clientUnavailable"));
-        return;
-    }
-    if (!m_activeId.isEmpty() || m_backupCopyInFlight || m_bundles.hasBundle()) {
-        finishFileOperation(requestId, QStringLiteral("prepareBackupDownload"), false, {},
-                            QStringLiteral("busy"));
-        return;
-    }
+    const QString operation = QStringLiteral("prepareBackupDownload");
+    if (!admitDownloadPreparation(requestId, clientId, operation)) return;
     const QString filename = backupFilenameForId(backupId);
-    if (!BackupOperationPolicy::downloadableBackupFilename(filename)) {
-        finishFileOperation(requestId, QStringLiteral("prepareBackupDownload"), false, {},
-                            QStringLiteral("unknownBackup"));
-        return;
-    }
-    const QString sourcePath = m_manager->backupPathForFilename(filename);
+    const QString sourcePath = BackupOperationPolicy::downloadableBackupFilename(filename)
+        ? m_manager->backupPathForFilename(filename) : QString();
     if (sourcePath.isEmpty()) {
-        finishFileOperation(requestId, QStringLiteral("prepareBackupDownload"), false, {},
-                            QStringLiteral("unknownBackup"));
+        finishFileOperation(requestId, operation, false, {}, QStringLiteral("unknownBackup"));
         return;
     }
+    startDownloadPreparation(requestId, clientId, operation, QFileInfo(sourcePath).fileName(),
+        [sourcePath](const QString& destinationPath, const std::atomic_bool& cancelled) -> QString {
+            const QFileInfo before(sourcePath);
+            if (!before.isFile() || before.isSymLink() || before.size() <= 0)
+                return QStringLiteral("invalidBackupFile");
+            if (before.size() > FileBundlePolicy::MaximumBackupBytes)
+                return QStringLiteral("fileTooLarge");
+            QFile source(sourcePath);
+            QFile destination(destinationPath);
+            if (!source.open(QIODevice::ReadOnly)
+                || !destination.open(QIODevice::WriteOnly | QIODevice::NewOnly))
+                return QStringLiteral("backupReadFailed");
+            qint64 copied = 0;
+            while (!source.atEnd()) {
+                if (cancelled.load(std::memory_order_relaxed)) return QStringLiteral("cancelled");
+                const QByteArray chunk = source.read(FileBundlePolicy::MaximumChunkBytes);
+                if (chunk.isEmpty()) {
+                    if (source.error() != QFileDevice::NoError) return QStringLiteral("backupReadFailed");
+                    break;
+                }
+                copied += chunk.size();
+                if (copied > FileBundlePolicy::MaximumBackupBytes
+                    || destination.write(chunk) != chunk.size())
+                    return QStringLiteral("backupCopyFailed");
+            }
+            if (!destination.flush() || copied != before.size() || source.size() != before.size())
+                return QStringLiteral("backupChanged");
+            destination.close();
+            source.close();
+            const QFileInfo after(sourcePath);
+            if (after.isSymLink() || !after.isFile() || after.size() != before.size()
+                || after.lastModified() != before.lastModified())
+                return QStringLiteral("backupChanged");
+            return {};
+        });
+}
+
+void NativeBackupServiceSource::prepareDatabaseDownload(const QString& requestId,
+                                                        const QString& clientId)
+{
+    const QString operation = QStringLiteral("prepareDatabaseDownload");
+    if (!admitDownloadPreparation(requestId, clientId, operation)) return;
+    const QString databasePath = m_manager->databasePath();
+    if (databasePath.isEmpty()) {
+        finishFileOperation(requestId, operation, false, {}, QStringLiteral("unavailable"));
+        return;
+    }
+    const QString entryName = QFileInfo(databasePath).fileName();
+    const QString displayName = QStringLiteral("decenza_database_%1.zip")
+        .arg(QDate::currentDate().toString(QStringLiteral("yyyyMMdd")));
+    startDownloadPreparation(requestId, clientId, operation, displayName,
+        [databasePath, entryName](const QString& destinationPath,
+                                  const std::atomic_bool& cancelled) -> QString {
+            // The same snapshot a scheduled backup takes.
+            const QString snapshotPath = destinationPath + QStringLiteral(".db");
+            const auto removeSnapshot = qScopeGuard([&] { QFile::remove(snapshotPath); });
+            if (ShotHistoryStorage::createBackupStatic(databasePath, snapshotPath).isEmpty())
+                return QStringLiteral("databaseSnapshotFailed");
+            if (cancelled.load(std::memory_order_relaxed)) return QStringLiteral("cancelled");
+            QFile snapshot(snapshotPath);
+            if (!snapshot.open(QIODevice::ReadOnly)) return QStringLiteral("databaseSnapshotFailed");
+            QuaZip writer(destinationPath);
+            const bool written = writer.open(QuaZip::mdCreate)
+                && ZipArchive::addFile(writer, entryName, snapshot);
+            writer.close();
+            if (!written || writer.getZipError() != UNZ_OK) return QStringLiteral("archiveFailed");
+            return {};
+        });
+}
+
+bool NativeBackupServiceSource::admitDownloadPreparation(const QString& requestId,
+                                                         const QString& clientId,
+                                                         const QString& operation)
+{
+    QString reason;
+    if (!m_manager || !m_clients.contains(clientId))
+        reason = QStringLiteral("clientUnavailable");
+    else if (!m_activeId.isEmpty() || m_backupCopyInFlight || m_bundles.hasBundle())
+        reason = QStringLiteral("busy");
+    if (reason.isEmpty()) return true;
+    finishFileOperation(requestId, operation, false, {}, reason);
+    return false;
+}
+
+void NativeBackupServiceSource::startDownloadPreparation(const QString& requestId,
+                                                         const QString& clientId,
+                                                         const QString& operation,
+                                                         const QString& displayName,
+                                                         DownloadWriter writer)
+{
     auto directory = std::make_shared<QTemporaryDir>();
     if (!directory->isValid()) {
-        finishFileOperation(requestId, QStringLiteral("prepareBackupDownload"), false, {},
-                            QStringLiteral("storageUnavailable"));
+        finishFileOperation(requestId, operation, false, {}, QStringLiteral("storageUnavailable"));
         return;
     }
     const QString bundleId = ServiceOperation::newId().toLower();
-    const QString displayName = QFileInfo(sourcePath).fileName();
     const QString destinationPath = directory->filePath(bundleId + QStringLiteral(".zip"));
     m_activeId = requestId;
-    m_activeOperation = QStringLiteral("prepareBackupDownload");
+    m_activeOperation = operation;
     m_activeClientId = clientId;
     const QPointer<NativeBackupServiceSource> publishGuard(this);
     publish(true);
     if (!publishGuard) return;
-    if (m_activeId != requestId || m_activeOperation != QLatin1String("prepareBackupDownload")
+    if (m_activeId != requestId || m_activeOperation != operation
         || m_activeClientId != clientId || !m_clients.contains(clientId))
         return;
 
@@ -287,79 +368,36 @@ void NativeBackupServiceSource::prepareBackupDownload(const QString& requestId,
         const QPointer<NativeBackupServiceSource> guard(this);
         publish(true);
         if (!guard) return;
-        finishFileOperation(id, QStringLiteral("prepareBackupDownload"), false, {},
-                            QStringLiteral("unavailable"));
+        finishFileOperation(id, operation, false, {}, QStringLiteral("unavailable"));
         return;
     }
     auto cancelled = std::make_shared<std::atomic_bool>(false);
     m_backupCopyInFlight = true;
     m_backupCopyRequestId = requestId;
     m_backupCopyCancelled = cancelled;
+    // The global pool is joined before QCoreApplication dies (Qt 6.12,
+    // qtbase/src/corelib/kernel/qcoreapplication.cpp:959-968).
     QThreadPool::globalInstance()->start(QRunnable::create(
-        [self, completionContext, requestId, clientId, sourcePath, destinationPath,
-         bundleId, displayName, directory, cancelled] {
-            QString failure;
-            const QFileInfo before(sourcePath);
-            if (!before.isFile() || before.isSymLink() || before.size() <= 0) {
-                failure = QStringLiteral("invalidBackupFile");
-            } else if (before.size() > FileBundlePolicy::MaximumBackupBytes) {
-                failure = QStringLiteral("fileTooLarge");
-            } else {
-                QFile source(sourcePath);
-                QFile destination(destinationPath);
-                if (!source.open(QIODevice::ReadOnly)
-                    || !destination.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
-                    failure = QStringLiteral("backupReadFailed");
-                } else {
-                    qint64 copied = 0;
-                    while (!source.atEnd()) {
-                        if (cancelled->load(std::memory_order_relaxed)) {
-                            failure = QStringLiteral("cancelled");
-                            break;
-                        }
-                        const QByteArray chunk = source.read(FileBundlePolicy::MaximumChunkBytes);
-                        if (chunk.isEmpty()) {
-                            if (source.error() != QFileDevice::NoError)
-                                failure = QStringLiteral("backupReadFailed");
-                            break;
-                        }
-                        copied += chunk.size();
-                        if (copied > FileBundlePolicy::MaximumBackupBytes
-                            || destination.write(chunk) != chunk.size()) {
-                            failure = QStringLiteral("backupCopyFailed");
-                            break;
-                        }
-                    }
-                    if (failure.isEmpty() && cancelled->load(std::memory_order_relaxed))
-                        failure = QStringLiteral("cancelled");
-                    if (failure.isEmpty() && (!destination.flush()
-                        || copied != before.size() || source.size() != before.size()))
-                        failure = QStringLiteral("backupChanged");
-                    destination.close();
-                    source.close();
-                    const QFileInfo after(sourcePath);
-                    if (failure.isEmpty() && (after.isSymLink() || !after.isFile()
-                        || after.size() != before.size()
-                        || after.lastModified() != before.lastModified()))
-                        failure = QStringLiteral("backupChanged");
-                }
-            }
+        [self, completionContext, requestId, clientId, operation, destinationPath,
+         bundleId, displayName, directory, cancelled, write = std::move(writer)] {
+            QString failure = write(destinationPath, *cancelled);
+            if (failure.isEmpty() && cancelled->load(std::memory_order_relaxed))
+                failure = QStringLiteral("cancelled");
             if (!failure.isEmpty()) QFile::remove(destinationPath);
             QMetaObject::invokeMethod(completionContext,
-                [self, requestId, clientId, bundleId, displayName, directory, failure] {
+                [self, requestId, clientId, operation, bundleId, displayName, directory, failure] {
                 if (self)
-                    self->backupDownloadPrepared(requestId, clientId, bundleId, displayName, directory,
-                                                  failure.isEmpty(), failure);
+                    self->backupDownloadPrepared(requestId, clientId, operation, bundleId,
+                                                 displayName, directory, failure.isEmpty(), failure);
             }, Qt::QueuedConnection);
         }));
 }
 
 void NativeBackupServiceSource::backupDownloadPrepared(
-    const QString& requestId, const QString& clientId, const QString& bundleId,
-    const QString& displayName, const std::shared_ptr<QTemporaryDir>& directory,
-    bool success, const QString& reason)
+    const QString& requestId, const QString& clientId, const QString& operation,
+    const QString& bundleId, const QString& displayName,
+    const std::shared_ptr<QTemporaryDir>& directory, bool success, const QString& reason)
 {
-    const QString operation = QStringLiteral("prepareBackupDownload");
     if (m_backupCopyInFlight && m_backupCopyRequestId == requestId) {
         m_backupCopyInFlight = false;
         m_backupCopyRequestId.clear();
@@ -478,11 +516,17 @@ void NativeBackupServiceSource::execute(QString id, QString operation, QVariantM
                 args.value(QStringLiteral("backupId")).toString());
             return;
         }
+        if (operation == QLatin1String("prepareDatabaseDownload")) {
+            prepareDatabaseDownload(id, clientId);
+            return;
+        }
         if (operation == QLatin1String("cancelFileOperation")) {
             const QString targetId = args.value(QStringLiteral("requestId")).toString();
             const bool activeMatch = targetId == m_activeId
-                && m_activeOperation == QLatin1String("prepareBackupDownload")
+                && BackupOperationPolicy::isDownloadPreparation(m_activeOperation)
                 && m_activeClientId == clientId;
+            const QString targetOperation = activeMatch ? m_activeOperation
+                                                        : QStringLiteral("prepareBackupDownload");
             const bool bundleMatch = targetId == m_bundleRequestId
                 && m_bundleClientId == clientId && m_bundles.hasBundle();
             const bool cancelled = activeMatch || bundleMatch;
@@ -499,7 +543,7 @@ void NativeBackupServiceSource::execute(QString id, QString operation, QVariantM
                 const QPointer<NativeBackupServiceSource> guard(this);
                 if (activeMatch) publish(true);
                 if (!guard) return;
-                finishFileOperation(targetId, QStringLiteral("prepareBackupDownload"), false, {},
+                finishFileOperation(targetId, targetOperation, false, {},
                                     QStringLiteral("cancelled"));
                 if (!guard) return;
             }

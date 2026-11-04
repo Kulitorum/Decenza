@@ -341,7 +341,7 @@ DecenzaDialog {
                     Text {
                         visible: (overlay.sessionState.contextLabel || "").length > 0
                         text: overlay.sessionState.contextLabel || ""
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.captionFont.pixelSize
                         color: Theme.textSecondaryColor
                         elide: Text.ElideRight
                         Layout.fillWidth: true
@@ -367,7 +367,7 @@ DecenzaDialog {
                             id: reportText
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.report", "Report")
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
@@ -375,7 +375,10 @@ DecenzaDialog {
                         MouseArea {
                             id: reportArea
                             anchors.fill: parent
-                            onClicked: reportWebDialog.open()
+                            onClicked: {
+                                reportArchiveDialog.preferredLabel = ConversationSession.state.contextLabel || ""
+                                reportArchiveDialog.open()
+                            }
                         }
                     }
 
@@ -396,7 +399,7 @@ DecenzaDialog {
                             id: clearText
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.clear", "Clear")
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
@@ -569,7 +572,7 @@ DecenzaDialog {
                                     ? TranslationManager.translate("conversation.operationFailed",
                                         "Could not complete the conversation request. Please try again.")
                                     : "")
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.smallFont.pixelSize
                             color: Theme.errorColor
                             wrapMode: Text.WordWrap
                             maximumLineCount: 2
@@ -628,7 +631,7 @@ DecenzaDialog {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("conversation.mistakeshot",
                             "Shot excluded \u2014 too short or too little yield to be useful for dial-in")
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         color: Theme.warningColor
                     }
                 }
@@ -659,7 +662,7 @@ DecenzaDialog {
 
                         Text {
                             text: TranslationManager.translate("conversation.shotattached", "Shot data will be included with your message")
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.smallFont.pixelSize
                             color: Theme.primaryColor
                             Layout.fillWidth: true
                         }
@@ -855,7 +858,7 @@ DecenzaDialog {
             }
             Text {
                 text: trIntakeSubtitle.text
-                font.pixelSize: Theme.scaled(13)
+                font.pixelSize: Theme.captionFont.pixelSize
                 color: Theme.textSecondaryColor
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
@@ -1066,126 +1069,8 @@ DecenzaDialog {
     // means "not tapped" and should be left untouched by the host.
     signal tasteIntakeSubmitted(string tasteBalance, string tasteBody, int overall)
 
-    // Report bad advice — directs to web interface
-    DecenzaDialog {
-        id: reportWebDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(380)
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            implicitHeight: 0  // Break Material style binding loop on Dialog.implicitHeight
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                Layout.topMargin: Theme.scaled(10)
-
-                RowLayout {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.scaled(12)
-
-                    Text {
-                        text: TranslationManager.translate("aiReport.title", "Report Bad Advice")
-                        font: Theme.titleFont
-                        color: Theme.textColor
-                    }
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
-            Text {
-                text: ConversationSession.reportUrl.length > 0
-                    ? TranslationManager.translate("aiReport.webMessage",
-                        "To report issues with the AI advisor, use the AI Conversations page in the web interface to view and download the conversation, then share it with the developer.")
-                    : TranslationManager.translate("aiReport.webMessageDisabled",
-                        "Remote Access must be enabled before you can report bad advice. Go to Settings → History & Data and turn on Remote Access, then try again.")
-                font: Theme.bodyFont
-                color: Theme.textColor
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-            }
-
-            Grid {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                columns: 2
-                spacing: Theme.scaled(10)
-
-                property real buttonWidth: (width - spacing) / 2
-                property real buttonHeight: Theme.scaled(50)
-
-                AccessibleButton {
-                    id: cancelButton
-                    width: parent.buttonWidth
-                    height: parent.buttonHeight
-                    text: TranslationManager.translate("aiReport.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("aiReport.cancelAccessible", "Cancel report")
-                    onClicked: reportWebDialog.close()
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(60)
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-                    }
-                    contentItem: Text {
-                        text: cancelButton.text
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    id: openWebButton
-                    width: parent.buttonWidth
-                    height: parent.buttonHeight
-                    enabled: ConversationSession.reportUrl.length > 0
-                    opacity: enabled ? 1.0 : 0.5
-                    text: TranslationManager.translate("aiReport.openWeb", "Open")
-                    accessibleName: TranslationManager.translate("aiReport.openWebAccessible", "Open AI Conversations in web browser")
-                    onClicked: {
-                        if (ConversationSession.reportUrl.length > 0)
-                            Qt.openUrlExternally(ConversationSession.reportUrl)
-                        reportWebDialog.close()
-                    }
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(60)
-                        radius: Theme.buttonRadius
-                        color: openWebButton.down || openWebButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: openWebButton.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryContrastColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
-        }
-    }
+    // Report bad advice: the saved conversation, with Get Help to file it
+    ConversationArchiveDialog { id: reportArchiveDialog }
 
     // Unsupported beverage type dialog (used by openWithShot)
     DecenzaDialog {

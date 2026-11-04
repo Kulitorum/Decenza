@@ -50,7 +50,7 @@ DecenzaDialog {
             color: Theme.textColor
         }
 
-        TabBar {
+        StyledTabBar {
             id: editorTabs
             Layout.fillWidth: true
             StyledTabButton {
