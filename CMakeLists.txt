@@ -2400,6 +2400,8 @@ if(Python3_EXECUTABLE AND NOT ANDROID AND NOT IOS)
         DEPENDS
             ${QML_FILES}
             ${CMAKE_SOURCE_DIR}/scripts/settings_search_index.py
+            ${CMAKE_SOURCE_DIR}/scripts/check_qml_banned_types.py
+            ${CMAKE_SOURCE_DIR}/scripts/source_lexer.py
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Checking settings search covers every card and adjustment..."
         VERBATIM
