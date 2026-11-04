@@ -588,6 +588,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/StyledComboBox.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
 | `qml/components/StyledIconButton.qml` | 26 | native + Wasm | presentation; `ProfileEditorPage.qml` (18) |
 | `qml/components/StyledSwitch.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/StyledTabBar.qml` | 20 | native + Wasm | presentation; `SettingsPage.qml`, `ThemeAdvancedDialog.qml` (20) |
 | `qml/components/StyledTabButton.qml` | 20 | native + Wasm | presentation; `SettingsPage.qml` (20) |
 | `qml/components/StyledTextField.qml` | 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
 | `qml/components/SubsystemLogView.qml` | 24 / 26 | native + Wasm | presentation; `SettingsConnectionsTab.qml` (20/24) |

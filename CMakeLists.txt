@@ -1922,6 +1922,7 @@ set(QML_FILES
     qml/components/StyledComboBox.qml
     qml/components/SelectionDialog.qml
     qml/components/StyledIconButton.qml
+    qml/components/StyledTabBar.qml
     qml/components/StyledTabButton.qml
     qml/components/FlipClockScreensaver.qml
     qml/components/StrangeAttractorScreensaver.qml
