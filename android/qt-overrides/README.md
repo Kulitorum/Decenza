@@ -4,14 +4,11 @@ The release workflow substitutes `libQt6Qml_arm64-v8a.so` for the stock Qt 6.12.
 Android arm64 library. It is an optimized library with GC diagnostics, not a
 Debug ABI build. Other Qt libraries remain stock.
 
-## Pending replacement
-
-The currently checked-in binary has build ID
-`7d891152fd8098e6aa05387fe647fee609e0f866`. It contains the original diagnostic
-patch, **not yet the allocator fix or weak-scan history below**. Replacement is
-pending an Android build; Qt Creator currently rejects its automatically added
-APK packaging step before starting compilation. Do not describe this binary as
-containing the new fix until it has been rebuilt and verified.
+The checked-in library contains the allocator backport and weak-scan history.
+Its build ID is `0776b3e7e4cf5c336faf00bf7343bfcdb9f2b0e2`; checksums and
+source provenance are in `manifest.json`. It retains native symbols for crash
+analysis. Release packaging may strip its copy; CI verifies the revision and
+build ID after packaging, and the complete binary checksum before staging.
 
 ## Source and build
 
@@ -26,13 +23,13 @@ The third patch backports [QTBUG-149512](https://github.com/qt/qtdeclarative/com
 allocations made by destructors during sweep retain their allocator bitmap entries.
 Use the stock Android arm64 Qt 6.12.0 kit, NDK 27.2.12479018, Android API 28,
 shared libc++, and Release optimization (`-Oz -DNDEBUG`). Build the `Qml` target
-without installing into or modifying the SDK. Disable the IDE's APK build step
-for this library-only project. Qt Quick is unnecessary: disabling discovery of
+without installing into or modifying the SDK. The library build needs no APK step.
+Qt Quick is unnecessary: disabling discovery of
 `Qt6ShaderTools` and `Qt6ShaderToolsTools` excludes it without changing Qml features.
 Never define `DECENZA_QML_GC_TEST_HOOKS` in the Android build.
 
 Before replacing the artifact, compare exported symbols, QtQml feature headers,
-SONAME, dependencies and ELF architecture with the stock SDK. Record the artifact
+SONAME, dependencies and ELF architecture with the stock SDK. Update the artifact
 and patch SHA-256 hashes, build ID, toolchain and diagnostic revision in
 `manifest.json`; `tools/qt-gc-diagnostics/verify_artifact.py` validates that record.
 Keep the unstripped build output for subsequent native stack symbolication.
@@ -58,8 +55,11 @@ history adds bounded native allocations and lookup overhead during normal GC.
 Patched macOS QtQml passes the allocator regression and diagnostic controls
 (Qt Creator runs `1793559335430` and `1793559335431`). Lost extent slots and free
 runs inside live objects fall from 8/8 on stock Qt to 0/0 with the fix. These
-results do not prove the cause of #2179. Android runtime and crash-report checks
-remain required, including confirmation of the new startup marker.
+results do not prove the cause of #2179. The Android build
+passes binary compatibility checks: all 4,463 exports (including versions), both
+Qml feature headers, SONAME and dependencies match the stock SDK. ELF load segments
+support 16 KB pages; no test hooks are compiled in. Android runtime and crash-report
+checks remain required, including confirmation of the new startup marker.
 
 Retire the allocator backport when the selected stock Qt includes the upstream
 fix and passes the regression. Retire the diagnostic override separately when

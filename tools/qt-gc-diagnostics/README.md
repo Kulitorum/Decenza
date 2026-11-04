@@ -28,8 +28,8 @@ The app's deferred abort policy is tested separately. The Android arm64
 original library has been built with the test hooks disabled and checked against the Qt
 6.12.0 SDK's exported symbols, feature headers, SONAME and dependencies. It
 still needs Android runtime and crash-report verification before release.
-The allocator fix and weak-history additions below are source-only until the
-replacement documented in `android/qt-overrides/README.md` is complete.
+The checked-in Android replacement now includes the allocator fix and weak-history
+additions below; `android/qt-overrides/manifest.json` records its build and checksums.
 
 ## Ownership-change investigation (#2179)
 
