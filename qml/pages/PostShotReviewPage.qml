@@ -2789,9 +2789,9 @@ T.Page {
                         }
 
                         Text {
-                            text: (pa.mountingMode === "independent")
+                            text: (portalMetricsCard.pa.mountingMode === "independent")
                                   ? TranslationManager.translate("postshotreview.portal.mountIndependent", "Independent stand")
-                                  : (pa.mountingMode === "onScale")
+                                  : (portalMetricsCard.pa.mountingMode === "onScale")
                                     ? TranslationManager.translate("postshotreview.portal.mountOnScale", "On cup / scale")
                                     : TranslationManager.translate("postshotreview.portal.mountUnknown", "Mounting not recorded")
                             font: Theme.captionFont
@@ -2802,8 +2802,8 @@ T.Page {
                         Item { Layout.fillWidth: true }
 
                         Text {
-                            visible: (pa.meanTempC || 0) > 0
-                            text: (pa.meanTempC || 0).toFixed(1) + " \u00b0C"
+                            visible: (portalMetricsCard.pa.meanTempC || 0) > 0
+                            text: (portalMetricsCard.pa.meanTempC || 0).toFixed(1) + " \u00b0C"
                             font: Theme.labelFont
                             color: Theme.portalTemperatureColor
                             Accessible.ignored: true
