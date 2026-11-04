@@ -27,16 +27,17 @@ Two insertions on one line, applied left-to-right, put the second one in the wro
 the first shifted every column after it. That is how `results.length` became
 `results.shotHistoryPage.length` — undefined, `+=` made it NaN, and Shot History pagination died.
 qmllint did not catch it: `results` is a signal-handler parameter typed `var`, so nothing checks
-that chain. Sorting by descending column is the whole fix, and --verify re-checks it anyway.
+that chain. Sorting by descending column is the whole fix; --apply then runs verify() as well.
 
 WHAT IT DOES NOT HANDLE
 -----------------------
 Sites with no suggestion are reported, never guessed at. In practice they are:
-  * bare calls to the file's own functions — qmllint says "Unqualified access" with no Info block
-  * `event` in a `Keys.onXPressed: { ... }` handler — Info says `"event" is ambiguous. Use a
-    function instead: (event) => ...`, and the fix is the `function(event)` form, not a prefix
-  * ids from outer components inside a nested component — Info says to set
-    `pragma ComponentBehavior: Bound`, which is a semantic change and needs a delegate audit first
+  * bare calls to the file's own functions — "Unqualified access" with no suggestion
+  * `event` in a `Keys.onXPressed: { ... }` handler — the suggestion says `"event" is ambiguous`;
+    the fix is the `function(event)` form, not a prefix
+  * ids from outer components inside a nested component — the suggestion is to set
+    `pragma ComponentBehavior: Bound`, a semantic change needing a delegate audit first. It is
+    auto-applicable too; only the `<id>.`-at-the-column filter in collect() keeps it out
 
 Its input is the JSON `scripts/qmllint_report.py --raw-out` writes, never qmllint's text output,
 which drops findings (see that script's docstring).
@@ -85,6 +86,17 @@ def collect(findings: list[dict], lines: list[str]):
     return fixes, unsuggested
 
 
+def char_index(line: str, col: int) -> int:
+    """Python index of qmllint's 1-based column, which counts UTF-16 units: each astral character
+    (most emoji) earlier on the line would otherwise shift the insertion one place right."""
+    units = 0
+    for i, ch in enumerate(line):
+        if units >= col - 1:
+            return i
+        units += 2 if ord(ch) > 0xFFFF else 1
+    return len(line)
+
+
 def apply(path: Path, fixes: dict[int, list[tuple[int, str]]]) -> int:
     lines = path.read_text().split("\n")
     applied = 0
@@ -92,7 +104,8 @@ def apply(path: Path, fixes: dict[int, list[tuple[int, str]]]) -> int:
         s = lines[ln - 1]
         # RIGHT-TO-LEFT: every insertion shifts the columns after it.
         for col, prefix in sorted(set(items), key=lambda x: -x[0]):
-            s = s[:col - 1] + prefix + "." + s[col - 1:]
+            at = char_index(s, col)
+            s = s[:at] + prefix + "." + s[at:]
             applied += 1
         lines[ln - 1] = s
     path.write_text("\n".join(lines))
@@ -106,8 +119,13 @@ def verify(path: Path) -> int:
     in the old line, the insertion landed mid-chain. This is the check that would have caught
     results.shotHistoryPage.length, which no linter reported.
     """
-    diff = subprocess.run(["git", "diff", "--", str(path)],
-                          capture_output=True, text=True).stdout.split("\n")
+    proc = subprocess.run(["git", "diff", "--", str(path)], capture_output=True, text=True)
+    diff = proc.stdout.split("\n")
+    # An untracked file, or one outside the repo, diffs as nothing, which would verify as clean.
+    if proc.returncode != 0 or not any(l.startswith("+") and not l.startswith("+++") for l in diff):
+        print(f"  UNVERIFIED: `git diff` shows no change to {path} (untracked? outside the repo?); "
+              f"inspect the edit by hand.", file=sys.stderr)
+        return 1
     chains = lambda s: set(re.findall(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", s))
     bad, minus, i = 0, [], 0
     while i < len(diff):
@@ -155,8 +173,8 @@ def verify(path: Path) -> int:
                             pp = prev.split(".")
                             if len(pp) != len(parts):
                                 continue
-                            diff = [i for i in range(len(pp)) if pp[i] != parts[i]]
-                            if len(diff) == 1 and diff[0] > 0:
+                            differs = [k for k in range(len(pp)) if pp[k] != parts[k]]
+                            if len(differs) == 1 and differs[0] > 0:
                                 print(f"  MID-CHAIN SUBST: {prev.strip()} -> {chain}",
                                       file=sys.stderr)
                                 bad += 1
@@ -192,7 +210,10 @@ def main() -> int:
         print("  (dry run; pass --apply to write)")
         return 0
 
-    print(f"  applied {apply(path, fixes)}")
+    applied = apply(path, fixes)
+    print(f"  applied {applied}")
+    if not applied:
+        return 0
     bad = verify(path)
     print(f"  mid-chain insertions: {bad}")
     return 1 if bad else 0

@@ -475,8 +475,8 @@ target_link_libraries(decenza-web PRIVATE
 target_compile_features(decenza-web PRIVATE cxx_std_17)
 
 # The default build lints only after its QML, generated type registry, lint arguments, the gate
-# or its baseline change. Through the gate, not bare qmllint: qmllint exits 0 on findings, so a
-# bare call could only fail on a crash (scripts/qmllint_report.py says why it reads JSON).
+# or its baseline change. Through the gate: bare qmllint exits 0 on warning-level findings
+# (tools/qmllint/main.cpp:564-565), so it could never fail the build on one.
 if(TARGET decenza-web_qmllint)
     get_target_property(_lint_files decenza-web QT_QML_MODULE_QML_FILES)
     get_target_property(_lint_typeinfo decenza-web QT_QML_MODULE_TYPEINFO)
@@ -498,6 +498,9 @@ if(TARGET decenza-web_qmllint)
         VERBATIM)
     add_custom_target(webclient-qmllint ALL DEPENDS "${_lint_stamp}")
     add_dependencies(webclient-qmllint decenza-web)
+else()
+    message(WARNING "decenza-web_qmllint is unavailable, so THIS Wasm build is not checking QML "
+        "diagnostics. The native gate still lints the shared sources, against the native registry.")
 endif()
 
 qt_add_resources(decenza-web backgrounds

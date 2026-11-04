@@ -667,7 +667,10 @@ class FileScan:
             # A labelled Loader remains searchable even before its inline content is created.
             return VIEW if obj.prop("SettingsSearch.title") or not obj.children else STRUCTURAL
         cls = CLASS_OF.get(obj.type)
-        if cls is None:
+        if cls is None and obj.type in ("FileDialog", "FolderDialog"):
+            self.error(obj.line, f"bare `{obj.type}`: use `Decenza{obj.type}`, which closes the "
+                                 f"dialog before the page is destroyed (#2176)")
+        elif cls is None:
             self.error(obj.line, f"unclassified type `{obj.type}`: add it to TYPE_CLASSES in "
                                  f"scripts/settings_search_index.py")
         return cls
@@ -996,6 +999,7 @@ FIXTURES = [
     ("clean card", CARD.format(body=SWITCH.format(key="k.a", text="Alpha")), None,
      [("card", "Card", []), ("adjustment", "Alpha", [])], TAB),
     ("unclassified type", CARD.format(body="FancySlider { }"), "unclassified type `FancySlider`", None, TAB),
+    ("bare file dialog", CARD.format(body="FileDialog { }"), "use `DecenzaFileDialog`", None, TAB),
     ("card title not literal", 'SettingsCard { searchId: "c"; title: someVar }',
      "SettingsCard title must be a literal", None, TAB),
     ("missing searchId", "SettingsCard { title: " + TR.format("t", "T") + " }", "needs a literal searchId", None, TAB),
