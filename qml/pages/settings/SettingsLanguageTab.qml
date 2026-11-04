@@ -62,7 +62,7 @@ Item {
         }
     }
 
-    FileDialog {
+    DecenzaFileDialog {
         id: languageImportDialog
         title: TranslationManager.translate("language.file.select", "Select translation JSON file")
         fileMode: FileDialog.OpenFile
@@ -221,7 +221,7 @@ Item {
                                 }
                                 text: {
                                     var rows = LanguageService.snapshot.languages || []
-                                    for (var i = 0; i < rows.length; ++i) {
+                                    for (let i = 0; i < rows.length; ++i) {
                                         if (rows[i].code === langDelegate.langCode)
                                             return rows[i].percent + "%"
                                     }

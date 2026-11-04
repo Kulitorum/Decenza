@@ -35,6 +35,8 @@ T.Page {
     property int diagnosticSequence: 0
     property int diagnosticNextDelegateId: 0
     property int diagnosticNextCenterId: 0
+    // Answered by the editing row; a delegate is an untyped Item to itemAtIndex().
+    signal finishEditingRequested()
 
     // Event snapshots only: per-frame logging would change the focus/scroll timing under investigation (#2145).
     function trace(eventName: string, details: var): void {
@@ -91,7 +93,7 @@ T.Page {
         if (isEditing) {
             const row = stringListView.itemAtIndex(editingIndex)
             if (row) {
-                row.finishEditing()
+                finishEditingRequested()
             } else {
                 isEditing = false
                 editingIndex = -1
@@ -677,6 +679,14 @@ T.Page {
                         stringListView.currentIndex = idx
                     stringBrowserPage.isEditing = editing
                     stringBrowserPage.editingIndex = idx
+                }
+
+                Connections {
+                    target: stringBrowserPage
+                    function onFinishEditingRequested() {
+                        if (delegateRoot.index === stringBrowserPage.editingIndex)
+                            delegateRoot.finishEditing()
+                    }
                 }
 
                 function finishEditing() {

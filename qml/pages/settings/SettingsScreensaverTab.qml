@@ -67,7 +67,7 @@ Item {
     }
 
     StatusToast { id: mediaImportResult }
-    FileDialog {
+    DecenzaFileDialog {
         id: mediaFilePicker
         title: TranslationManager.translate("settings.screensaver.selectMedia", "Select a photo or video")
         fileMode: FileDialog.OpenFile

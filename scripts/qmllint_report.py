@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """Run qmllint over the QML tree and report what it found, per category and per file.
 
-WHY THIS EXISTS, AND WHY IT PARSES BY COLUMN
---------------------------------------------
-qmllint prints a warning line followed by the offending source line and a caret run:
-
-    Warning: qml/Theme.qml:549:52: Unqualified access [unqualified]
-        ... && LastShotChartSource.imageSource.length > 0)
-               ^^^^^^^^^^^^^^^^^^^
-
-The flagged identifier is NOT on the warning line — it has to be recovered from the source
-line at the reported column. Scoping this work started with `grep -A1 ... | grep -oE '[A-Z]\\w+'`,
-which counts every capitalised word in the context line: it reported `Theme` 1,443 times in a
-run where `Theme` was never once the flagged token, and inflated the totals by roughly 2x.
-Anything that reads this output by regex over whole lines will be wrong in the same way.
+WHY IT READS JSON, NEVER THE TEXT OUTPUT
+----------------------------------------
+qmllint's text output loses findings. Each file's messages are buffered until the file is done
+(qqmljslinter.cpp:685, flushed at :617), and a type-propagator rollback clears the WHOLE buffer
+(qqmljslogger.cpp:411-418 -> qcoloroutput.cpp:64-67), erasing findings already committed. The
+message list behind --json is untouched. On this tree (Qt 6.12.0) text printed 14 findings where
+JSON reported 72, and none the other way; four of the hidden ones were runtime ReferenceErrors
+that shipped (PostShotReviewPage `pa`, seen in #2176's log). JSON also names every file it
+linted, so coverage is checked rather than inferred. Upstream: QTBUG-151969, fixed by Gerrit
+768762 for 6.12.1; JSON stays for the coverage proof.
 
 WHAT IT IS FOR
 --------------
@@ -70,13 +67,7 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 #
 # `unqualified` is NOT eligible for this block and never will be — see the module docstring.
 # Its enforcement is per file, through the baseline's clean list and ceilings.
-# THE NUMBERS BELOW ROSE ONCE, AND ONLY FOR THIS REASON: the parser was dropping 475
-# diagnostics (~5.5% of the total). qmllint prints the hint "You first have to give the element
-# an id" WITHOUT a trailing newline, so the next diagnostic was glued onto the end of it and a
-# ^-anchored match skipped it — 471 of the 475. It was found because a grep and the parser
-# disagreed by 3 on one category. check_accounting() now makes that class of undercount a hard
-# error instead of a plausible-looking number. Correcting a measurement is the ONE reason a
-# ceiling may go up; a genuine regression is never it.
+# Correcting a measurement is the ONE reason a count here may go up; a genuine regression never is.
 #
 # These are whole-tree numbers, and there is only one kind of run: every file in the module,
 # every time. A mode that lints a subset and enforces adjusted ceilings used to exist and was
@@ -157,23 +148,6 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # verified run.)
 }
 
-# Two shapes, and getting either wrong loses diagnostics silently:
-#
-#   Warning: qml/main.qml:1057:25: Detected height on ... [Quick.layout-positioning]
-#   Warning: Type SettingsTabs not declared as singleton in qmldir ... [import]
-#
-# The location is OPTIONAL — module-level findings have no file to point at. And the category
-# is not lowercase-and-hyphens: plugin categories are dotted and capitalised. An earlier
-# `[a-z-]+` class rejected exactly those, dropping 264 diagnostics from a 12,862-line run,
-# 254 of them real "undefined behavior" layout warnings. The count looked plausible, which is
-# why it went unnoticed until two counting methods disagreed.
-# `Info` is in the severity list deliberately. qmllint reports `unused-imports` at Info level,
-# and matching only Warning|Error made 42 of them invisible to every count this script prints —
-# a whole category nobody could see, which is the failure this file exists to prevent. Severity
-# is qmllint's judgement of how loud to be, not a licence for the gate to stop looking.
-WARN_RE = re.compile(
-    r"^(?:Warning|Error|Info): (?:(?P<path>.+?):(?P<line>\d+):(?P<col>\d+): )?"
-    r"(?P<msg>.*?) \[(?P<category>[A-Za-z0-9._-]+)\]$")
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # QML that is deliberately outside the module. Kept to exactly the files that have a reason,
@@ -183,6 +157,17 @@ IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # in the Wasm build. They must not be bundled into the native Decenza module.
 NOT_IN_MODULE_BY_DESIGN: set[str] = {
     "qml/webclient/Main.qml",
+}
+
+# The two QML modules built from this tree. The Wasm one (src/webclient/CMakeLists.txt) shares
+# most sources but resolves them against its own type registry, so it is linted separately against
+# the same baseline. It stages copies at Decenza/<path under its source root>, native at
+# Decenza/qml/<path>. The registry and not-in-module checks are native-only: the Wasm registry has
+# a different singleton set, and most of the tree is legitimately absent from that module.
+MODULES = {
+    "native": {"rsp": "Decenza.rsp", "copy_roots": {"qml": "Decenza/qml"}, "whole_tree": True},
+    "wasm": {"rsp": "decenza-web.rsp",
+             "copy_roots": {"qml": "Decenza", "tools/webclient": "Decenza"}, "whole_tree": False},
 }
 
 def relative_to_repo(path: str) -> str:
@@ -239,7 +224,7 @@ def qml_files() -> list[str]:
     return sorted(p.relative_to(REPO).as_posix() for p in (REPO / "qml").rglob("*.qml"))
 
 
-def response_file(import_path: str) -> Path | None:
+def response_file(import_path: str, module: str = "native") -> Path | None:
     """Qt's own generated qmllint argument file, if the build produced one.
 
     `qt_add_qml_module` emits <build>/.rcc/qmllint/Decenza.rsp holding the exact flags and
@@ -249,7 +234,7 @@ def response_file(import_path: str) -> Path | None:
     needs. Guessing at those instead is how a lint run ends up reporting failures that are
     really just a missing flag.
     """
-    rsp = REPO / import_path / ".rcc" / "qmllint" / "Decenza.rsp"
+    rsp = REPO / import_path / ".rcc" / "qmllint" / MODULES[module]["rsp"]
     return rsp if rsp.is_file() else None
 
 
@@ -284,8 +269,8 @@ def files_from_response(rsp: Path) -> list[str]:
 
 
 def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
-        raw_out: str | None, batch: int, timeout: int) -> str:
-    """Lint the tree and return everything qmllint printed. Aborts rather than under-report.
+        raw_out: str | None, batch: int, timeout: int) -> list[dict]:
+    """Lint the tree and return qmllint's per-file JSON entries. Aborts rather than under-report.
 
     IN BATCHES, NOT ONE PROCESS, because qmllint 6.11.1 leaks on this corpus: measured at about
     30 GB/minute of Malloc Small, reaching a 313 GB physical footprint before dying at file 185
@@ -298,11 +283,8 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
     files, plausible per-category totals. Had it been --update-baseline instead of --report, 26
     never-analysed files would have been recorded as clean and locked at zero, and the gate
     would have gone on defending a number nobody measured. A linter that quietly analyses less
-    than it was asked to is worse than one that fails.
-
-    Output goes to a FILE rather than a captured pipe even when the caller did not ask for one:
-    qmllint prints nothing until it exits, so a pipe makes a run opaque, and `wc -l` on a
-    growing file is the only progress signal there is.
+    than it was asked to is worse than one that fails. load_json() now also proves every file
+    was reached, which the text output never could.
     """
     if rsp:
         flags, all_files = split_response(rsp)
@@ -313,27 +295,25 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
     # the tooling, and calling a function before its declaration hurts clarity.
     flags += ["--import-file-selector=warning", "--function-used-before-declaration=warning"]
 
-    # Coverage is now unconditional, so assert it rather than assume it. `files` and `all_files`
-    # are both derived from the response file and must name the same set: what gets ACCOUNTED and
-    # what gets LINTED. They used to be allowed to differ — a skip filtered one, and the other had
-    # to be filtered in the same breath or the file was handed to qmllint while being dropped from
-    # the counts. That mechanism is gone, and this is what replaces it: any future divergence is a
-    # coverage hole, and a file that is counted but never linted records as clean.
+    # `files` and `all_files` must name the same set: what gets ACCOUNTED and what gets LINTED.
+    # Any divergence is a coverage hole — a file counted but never linted records as clean.
     if rsp and len(all_files) != len(files):
         sys.exit(
             f"internal: the response file lists {len(all_files)} file(s) but {len(files)} are "
             f"being accounted for. These must match — a file linted but not counted is invisible, "
             f"and a file counted but not linted records as clean."
         )
-    out_path = Path(raw_out) if raw_out else Path(tempfile.gettempdir()) / "qmllint_raw.txt"
+    work = Path(tempfile.mkdtemp(prefix="qmllint_"))
+    log_path = work / "qmllint.log"  # with --json qmllint prints nothing else; kept for a failed run
     size = batch if batch > 0 else len(all_files)
     chunks = [all_files[i:i + size] for i in range(0, len(all_files), size)]
-    done = 0
-    with out_path.open("w") as fh:
+    entries: list[dict] = []
+    with log_path.open("w") as fh:
         for n, chunk in enumerate(chunks, 1):
+            json_path = work / f"batch{n}.json"
             try:
                 proc = subprocess.run(
-                    [qmllint, *flags, *chunk],
+                    [qmllint, *flags, "--json", str(json_path), *chunk],
                     cwd=REPO,
                     stdout=fh,
                     stderr=subprocess.STDOUT,
@@ -370,125 +350,90 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
                        else f"exited {proc.returncode}")
                 sys.exit(
                     f"qmllint {why} on batch {n}/{len(chunks)} ({chunk[0]} ...).\n"
-                    f"Only {done} of {len(all_files)} files were analysed, so any count from this "
-                    f"run understates the tree and any file not reached would look clean.\n"
-                    f"qmllint exits 0 even when it finds warnings, so this is a real failure — "
-                    f"check the flags in the generated .rsp and the raw output above."
+                    f"Only {len(entries)} of {len(all_files)} files were analysed, so any count "
+                    f"from this run understates the tree and any file not reached would look "
+                    f"clean.\nqmllint exits 0 even when it finds warnings, so this is a real "
+                    f"failure — check the flags in the generated .rsp and {log_path}."
                 )
-            done += len(chunk)
-            print(f"\r  linted {done}/{len(all_files)} files", end="", file=sys.stderr, flush=True)
+            entries += load_json(json_path, chunk, f"batch {n}/{len(chunks)}")
+            print(f"\r  linted {len(entries)}/{len(all_files)} files", end="", file=sys.stderr,
+                  flush=True)
     print(file=sys.stderr)
-    return out_path.read_text(errors="replace")
+    if raw_out:
+        Path(raw_out).write_text(json.dumps({"files": entries}) + "\n")
+    return entries
 
 
-# qmllint emits some hint lines WITHOUT a trailing newline, so the next diagnostic is glued onto
-# the end of them:
-#
-#     "      You first have to give the element an idWarning: /path/File.qml:67:24: Detected ..."
-#
-# A ^-anchored match then skips that diagnostic entirely. Measured on a full run of this tree:
-# 471 diagnostics lost — 458 unqualified, 11 missing-property, 2 import. It was found only
-# because a grep and the parser disagreed by 3 on one category; the size of the disagreement said
-# nothing about the size of the bug, which is why check_accounting() below now compares totals
-# rather than waiting for someone to notice. Split such lines apart before parsing rather than
-# loosening the anchor, which would risk matching "Warning:" inside a message body.
-GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
+def load_json(path: Path, expected: list[str], what: str) -> list[dict]:
+    """qmllint --json output, refused unless it has exactly one entry per expected file.
 
-# Qt 6.12's qmllint splits some messages over several lines, with the category tag alone on the
-# last: "...hoisted to function scope\nReplace it with const or let...\n [block-scope-var-declaration]".
-# Matching the tag on the severity line dropped all 86 of them, and the accounting check agreed,
-# because it looked for the same one-line shape. join_continuations() folds them back into one line.
-TAG_RE = re.compile(r" \[[A-Za-z0-9._-]+\]$")
-SEVERITY_LINE_RE = re.compile(r"^(?:Warning|Error|Info): ")
-
-# check_accounting()'s independent count: a severity prefix whose message reaches a [category]
-# tag within three more lines, before the next prefix. Untagged prefixes are hints attached to the
-# diagnostic above ("Info: Set \"pragma ComponentBehavior: Bound\"..." plus "Suggested change:"
-# lines), not findings. A prefix counts at a line start or glued onto a hint (see GLUED_RE) —
-# never after whitespace or a quote, which is how "Warning: " appears inside echoed QML source
-# (BrewDialog.qml carries one in a translation fallback).
-_PREFIX = r"(?:Warning|Error|Info): "
-_NOT_PREFIX_CHAR = r"(?:(?!" + _PREFIX + r")[^\n])"
-DIAGNOSTIC_RE = re.compile(
-    r"(?:^|(?<=[^\s\"'/]))" + _PREFIX + _NOT_PREFIX_CHAR + r"*?"
-    r"(?:\n" + _NOT_PREFIX_CHAR + r"*?){0,3} \[[A-Za-z0-9._-]+\](?=\n|$)",
-    re.MULTILINE)
-
-
-def check_accounting(output: str, parsed: int) -> None:
-    """Hard-error if the parser accounted for fewer diagnostics than the output contains.
-
-    This exists because the failure it catches has now happened twice, both times silently and
-    both times producing plausible numbers: a category regex that rejected dotted names dropped
-    264 findings, and a missing newline in qmllint's own output glued 471 more onto hint lines. A
-    parser that quietly sees less than it was given is the same defect as a linter that quietly
-    analyses fewer files than it was asked to, and this script exists to make that impossible.
+    A file the linter never reached has no entry, and would otherwise record as clean.
     """
-    # Counted WITHOUT GLUED_RE, on purpose. Applying the same split to both sides would make
-    # this check blind to the exact bug it was written for: if the splitting regex stops
-    # matching, both numbers fall together and agree. Matching the diagnostic shape anywhere in
-    # the text — not line-anchored — counts glued diagnostics whether or not the split works.
-    expected = len(DIAGNOSTIC_RE.findall(output))
-    if expected != parsed:
+    try:
+        entries = json.loads(path.read_text())["files"]
+        for e in entries:
+            for w in e["warnings"]:
+                w["id"], w["type"], w["message"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"{what}: cannot read qmllint JSON at {path} ({e!r}). No count from it can be "
+                 f"trusted; if a Qt upgrade changed the schema, update this reader.")
+    want = Counter(relative_to_repo(f) for f in expected)
+    got = Counter(relative_to_repo(e["filename"]) for e in entries)
+    if want != got:
+        missing, extra = sorted((want - got).elements()), sorted((got - want).elements())
         sys.exit(
-            f"Parser accounting mismatch: the output holds {expected} diagnostic line(s) but "
-            f"{parsed} were parsed.\nEvery count this script prints would be wrong by "
-            f"{abs(expected - parsed)}. Fix WARN_RE (or the line splitting) before trusting any "
-            f"number from this run."
+            f"{what}: qmllint's JSON does not match the files it was given — "
+            f"{len(missing)} missing, {len(extra)} unexpected.\n"
+            + "".join(f"  missing: {f}\n" for f in missing[:10])
+            + "".join(f"  unexpected: {f}\n" for f in extra[:10])
+            + "A missing file was never analysed and would record as clean."
         )
+    # FailedToOpen/FailedToParse also clear `success`, as warnings do; with no warnings to
+    # explain it, the file was not linted.
+    unexplained = [e["filename"] for e in entries if not e.get("success", True) and not e["warnings"]]
+    if unexplained:
+        sys.exit(f"{what}: qmllint reported failure with no diagnostic for "
+                 f"{', '.join(unexplained[:5])}. Those files were not linted.")
+    return entries
 
 
-def join_continuations(lines: list[str]) -> list[str]:
-    """Fold a diagnostic whose [category] tag sits on a later line back onto its severity line.
-
-    The folded lines are replaced with empty strings rather than removed, so lines[i + 1] is
-    still the echoed source line for a one-line diagnostic.
-    """
-    out = list(lines)
-    for i, line in enumerate(out):
-        if not SEVERITY_LINE_RE.match(line) or TAG_RE.search(line):
-            continue
-        for j in range(i + 1, min(i + 4, len(out))):
-            if SEVERITY_LINE_RE.match(out[j]):
-                break  # an untagged hint, not a diagnostic: leave it alone
-            if TAG_RE.search(out[j]):
-                out[i] = " ".join([line, *(l.strip() for l in out[i + 1:j + 1])])
-                out[i + 1:j + 1] = [""] * (j - i)
-                break
-    return out
+def format_finding(path: str, w: dict) -> str:
+    where = f"{path}:{w['line']}:{w.get('column', 0)}" if "line" in w else path
+    return f"{w['type'].capitalize()}: {where}: {' '.join(w['message'].split())} [{w['id']}]"
 
 
-def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter, dict[str, Counter]]:
+def parse(entries: list[dict]) -> tuple[Counter, dict[str, Counter], Counter, dict[str, Counter]]:
     """-> (per-category counts, per-file unqualified identifiers, per-file totals,
            per-file per-category counts)"""
-    lines = join_continuations(GLUED_RE.sub("\n", output).split("\n"))
     categories: Counter = Counter()
     unqualified: dict[str, Counter] = defaultdict(Counter)
     per_file: Counter = Counter()
     per_file_category: dict[str, Counter] = defaultdict(Counter)
-    for i, line in enumerate(lines):
-        m = WARN_RE.match(line)
-        if not m:
-            continue
-        category = m["category"]
-        categories[category] += 1
-
-        path, col = m["path"], m["col"]
-        if path is None:
-            # A module-level finding with no file to attribute it to (e.g. a qmldir/pragma
-            # Singleton mismatch). Still counted per category, which is where it gets enforced;
-            # there is simply no per-file ceiling to charge it against.
-            continue
-        path = relative_to_repo(path)
-        per_file[path] += 1
-        per_file_category[path][category] += 1
-        if category != "unqualified":
-            continue
-        # Recover the identifier from the source line at the reported column.
-        src = lines[i + 1] if i + 1 < len(lines) else ""
-        start = int(col) - 1
-        tok = IDENT_RE.match(src[start:]) if 0 <= start < len(src) else None
-        unqualified[path][tok.group(0) if tok else "<unparsed>"] += 1
+    sources: dict[str, list[str]] = {}
+    for entry in entries:
+        path = relative_to_repo(entry["filename"])
+        for w in entry["warnings"]:
+            category = w["id"]
+            categories[category] += 1
+            if "line" not in w:
+                # A finding with no location (e.g. a qmldir/pragma Singleton mismatch). Still
+                # counted per category, which is where it gets enforced; there is no per-file
+                # ceiling to charge it against.
+                continue
+            per_file[path] += 1
+            per_file_category[path][category] += 1
+            if category != "unqualified":
+                continue
+            # The identifier, for --report: read from the source at the reported column.
+            if path not in sources:
+                src_file = REPO / path
+                sources[path] = (src_file.read_text(errors="replace").split("\n")
+                                 if src_file.is_file() else [])
+            lines = sources[path]
+            src = lines[w["line"] - 1] if 0 < w["line"] <= len(lines) else ""
+            start = w.get("column", 0) - 1
+            tok = IDENT_RE.match(src[start:]) if 0 <= start < len(src) else None
+            unqualified[path][tok.group(0) if tok else "<unparsed>"] += 1
     return categories, unqualified, per_file, per_file_category
 
 
@@ -516,7 +461,7 @@ def build_state(categories: Counter, unqualified: dict, files: list[str]) -> dic
     }
 
 
-def check_fresh(import_path: str, files: list[str]) -> None:
+def check_fresh(import_path: str, files: list[str], module: str = "native") -> None:
     """Refuse to run against a stale build directory.
 
     qmllint resolves the `Decenza` module through <import-path>/Decenza/qmldir, whose entries
@@ -534,7 +479,8 @@ def check_fresh(import_path: str, files: list[str]) -> None:
     without changing a byte. An mtime check reported this very tree stale immediately after a
     successful build.
     """
-    module_qml = REPO / import_path / "Decenza" / "qml"
+    roots = MODULES[module]["copy_roots"]
+    module_qml = REPO / import_path / roots["qml"]
     if not module_qml.is_dir():
         sys.exit(
             f"No module QML at {module_qml}. Build first — without it qmllint cannot resolve "
@@ -542,9 +488,9 @@ def check_fresh(import_path: str, files: list[str]) -> None:
         )
     stale, missing = [], []
     for f in files:
-        rel = Path(f).relative_to("qml")
-        copy = module_qml / rel
-        if not copy.exists():
+        root = next((r for r in roots if Path(f).is_relative_to(r)), None)
+        copy = REPO / import_path / roots[root] / Path(f).relative_to(root) if root else None
+        if copy is None or not copy.exists():
             # Not in qt_add_qml_module, so there is no build copy to be stale against. Whether
             # that is intentional is the unlisted-file check's business, not this one's.
             if f not in NOT_IN_MODULE_BY_DESIGN:
@@ -772,9 +718,9 @@ def main() -> int:
     ap.add_argument("--import-path", "-I", default=None,
                     help="build directory holding the generated Decenza module "
                          "(default: autodetected)")
-    ap.add_argument("--raw-out", default=None, help="also write qmllint's raw output here")
+    ap.add_argument("--raw-out", default=None, help="also write qmllint's JSON findings here")
     ap.add_argument("--from-raw", default=None,
-                    help="parse an existing qmllint output file instead of linting. For "
+                    help="read a JSON file written by --raw-out instead of linting. For "
                          "re-reading a completed run, or a CI artifact, without paying for it "
                          "again — a full run is expensive enough that re-running it just to "
                          "re-count is worth avoiding.")
@@ -799,13 +745,19 @@ def main() -> int:
     g.add_argument("--report", action="store_true", help="human-readable summary (default)")
     g.add_argument("--check", action="store_true", help="gate: fail on regression")
     g.add_argument("--update-baseline", action="store_true")
+    ap.add_argument("--module", choices=sorted(MODULES), default="native",
+                    help="which QML module to lint (default native). The baseline is native's; "
+                         "wasm is checked against it and never writes it.")
     args = ap.parse_args()
+
+    if args.module != "native" and args.update_baseline:
+        sys.exit("--update-baseline is native-only: the baseline describes the native module, and "
+                 "the Wasm module is held to it rather than recorded into it.")
 
     if args.from_raw and args.update_baseline:
         sys.exit(
-            "--update-baseline refuses --from-raw. Captured output carries no proof of how it "
-            "was produced: a truncated capture promotes every unreached file into the clean "
-            "list and locks it at zero, and the staleness check cannot run against it either. "
+            "--update-baseline refuses --from-raw. The staleness checks cannot run against "
+            "captured output, so nothing proves it describes this source. "
             "Regenerate the baseline from a live run."
         )
     if args.allow_stale and args.update_baseline:
@@ -822,21 +774,28 @@ def main() -> int:
     if not on_disk:
         sys.exit("No QML files found.")
     import_path = args.import_path or default_import_path()
+    spec = MODULES[args.module]
+    rsp = response_file(import_path, args.module)
+    if not rsp and not spec["whole_tree"]:
+        sys.exit(f"No {import_path}/.rcc/qmllint/{spec['rsp']}. Build the {args.module} module first.")
+    # The module's own file list when it has one; the Wasm module lints a subset of the tree.
+    module_files = files_from_response(rsp) if rsp else on_disk
     # --from-raw analyses output captured earlier, so the build directory's state now says
     # nothing about it. Checking freshness would be checking the wrong thing.
     if not args.allow_stale and not args.from_raw:
-        check_fresh(import_path, on_disk)
-        check_registry_fresh(import_path)
+        check_fresh(import_path, on_disk if spec["whole_tree"] else module_files, args.module)
+        if spec["whole_tree"]:
+            check_registry_fresh(import_path)
 
-    rsp = response_file(import_path)
     unlisted: list[str] = []
     if rsp:
-        files = files_from_response(rsp)
+        files = module_files
         # A .qml on disk that the module does not list is invisible to qmllint AND missing from
         # the app's resources at runtime — CLAUDE.md calls out forgetting the CMakeLists entry as
         # a known footgun. Without this the file would silently count as clean, so the gate would
         # quietly reward the mistake.
-        unlisted = sorted(set(on_disk) - set(files) - NOT_IN_MODULE_BY_DESIGN)
+        if spec["whole_tree"]:
+            unlisted = sorted(set(on_disk) - set(files) - NOT_IN_MODULE_BY_DESIGN)
         if unlisted:
             print(
                 f"warning: {len(unlisted)} QML file(s) exist but are not in the qt_add_qml_module "
@@ -852,38 +811,13 @@ def main() -> int:
             file=sys.stderr,
         )
     if args.from_raw:
-        output = Path(args.from_raw).read_text(errors="replace")
-        # Guard the exact failure that produced this option: output covering only part of the
-        # tree parses perfectly and reports every unreached file as clean. Warnings alone cannot
-        # prove coverage — a genuinely clean file prints nothing — so the honest check is that
-        # the LAST file of the input list was reached. Files after the truncation point are the
-        # ones at risk, and the last one is always among them.
-        # `m["path"]` is None for module-level findings (the location group is optional), and
-        # this tree produces those — 22 [import] warnings have no file to point at.
-        reported = {relative_to_repo(m["path"]) for m in
-                    (WARN_RE.match(ln) for ln in output.split("\n")) if m and m["path"]}
-        analysed = sorted(reported & set(files))
-        if files and not analysed:
-            sys.exit(
-                f"{args.from_raw} contains no diagnostic for any file in this module. A capture "
-                f"that intersects none of the expected files cannot be checked against — every "
-                f"file would record as clean and the gate would pass on nothing. Check it is the "
-                f"right file, from this checkout, and not truncated before its first diagnostic."
-            )
-        if analysed and files and analysed[-1] != files[-1]:
-            tail = files[files.index(analysed[-1]) + 1:]
-            print(
-                f"warning: {args.from_raw} reports nothing after {analysed[-1]}, and "
-                f"{len(tail)} file(s) follow it in the module's own order. If that run was "
-                f"truncated rather than those files being clean, they will be recorded as "
-                f"clean here.",
-                file=sys.stderr,
-            )
+        # Exactly one entry per module file, or it refuses: a truncated capture would otherwise
+        # record every unreached file as clean.
+        entries = load_json(Path(args.from_raw), files, args.from_raw)
     else:
-        output = run(args.qmllint or find_qmllint(), import_path, files, rsp,
-                     args.raw_out, args.batch, args.timeout)
-    categories, unqualified, _, _ = parse(output)
-    check_accounting(output, sum(categories.values()))
+        entries = run(args.qmllint or find_qmllint(), import_path, files, rsp,
+                      args.raw_out, args.batch, args.timeout)
+    categories, unqualified, _, _ = parse(entries)
     state = build_state(categories, unqualified, files)
 
     if args.check:
@@ -892,10 +826,9 @@ def main() -> int:
             # Keep the actual file/line findings in Qt Creator's build output;
             # category totals alone force another lint run to locate a defect.
             print("\nQML findings:")
-            for line in join_continuations(GLUED_RE.sub("\n", output).split("\n")):
-                finding = WARN_RE.match(line)
-                if finding:
-                    print(line)
+            for entry in entries:
+                for w in entry["warnings"]:
+                    print(format_finding(relative_to_repo(entry["filename"]), w))
         return result
     if args.update_baseline:
         # A ceiling that RISES is the one edit this file exists to resist, and until now

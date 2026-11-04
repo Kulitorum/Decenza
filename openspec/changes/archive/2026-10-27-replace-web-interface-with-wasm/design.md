@@ -411,6 +411,8 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/De1CommunicationErrorDialog.qml` | 16 | native + Wasm | presentation; `qml/main.qml` (16) |
 | `qml/components/DecentUploadStatus.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/DecenzaDialog.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/DecenzaFileDialog.qml` | 18 / 23 / 25 | native + Wasm | presentation; closes on destruction (#2176); `ProfileImportPage.qml` (18), `SettingsHistoryDataTab.qml` (23), `SettingsScreensaverTab.qml` (25), settings Debug/Language tabs |
+| `qml/components/DecenzaFolderDialog.qml` | 18 / 23 | native + Wasm | presentation; closes on destruction (#2176); `ProfileImportPage.qml` (18), `SettingsHistoryDataTab.qml` (23) |
 | `qml/components/DrinkType.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
 | `qml/components/DrinkTypeCatalog.js` | 26 | native + Wasm | policy/data producer; `AutoFavoritesPage.qml` (18) |
 | `qml/components/EquipmentCard.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |

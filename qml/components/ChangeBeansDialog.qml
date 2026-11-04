@@ -743,7 +743,7 @@ DecenzaDialog {
             root._awaitingUpdate = false
             root._pendingUpdateBagId = -1
             if (!success) {
-                var failureReason = root._pendingUpdateReason || refusal
+                let failureReason = root._pendingUpdateReason || refusal
                 root.errorMessage = failureReason === "conflict"
                     ? TranslationManager.translate("changebeans.form.updateConflict",
                         "This bag changed elsewhere. Reopen it and review the latest values.")
@@ -1026,7 +1026,7 @@ DecenzaDialog {
             // Only what was changed here since the dialog opened, so a field
             // Visualizer (or another screen) changed meanwhile is not written back
             // over by the form's older copy. A link change replaces the blob whole.
-            var changed = BagService.editChanges(_openedFields, fields, fLinkDirty)
+            let changed = BagService.editChanges(_openedFields, fields, fLinkDirty)
             // A link change fixes the whole bag: propagate the (new or
             // cleared) canonical link onto every shot referencing it.
             if (Object.keys(changed).length > 0) {

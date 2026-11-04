@@ -1927,6 +1927,8 @@ set(QML_FILES
     qml/components/DatePickerDialog.qml
     qml/components/SwipeableArea.qml
     qml/components/DecenzaDialog.qml
+    qml/components/DecenzaFileDialog.qml
+    qml/components/DecenzaFolderDialog.qml
     qml/components/CrashReportDialog.qml
     qml/components/GlobalSupportDialogs.qml
     qml/components/VisualizerDuplicateResolver.qml

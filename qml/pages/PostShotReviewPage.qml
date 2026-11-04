@@ -1403,14 +1403,14 @@ T.Page {
         var state = captureEditState()
         var nb = clonePersistedShot(editShotData)
         var shownChanged = false
-        for (var i = 0; i < _fieldSpecs.length; ++i) {
-            var spec = _fieldSpecs[i]
+        for (let i = 0; i < _fieldSpecs.length; ++i) {
+            let spec = _fieldSpecs[i]
             if (!spec.pulled || written[spec.meta] === undefined) continue
-            var before = _asField(spec, previous[spec.meta])
-            var after = _asField(spec, written[spec.meta])
-            var baseline = _stored(spec, editShotData)
+            let before = _asField(spec, previous[spec.meta])
+            let after = _asField(spec, written[spec.meta])
+            let baseline = _stored(spec, editShotData)
             // The dose field shows the DYE dose when the shot has none.
-            var shown = (spec.meta === "doseWeight" && !(baseline > 0))
+            let shown = (spec.meta === "doseWeight" && !(baseline > 0))
                 ? Number(RecipeContext.preferences.dyeBeanWeight || 0) : baseline
             nb[spec.shot] = written[spec.meta]
             if (state[spec.state] === shown) {
@@ -1421,8 +1421,8 @@ T.Page {
                 state[spec.state] = after
                 shownChanged = true
             }
-            var frames = _undoStack.concat([_committedState])
-            for (var f = 0; f < frames.length; ++f)
+            let frames = _undoStack.concat([_committedState])
+            for (let f = 0; f < frames.length; ++f)
                 if (frames[f][spec.state] === before) frames[f][spec.state] = after
         }
         editShotData = nb
@@ -1487,8 +1487,8 @@ T.Page {
         // that write carried (the baseline already advanced), so it sends all.
         var state = captureEditState()
         var metadata = {}
-        for (var i = 0; i < _fieldSpecs.length; ++i) {
-            var spec = _fieldSpecs[i]
+        for (let i = 0; i < _fieldSpecs.length; ++i) {
+            let spec = _fieldSpecs[i]
             if (_saveFailed || state[spec.state] !== _stored(spec, editShotData))
                 metadata[spec.meta] = state[spec.state]
         }
@@ -1689,7 +1689,7 @@ T.Page {
             id: pageColumn
             width: flickable.width
             spacing: Theme.scaled(6)
-            transform: Translate { id: contentSlide; x: 0 }
+            transform: Translate { id: contentSlide }
 
             // Header: Profile (Temp) + date + quality badges + sparkle + Read TDS + Basic/Advanced toggle
             RowLayout {
@@ -1848,8 +1848,8 @@ T.Page {
                         if (!SteamService.ready) return []
                         const presets = SteamService.state.steamPitcherPresets
                         var out = []
-                        for (var i = 0; i < presets.length; ++i) {
-                            var p = presets[i]
+                        for (let i = 0; i < presets.length; ++i) {
+                            let p = presets[i]
                             if (p && !p.disabled && (p.pitcherWeightG ?? 0) > 0)
                                 out.push(i)
                         }
@@ -2693,24 +2693,24 @@ T.Page {
                     if (!pa.measurementReliable) return TranslationManager.translate(
                         "postshotreview.portal.excludedCalibration", "Excluded from calibration: measurement warnings. Estimates, when available, are uncertain.")
                     if (pa.calibrated) {
-                        var modelStr = pa.calibrationMode === "refractometer_affine"
+                        let modelStr = pa.calibrationMode === "refractometer_affine"
                             ? TranslationManager.translate("portal.calibration.affineFormula", "TDS% ≈ %1 × EC %2 %3")
                                 .arg(Number(pa.calibrationAffineA || 0).toFixed(4))
                                 .arg((pa.calibrationAffineB || 0) >= 0 ? "+" : "−")
                                 .arg(Math.abs(pa.calibrationAffineB || 0).toFixed(2))
                             : TranslationManager.translate("portal.calibration.factor", "k = %1")
                                 .arg(Number(pa.calibrationSlopeK || 0).toFixed(4))
-                        var scope = pa.calibrationScope === "bag"
+                        let scope = pa.calibrationScope === "bag"
                             ? TranslationManager.translate("postshotreview.portal.scopeBag", "bag")
                             : TranslationManager.translate("postshotreview.portal.scopeBean", "coffee")
-                        var nStr = TranslationManager.translate("postshotreview.portal.referenceCount", "%1 shots (%2)")
+                        let nStr = TranslationManager.translate("postshotreview.portal.referenceCount", "%1 shots (%2)")
                             .arg(pa.calibrationShotCount || 0).arg(scope)
-                        var loocv = pa.calibrationHasCrossValidation
+                        let loocv = pa.calibrationHasCrossValidation
                             ? " · " + TranslationManager.translate("postshotreview.portal.loocv", "LOOCV MAE %1%")
                                 .arg(Number(pa.calibrationLoocvMaeTdsPct).toFixed(2)) : ""
-                        var resStr = ""
+                        let resStr = ""
                         if (pa.validationResidualTdsPct !== undefined) {
-                            var diff = pa.validationResidualTdsPct
+                            let diff = pa.validationResidualTdsPct
                             resStr = " · " + TranslationManager.translate("postshotreview.portal.residual", "ΔTDS vs refr. %1%")
                                 .arg((diff >= 0 ? "+" : "") + diff.toFixed(2))
                         }
@@ -2775,9 +2775,9 @@ T.Page {
                         }
 
                         Text {
-                            text: (pa.mountingMode === "independent")
+                            text: (portalMetricsCard.pa.mountingMode === "independent")
                                   ? TranslationManager.translate("postshotreview.portal.mountIndependent", "Independent stand")
-                                  : (pa.mountingMode === "onScale")
+                                  : (portalMetricsCard.pa.mountingMode === "onScale")
                                     ? TranslationManager.translate("postshotreview.portal.mountOnScale", "On cup / scale")
                                     : TranslationManager.translate("postshotreview.portal.mountUnknown", "Mounting not recorded")
                             font: Theme.captionFont
@@ -2788,8 +2788,8 @@ T.Page {
                         Item { Layout.fillWidth: true }
 
                         Text {
-                            visible: (pa.meanTempC || 0) > 0
-                            text: (pa.meanTempC || 0).toFixed(1) + " \u00b0C"
+                            visible: (portalMetricsCard.pa.meanTempC || 0) > 0
+                            text: (portalMetricsCard.pa.meanTempC || 0).toFixed(1) + " \u00b0C"
                             font: Theme.labelFont
                             color: Theme.portalTemperatureColor
                             Accessible.ignored: true
@@ -2885,7 +2885,7 @@ T.Page {
                         text: portalMetricsCard.ratioAdviceText
                         // `font.families:` is not assignable as a grouped property (fails at load).
                         font: Qt.font({
-                            families: Theme.captionFont.families,
+                            families: Theme.fontFamilies,
                             pixelSize: Theme.captionFont.pixelSize,
                             bold: portalMetricsCard.lowTailConcentration || portalMetricsCard.suggestsLongerRatio
                         })
@@ -2901,7 +2901,7 @@ T.Page {
                         textFormat: Text.StyledText
                         text: Theme.replaceEmojiWithImg("\u26a0 " + portalMetricsCard.uncertaintySummary, font.pixelSize)
                         font: Qt.font({
-                            families: Theme.captionFont.families,
+                            families: Theme.fontFamilies,
                             pixelSize: Theme.captionFont.pixelSize,
                             bold: true
                         })

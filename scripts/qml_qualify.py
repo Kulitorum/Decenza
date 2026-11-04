@@ -9,23 +9,17 @@ decide is how you get this, from a real bulk pass:
     ValueInput.qml has `gear` on a delegate. The pass prefixed it with the component root,
     which has no such member, so every gear tap assigned `undefined`.
 
-qmllint already knows the answer and prints it. For an unqualified access it emits (this is real
-output from the PATCHED qmllint, taken AFTER the delegate gained `required property var modelData`
-— that matters: against an injected context property qmllint offers no id at all, because there is
-no id to offer. The suggestion appears once the role is a declared member of a delegate with an id):
+qmllint already knows the answer. For an unqualified access whose owner has an id, its JSON
+finding carries an auto-applicable edit naming that id (shown trimmed):
 
-    Warning: .../FlushPage.qml:142:35: Unqualified access [unqualified]
-                                text: modelData.name
-                                      ^^^^^^^^^
-    Info: modelData is a member of a parent element.
-          You can qualify the access with its id to avoid this warning.
+    {"id": "unqualified", "line": 142, "column": 35, "suggestions": [{"isAutoApplicable": true,
+     "documentEdits": [{"location": {"line": 142, "column": 35, "length": 0},
+                        "replacement": "livePresetDelegate."}]}]}
 
-                                text: livePresetDelegate.modelData.name
-                                      ^^^^^^^^^^^^^^^^^^^
-
-That last block is the corrected line, with the RIGHT id — `livePresetDelegate`, not the page
-root, and not the other delegate in the same file. This script reads that suggestion and applies
-it. It never infers a prefix.
+That is the RIGHT id — `livePresetDelegate`, not the page root, and not the other delegate in the
+same file. (Against an injected context property qmllint offers no id at all, because there is
+none; declare `required property var modelData` on a delegate with an id first.) This script
+applies that edit. It never infers a prefix.
 
 THE OTHER RULE: INSERT RIGHT-TO-LEFT
 ------------------------------------
@@ -44,55 +38,49 @@ Sites with no suggestion are reported, never guessed at. In practice they are:
   * ids from outer components inside a nested component — Info says to set
     `pragma ComponentBehavior: Bound`, which is a semantic change and needs a delegate audit first
 
-It DOES now handle qmllint's glued-diagnostic bug (see GLUED_RE) — that one used to lose sites
-silently rather than report them, which is the worst possible behaviour for a tool whose entire
-claim is "never guesses". An accounting check in main() refuses to edit if the parsed count and
-qmllint's own count for the file disagree, so a future format change fails loudly instead.
+Its input is the JSON `scripts/qmllint_report.py --raw-out` writes, never qmllint's text output,
+which drops findings (see that script's docstring).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-WARN = re.compile(r"^Warning: (\S+?):(\d+):(\d+): Unqualified access \[unqualified\]$")
-QUALIFY_HINT = "qualify the access with its id"
-
-# qmllint 6.11.1 omits the trailing newline after some hint lines ("You first have to give the
-# element an id"), so the NEXT diagnostic is glued onto the end of that line and matches nothing.
-# Measured on this tree: RecipeWizardPage.qml has 144 unqualified sites and 20 of them vanish
-# without this split — not reported as unsuggested, silently absent. scripts/qmllint_report.py
-# carries the same regex for the same reason; it splits in memory and never writes the repaired
-# text back, so anything reading its --raw-out (i.e. this script) must split again itself.
-GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
-
-
-def read_raw(path: Path) -> list[str]:
-    """Split qmllint output into lines, repairing glued diagnostics first (see GLUED_RE)."""
-    return GLUED_RE.sub("\n", path.read_text(errors="replace")).split("\n")
+def read_findings(path: Path, target: Path) -> list[dict]:
+    """The `unqualified` findings for `target` from a qmllint_report.py --raw-out JSON file."""
+    entries = json.loads(path.read_text())["files"]
+    # Match on the full path, not the basename: two files can share a name.
+    mine = [e for e in entries if Path(e["filename"]).resolve() == target.resolve()]
+    if len(mine) != 1:
+        sys.exit(f"{path} has {len(mine)} entries for {target}; it must have exactly one. "
+                 f"Re-run qmllint_report.py --raw-out over a tree that includes it.")
+    return [w for w in mine[0]["warnings"] if w["id"] == "unqualified"]
 
 
-def collect(raw: list[str], target: str):
-    """Return (fixes, unsuggested) for one file. fixes maps line -> [(col, prefix)]."""
+def collect(findings: list[dict], lines: list[str]):
+    """Return (fixes, unsuggested). fixes maps line -> [(col, prefix)]."""
     fixes: dict[int, list[tuple[int, str]]] = defaultdict(list)
     unsuggested: list[tuple[int, str, str]] = []
-    for i, line in enumerate(raw):
-        m = WARN.match(line)
-        if not m or not m.group(1).endswith(target):
+    for w in findings:
+        ln, col = w["line"], w["column"]
+        edits = [(s_, e) for s_ in w["suggestions"] if s_.get("isAutoApplicable")
+                 for e in s_["documentEdits"]]
+        # Only a pure insertion of `<id>.` at the flagged column is a qualification.
+        prefix = [e["replacement"][:-1] for _, e in edits
+                  if e["location"]["length"] == 0 and e["location"]["line"] == ln
+                  and e["location"]["column"] == col
+                  and re.fullmatch(r"[A-Za-z_]\w*\.", e["replacement"])]
+        if len(prefix) == 1:
+            fixes[ln].append((col, prefix[0]))
             continue
-        ln, col = int(m.group(2)), int(m.group(3))
-        src = raw[i + 1] if i + 1 < len(raw) else ""
-        if i + 4 < len(raw) and QUALIFY_HINT in raw[i + 4]:
-            # raw[i+6] is the corrected line; the prefix is what now sits at the same column.
-            prefix = re.match(r"([A-Za-z_]\w*)\.", raw[i + 6][col - 1:])
-            if prefix:
-                fixes[ln].append((col, prefix.group(1)))
-                continue
-        why = raw[i + 3].strip() if i + 3 < len(raw) else ""
+        src = lines[ln - 1] if 0 < ln <= len(lines) else ""
+        why = " ".join(w["suggestions"][0]["message"].split()) if w["suggestions"] else "no suggestion"
         unsuggested.append((ln, src.strip()[:70], why[:70]))
     return fixes, unsuggested
 
@@ -184,24 +172,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("file", help="QML file to qualify, repo-relative")
-    ap.add_argument("--raw", required=True, help="saved qmllint output covering this file")
+    ap.add_argument("--raw", required=True,
+                    help="JSON from scripts/qmllint_report.py --raw-out covering this file")
     ap.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     args = ap.parse_args()
 
     path = Path(args.file)
-    raw = read_raw(Path(args.raw))
-    # Match on the full relative path, not the basename: two files can share a name.
-    fixes, unsuggested = collect(raw, "/" + str(path))
-
-    # Accounting, because the failure mode above is SILENT. Count the file's unqualified
-    # diagnostics independently of the parse and refuse to run if the two disagree.
-    reported = sum(1 for line in raw
-                   if (m := WARN.match(line)) and m.group(1).endswith("/" + path.name))
-    seen = sum(len(v) for v in fixes.values()) + len(unsuggested)
-    if seen != reported:
-        print(f"ACCOUNTING MISMATCH: parsed {seen} but qmllint reported {reported} for {path}. "
-              f"Refusing to edit — the parse is losing diagnostics.", file=sys.stderr)
-        return 1
+    fixes, unsuggested = collect(read_findings(Path(args.raw), path),
+                                 path.read_text().split("\n"))
 
     total = sum(len(v) for v in fixes.values())
     prefixes = Counter(p for v in fixes.values() for _, p in v)

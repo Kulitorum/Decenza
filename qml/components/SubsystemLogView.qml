@@ -129,7 +129,7 @@ Rectangle {
                 root._lines = lines
             var pending = root._pendingLines
             root._pendingLines = []
-            for (var i = 0; i < pending.length; ++i)
+            for (let i = 0; i < pending.length; ++i)
                 root._consumeLine(pending[i].line, pending[i].sequence)
             root._render()
         }
@@ -141,7 +141,7 @@ Rectangle {
             // until the returned sequence tells us which side of the clear they
             // belong on.
             if (root._clearing || !root._filled) {
-                var pending = root._pendingLines
+                let pending = root._pendingLines
                 pending.push({ line: line, sequence: sequence })
                 if (pending.length > root._maxPendingLines)
                     pending.shift()
@@ -161,10 +161,10 @@ Rectangle {
             if (success) {
                 root._shownThrough = sequence
                 root._lines = []
-                for (var i = 0; i < pending.length; ++i)
+                for (let i = 0; i < pending.length; ++i)
                     root._consumeLine(pending[i].line, pending[i].sequence)
             } else {
-                for (var j = 0; j < pending.length; ++j)
+                for (let j = 0; j < pending.length; ++j)
                     root._shownThrough = Math.max(root._shownThrough,
                                                   pending[j].sequence)
                 if (reason.length > 0)

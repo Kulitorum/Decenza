@@ -99,7 +99,7 @@ SharedDecenzaDialog {
         }
         var canonical = raw("puckPrepCanonical")
         if (pkg && pkg.puckPrepCanonical === undefined) {
-            var enabled = []
+            let enabled = []
             for (let i = 0; i < puckPrepRows.length; ++i)
                 if (pkg["puckPrep_" + puckPrepRows[i].key]) enabled.push(puckPrepRows[i].key)
             enabled.sort()

@@ -437,7 +437,7 @@ TYPE_CLASSES = {
     },
     VIEW: {"Repeater", "ListView"},
     OVERLAY: {
-        "DecenzaDialog", "Dialog", "Popup", "FileDialog", "FolderDialog", "DatePickerDialog",
+        "DecenzaDialog", "Dialog", "Popup", "DecenzaFileDialog", "DecenzaFolderDialog", "DatePickerDialog",
         "SelectionDialog", "DeviceMigrationDialog", "CustomEditorPopup", "ScreensaverEditorPopup",
         "ZoneOptionsPopup", "ReadoutOptionsPopup", "SleepEditorPopup", "BackgroundPickerDialog",
         "ThemeAdvancedDialog", "ConversationArchiveDialog", "UnsavedChangesDialog",

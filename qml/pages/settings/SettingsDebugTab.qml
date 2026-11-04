@@ -103,7 +103,7 @@ Item {
         AccessibilityManager.announce(message, !success)
     }
 
-    FileDialog {
+    DecenzaFileDialog {
         id: localApkPicker
         title: TranslationManager.translate("update.localApk.select", "Select APK file")
         fileMode: FileDialog.OpenFile
@@ -611,7 +611,7 @@ Item {
             }
 
 
-            FileDialog {
+            DecenzaFileDialog {
                 id: profileSourceDialog
                 title: TranslationManager.translate("settings.debug.selectTclProfiles", "Select DE1 app .tcl profiles")
                 fileMode: FileDialog.OpenFiles
@@ -836,7 +836,7 @@ Item {
                 }
             }
 
-            FileDialog {
+            DecenzaFileDialog {
                 id: importDialog
                 title: mergeMode ? TranslationManager.translate("settings.debug.selectMerge", "Select database to merge") : TranslationManager.translate("settings.debug.selectReplace", "Select database to replace with")
                 nameFilters: ["SQLite databases (*.db *.sqlite *.sqlite3)", "All files (*)"]
