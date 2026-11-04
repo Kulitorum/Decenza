@@ -14,8 +14,9 @@
 
 class WebDebugLogger;
 
-// Host-owned persisted log reader and one raw live log stream. Bounded history
-// snapshots and ZIP preparation run on the global worker pool.
+// Host-owned persisted log reader, one raw live log stream and the memory
+// monitor snapshot (bounded, answered inline). Bounded history snapshots and
+// ZIP preparation run on the global worker pool.
 class NativeSystemLogServiceSource final : public SystemLogStateSimpleSource
 {
     Q_OBJECT

@@ -244,14 +244,7 @@ void NativeBackupServiceSource::prepareBackupDownload(const QString& requestId,
                                                       const QString& backupId)
 {
     const QString operation = QStringLiteral("prepareBackupDownload");
-    if (!m_manager || !m_clients.contains(clientId)) {
-        finishFileOperation(requestId, operation, false, {}, QStringLiteral("clientUnavailable"));
-        return;
-    }
-    if (!m_activeId.isEmpty() || m_backupCopyInFlight || m_bundles.hasBundle()) {
-        finishFileOperation(requestId, operation, false, {}, QStringLiteral("busy"));
-        return;
-    }
+    if (!admitDownloadPreparation(requestId, clientId, operation)) return;
     const QString filename = backupFilenameForId(backupId);
     const QString sourcePath = BackupOperationPolicy::downloadableBackupFilename(filename)
         ? m_manager->backupPathForFilename(filename) : QString();
@@ -300,17 +293,10 @@ void NativeBackupServiceSource::prepareDatabaseDownload(const QString& requestId
                                                         const QString& clientId)
 {
     const QString operation = QStringLiteral("prepareDatabaseDownload");
-    const QString databasePath = m_manager ? m_manager->databasePath() : QString();
-    if (!m_manager || !m_clients.contains(clientId)) {
-        finishFileOperation(requestId, operation, false, {}, QStringLiteral("clientUnavailable"));
-        return;
-    }
+    if (!admitDownloadPreparation(requestId, clientId, operation)) return;
+    const QString databasePath = m_manager->databasePath();
     if (databasePath.isEmpty()) {
         finishFileOperation(requestId, operation, false, {}, QStringLiteral("unavailable"));
-        return;
-    }
-    if (!m_activeId.isEmpty() || m_backupCopyInFlight || m_bundles.hasBundle()) {
-        finishFileOperation(requestId, operation, false, {}, QStringLiteral("busy"));
         return;
     }
     const QString entryName = QFileInfo(databasePath).fileName();
@@ -319,7 +305,7 @@ void NativeBackupServiceSource::prepareDatabaseDownload(const QString& requestId
     startDownloadPreparation(requestId, clientId, operation, displayName,
         [databasePath, entryName](const QString& destinationPath,
                                   const std::atomic_bool& cancelled) -> QString {
-            // The checkpointed copy is the same snapshot a scheduled backup takes.
+            // The same snapshot a scheduled backup takes.
             const QString snapshotPath = destinationPath + QStringLiteral(".db");
             const auto removeSnapshot = qScopeGuard([&] { QFile::remove(snapshotPath); });
             if (ShotHistoryStorage::createBackupStatic(databasePath, snapshotPath).isEmpty())
@@ -334,6 +320,20 @@ void NativeBackupServiceSource::prepareDatabaseDownload(const QString& requestId
             if (!written || writer.getZipError() != UNZ_OK) return QStringLiteral("archiveFailed");
             return {};
         });
+}
+
+bool NativeBackupServiceSource::admitDownloadPreparation(const QString& requestId,
+                                                         const QString& clientId,
+                                                         const QString& operation)
+{
+    QString reason;
+    if (!m_manager || !m_clients.contains(clientId))
+        reason = QStringLiteral("clientUnavailable");
+    else if (!m_activeId.isEmpty() || m_backupCopyInFlight || m_bundles.hasBundle())
+        reason = QStringLiteral("busy");
+    if (reason.isEmpty()) return true;
+    finishFileOperation(requestId, operation, false, {}, reason);
+    return false;
 }
 
 void NativeBackupServiceSource::startDownloadPreparation(const QString& requestId,

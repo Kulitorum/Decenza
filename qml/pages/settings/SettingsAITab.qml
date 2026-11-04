@@ -1879,7 +1879,7 @@ KeyboardAwareContainer {
                                 wrapMode: Text.WrapAnywhere
                                 Accessible.role: Accessible.StaticText
                                 Accessible.name: TranslationManager.translate("settings.ai.mcp.localUrlAccessible",
-                                    "Local MCP URL, for AI apps on this network")
+                                    "Local MCP URL, for AI apps on this network") + ": " + aiTab.aiState.shotServerUrl + "/mcp"
                             }
                             AccessibleButton {
                                 text: TranslationManager.translate("common.button.copy", "Copy")

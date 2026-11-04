@@ -441,13 +441,13 @@ void NativeScreensaverServiceSource::execute(QString requestId, QString operatio
         bool parsed = false;
         const int mediaId = ticket.toInt(&parsed);
         if (!parsed || mediaId < 0) {
-            finish(requestId, operation, false, {}, QStringLiteral("Invalid media item."));
+            finish(requestId, operation, false, {}, QStringLiteral("invalidMediaItem"));
             return;
         }
         const bool deleted = m_manager->deletePersonalMedia(mediaId);
         publishState();
         finish(requestId, operation, deleted, {},
-               deleted ? QString() : QStringLiteral("The media item no longer exists."));
+               deleted ? QString() : QStringLiteral("deleteFailed"));
         return;
     }
 

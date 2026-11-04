@@ -12,8 +12,8 @@ KeyboardAwareContainer {
     property string pendingOperation: ""
     property string operationError: ""
 
-    function submitPreference(name: string, value: var, extraArguments: var): void {
-        if (!MqttService.ready || pendingRequestId.length > 0) return
+    function submitPreference(name: string, value: var, extraArguments: var): bool {
+        if (!MqttService.ready || pendingRequestId.length > 0) return false
         operationError = ""
         pendingOperation = "setPreference"
         const args = { name: name, value: value }
@@ -25,6 +25,7 @@ KeyboardAwareContainer {
                 || name === "mqttUseTls" || name === "mqttCaCertificate")
             args.passwordConfirmation = passwordConfirmationField.text
         pendingRequestId = MqttService.execute("setPreference", args, MqttService.revision)
+        return true
     }
 
     function submitAction(operation: string): void {
@@ -93,7 +94,7 @@ KeyboardAwareContainer {
                         key: "mqtt.title"
                         fallback: "MQTT"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.bold: true
                     }
 
@@ -106,7 +107,7 @@ KeyboardAwareContainer {
                             key: "mqtt.enableMqtt"
                             fallback: "Enable MQTT"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             Layout.fillWidth: true
                         }
 
@@ -121,7 +122,7 @@ KeyboardAwareContainer {
                         key: "mqtt.description"
                         fallback: "Connect to an MQTT broker to publish telemetry and receive commands"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -132,7 +133,7 @@ KeyboardAwareContainer {
                             ? homeAutomationTab.operationError
                             : TranslationManager.translate("settings.homeAutomation.unavailable", "Home automation settings are not available from the connected host.")
                         color: Theme.errorColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                         Accessible.role: Accessible.AlertMessage
@@ -144,7 +145,7 @@ KeyboardAwareContainer {
                         key: "common.saving"
                         fallback: "Saving…"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     // Separator
@@ -159,7 +160,7 @@ KeyboardAwareContainer {
                         key: "mqtt.brokerHost"
                         fallback: "Broker Host"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledTextField {
@@ -175,7 +176,7 @@ KeyboardAwareContainer {
                         key: "mqtt.port"
                         fallback: "Port"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledTextField {
@@ -201,7 +202,7 @@ KeyboardAwareContainer {
                             key: "mqtt.useTls"
                             fallback: "Encrypted connection (TLS)"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             Layout.fillWidth: true
                         }
 
@@ -229,14 +230,14 @@ KeyboardAwareContainer {
                             key: "mqtt.caCertificate"
                             fallback: "CA certificate (optional)"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.smallFont.pixelSize
                         }
 
                         Tr {
-                            key: "mqtt.caCertificateHint"
-                            fallback: "Only needed if your broker uses a self-signed certificate. Paste the CA certificate (PEM)."
+                            key: "mqtt.caCertificateHintFile"
+                            fallback: "Only needed if your broker uses a self-signed certificate. Paste or load the CA certificate (PEM)."
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(10)
+                            font.pixelSize: Theme.smallFont.pixelSize
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -249,14 +250,12 @@ KeyboardAwareContainer {
                             text: ""
                             property bool dirty: false
                             onTextChanged: if (activeFocus) dirty = true
-                            property bool rejected: false
+                            property string loadError: ""
                             onEditingFinished: {
                                 const pem = text.trim()
-                                rejected = false
-                                if (dirty) {
-                                    homeAutomationTab.submitPreference("mqttCaCertificate", pem)
-                                    dirty = false
-                                }
+                                loadError = ""
+                                if (dirty)
+                                    dirty = !homeAutomationTab.submitPreference("mqttCaCertificate", pem)
                             }
                         }
 
@@ -278,24 +277,27 @@ KeyboardAwareContainer {
                             id: caFileReader
                             onFinished: function(success, text, reason) {
                                 if (!success) {
-                                    caField.rejected = true
+                                    caField.loadError = reason === "fileTooLarge"
+                                        ? TranslationManager.translate("mqtt.caCertificateTooLarge", "This file is too large to be a certificate.")
+                                        : TranslationManager.translate("mqtt.caCertificateReadFailed", "The file could not be read (%1).").arg(reason)
                                     return
                                 }
-                                caField.rejected = false
                                 caField.text = text.trim()
-                                caField.dirty = false
-                                homeAutomationTab.submitPreference("mqttCaCertificate", caField.text)
+                                const sent = homeAutomationTab.submitPreference("mqttCaCertificate", caField.text)
+                                caField.dirty = !sent
+                                caField.loadError = sent ? "" : TranslationManager.translate("mqtt.caCertificateNotSaved",
+                                    "The certificate was not saved. Try again when Decenza is connected.")
                             }
                         }
 
                         Text {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
-                            font.pixelSize: Theme.scaled(10)
-                            color: caField.rejected ? Theme.errorColor : Theme.textSecondaryColor
+                            font.pixelSize: Theme.smallFont.pixelSize
+                            color: caField.loadError ? Theme.errorColor : Theme.textSecondaryColor
                             text: {
-                                if (caField.rejected)
-                                    return TranslationManager.translate("mqtt.caCertificateInvalid", "Not a PEM certificate, so it was not saved.")
+                                if (caField.loadError)
+                                    return caField.loadError
                                 const summary = homeAutomationTab.value("mqttCaCertificateSummary", "")
                                 return summary.length > 0
                                     ? TranslationManager.translate("mqtt.caCertificateLoaded", "Trusting: %1").arg(summary)
@@ -310,7 +312,7 @@ KeyboardAwareContainer {
                             text: TranslationManager.translate("mqtt.caCertificateClear", "Clear certificate")
                             accessibleName: TranslationManager.translate("mqtt.caCertificateClearAccessible", "Clear the MQTT CA certificate")
                             onClicked: {
-                                caField.rejected = false
+                                caField.loadError = ""
                                 caField.text = ""
                                 homeAutomationTab.submitPreference("mqttCaCertificate", "")
                             }
@@ -322,7 +324,7 @@ KeyboardAwareContainer {
                         key: "mqtt.username"
                         fallback: "Username (optional)"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledTextField {
@@ -338,7 +340,7 @@ KeyboardAwareContainer {
                         key: "mqtt.password"
                         fallback: "Password (optional)"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledTextField {
@@ -354,7 +356,7 @@ KeyboardAwareContainer {
                         key: "settings.homeAutomation.passwordStatus"
                         fallback: homeAutomationTab.value("mqttPasswordConfigured", false) ? "A password is saved. Enter a new one to replace it." : "No password is saved."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         Layout.fillWidth: true
                     }
 
@@ -378,7 +380,7 @@ KeyboardAwareContainer {
                         key: "mqtt.baseTopic"
                         fallback: "Base Topic"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledTextField {
@@ -394,7 +396,7 @@ KeyboardAwareContainer {
                         key: "mqtt.clientId"
                         fallback: "Client ID"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledTextField {
@@ -411,7 +413,7 @@ KeyboardAwareContainer {
                         key: "mqtt.deviceId"
                         fallback: "Home Assistant device ID"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     RowLayout {
@@ -422,7 +424,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             text: homeAutomationTab.value("mqttDeviceId", "")
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.smallFont.pixelSize
                             elide: Text.ElideMiddle
                             Accessible.role: Accessible.StaticText
                             Accessible.name: TranslationManager.translate("mqtt.deviceId", "Home Assistant device ID") + ": " + text
@@ -439,7 +441,7 @@ KeyboardAwareContainer {
                         key: "mqtt.clientIdHint"
                         fallback: "The client ID must be unique on the broker. Use New device ID only on a second device restored from the same backup, so it shows up in Home Assistant as its own device."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -465,7 +467,7 @@ KeyboardAwareContainer {
                             Text {
                                 text: homeAutomationTab.value("status", "Disconnected")
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(11)
+                                font.pixelSize: Theme.smallFont.pixelSize
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
                                 Accessible.role: Accessible.StaticText
@@ -530,7 +532,7 @@ KeyboardAwareContainer {
                         key: "mqtt.publishingOptions"
                         fallback: "Publishing Options"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.bold: true
                     }
 
@@ -539,7 +541,7 @@ KeyboardAwareContainer {
                         key: "mqtt.publishInterval"
                         fallback: "Publish Interval"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                     }
 
                     StyledComboBox {
@@ -569,7 +571,7 @@ KeyboardAwareContainer {
                         contentItem: Text {
                             text: intervalCombo.displayText
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             verticalAlignment: Text.AlignVCenter
                             leftPadding: Theme.scaled(8)
                         }
@@ -584,7 +586,7 @@ KeyboardAwareContainer {
                             key: "mqtt.retainMessages"
                             fallback: "Retain Messages"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             Layout.fillWidth: true
                         }
 
@@ -599,7 +601,7 @@ KeyboardAwareContainer {
                         key: "mqtt.retainDescription"
                         fallback: "Broker retains last value for new subscribers"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -617,7 +619,7 @@ KeyboardAwareContainer {
                         key: "mqtt.homeAssistant"
                         fallback: "Home Assistant"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.bold: true
                     }
 
@@ -630,7 +632,7 @@ KeyboardAwareContainer {
                             key: "mqtt.autoDiscovery"
                             fallback: "Auto-Discovery"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             Layout.fillWidth: true
                         }
 
@@ -645,7 +647,7 @@ KeyboardAwareContainer {
                         key: "mqtt.autoDiscoveryDescription"
                         fallback: "Automatically creates sensors and switches in Home Assistant"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -672,7 +674,7 @@ KeyboardAwareContainer {
                         key: "mqtt.restApi"
                         fallback: "REST API"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.bold: true
                     }
 
@@ -680,7 +682,7 @@ KeyboardAwareContainer {
                         key: "mqtt.restApiDescription"
                         fallback: "Enable 'Remote Access' in the History & Data tab to use the REST API."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -704,35 +706,35 @@ KeyboardAwareContainer {
                                 key: "mqtt.availableEndpoints"
                                 fallback: "Available Endpoints:"
                                 color: Theme.textColor
-                                font.pixelSize: Theme.scaled(11)
+                                font.pixelSize: Theme.smallFont.pixelSize
                                 font.bold: true
                             }
 
                             Text {
                                 text: TranslationManager.translate("settings.homeautomation.apiState", "GET /api/state - Machine state")
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
+                                font.pixelSize: Theme.smallFont.pixelSize
                                 font.family: Theme.monoFontFamily
                             }
 
                             Text {
                                 text: TranslationManager.translate("settings.homeautomation.apiTelemetry", "GET /api/telemetry - All sensor data")
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
+                                font.pixelSize: Theme.smallFont.pixelSize
                                 font.family: Theme.monoFontFamily
                             }
 
                             Text {
                                 text: TranslationManager.translate("settings.homeautomation.apiCommand", "POST /api/command - Send wake/sleep")
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
+                                font.pixelSize: Theme.smallFont.pixelSize
                                 font.family: Theme.monoFontFamily
                             }
 
                             Text {
                                 text: homeAutomationTab.value("shotServerUrl", "")
                                 color: Theme.accentColor
-                                font.pixelSize: Theme.scaled(10)
+                                font.pixelSize: Theme.smallFont.pixelSize
                                 Layout.topMargin: Theme.scaled(4)
                             }
                         }

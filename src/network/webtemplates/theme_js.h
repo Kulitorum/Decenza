@@ -73,6 +73,7 @@ const FONT_LABELS = {
     bodySize:     "Body",
     labelSize:    "Label",
     captionSize:  "Caption",
+    smallSize:    "Small",
     valueSize:    "Value",
     timerSize:    "Timer"
 };

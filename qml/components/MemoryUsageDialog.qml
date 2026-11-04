@@ -190,7 +190,7 @@ DecenzaDialog {
                 }
                 ctx.stroke()
                 ctx.fillStyle = Theme.textSecondaryColor
-                ctx.font = Theme.scaled(11) + "px sans-serif"
+                ctx.font = Theme.captionFont.pixelSize + "px '" + Theme.captionFont.family + "'"
                 ctx.fillText(high.toFixed(0) + " MB", Theme.scaled(4), Theme.scaled(12))
                 ctx.fillText(low.toFixed(0) + " MB", Theme.scaled(4), height - Theme.scaled(2))
             }

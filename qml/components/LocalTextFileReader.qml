@@ -3,9 +3,9 @@ pragma ComponentBehavior: Bound
 import QtQml
 import Decenza
 
-// Reads a small ASCII text file the user picked (a PEM certificate, say) on
-// this client, native or browser. Bytes are decoded as Latin-1; callers that
-// need UTF-8 should upload the file to the host instead.
+// Reads a small text file the user picked on this client (native or browser).
+// Bytes decode as Latin-1, so only ASCII/Latin-1 content survives; anything
+// needing UTF-8 should be uploaded to the host instead.
 QtObject {
     id: reader
     property int maximumBytes: 64 * 1024
@@ -39,7 +39,7 @@ QtObject {
         function onChunkReady(id, offset, data, lastChunk, reason) {
             if (id !== reader.requestId) return
             if (reason.length > 0) { reader.fail(reason); return }
-            // QByteArray arrives as an ArrayBuffer (Qt 6.12 qv4engine.cpp:1845-1846).
+            // QByteArray arrives as an ArrayBuffer (qtdeclarative/src/qml/jsruntime/qv4engine.cpp:1845-1846).
             const bytes = new Uint8Array(data)
             let text = ""
             for (let i = 0; i < bytes.length; ++i) text += String.fromCharCode(bytes[i])
@@ -56,6 +56,8 @@ QtObject {
             reader.finished(true, result, "")
         }
     }
+
+    Component.onDestruction: if (busy) LocalFileSelection.closeFile(requestId)
 
     signal finished(bool success, string text, string reason)
 }

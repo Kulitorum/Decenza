@@ -2353,10 +2353,9 @@ bool ScreensaverVideoManager::deletePersonalMedia(int mediaId)
             VideoItem item = m_personalCatalog[i];
             QString filePath = personalDir + "/" + item.path;
 
-            // Delete file
-            if (QFile::exists(filePath)) {
-                QFile::remove(filePath);
-            }
+            // Keep the catalog entry if the file stays, so it is not orphaned unlisted.
+            if (QFile::exists(filePath) && !QFile::remove(filePath))
+                return false;
 
             // If this was the active custom background, clear the setting rather
             // than leaving it pointing at a deleted file — ThemedPageBackground

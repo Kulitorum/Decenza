@@ -36,16 +36,26 @@ Item {
         personalListRequestId = ScreensaverService.listPersonalMedia()
     }
 
+    // success means at least one file was added; reason is the last failure, if any.
     function showMediaImportResult(success, reason) {
-        const message = success
-            ? (mediaBatchTotal > 1
+        const partial = success && mediaBatchAdded < mediaBatchTotal
+        let message
+        if (reason === "cancelled")
+            message = mediaBatchAdded > 0
+                ? TranslationManager.translate("settings.screensaver.mediaBatchCancelled", "Upload cancelled after adding %1 of %2 files.")
+                    .arg(mediaBatchAdded).arg(mediaBatchTotal)
+                : TranslationManager.translate("settings.screensaver.mediaImportCancelled", "Media upload cancelled.")
+        else if (partial)
+            message = TranslationManager.translate("settings.screensaver.mediaBatchPartial", "Added %1 of %2 files. The others could not be added (%3).")
+                .arg(mediaBatchAdded).arg(mediaBatchTotal).arg(reason)
+        else if (success)
+            message = mediaBatchTotal > 1
                 ? TranslationManager.translate("settings.screensaver.mediaBatchImported", "Added %1 of %2 files.")
                     .arg(mediaBatchAdded).arg(mediaBatchTotal)
-                : TranslationManager.translate("settings.screensaver.mediaImported", "Media added to Decenza."))
-            : reason === "cancelled"
-                ? TranslationManager.translate("settings.screensaver.mediaImportCancelled", "Media upload cancelled.")
-                : TranslationManager.translate("settings.screensaver.mediaImportFailed", "Could not add media (%1). Check the file and connection, then try again.").arg(reason)
-        mediaImportResult.error = !success && reason !== "cancelled"
+                : TranslationManager.translate("settings.screensaver.mediaImported", "Media added to Decenza.")
+        else
+            message = TranslationManager.translate("settings.screensaver.mediaImportFailed", "Could not add media (%1). Check the file and connection, then try again.").arg(reason)
+        mediaImportResult.error = partial || (!success && reason !== "cancelled")
         mediaImportResult.show(message)
         AccessibilityManager.announce(message)
     }
@@ -75,8 +85,7 @@ Item {
         mediaQueue = []
         refreshPersonalMedia()
         if (reason === "cancelled") showMediaImportResult(false, "cancelled")
-        else if (mediaBatchAdded === 0) showMediaImportResult(false, lastMediaFailure)
-        else showMediaImportResult(true, "")
+        else showMediaImportResult(mediaBatchAdded > 0, lastMediaFailure)
     }
 
     function finishMediaUpload(success, result, reason) {
@@ -188,11 +197,14 @@ Item {
             if (requestId === screensaverTab.personalListRequestId && operation === "list-personal") {
                 screensaverTab.personalListRequestId = ""
                 if (success) screensaverTab.personalMediaItems = result.items || []
+                else preferenceError.show(TranslationManager.translate("settings.screensaver.listMediaFailed",
+                    "Could not list your media (%1).").arg(reason))
                 return
             }
             if (requestId === screensaverTab.personalDeleteRequestId && operation === "delete-personal") {
                 screensaverTab.personalDeleteRequestId = ""
-                if (!success) preferenceError.show(reason)
+                if (!success) preferenceError.show(TranslationManager.translate("settings.screensaver.deleteMediaFailed",
+                    "Could not delete this file (%1).").arg(reason))
                 screensaverTab.refreshPersonalMedia()
                 return
             }
@@ -1513,10 +1525,12 @@ Item {
                     SettingsSearch.title: TranslationManager.translate("settings.search.managePersonalMedia", "Manage my media")
                     SettingsSearch.keywords: ["delete", "remove", "photo", "video", "personal"]
                     visible: ScreensaverService.state.personalMediaCount > 0
-                    text: (expanded ? TranslationManager.translate("settings.screensaver.hidePersonalMedia", "Hide my media")
-                                    : TranslationManager.translate("settings.screensaver.showPersonalMedia", "Manage my media (%1)"))
-                          .arg(ScreensaverService.state.personalMediaCount)
+                    text: expanded ? TranslationManager.translate("settings.screensaver.hidePersonalMedia", "Hide my media")
+                                   : TranslationManager.translate("settings.screensaver.showPersonalMedia", "Manage my media (%1)")
+                                         .arg(ScreensaverService.state.personalMediaCount)
                     accessibleName: text
+                    readonly property bool serviceReady: ScreensaverService.ready
+                    onServiceReadyChanged: if (serviceReady && expanded) screensaverTab.refreshPersonalMedia()
                     onClicked: {
                         expanded = !expanded
                         if (expanded) screensaverTab.refreshPersonalMedia()
@@ -1563,7 +1577,8 @@ Item {
                                 : TranslationManager.translate("settings.screensaver.deleteMediaAccessible", "Delete %1"))
                                 .arg(mediaRow.modelData.filename)
                             destructive: mediaRow.confirming
-                            enabled: screensaverTab.personalDeleteRequestId.length === 0
+                            // A delete changes the catalog, which fails an upload in flight.
+                            enabled: screensaverTab.personalDeleteRequestId.length === 0 && !screensaverTab.mediaImportBusy
                             onClicked: {
                                 if (!mediaRow.confirming) {
                                     personalMediaList.confirmingId = mediaRow.modelData.id

@@ -43,7 +43,8 @@ Use `EquipmentService` as a concrete example:
    [QML_NAVIGATION.md](QML_NAVIGATION.md).
 5. Add each new shared QML file to the native `CMakeLists.txt` and Wasm
    `src/webclient/CMakeLists.txt` source sets. Update the complete QML inventory in
-   the active Wasm OpenSpec design. Dynamic Loaders and literal resource URLs need
+   `openspec/changes/archive/2026-10-27-replace-web-interface-with-wasm/design.md`
+   (checked by `tst_qmlinventory`). Dynamic Loaders and literal resource URLs need
    the same dependency check as directly instantiated types.
 
 Actual platform boundaries use an existing boundary service, for example

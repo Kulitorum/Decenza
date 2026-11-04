@@ -42,6 +42,8 @@ DecenzaDialog {
     property int messageCount: -1
     // Selected after the list loads, when an entry with this label exists.
     property string preferredLabel: ""
+    property bool helpPending: false
+    property string helpReservation: ""
     readonly property bool busy: pendingId !== ""
     readonly property bool narrow: archive.width < Theme.scaled(760)
     readonly property var filteredEntries: {
@@ -56,16 +58,32 @@ DecenzaDialog {
         archive.pendingId = ConversationSession.request(operation, fields)
     }
 
+    // The browser window is reserved during the click and opened once the JSON is
+    // saved, so the issue never asks for a file that was not downloaded.
     function openHelpIssue(): void {
+        const before = archive.pendingId
+        archive.request("exportArchive", {key: archive.selectedKey, format: "json"})
+        if (archive.pendingId === before) return
+        archive.helpPending = true
+        archive.helpReservation = helpUrlOpener.reserve() || ""
+    }
+
+    function finishHelpIssue(success: bool): void {
+        if (!archive.helpPending) return
+        const reservation = archive.helpReservation
+        archive.helpPending = false
+        archive.helpReservation = ""
+        if (!success) {
+            if (reservation) helpUrlOpener.cancel(reservation)
+            return
+        }
         const title = "AI Dialing Assistant: " + archive.selectedLabel
         const body = "**Describe your issue:**\n\n\n\n---\n"
             + "**Please drag and drop the JSON file (just downloaded) into this issue.**\n"
         const url = "https://github.com/Kulitorum/Decenza/issues/new?title=" + encodeURIComponent(title)
             + "&body=" + encodeURIComponent(body)
-        const reservation = helpUrlOpener.reserve()
         if (!reservation || !helpUrlOpener.openReserved(reservation, url))
             archive.errorMessage = TranslationManager.translate("common.openLinkFailed", "Could not open this link.")
-        archive.request("exportArchive", {key: archive.selectedKey, format: "json"})
     }
 
     function selectEntry(entry: var): void {
@@ -83,6 +101,7 @@ DecenzaDialog {
         search.forceActiveFocus()
     }
     onClosed: {
+        archive.finishHelpIssue(false)
         download.cancelSilently()
         archive.pendingId = ""
         archive.transcript = ""
@@ -101,6 +120,7 @@ DecenzaDialog {
             archive.errorMessage = success ? "" : TranslationManager.translate(
                 "settings.debug.aiArchiveDownloadFailed", "The conversation could not be downloaded (%1).").arg(reason)
             if (success) savedToast.show(TranslationManager.translate("common.fileSaved", "File saved"))
+            archive.finishHelpIssue(success)
         }
     }
     StatusToast { id: savedToast; parent: Overlay.overlay }
@@ -113,6 +133,7 @@ DecenzaDialog {
             if (!success) {
                 archive.errorMessage = TranslationManager.translate("settings.debug.aiArchiveFailed",
                     "The archive could not be read (%1). Refresh and try again.").arg(reason)
+                archive.finishHelpIssue(false)
                 return
             }
             if (operation === "listArchive") {
@@ -129,6 +150,7 @@ DecenzaDialog {
             } else if (operation === "exportArchive" && !download.start(result)) {
                 archive.errorMessage = TranslationManager.translate("settings.debug.aiArchiveDownloadFailed",
                     "The conversation could not be downloaded (%1).").arg("saveUnavailable")
+                archive.finishHelpIssue(false)
             }
         }
     }

@@ -1897,12 +1897,12 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
             finishMediaUpload(true, {transferId:"retry-complete-lease"}, "");
             onCompleted("import-2", "import-media", true, {imported:1}, "");
             var startsBeforeBatch = mediaUpload.starts.length;
-            // Files picked together go one per transfer; one failure still reports the others.
+            // Files picked together go one per transfer; a failure does not stop the rest.
             acceptMediaFiles(["file:///local/A.png", "file:///local/B.png"]);
-            finishMediaUpload(true, {transferId:"batch-first-lease"}, "");
-            onCompleted("import-3", "import-media", true, {imported:1}, "");
-            var batchStarts = mediaUpload.starts.length - startsBeforeBatch;
             finishMediaUpload(false, {}, "invalidMedia");
+            var batchStarts = mediaUpload.starts.length - startsBeforeBatch;
+            finishMediaUpload(true, {transferId:"batch-second-lease"}, "");
+            onCompleted("import-3", "import-media", true, {imported:1}, "");
             return {unavailable:unavailable,busy:busy,accepted:accepted,startsBeforeBatch:startsBeforeBatch,
                 batchStarts:batchStarts,batchAdded:mediaBatchAdded,batchQueue:mediaQueue.length,
                 starts:mediaUpload.starts,imports:ScreensaverService.imports,cancels:ScreensaverService.cancels,
@@ -1930,6 +1930,7 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
     QCOMPARE(result.property(QStringLiteral("outcomes")).property(QStringLiteral("length")).toInt(), 4);
     QVERIFY(result.property(QStringLiteral("outcomes")).property(2).property(0).toBool());
     QVERIFY(result.property(QStringLiteral("outcomes")).property(3).property(0).toBool());
+    QCOMPARE(result.property(QStringLiteral("outcomes")).property(3).property(1).toString(), QStringLiteral("invalidMedia"));
     QCOMPARE(result.property(QStringLiteral("released")).property(QStringLiteral("length")).toInt(), 3);
     QCOMPARE(result.property(QStringLiteral("released")).property(0).toString(), QStringLiteral("opaque-complete-lease"));
 }

@@ -52,6 +52,9 @@ private:
     using DownloadWriter = std::function<QString(const QString& destinationPath,
                                                  const std::atomic_bool& cancelled)>;
     void prepareDatabaseDownload(const QString& requestId, const QString& clientId);
+    // Finishes the request with clientUnavailable or busy and returns false when it cannot start.
+    bool admitDownloadPreparation(const QString& requestId, const QString& clientId,
+                                  const QString& operation);
     void startDownloadPreparation(const QString& requestId, const QString& clientId,
                                   const QString& operation, const QString& displayName,
                                   DownloadWriter writer);

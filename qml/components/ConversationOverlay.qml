@@ -341,7 +341,7 @@ DecenzaDialog {
                     Text {
                         visible: (overlay.sessionState.contextLabel || "").length > 0
                         text: overlay.sessionState.contextLabel || ""
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.captionFont.pixelSize
                         color: Theme.textSecondaryColor
                         elide: Text.ElideRight
                         Layout.fillWidth: true
@@ -367,7 +367,7 @@ DecenzaDialog {
                             id: reportText
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.report", "Report")
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
@@ -399,7 +399,7 @@ DecenzaDialog {
                             id: clearText
                             anchors.centerIn: parent
                             text: TranslationManager.translate("conversation.clear", "Clear")
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
@@ -572,7 +572,7 @@ DecenzaDialog {
                                     ? TranslationManager.translate("conversation.operationFailed",
                                         "Could not complete the conversation request. Please try again.")
                                     : "")
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.smallFont.pixelSize
                             color: Theme.errorColor
                             wrapMode: Text.WordWrap
                             maximumLineCount: 2
@@ -631,7 +631,7 @@ DecenzaDialog {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("conversation.mistakeshot",
                             "Shot excluded \u2014 too short or too little yield to be useful for dial-in")
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.smallFont.pixelSize
                         color: Theme.warningColor
                     }
                 }
@@ -662,7 +662,7 @@ DecenzaDialog {
 
                         Text {
                             text: TranslationManager.translate("conversation.shotattached", "Shot data will be included with your message")
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.smallFont.pixelSize
                             color: Theme.primaryColor
                             Layout.fillWidth: true
                         }
@@ -858,7 +858,7 @@ DecenzaDialog {
             }
             Text {
                 text: trIntakeSubtitle.text
-                font.pixelSize: Theme.scaled(13)
+                font.pixelSize: Theme.captionFont.pixelSize
                 color: Theme.textSecondaryColor
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
