@@ -423,6 +423,13 @@ T.Page {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
             event.accepted = true
             handleBack()
+        } else if (event.key === Qt.Key_Left && canGoNewer) {
+            // Same order as the Newer/Older buttons; a focused text field consumes arrows first.
+            event.accepted = true
+            stepTo(currentIndex - 1)
+        } else if (event.key === Qt.Key_Right && canGoOlder) {
+            event.accepted = true
+            stepTo(currentIndex + 1)
         }
     }
 
@@ -3367,6 +3374,8 @@ T.Page {
             Rectangle {
                 id: uploadsCard
                 readonly property bool onVisualizer: postShotReviewPage._visualizerId !== ""
+                readonly property string visualizerUrl: onVisualizer && postShotReviewPage.editShotData
+                    ? (postShotReviewPage.editShotData.visualizerUrl || "") : ""
                 readonly property bool decentUploaded: !!postShotReviewPage._decentState.uploaded
                 readonly property bool decentRejected: !!postShotReviewPage._decentState.rejected
                 readonly property string decentUrl: decentUploaded
@@ -3406,6 +3415,22 @@ T.Page {
                             color: Theme.successColor
                             elide: Text.ElideRight
                             Accessible.ignored: true
+                        }
+                        Text {
+                            id: visualizerViewLink
+                            visible: uploadsCard.visualizerUrl.length > 0
+                            text: TranslationManager.translate("shotdetail.viewOnVisualizer", "View on Visualizer")
+                            font: Theme.captionFont
+                            color: Theme.primaryColor
+                            Accessible.ignored: true
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.scaled(6)
+                                accessibleName: TranslationManager.translate("shotdetail.viewOnVisualizerAccessible",
+                                                                             "View this shot on Visualizer. Opens web browser")
+                                accessibleItem: visualizerViewLink
+                                onAccessibleClicked: Qt.openUrlExternally(uploadsCard.visualizerUrl)
+                            }
                         }
                     }
 

@@ -84,14 +84,22 @@ bool BrowserDisplay::eventFilter(QObject* watched, QEvent* event)
                 // Observe Qt's input lifecycle, without blocking controls. Qt's
                 // WheelHandler owns phase-less input completion (qtdeclarative/
                 // src/quick/handlers/qquickwheelhandler.cpp:114-131,457-473).
+                // While a modal popup is open the overlay eats any wheel whose
+                // topmost target is outside it (qquickoverlay.cpp:83-149), so the
+                // page observer stays under the overlay (z 1000001, :414) and a
+                // second one sits inside it, where a non-popup child is not
+                // blocked (:107-113).
                 QQmlComponent component(engine);
                 component.setData(R"QML(
                     import QtQuick
+                    import QtQuick.Templates as T
                     Item {
+                        property bool inOverlay: false
                         anchors.fill: parent
-                        z: 2147483647
+                        z: inOverlay ? 2147483647 : 1000000
                         Accessible.ignored: true
                         signal gestureEnded()
+                        Component.onCompleted: if (inOverlay) parent = T.Overlay.overlay
                         WheelHandler {
                             id: vertical
                             target: null; blocking: false
@@ -106,11 +114,16 @@ bool BrowserDisplay::eventFilter(QObject* watched, QEvent* event)
                         }
                     }
                 )QML", QUrl());
-                m_wheelObserver = component.createWithInitialProperties({
-                    {QStringLiteral("parent"), QVariant::fromValue(window->contentItem())}});
-                if (m_wheelObserver) {
-                    m_wheelObserver->setParent(window->contentItem());
-                    connect(m_wheelObserver, SIGNAL(gestureEnded()), this, SLOT(finishWheelGesture()));
+                for (const bool inOverlay : {false, true}) {
+                    QObject* observer = component.createWithInitialProperties({
+                        {QStringLiteral("parent"), QVariant::fromValue(window->contentItem())},
+                        {QStringLiteral("inOverlay"), inOverlay}});
+                    if (!observer)
+                        continue;
+                    observer->setParent(window->contentItem());
+                    connect(observer, SIGNAL(gestureEnded()), this, SLOT(finishWheelGesture()));
+                    if (!inOverlay)
+                        m_wheelObserver = observer;
                 }
             }
         }

@@ -51,6 +51,8 @@ public:
     Q_INVOKABLE QString refreshCatalog();
     Q_INVOKABLE QString clearVideoCache();
     Q_INVOKABLE QString clearPersonalMedia();
+    Q_INVOKABLE QString listPersonalMedia();
+    Q_INVOKABLE QString deletePersonalMedia(int mediaId);
     Q_INVOKABLE QString refreshShotMap();
     Q_INVOKABLE QString importMedia(const QString& transferId);
     Q_INVOKABLE QString cancelMediaImport(const QString& requestId);

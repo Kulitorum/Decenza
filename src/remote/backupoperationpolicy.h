@@ -30,9 +30,15 @@ inline QString backupIdForFilename(const QString& filename)
     return QString::fromLatin1(QCryptographicHash::hash(filename.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
-inline bool isFileOperation(const QString& operation)
+inline bool isDownloadPreparation(const QString& operation)
 {
     return operation == QLatin1String("prepareBackupDownload")
+        || operation == QLatin1String("prepareDatabaseDownload");
+}
+
+inline bool isFileOperation(const QString& operation)
+{
+    return isDownloadPreparation(operation)
         || operation == QLatin1String("cancelFileOperation")
         || operation == QLatin1String("readBundleChunk")
         || operation == QLatin1String("releaseBundle");
@@ -61,7 +67,8 @@ inline bool validBackupId(const QString& id)
 inline bool validArguments(const QString& operation, const QVariantMap& args)
 {
     if (operation == QLatin1String("createBackup")
-        || operation == QLatin1String("requestStoragePermission"))
+        || operation == QLatin1String("requestStoragePermission")
+        || operation == QLatin1String("prepareDatabaseDownload"))
         return args.isEmpty();
     if (operation == QLatin1String("prepareBackupDownload")) {
         return args.size() == 1

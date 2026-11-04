@@ -470,6 +470,20 @@ TestCase {
         compare(restored.args.baseShotId, 10)
         compare(restored.args.windowStart, 2)
         compare(Object.keys(BrowserRouteHistory.pageProperties(restored)).length, 0)
+        // A comparison link carries its shots, so a pasted URL reopens the same set.
+        compare(BrowserRouteHistory.entryLocationHash(entry), "shotComparison/12,11,10,9,8")
+        const linked = BrowserRouteHistory.normalizeLocationHash("#shotComparison/12,11,10")
+        compare(linked.args.selectedShotIds.length, 3)
+        compare(linked.args.selectedShotIds[2], 10)
+        verify(BrowserRouteHistory.stateMatchesLocationHash(serialized, "shotComparison/12,11,10,9,8"))
+        verify(BrowserRouteHistory.normalizeLocationHash("shotComparison/12,12") === null)
+        verify(BrowserRouteHistory.normalizeLocationHash("shotComparison/12,,11") === null)
+        verify(BrowserRouteHistory.normalizeLocationHash("shotComparison/012") === null)
+        const many = []
+        for (let id = 1; id <= 21; ++id) many.push(id)
+        compare(BrowserRouteHistory.entryLocationHash({route: "shotComparison",
+            args: {selectedShotIds: many}}), "shotComparison")
+        verify(BrowserRouteHistory.normalizeLocationHash("shotComparison/" + many.join(",")) === null)
         verify(BrowserRouteHistory.normalizeEntry({route: "shotComparison",
             args: {selectedShotIds: [12, 11], baseShotId: 99}}) === null)
         verify(BrowserRouteHistory.normalizeEntry({route: "shotComparison",

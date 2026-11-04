@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Decenza
 
 KeyboardAwareContainer {
@@ -256,6 +257,34 @@ KeyboardAwareContainer {
                                     homeAutomationTab.submitPreference("mqttCaCertificate", pem)
                                     dirty = false
                                 }
+                            }
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("mqtt.caCertificateLoadFile", "Load from file")
+                            accessibleName: TranslationManager.translate("mqtt.caCertificateLoadFileAccessible",
+                                "Load the MQTT CA certificate from a PEM file")
+                            enabled: !caFileReader.busy
+                            onClicked: caFilePicker.open()
+                        }
+                        FileDialog {
+                            id: caFilePicker
+                            title: TranslationManager.translate("mqtt.caCertificateSelectFile", "Select a CA certificate")
+                            fileMode: FileDialog.OpenFile
+                            nameFilters: ["Certificates (*.pem *.crt *.cer)"]
+                            onAccepted: caFileReader.read(selectedFile)
+                        }
+                        LocalTextFileReader {
+                            id: caFileReader
+                            onFinished: function(success, text, reason) {
+                                if (!success) {
+                                    caField.rejected = true
+                                    return
+                                }
+                                caField.rejected = false
+                                caField.text = text.trim()
+                                caField.dirty = false
+                                homeAutomationTab.submitPreference("mqttCaCertificate", caField.text)
                             }
                         }
 

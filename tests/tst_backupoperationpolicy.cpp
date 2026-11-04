@@ -1022,7 +1022,7 @@ private slots:
 
         auto directory = std::make_shared<QTemporaryDir>();
         QVERIFY(directory->isValid());
-        source.backupDownloadPrepared(retiredId, owner,
+        source.backupDownloadPrepared(retiredId, owner, QStringLiteral("prepareBackupDownload"),
             QStringLiteral("12345678-1234-1234-1234-123456789abc"),
             QStringLiteral("backup.zip"), directory, false, QStringLiteral("cancelled"));
         QVERIFY(!source.m_backupCopyInFlight);
@@ -1033,7 +1033,7 @@ private slots:
         source.m_backupCopyInFlight = true;
         source.m_backupCopyRequestId = newerId;
         source.m_backupCopyCancelled = std::make_shared<std::atomic_bool>(false);
-        source.backupDownloadPrepared(retiredId, owner,
+        source.backupDownloadPrepared(retiredId, owner, QStringLiteral("prepareBackupDownload"),
             QStringLiteral("22345678-1234-1234-1234-123456789abc"),
             QStringLiteral("backup.zip"), directory, false, QStringLiteral("cancelled"));
         QVERIFY(source.m_backupCopyInFlight);
@@ -1190,6 +1190,61 @@ private slots:
         QVERIFY(completed.last().at(2).toBool());
         QVERIFY(!source.m_bundles.hasBundle());
         QVERIFY(source.m_bundleRequestId.isEmpty());
+    }
+
+    void databaseDownloadIsAZippedSnapshotOfTheLiveDatabase()
+    {
+        QVERIFY(BackupOperationPolicy::validArguments(QStringLiteral("prepareDatabaseDownload"), {}));
+        QVERIFY(!BackupOperationPolicy::validArguments(QStringLiteral("prepareDatabaseDownload"),
+            {{QStringLiteral("path"), QStringLiteral("/tmp/x")}}));
+        QStandardPaths::setTestModeEnabled(true);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        Settings settings;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(directory.filePath(QStringLiteral("shots.db"))));
+        DatabaseBackupManager manager(&settings, &storage);
+        NativeBackupServiceSource source(&manager, nullptr);
+        const QString clientId = QStringLiteral("database-download-client");
+        source.openClient(clientId);
+        QSignalSpy completed(&source, &BackupStateSource::operationCompleted);
+        source.execute(QStringLiteral("prepare-database"), QStringLiteral("prepareDatabaseDownload"),
+            {{QStringLiteral("clientId"), clientId}});
+        QTRY_COMPARE_WITH_TIMEOUT(completed.size(), 1, 10000);
+        QCOMPARE(completed.first().at(1).toString(), QStringLiteral("prepareDatabaseDownload"));
+        QVERIFY2(completed.first().at(2).toBool(), qPrintable(completed.first().at(4).toString()));
+        const QVariantMap descriptor = completed.first().at(3).toMap();
+        QVERIFY(descriptor.value(QStringLiteral("displayName")).toString()
+                    .startsWith(QStringLiteral("decenza_database_")));
+        QVERIFY(!descriptor.contains(QStringLiteral("path")));
+
+        const QString bundleId = descriptor.value(QStringLiteral("bundleId")).toString();
+        const qint64 size = descriptor.value(QStringLiteral("size")).toLongLong();
+        QByteArray zipBytes;
+        while (zipBytes.size() < size) {
+            source.execute(QStringLiteral("database-chunk-%1").arg(completed.size()),
+                QStringLiteral("readBundleChunk"),
+                {{QStringLiteral("clientId"), clientId}, {QStringLiteral("bundleId"), bundleId},
+                 {QStringLiteral("offset"), zipBytes.size()}});
+            QVERIFY(completed.last().at(2).toBool());
+            zipBytes.append(completed.last().at(3).toMap().value(QStringLiteral("data")).toByteArray());
+        }
+        const QString zipPath = directory.filePath(QStringLiteral("download.zip"));
+        QFile zipFile(zipPath);
+        QVERIFY(zipFile.open(QIODevice::WriteOnly));
+        QCOMPARE(zipFile.write(zipBytes), zipBytes.size());
+        zipFile.close();
+        const QString extracted = directory.filePath(QStringLiteral("extracted"));
+        int files = 0;
+        QVERIFY(ZipArchive::extract(zipPath, extracted, &files));
+        QCOMPARE(files, 1);
+        QFile database(QDir(extracted).filePath(QStringLiteral("shots.db")));
+        QVERIFY(database.open(QIODevice::ReadOnly));
+        QCOMPARE(database.read(16), QByteArray("SQLite format 3\0", 16));
+        QVERIFY(source.m_bundles.hasBundle());
+        source.execute(QStringLiteral("release-database"), QStringLiteral("releaseBundle"),
+            {{QStringLiteral("clientId"), clientId}, {QStringLiteral("bundleId"), bundleId}});
+        QVERIFY(completed.last().at(2).toBool());
     }
 
     void asynchronousCompletionPreservesRequestIdentity_data()

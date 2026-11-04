@@ -230,6 +230,11 @@ QString DatabaseBackupManager::getBackupDirectory() const
     return backupDir;
 }
 
+QString DatabaseBackupManager::databasePath() const
+{
+    return m_storage ? m_storage->databasePath() : QString();
+}
+
 QString DatabaseBackupManager::backupPathForFilename(const QString& filename) const
 {
     static const QRegularExpression pattern(QStringLiteral("^shots_backup_([0-9]{8})\\.zip$"));

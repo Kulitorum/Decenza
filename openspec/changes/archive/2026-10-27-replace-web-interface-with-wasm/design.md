@@ -364,6 +364,9 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/LocalFileTransfer.qml` | 23 | native + Wasm | request-local file-picker/transfer boundary; History/Data import and restore (23) |
 | `qml/components/LocalFileDownload.qml` | 23 | native + Wasm | native Downloads/browser download boundary; exports and diagnostics (23/24) |
 | `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared host log-ticket/download lifecycle; Settings Debug (23/24) |
+| `qml/components/HostFileDownload.qml` | 23 | native + Wasm | shared prepare-then-save host export lifecycle; `SystemLogDownload.qml`, Settings Debug database download (23/24) |
+| `qml/components/LocalTextFileReader.qml` | 23 | native + Wasm | client-local small text file read; MQTT CA certificate (`SettingsHomeAutomationTab.qml`) |
+| `qml/components/MemoryUsageDialog.qml` | 24 / 26 | native + Wasm | presentation; `SettingsDebugTab.qml` (20/24) |
 | `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | state/style/interaction producer; `StringBrowserPage.qml` (24) |
 | `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | state/style/interaction producer; `SettingsLanguageTab.qml` (20/24) |
 | `qml/components/AccessibleButton.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |

@@ -18,7 +18,6 @@ class ConversationSession final : public RemoteService
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantMap state READ state NOTIFY stateChanged FINAL)
-    Q_PROPERTY(QString reportUrl READ reportUrl NOTIFY stateChanged FINAL)
 
 public:
     ~ConversationSession() override;
@@ -26,7 +25,6 @@ public:
     bool busy() const { return m_state.value(QStringLiteral("busy")).toBool(); }
     QString errorMessage() const { return m_errorMessage; }
     QVariantMap state() const { return m_state; }
-    QString reportUrl() const;
     void setNode(QRemoteObjectNode* node) override;
     static void setPublishedNode(QRemoteObjectNode* node);
     static void setNativeSessionId(const QString& clientId);

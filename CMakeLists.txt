@@ -1858,6 +1858,9 @@ set(QML_FILES
     qml/components/KeyboardAwareContainer.qml
     qml/components/LocalFileTransfer.qml
     qml/components/LocalFileDownload.qml
+    qml/components/HostFileDownload.qml
+    qml/components/MemoryUsageDialog.qml
+    qml/components/LocalTextFileReader.qml
     qml/components/SystemLogDownload.qml
     qml/components/ConversationOverlay.qml
     qml/components/ConversationArchiveDialog.qml

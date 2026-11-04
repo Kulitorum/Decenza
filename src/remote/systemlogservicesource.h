@@ -4,6 +4,7 @@
 
 #include <QPointer>
 #include <QStringList>
+#include <QVariantMap>
 #include <QSet>
 #include <atomic>
 #include <functional>
@@ -29,6 +30,7 @@ public:
     void openClient(const QString& clientId);
     void closeClient(const QString& clientId);
     void setMemorySummaryProvider(std::function<QString()> provider) { m_memorySummary = std::move(provider); }
+    void setMemorySnapshotProvider(std::function<QVariantMap()> provider) { m_memorySnapshot = std::move(provider); }
 
 private:
     static bool validRequestId(const QString& requestId);
@@ -47,6 +49,7 @@ private:
 
     QPointer<WebDebugLogger> m_logger;
     std::function<QString()> m_memorySummary;
+    std::function<QVariantMap()> m_memorySnapshot;
     QSet<QString> m_clients;
     ServiceRequestIds m_requests;
     OpaqueFileBundleStore m_bundles;

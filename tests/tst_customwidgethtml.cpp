@@ -1836,7 +1836,8 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
 {
     const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsScreensaverTab.qml"));
     QString methods;
-    for (const QString& signature : {QStringLiteral("function acceptMediaFile("),
+    for (const QString& signature : {QStringLiteral("function acceptMediaFiles("),
+                                    QStringLiteral("function finishMediaFile("),
                                     QStringLiteral("function finishMediaUpload("),
                                     QStringLiteral("function releaseMediaTransfer("),
                                     QStringLiteral("function cancelMediaUpload("),
@@ -1845,7 +1846,7 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
         QVERIFY2(!method.isEmpty(), qPrintable(signature));
         methods += method + QLatin1Char('\n');
     }
-    QVERIFY(source.contains(QStringLiteral("onAccepted: screensaverTab.acceptMediaFile(selectedFile)")));
+    QVERIFY(source.contains(QStringLiteral("onAccepted: screensaverTab.acceptMediaFiles(selectedFiles)")));
     QVERIFY(source.contains(QStringLiteral("screensaverTab.finishMediaUpload(success, result, reason)")));
     QJSEngine engine;
     const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
@@ -1854,12 +1855,15 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
             cancelMediaImport:function(id) { this.cancels.push(id); }};
         var ImportService = {ready:true,released:[],execute:function(operation,args) {this.released.push(args.transferId);}};
         var mediaImportBusy = false;
+        var mediaQueue = [], mediaBatchTotal = 0, mediaBatchAdded = 0, lastMediaFailure = "";
         var outcomes = [];
+        function showMediaImportResult(ok, reason) { outcomes.push([ok, reason]); }
+        function refreshPersonalMedia() {}
         var mediaUpload = {busy:false, starts:[], aborted:[],
             start:function(urls,kind,options) { this.starts.push({urls:urls,kind:kind}); return true; },
             abort:function(reason) { this.aborted.push(reason); this.busy=false; }};
         var screensaverTab = {mediaImportRequestId:"",mediaStagedTransferId:"",mediaCancellationRequested:false,
-            pendingScreensaverOperationIds:[], showMediaImportResult:function(ok,reason) {outcomes.push([ok,reason]);},
+            pendingScreensaverOperationIds:[], finishMediaFile:function(ok,reason) {finishMediaFile(ok,reason);},
             releaseMediaTransfer:function() {releaseMediaTransfer();}};
         // QML resolves these unqualified names against the enclosing root item.
         Object.defineProperties(this, {
@@ -1873,12 +1877,12 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
         %1
         (function() {
             ScreensaverService.ready = false;
-            var unavailable = acceptMediaFile("file:///local/Holiday.png");
+            var unavailable = acceptMediaFiles(["file:///local/Holiday.png"]);
             ScreensaverService.ready = true;
             mediaImportBusy = true;
-            var busy = acceptMediaFile("file:///local/Holiday.png");
+            var busy = acceptMediaFiles(["file:///local/Holiday.png"]);
             mediaImportBusy = false;
-            var accepted = acceptMediaFile("file:///local/Holiday.png");
+            var accepted = acceptMediaFiles(["file:///local/Holiday.png"]);
             finishMediaUpload(false, {}, "invalidMedia");
             var failuresBeforeImport = outcomes.length;
             finishMediaUpload(true, {transferId:"opaque-complete-lease"}, "");
@@ -1892,7 +1896,15 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
             onCompleted("import-1", "import-media", true, {}, "");
             finishMediaUpload(true, {transferId:"retry-complete-lease"}, "");
             onCompleted("import-2", "import-media", true, {imported:1}, "");
-            return {unavailable:unavailable,busy:busy,accepted:accepted,
+            var startsBeforeBatch = mediaUpload.starts.length;
+            // Files picked together go one per transfer; one failure still reports the others.
+            acceptMediaFiles(["file:///local/A.png", "file:///local/B.png"]);
+            finishMediaUpload(true, {transferId:"batch-first-lease"}, "");
+            onCompleted("import-3", "import-media", true, {imported:1}, "");
+            var batchStarts = mediaUpload.starts.length - startsBeforeBatch;
+            finishMediaUpload(false, {}, "invalidMedia");
+            return {unavailable:unavailable,busy:busy,accepted:accepted,startsBeforeBatch:startsBeforeBatch,
+                batchStarts:batchStarts,batchAdded:mediaBatchAdded,batchQueue:mediaQueue.length,
                 starts:mediaUpload.starts,imports:ScreensaverService.imports,cancels:ScreensaverService.cancels,
                 aborted:mediaUpload.aborted,failuresBeforeImport:failuresBeforeImport,
                 pendingAfterForeign:pendingAfterForeign,pendingAfterCancel:pendingAfterCancel,
@@ -1903,7 +1915,10 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
     QVERIFY(!result.property(QStringLiteral("unavailable")).toBool());
     QVERIFY(!result.property(QStringLiteral("busy")).toBool());
     QVERIFY(result.property(QStringLiteral("accepted")).toBool());
-    QCOMPARE(result.property(QStringLiteral("starts")).property(QStringLiteral("length")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("startsBeforeBatch")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("batchStarts")).toInt(), 2);
+    QCOMPARE(result.property(QStringLiteral("batchAdded")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("batchQueue")).toInt(), 0);
     QCOMPARE(result.property(QStringLiteral("starts")).property(0).property(QStringLiteral("kind")).toString(), QStringLiteral("personalMediaFile"));
     QCOMPARE(result.property(QStringLiteral("imports")).property(0).toString(), QStringLiteral("opaque-complete-lease"));
     QCOMPARE(result.property(QStringLiteral("cancels")).property(QStringLiteral("length")).toInt(), 1);
@@ -1912,9 +1927,10 @@ void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndComple
     QCOMPARE(result.property(QStringLiteral("pendingAfterForeign")).toString(), QStringLiteral("import-1"));
     QCOMPARE(result.property(QStringLiteral("pendingAfterCancel")).toString(), QString());
     QCOMPARE(result.property(QStringLiteral("finalPending")).toString(), QString());
-    QCOMPARE(result.property(QStringLiteral("outcomes")).property(QStringLiteral("length")).toInt(), 3);
+    QCOMPARE(result.property(QStringLiteral("outcomes")).property(QStringLiteral("length")).toInt(), 4);
     QVERIFY(result.property(QStringLiteral("outcomes")).property(2).property(0).toBool());
-    QCOMPARE(result.property(QStringLiteral("released")).property(QStringLiteral("length")).toInt(), 2);
+    QVERIFY(result.property(QStringLiteral("outcomes")).property(3).property(0).toBool());
+    QCOMPARE(result.property(QStringLiteral("released")).property(QStringLiteral("length")).toInt(), 3);
     QCOMPARE(result.property(QStringLiteral("released")).property(0).toString(), QStringLiteral("opaque-complete-lease"));
 }
 
@@ -3532,6 +3548,17 @@ void TestCustomWidgetHtml::browserPixelWheelUsesQtGestureUnderPage()
                     Rectangle { width: 140; height: 300 }
                 }
             }
+            Popup {
+                objectName: "modal"
+                modal: true
+                x: 60; y: 40; width: 120; height: 100; padding: 0
+                Flickable {
+                    objectName: "popupList"
+                    anchors.fill: parent
+                    contentWidth: 120; contentHeight: 400
+                    boundsBehavior: Flickable.StopAtBounds
+                }
+            }
         }
     )QML", QUrl());
     std::unique_ptr<QObject> object(component.create());
@@ -3583,6 +3610,17 @@ void TestCustomWidgetHtml::browserPixelWheelUsesQtGestureUnderPage()
     outer->setProperty("contentY", 0);
     send({210, 120}, -80);
     QCOMPARE(outer->property("contentY").toReal(), 80.0);
+
+    // A modal dialog's content scrolls too: the observer must not read as
+    // "outside the popup", or the overlay eats every wheel.
+    auto* popup = page->findChild<QObject*>(QStringLiteral("modal"));
+    auto* popupList = page->findChild<QQuickItem*>(QStringLiteral("popupList"));
+    QVERIFY(popup && popupList);
+    QMetaObject::invokeMethod(popup, "open");
+    QTRY_VERIFY(popup->property("opened").toBool());
+    scroll({120, 90}, 50);
+    QCOMPARE(popupList->property("contentY").toReal(), 50.0);
+    QTRY_VERIFY(!popupList->property("moving").toBool());
     page->setParentItem(nullptr);
 }
 

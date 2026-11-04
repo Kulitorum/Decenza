@@ -423,6 +423,33 @@ void NativeScreensaverServiceSource::execute(QString requestId, QString operatio
         finish(requestId, operation, true);
         return;
     }
+    if (ticket.isEmpty() && operation == QStringLiteral("list-personal")) {
+        // Host paths stay on the host; the client gets identity and display fields only.
+        QVariantList items;
+        const QVariantList media = m_manager->getPersonalMediaList();
+        for (const QVariant& entry : media) {
+            const QVariantMap item = entry.toMap();
+            items.append(QVariantMap{{QStringLiteral("id"), item.value(QStringLiteral("id"))},
+                                     {QStringLiteral("type"), item.value(QStringLiteral("type"))},
+                                     {QStringLiteral("filename"), item.value(QStringLiteral("filename"))},
+                                     {QStringLiteral("bytes"), item.value(QStringLiteral("bytes"))}});
+        }
+        finish(requestId, operation, true, {{QStringLiteral("items"), items}});
+        return;
+    }
+    if (operation == QStringLiteral("delete-personal")) {
+        bool parsed = false;
+        const int mediaId = ticket.toInt(&parsed);
+        if (!parsed || mediaId < 0) {
+            finish(requestId, operation, false, {}, QStringLiteral("Invalid media item."));
+            return;
+        }
+        const bool deleted = m_manager->deletePersonalMedia(mediaId);
+        publishState();
+        finish(requestId, operation, deleted, {},
+               deleted ? QString() : QStringLiteral("The media item no longer exists."));
+        return;
+    }
 
     if (ticket.size() != 36) {
         finish(requestId, operation, false, {}, QStringLiteral("Invalid media ticket."));

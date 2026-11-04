@@ -39,6 +39,9 @@ DecenzaDialog {
     property string pendingOperation: ""
     property bool viewingConversation: false
     property bool truncated: false
+    property int messageCount: -1
+    // Selected after the list loads, when an entry with this label exists.
+    property string preferredLabel: ""
     readonly property bool busy: pendingId !== ""
     readonly property bool narrow: archive.width < Theme.scaled(760)
     readonly property var filteredEntries: {
@@ -53,11 +56,24 @@ DecenzaDialog {
         archive.pendingId = ConversationSession.request(operation, fields)
     }
 
+    function openHelpIssue(): void {
+        const title = "AI Dialing Assistant: " + archive.selectedLabel
+        const body = "**Describe your issue:**\n\n\n\n---\n"
+            + "**Please drag and drop the JSON file (just downloaded) into this issue.**\n"
+        const url = "https://github.com/Kulitorum/Decenza/issues/new?title=" + encodeURIComponent(title)
+            + "&body=" + encodeURIComponent(body)
+        const reservation = helpUrlOpener.reserve()
+        if (!reservation || !helpUrlOpener.openReserved(reservation, url))
+            archive.errorMessage = TranslationManager.translate("common.openLinkFailed", "Could not open this link.")
+        archive.request("exportArchive", {key: archive.selectedKey, format: "json"})
+    }
+
     function selectEntry(entry: var): void {
         archive.selectedKey = entry.key
         archive.selectedLabel = entry.label
         archive.transcript = ""
         archive.truncated = false
+        archive.messageCount = -1
         archive.request("readArchive", {key: entry.key})
     }
 
@@ -72,7 +88,10 @@ DecenzaDialog {
         archive.transcript = ""
         archive.selectedKey = ""
         archive.selectedLabel = ""
+        archive.preferredLabel = ""
     }
+
+    ExternalUrlOpener { id: helpUrlOpener }
 
     LocalFileDownload {
         id: download
@@ -96,10 +115,16 @@ DecenzaDialog {
                     "The archive could not be read (%1). Refresh and try again.").arg(reason)
                 return
             }
-            if (operation === "listArchive") archive.entries = result.entries || []
-            else if (operation === "readArchive") {
+            if (operation === "listArchive") {
+                archive.entries = result.entries || []
+                const preferred = archive.preferredLabel
+                archive.preferredLabel = ""
+                const match = preferred ? archive.entries.find(function(entry) { return entry.label === preferred }) : undefined
+                if (match) archive.selectEntry(match)
+            } else if (operation === "readArchive") {
                 archive.transcript = result.text || ""
                 archive.truncated = result.truncated === true
+                archive.messageCount = result.messageCount ?? -1
                 archive.viewingConversation = true
             } else if (operation === "exportArchive" && !download.start(result)) {
                 archive.errorMessage = TranslationManager.translate("settings.debug.aiArchiveDownloadFailed",
@@ -219,6 +244,14 @@ DecenzaDialog {
                 }
                 Text {
                     Layout.fillWidth: true
+                    visible: archive.selectedKey !== "" && archive.messageCount >= 0
+                    text: TranslationManager.translate("settings.debug.aiArchiveMessageCount", "%1 messages").arg(archive.messageCount)
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
                     visible: archive.truncated
                     text: TranslationManager.translate("settings.debug.aiArchiveShortened", "Preview shortened. Download the complete conversation below.")
                     font: Theme.bodyFont
@@ -264,6 +297,14 @@ DecenzaDialog {
                 text: accessibleName
                 enabled: !archive.busy && !download.busy && ConversationSession.ready
                 onClicked: archive.request("exportArchive", {key: archive.selectedKey, format: "json"})
+            }
+            AccessibleButton {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.debug.aiArchiveGetHelp", "Get Help")
+                accessibleName: TranslationManager.translate("settings.debug.aiArchiveGetHelpAccessible",
+                    "Get help: download this conversation and open a GitHub issue to attach it to")
+                enabled: !archive.busy && !download.busy && ConversationSession.ready
+                onClicked: archive.openHelpIssue()
             }
         }
         RowLayout {

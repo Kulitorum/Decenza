@@ -172,6 +172,16 @@ QString ScreensaverService::clearPersonalMedia()
     return execute(QStringLiteral("clear-personal"));
 }
 
+QString ScreensaverService::listPersonalMedia()
+{
+    return execute(QStringLiteral("list-personal"));
+}
+
+QString ScreensaverService::deletePersonalMedia(int mediaId)
+{
+    return execute(QStringLiteral("delete-personal"), QString::number(mediaId));
+}
+
 QString ScreensaverService::refreshShotMap()
 {
     return execute(QStringLiteral("refresh-shot-map"));
