@@ -3,6 +3,10 @@ if(NOT IOS)
     find_package(Qt6 REQUIRED COMPONENTS SerialPort)
 endif()
 
+# zlib exports platform feature macros such as _LARGEFILE64_SOURCE on Linux.
+# Shared PCH donors and ZIP-linked consumers must see the same definitions.
+add_compile_definitions("$<TARGET_PROPERTY:ZLIB::ZLIB,INTERFACE_COMPILE_DEFINITIONS>")
+
 # Every test links decenza_testlib directly (see add_decenza_test), and the
 # targets that also link decenza_shotlib get it a second time through that
 # library's PUBLIC interface. Without de-duplication the Apple linker emits
