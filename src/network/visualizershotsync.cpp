@@ -649,7 +649,7 @@ void VisualizerShotSync::noteRecovered(Failure* failure)
     if (failure->message.isEmpty())
         return;
     DIAG_INFO(VISUALIZER, "VisualizerShotSync") << "Visualizer sync recovered from:" << failure->message
-              << "(" << failure->repeats << "repeat(s))";
+              << QStringLiteral("(%1 repeat(s))").arg(failure->repeats);
     failure->message.clear();
     failure->repeats = 0;
 }
