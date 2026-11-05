@@ -623,7 +623,7 @@ public:
     // Checkpoint WAL to main database file
     void checkpoint();
 
-    // Thread-safe backup: opens a temporary connection, checkpoints, copies the file.
+    // Thread-safe backup: a VACUUM INTO snapshot (WAL included) through a temporary connection.
     // Safe to call from any thread (does not use m_db).
     static QString createBackupStatic(const QString& dbPath, const QString& destPath);
 

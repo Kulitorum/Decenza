@@ -16,9 +16,7 @@ KeyboardAwareContainer {
     property string backupRequestId: ""
     property string restoreRequestId: ""
     property string backupHourRequestId: ""
-    property string backupDownloadRequestId: ""
-    property bool savingBackup: false
-    readonly property bool backupDownloadInProgress: backupDownloadRequestId.length > 0 || savingBackup
+    readonly property bool backupDownloadInProgress: backupDownload.busy
     readonly property var importSnapshot: ImportService.ready ? ImportService.snapshot : ({
         shotDetected: false, profileDetected: false,
         shotImporting: false, shotExtracting: false, shotTotalFiles: 0,
@@ -37,13 +35,11 @@ KeyboardAwareContainer {
     PreferenceWrite { id: exportShotsPreferenceWrite; domain: "network"; onFailed: function(message) { exportShotsError.show(message) } }
     StatusToast { id: exportShotsError; error: true }
 
-    LocalFileDownload {
+    HostFileDownload {
         id: backupDownload
+        ready: BackupService.ready
         executeOperation: function(operation, args) { return BackupService.execute(operation, args) }
-        onFinished: function(success, reason) {
-            historyDataTab.savingBackup = false
-            historyDataTab.showBackupDownloadResult(success, reason)
-        }
+        onFinished: function(success, reason) { historyDataTab.showBackupDownloadResult(success, reason) }
     }
     StatusToast { id: backupDownloadStatus }
 
@@ -57,20 +53,6 @@ KeyboardAwareContainer {
                 : TranslationManager.translate("settings.data.backupDownloadFailed", "The backup could not be saved. Check the connection and try again.")
         backupDownloadStatus.show(message)
         AccessibilityManager.announce(message)
-    }
-
-    function cancelBackupDownload() {
-        const requestId = backupDownloadRequestId
-        backupDownloadRequestId = ""
-        if (requestId.length > 0)
-            BackupService.execute("cancelFileOperation", {requestId: requestId})
-        backupDownload.cancelSilently()
-        savingBackup = false
-    }
-
-    Component.onDestruction: {
-        if (historyDataTab.backupDownloadRequestId.length > 0)
-            BackupService.execute("cancelFileOperation", {requestId: historyDataTab.backupDownloadRequestId})
     }
 
     Connections {
@@ -174,19 +156,7 @@ KeyboardAwareContainer {
         target: BackupService
         function onOperationCompleted(requestId, operation, success, result, reason) {
             backupDownload.completeOperation(requestId, operation, success, result, reason)
-            if (operation === "prepareBackupDownload" && requestId === historyDataTab.backupDownloadRequestId) {
-                historyDataTab.backupDownloadRequestId = ""
-                if (!success) {
-                    historyDataTab.showBackupDownloadResult(false, reason)
-                    return
-                }
-                historyDataTab.savingBackup = true
-                if (!backupDownload.start(result) && historyDataTab.savingBackup) {
-                    historyDataTab.savingBackup = false
-                    BackupService.execute("releaseBundle", {bundleId: result.bundleId})
-                    historyDataTab.showBackupDownloadResult(false, "invalidBundle")
-                }
-            } else if (operation === "createBackup" && requestId === historyDataTab.backupRequestId) {
+            if (operation === "createBackup" && requestId === historyDataTab.backupRequestId) {
                 historyDataTab.backupRequestId = ""
                 historyDataTab.showBackupResult(operation, success, result, reason)
             } else if ((operation === "restoreBackup" || operation === "restoreUploadedBackup")
@@ -677,11 +647,9 @@ KeyboardAwareContainer {
                              restoreBackupCombo.currentIndex >= 0 &&
                              restoreBackupCombo.currentIndex < restoreBackupCombo.rawBackups.length &&
                              restoreBackupCombo.rawBackups[restoreBackupCombo.currentIndex].downloadable === true
-                    onClicked: {
-                        historyDataTab.backupDownloadRequestId = BackupService.execute("prepareBackupDownload", {
-                            backupId: restoreBackupCombo.backupIds[restoreBackupCombo.currentIndex]
-                        })
-                    }
+                    onClicked: backupDownload.prepare("prepareBackupDownload", {
+                        backupId: restoreBackupCombo.backupIds[restoreBackupCombo.currentIndex]
+                    })
                 }
 
                 BusyIndicator {
@@ -695,16 +663,16 @@ KeyboardAwareContainer {
                     visible: historyDataTab.backupDownloadInProgress
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("settings.data.cancelBackupSave", "Cancel saving backup")
-                    onClicked: historyDataTab.cancelBackupDownload()
+                    onClicked: backupDownload.cancel()
                 }
             }
 
             ProgressBar {
                 Layout.fillWidth: true
-                visible: backupDownload.busy && !backupDownload.waitingForSave
+                visible: backupDownload.fileDownload.busy && !backupDownload.fileDownload.waitingForSave
                 from: 0
-                to: backupDownload.totalBytes
-                value: backupDownload.offset
+                to: backupDownload.fileDownload.totalBytes
+                value: backupDownload.fileDownload.offset
                 Accessible.name: TranslationManager.translate("settings.data.backupSaveProgress", "Saving backup")
             }
 

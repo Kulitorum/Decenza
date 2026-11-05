@@ -72,6 +72,10 @@ T.Page {
         }
     }
     StatusToast { id: reviewActionError; error: true }
+    function openExternal(url: string): void {
+        if (!ShotReviewActions.openExternalUrl(url))
+            reviewActionError.show(TranslationManager.translate("common.openLinkFailed", "Could not open this link."))
+    }
 
     StatusToast { id: shotDownloadResult }
 
@@ -423,6 +427,16 @@ T.Page {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
             event.accepted = true
             handleBack()
+        } else if (Window.activeFocusItem instanceof TextInput || Window.activeFocusItem instanceof TextEdit) {
+            // Text items never accept a key release (qquickitem.cpp:4197-4200), so it reaches the page.
+            return
+        } else if (event.key === Qt.Key_Left && canGoNewer) {
+            // Same order as the Newer/Older buttons.
+            event.accepted = true
+            stepTo(currentIndex - 1)
+        } else if (event.key === Qt.Key_Right && canGoOlder) {
+            event.accepted = true
+            stepTo(currentIndex + 1)
         }
     }
 
@@ -1586,12 +1600,12 @@ T.Page {
             const prose = String(result.text || "")
             if (prose.length === 0) return
             if (postShotReviewPage._prosePurpose === "email") {
-                Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis")
+                postShotReviewPage.openExternal("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis")
                     + "&body=" + encodeURIComponent(prose))
             } else if (postShotReviewPage._prosePurpose === "discuss") {
                 if (!ShotReviewActions.discussAppReadsShot) ShotReviewActions.copyToClipboard(prose)
                 if (ShotReviewActions.discussShotUrl.length > 0)
-                    ShotReviewActions.openExternalUrl(ShotReviewActions.discussShotUrl)
+                    postShotReviewPage.openExternal(ShotReviewActions.discussShotUrl)
             }
             postShotReviewPage._prosePurpose = ""
         }
@@ -3367,6 +3381,8 @@ T.Page {
             Rectangle {
                 id: uploadsCard
                 readonly property bool onVisualizer: postShotReviewPage._visualizerId !== ""
+                readonly property string visualizerUrl: onVisualizer && postShotReviewPage.editShotData
+                    ? (postShotReviewPage.editShotData.visualizerUrl || "") : ""
                 readonly property bool decentUploaded: !!postShotReviewPage._decentState.uploaded
                 readonly property bool decentRejected: !!postShotReviewPage._decentState.rejected
                 readonly property string decentUrl: decentUploaded
@@ -3407,6 +3423,22 @@ T.Page {
                             elide: Text.ElideRight
                             Accessible.ignored: true
                         }
+                        Text {
+                            id: visualizerViewLink
+                            visible: uploadsCard.visualizerUrl.length > 0
+                            text: TranslationManager.translate("shotdetail.viewOnVisualizer", "View on Visualizer")
+                            font: Theme.captionFont
+                            color: Theme.primaryColor
+                            Accessible.ignored: true
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.scaled(6)
+                                accessibleName: TranslationManager.translate("shotdetail.viewOnVisualizerAccessible",
+                                                                             "View this shot on Visualizer. Opens web browser")
+                                accessibleItem: visualizerViewLink
+                                onAccessibleClicked: postShotReviewPage.openExternal(uploadsCard.visualizerUrl)
+                            }
+                        }
                     }
 
                     RowLayout {
@@ -3444,7 +3476,7 @@ T.Page {
                                 accessibleName: TranslationManager.translate("shotdetail.viewOnDecentAccessible",
                                                                              "View this shot on decentespresso.com. Opens web browser")
                                 accessibleItem: decentViewLink
-                                onAccessibleClicked: Qt.openUrlExternally(uploadsCard.decentUrl)
+                                onAccessibleClicked: postShotReviewPage.openExternal(uploadsCard.decentUrl)
                             }
                         }
                     }

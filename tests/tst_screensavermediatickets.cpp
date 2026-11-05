@@ -674,6 +674,35 @@ void tst_ScreensaverMediaTickets::backgroundImageCatalogUsesOpaqueValidatedIds()
     const QVariantMap localRow = manager.backgroundPickerImages(true).first().toMap();
     QVERIFY(localRow.value(QStringLiteral("path")).toString().startsWith(
         QFileInfo(manager.personalMediaDirectory()).canonicalFilePath() + QLatin1Char('/')));
+
+    // The remote list carries exactly what a client may see: no host path.
+    NativeScreensaverServiceSource source(&manager);
+    QSignalSpy completed(&source, &ScreensaverStateSimpleSource::operationCompleted);
+    source.execute(QStringLiteral("list"), QStringLiteral("list-personal"), {});
+    QTRY_COMPARE(completed.count(), 1);
+    QVERIFY(completed.last().at(2).toBool());
+    const QVariantList items = completed.last().at(3).toMap().value(QStringLiteral("items")).toList();
+    QCOMPARE(items.size(), 1);
+    const QVariantMap item = items.first().toMap();
+    QStringList keys = item.keys();
+    keys.sort();
+    QCOMPARE(keys, (QStringList{QStringLiteral("bytes"), QStringLiteral("filename"),
+                                QStringLiteral("id"), QStringLiteral("type")}));
+    QCOMPARE(item.value(QStringLiteral("filename")).toString(), QStringLiteral("private-background.png"));
+
+    source.execute(QStringLiteral("bad"), QStringLiteral("delete-personal"), QStringLiteral("-1"));
+    QTRY_COMPARE(completed.count(), 2);
+    QCOMPARE(completed.last().at(4).toString(), QStringLiteral("invalidMediaItem"));
+    QCOMPARE(manager.personalMediaCount(), 1);
+    const QString mediaId = QString::number(item.value(QStringLiteral("id")).toInt());
+    source.execute(QStringLiteral("delete"), QStringLiteral("delete-personal"), mediaId);
+    QTRY_COMPARE(completed.count(), 3);
+    QVERIFY(completed.last().at(2).toBool());
+    QCOMPARE(manager.personalMediaCount(), 0);
+    QVERIFY(!QFile::exists(resolved));
+    source.execute(QStringLiteral("again"), QStringLiteral("delete-personal"), mediaId);
+    QTRY_COMPARE(completed.count(), 4);
+    QCOMPARE(completed.last().at(4).toString(), QStringLiteral("deleteFailed"));
 }
 
 void tst_ScreensaverMediaTickets::personalOriginalNameSurvivesProcessingAndReload()

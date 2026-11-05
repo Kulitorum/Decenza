@@ -24,6 +24,7 @@ inline const QMap<QString, FontRole>& roles()
         {QStringLiteral("bodySize"),     {18, 10,  36}},
         {QStringLiteral("labelSize"),    {14,  8,  28}},
         {QStringLiteral("captionSize"),  {12,  8,  24}},
+        {QStringLiteral("smallSize"),    {10,  6,  20}},
         {QStringLiteral("valueSize"),    {48, 24,  96}},
         {QStringLiteral("timerSize"),    {72, 36, 120}}
     };

@@ -8,6 +8,7 @@ namespace SystemLogFilePolicy {
 inline bool supported(const QString& operation)
 {
     return operation == QLatin1String("prepareLogDownload")
+        || operation == QLatin1String("memorySnapshot")
         || operation == QLatin1String("cancelFileOperation")
         || operation == QLatin1String("readBundleChunk")
         || operation == QLatin1String("releaseBundle");
@@ -19,6 +20,7 @@ inline bool validArguments(const QString& operation, const QVariantMap& args)
         return args.size() == 1 && format.metaType().id() == QMetaType::QString
             && (format.toString() == QLatin1String("log") || format.toString() == QLatin1String("zip"));
     }
+    if (operation == QLatin1String("memorySnapshot")) return args.isEmpty();
     if (operation == QLatin1String("cancelFileOperation")) {
         const auto id = args.value(QStringLiteral("requestId"));
         return args.size() == 1 && id.metaType().id() == QMetaType::QString

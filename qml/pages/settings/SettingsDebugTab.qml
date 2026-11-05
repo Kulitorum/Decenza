@@ -34,6 +34,10 @@ Item {
         id: conversationArchive
         onClosed: archiveBrowseButton.forceActiveFocus()
     }
+    MemoryUsageDialog {
+        id: memoryUsage
+        onClosed: memoryButton.forceActiveFocus()
+    }
 
     function canSelectLocalApk() {
         return localApkHostAvailable && !localApkBusy
@@ -244,6 +248,30 @@ Item {
         }
     }
 
+    StatusToast { id: databaseDownloadResult }
+    HostFileDownload {
+        id: databaseDownload
+        ready: BackupService.ready
+        executeOperation: function(operation, args) { return BackupService.execute(operation, args) }
+        onFinished: function(success, reason) {
+            if (!success && (reason === "saveCancelled" || reason === "cancelled")) return
+            databaseDownloadResult.error = !success
+            const message = success
+                ? TranslationManager.translate("settings.debug.databaseSaved", "The shot database was saved.")
+                : reason === "busy"
+                    ? TranslationManager.translate("settings.data.backupDownloadBusy", "Another backup operation is in progress. Try again when it finishes.")
+                    : TranslationManager.translate("settings.debug.databaseSaveFailed", "The shot database could not be saved (%1).").arg(reason)
+            databaseDownloadResult.show(message)
+            AccessibilityManager.announce(message)
+        }
+    }
+    Connections {
+        target: BackupService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            databaseDownload.completeOperation(requestId, operation, success, result, reason)
+        }
+    }
+
     Connections {
         target: MaintenanceService
         function onOperationCompleted(requestId, operation, success, result, reason) {
@@ -322,6 +350,44 @@ Item {
                     visible: diagnosticLogDownload.busy
                     indeterminate: true
                     Accessible.name: TranslationManager.translate("settings.debug.preparingLog", "Preparing log download")
+                }
+            }
+
+            SettingsCard {
+                searchId: "debugTroubleshootingData"
+                title: TranslationManager.translate("settings.debug.troubleshootingData", "Troubleshooting data")
+                keywords: ["database", "sqlite", "db", "export", "memory", "ram", "leak"]
+                spacing: Theme.scaled(12)
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("settings.debug.saveDatabase", "Save shot database")
+                        text: accessibleName
+                        enabled: databaseDownload.ready && !databaseDownload.busy
+                        onClicked: databaseDownload.prepare("prepareDatabaseDownload", {})
+                    }
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                        text: accessibleName
+                        visible: databaseDownload.busy
+                        onClicked: databaseDownload.cancel()
+                    }
+                    AccessibleButton {
+                        id: memoryButton
+                        accessibleName: TranslationManager.translate("settings.debug.showMemory", "Show memory usage")
+                        text: accessibleName
+                        onClicked: memoryUsage.open()
+                    }
+                }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    visible: databaseDownload.busy
+                    indeterminate: !databaseDownload.fileDownload.busy
+                    from: 0
+                    to: Math.max(1, databaseDownload.fileDownload.totalBytes)
+                    value: databaseDownload.fileDownload.offset
+                    Accessible.name: TranslationManager.translate("settings.debug.preparingDatabase", "Preparing shot database download")
                 }
             }
 

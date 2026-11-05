@@ -78,40 +78,54 @@ bool BrowserDisplay::eventFilter(QObject* watched, QEvent* event)
     if (event->type() != QEvent::Wheel)
         return false;
     auto* wheel = static_cast<QWheelEvent*>(event);
-    if (!m_wheelObserver) {
-        if (auto* window = qobject_cast<QQuickWindow*>(watched)) {
-            if (auto* engine = qmlEngine(window)) {
-                // Observe Qt's input lifecycle, without blocking controls. Qt's
-                // WheelHandler owns phase-less input completion (qtdeclarative/
-                // src/quick/handlers/qquickwheelhandler.cpp:114-131,457-473).
-                QQmlComponent component(engine);
-                component.setData(R"QML(
-                    import QtQuick
-                    Item {
-                        anchors.fill: parent
-                        z: 2147483647
-                        Accessible.ignored: true
-                        signal gestureEnded()
-                        WheelHandler {
-                            id: vertical
-                            target: null; blocking: false
-                            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                            onActiveChanged: if (!active && !horizontal.active) parent.gestureEnded()
-                        }
-                        WheelHandler {
-                            id: horizontal
-                            target: null; blocking: false; orientation: Qt.Horizontal
-                            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                            onActiveChanged: if (!active && !vertical.active) parent.gestureEnded()
-                        }
+    if (auto* window = qobject_cast<QQuickWindow*>(watched);
+        window && !m_wheelObserverWindows.contains(window)) {
+        m_wheelObserverWindows.removeIf([](const QPointer<QObject>& seen) { return seen.isNull(); });
+        m_wheelObserverWindows.append(window);
+        if (auto* engine = qmlEngine(window)) {
+            // Observe Qt's input lifecycle, without blocking controls. Qt's
+            // WheelHandler owns phase-less input completion (qtdeclarative/
+            // src/quick/handlers/qquickwheelhandler.cpp:114-131,457-473).
+            // While a modal popup is open the overlay eats a wheel whose topmost
+            // target is outside it (qtdeclarative/src/quicktemplates/
+            // qquickoverlay.cpp:83-150), so the page observer sits just under
+            // the overlay (z 1000001, :414). A second observer sits topmost
+            // inside the overlay, which neither the overlay nor a popup filters
+            // (qquickoverlay.cpp:108-114, qquickpopup.cpp:3325-3334).
+            QQmlComponent component(engine);
+            component.setData(R"QML(
+                import QtQuick
+                import QtQuick.Templates as T
+                Item {
+                    property bool inOverlay: false
+                    anchors.fill: parent
+                    z: inOverlay ? 2147483647 : 1000000
+                    Accessible.ignored: true
+                    signal gestureEnded()
+                    Component.onCompleted: if (inOverlay) parent = T.Overlay.overlay
+                    WheelHandler {
+                        id: vertical
+                        target: null; blocking: false
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        onActiveChanged: if (!active && !horizontal.active) parent.gestureEnded()
                     }
-                )QML", QUrl());
-                m_wheelObserver = component.createWithInitialProperties({
-                    {QStringLiteral("parent"), QVariant::fromValue(window->contentItem())}});
-                if (m_wheelObserver) {
-                    m_wheelObserver->setParent(window->contentItem());
-                    connect(m_wheelObserver, SIGNAL(gestureEnded()), this, SLOT(finishWheelGesture()));
+                    WheelHandler {
+                        id: horizontal
+                        target: null; blocking: false; orientation: Qt.Horizontal
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        onActiveChanged: if (!active && !vertical.active) parent.gestureEnded()
+                    }
                 }
+            )QML", QUrl());
+            for (const bool inOverlay : {false, true}) {
+                QObject* observer = component.createWithInitialProperties({
+                    {QStringLiteral("parent"), QVariant::fromValue(window->contentItem())},
+                    {QStringLiteral("inOverlay"), inOverlay}});
+                Q_ASSERT_X(observer, "BrowserDisplay", qPrintable(component.errorString()));
+                if (!observer)
+                    continue;
+                observer->setParent(window->contentItem());
+                connect(observer, SIGNAL(gestureEnded()), this, SLOT(finishWheelGesture()));
             }
         }
     }

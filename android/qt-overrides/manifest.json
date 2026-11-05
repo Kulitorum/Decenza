@@ -1,0 +1,48 @@
+{
+  "library": "libQt6Qml_arm64-v8a.so",
+  "qt_version": "6.12.0",
+  "architecture": "arm64-v8a",
+  "android_api": 28,
+  "ndk_version": "27.2.12479018",
+  "build_type": "Release",
+  "optimization": "-Oz -DNDEBUG",
+  "build_id": "0776b3e7e4cf5c336faf00bf7343bfcdb9f2b0e2",
+  "sha256": "045345bf5a993f8d8d1fd79df7ed5d9af64a9ccb483ad5426967db59ef1f1036",
+  "revision_marker": "gcdiag-v2 sweep-fix=QTBUG-149512 weak-history=1",
+  "upstream_fix": "https://github.com/qt/qtdeclarative/commit/059ee9db91507b8b86cdf4bf033985c9ea41e0d4",
+  "patches": [
+    {
+      "path": "tools/qt-gc-diagnostics/qt-6.12.0-gc-diagnostics.patch",
+      "sha256": "0cd1825e81767dfcb704b76da57ceba3a5966102dd48744625a044863e1a562b"
+    },
+    {
+      "path": "tools/qt-gc-diagnostics/qt-6.12.0-gc-weak-history.patch",
+      "sha256": "1856ef3d0a7452d183558dbd01631a83772f617758d8d031cfafa61c7893a064"
+    },
+    {
+      "path": "tools/qt-gc-diagnostics/qt-6.12.0-sweep-allocation-fix.patch",
+      "sha256": "9416322411d089768bbd56ddd8fb8d2f4f6545e1d50f1582e6fedde456d5e96b"
+    }
+  ],
+  "stock_sdk_sha256": {
+    "libQt6Qml_arm64-v8a.so": "9c369a8da4adef65bd090fed1f846ca480f12e6cd36c6728a9c5e54a9da178af",
+    "libQt6Core_arm64-v8a.so": "cc21256f62e350d9e66ca729d71ca96ea72498f0379f808dc8a981e02fb2e248"
+  },
+  "patched_source_sha256": {
+    "src/qml/memory/qv4mm.cpp": "31f8543b1ca3162aa5a28c89ecf4ccb2184607c73998e8528def642dfee6ddf0",
+    "src/qml/memory/qv4mmdefs_p.h": "9119f0c32b980911904913cb00636ed345ac5aea454aae888bade86b26a4cef7"
+  },
+  "validation": {
+    "exported_symbols": "4463; identical names and symbol versions to stock SDK",
+    "qml_feature_headers": "public and private identical to stock SDK",
+    "soname_and_dependencies": "identical to stock SDK",
+    "load_alignment_bytes": 16384,
+    "test_hooks": false,
+    "additional_import": "__cxa_thread_atexit; provided by NDK r27c libc++_shared.so",
+    "native_regression_runs": [
+      "1793559335430",
+      "1793559335431"
+    ],
+    "android_runtime": "not yet verified"
+  }
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QList>
 #include <QPointer>
 #include <QPointF>
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -46,7 +47,8 @@ protected:
 
 private:
     bool sendPixelWheel(Qt::ScrollPhase phase, const QPoint& delta);
-    QPointer<QObject> m_wheelObserver;
+    // Windows the wheel observers were created for, recorded even if creation failed.
+    QList<QPointer<QObject>> m_wheelObserverWindows;
     QPointer<QObject> m_wheelTarget;
     QPointF m_wheelPosition;
     QPointF m_wheelGlobalPosition;

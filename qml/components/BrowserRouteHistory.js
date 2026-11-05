@@ -14,6 +14,8 @@ var routeNames = [
 
 var maximumStateChars = 262144
 var maximumFragmentChars = 2048
+// Shot IDs in a shareable comparison link; larger selections keep only the route.
+var maximumComparisonUrlShots = 20
 var favoriteGroups = ["bean", "profile", "bean_profile", "bean_profile_grinder",
                       "bean_profile_grinder_weight"]
 
@@ -365,6 +367,9 @@ function entryLocationHash(value) {
     if ((entry.route === "shotDetail" || entry.route === "postShotReview") && _urlRecordId(args.editShotId) > 0)
         return entry.route + "/" + args.editShotId
     if (entry.route === "sensorCalibration") return entry.route + "/" + args.sensor
+    if (entry.route === "shotComparison" && Array.isArray(args.selectedShotIds)
+            && args.selectedShotIds.length > 0 && args.selectedShotIds.length <= maximumComparisonUrlShots)
+        return entry.route + "/" + args.selectedShotIds.join(",")
     if (entry.route === "recipeWizard" && args.mode === "edit" && _urlRecordId(args.editRecipeId) > 0)
         return entry.route + "/" + args.editRecipeId
     var filename = entry.route === "profileInfo" ? args.profileFilename
@@ -409,6 +414,13 @@ function _parseLocationHash(value) {
     } else if (route === "profileInfo" || route === "profileEditor") {
         if (!_encodedPublicFilename(identity)) return null
         args = route === "profileInfo" ? {profileFilename: identity} : {editorEntryFilename: identity}
+    } else if (route === "shotComparison") {
+        if (!/^[0-9]+(,[0-9]+)*$/.test(identity)) return null
+        var ids = identity.split(",").map(function(part) { return _urlRecordId(part) })
+        if (ids.length > maximumComparisonUrlShots || ids.some(function(shot, i) {
+                return shot <= 0 || String(shot) !== identity.split(",")[i] || ids.indexOf(shot) !== i }))
+            return null
+        args = {selectedShotIds: ids}
     } else if (route === "sensorCalibration") {
         if (!/^[0-4]$/.test(identity)) return null
         args = {sensor: Number(identity)}

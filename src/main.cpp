@@ -2551,13 +2551,6 @@ int main(int argc, char *argv[])
     shotReviewActionSource.openClient(nativeConversationId, true);
     preparationSource.openClient(nativeConversationId);
     if (auto* server = mainController.shotServer()) {
-        const auto updateReportUrl = [&conversationSessionSource, server] {
-            conversationSessionSource.setReportUrl(server->isRunning()
-                ? server->url() + QStringLiteral("/ai-conversations") : QString());
-        };
-        QObject::connect(server, &ShotServer::runningChanged, &conversationSessionSource, updateReportUrl);
-        QObject::connect(server, &ShotServer::urlChanged, &conversationSessionSource, updateReportUrl);
-        updateReportUrl();
         QObject::connect(server, &ShotServer::remoteObjectClientOpened,
                          &conversationSessionSource, &ConversationSessionSource::openClient);
         QObject::connect(server, &ShotServer::remoteObjectClientClosed,
@@ -2664,6 +2657,12 @@ int main(int argc, char *argv[])
     languageServiceSource.setFileOperationAllowed([&machineState] { return !machineState.isOperating(); });
     NativeSystemLogServiceSource systemLogServiceSource(WebDebugLogger::instance());
     systemLogServiceSource.setMemorySummaryProvider([&memoryMonitor] { return memoryMonitor.toSummaryString(); });
+    systemLogServiceSource.setMemorySnapshotProvider([&memoryMonitor] {
+        QVariantMap snapshot = memoryMonitor.toJson().toVariantMap();
+        snapshot.insert(QStringLiteral("summary"), memoryMonitor.toSummaryString());
+        snapshot.insert(QStringLiteral("instrumentedBuild"), memoryMonitor.instrumentedBuild());
+        return snapshot;
+    });
     systemLogServiceSource.openClient(nativeConversationId);
     if (auto* server = mainController.shotServer()) {
         QObject::connect(server, &ShotServer::remoteObjectClientOpened,

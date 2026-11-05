@@ -235,7 +235,7 @@ T.Page {
     property int searchReturnFocusReason: Qt.OtherFocusReason
 
     // Tab bar at top
-    TabBar {
+    StyledTabBar {
         id: tabBar
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin
@@ -250,40 +250,11 @@ T.Page {
         onCurrentIndexChanged: {
             settingsPage.markTabLoaded(currentIndex)
 
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
+            if (AccessibilityManager.enabled) {
                 let tabNames = SettingsTabs.visibleTabNames()
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(TranslationManager.translate("settings.accessible.tabAnnounce", "%1 tab").arg(tabNames[currentIndex]))
                 }
-            }
-        }
-
-        // Override Material contentItem to remove the accent-colored highlight indicator
-        contentItem: ListView {
-            model: tabBar.contentModel
-            currentIndex: tabBar.currentIndex
-            spacing: tabBar.spacing
-            orientation: ListView.Horizontal
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.AutoFlickIfNeeded
-            snapMode: ListView.SnapToItem
-            highlightMoveDuration: 0
-            highlight: Item {}  // No Material indicator
-        }
-
-        background: Rectangle {
-            // Scrim the whole bar (not just the active tab) when a custom background
-            // image is set — unselected tab labels otherwise sit directly on the photo
-            // with no surface behind them, hurting legibility.
-            color: Theme.glassChrome ? Theme.cardBackgroundColor : "transparent"
-
-            // Bottom border line (active tab extends below to cover its portion)
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: Theme.borderColor
             }
         }
 

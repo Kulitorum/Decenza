@@ -491,9 +491,7 @@ jobs:
       - name: Install instrumented QtQml
         run: |
           # Keep the downloaded SDK cache stock and reject a different Qt build.
-          printf '%s  %s\n' \
-            9c369a8da4adef65bd090fed1f846ca480f12e6cd36c6728a9c5e54a9da178af "$QT_ROOT_DIR/lib/libQt6Qml_arm64-v8a.so" \
-            cc21256f62e350d9e66ca729d71ca96ea72498f0379f808dc8a981e02fb2e248 "$QT_ROOT_DIR/lib/libQt6Core_arm64-v8a.so" | sha256sum --check
+          python3 tools/qt-gc-diagnostics/verify_artifact.py --sdk-root "$QT_ROOT_DIR"
           STAGED_QT="$RUNNER_TEMP/qt-android-gc"
           cp -a "$QT_ROOT_DIR" "$STAGED_QT"
           rm -f "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
@@ -669,6 +667,9 @@ jobs:
         run: |
           READELF="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           unzip -p "${{ steps.apk.outputs.apk_path }}" lib/arm64-v8a/libQt6Qml_arm64-v8a.so > "$RUNNER_TEMP/apk-qtqml.so"
+          # androiddeployqt may strip the packaged copy; build ID and revision survive.
+          REVISION=$(python3 -c 'import json; print(json.load(open("android/qt-overrides/manifest.json"))["revision_marker"])')
+          grep -aFq "$REVISION" "$RUNNER_TEMP/apk-qtqml.so"
           EXPECTED=$("$READELF" -n android/qt-overrides/libQt6Qml_arm64-v8a.so | awk '/Build ID:/ {print $NF}')
           ACTUAL=$("$READELF" -n "$RUNNER_TEMP/apk-qtqml.so" | awk '/Build ID:/ {print $NF}')
           test -n "$EXPECTED" && test "$EXPECTED" = "$ACTUAL"

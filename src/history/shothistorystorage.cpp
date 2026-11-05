@@ -5434,63 +5434,25 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
 
 QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QString& destPath)
 {
-    const QString connName = QString("backup_%1")
-        .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
-
-    {
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-        db.setDatabaseName(dbPath);
-        if (!db.open()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Failed to open DB:" << db.lastError().text();
-            db = QSqlDatabase();  // Release connection before removeDatabase
-            QSqlDatabase::removeDatabase(connName);
-            return QString();
-        }
-
-        // Set busy timeout so checkpoint retries on contention with main-thread connection
-        QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
-
-        // Checkpoint WAL to ensure all data is in main database file
+    // VACUUM INTO writes the database as one read transaction sees it, WAL
+    // included, without blocking writers (sqlite.org/lang_vacuum.html#vacuuminto).
+    // It refuses an existing destination, hence the removal first.
+    if (QFile::exists(destPath))
+        QFile::remove(destPath);
+    bool written = false;
+    const bool opened = withTempDb(dbPath, QStringLiteral("backup"), [&](QSqlDatabase& db) {
         QSqlQuery query(db);
-        if (query.exec("PRAGMA wal_checkpoint(FULL)")) {
-            if (query.next()) {
-                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "createBackupStatic: FULL checkpoint - busy:" << query.value(0).toInt()
-                         << "log:" << query.value(1).toInt() << "checkpointed:" << query.value(2).toInt();
-            }
-        }
-        if (query.exec("PRAGMA wal_checkpoint(TRUNCATE)")) {
-            if (query.next()) {
-                int busy = query.value(0).toInt();
-                int log = query.value(1).toInt();
-                int checkpointed = query.value(2).toInt();
-                if (busy != 0 || checkpointed < log) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Incomplete checkpoint - backup may be missing recent data."
-                               << "busy:" << busy << "log:" << log << "checkpointed:" << checkpointed;
-                } else {
-                    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "createBackupStatic: TRUNCATE checkpoint - busy:" << busy
-                             << "log:" << log << "checkpointed:" << checkpointed;
-                }
-            }
-        }
-
-        // Copy while connection is held open — prevents another writer from
-        // modifying the DB between checkpoint and copy
-        if (QFile::exists(destPath))
-            QFile::remove(destPath);
-
-        bool success = QFile::copy(dbPath, destPath);
-        if (!success) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Failed to copy" << dbPath << "to" << destPath;
-        }
-
-        db.close();
-    }
-    QSqlDatabase::removeDatabase(connName);
-
-    if (!QFile::exists(destPath)) {
+        query.prepare(QStringLiteral("VACUUM INTO ?"));
+        query.addBindValue(destPath);
+        written = query.exec();
+        if (!written)
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "createBackupStatic: VACUUM INTO" << destPath
+                << "failed:" << query.lastError().text();
+    });
+    if (!opened || !written) {
+        QFile::remove(destPath);
         return QString();
     }
-
     DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "createBackupStatic: Created backup at" << destPath;
     return destPath;
 }

@@ -44,16 +44,6 @@ ConversationSessionSource::ConversationSessionSource(AIManager* manager,
     }
 }
 
-void ConversationSessionSource::setReportUrl(const QString& url)
-{
-    if (m_reportUrl == url)
-        return;
-    m_reportUrl = url;
-    const auto clients = m_sessions.keys();
-    for (const QString& clientId : clients)
-        publishState(clientId);
-}
-
 void ConversationSessionSource::openClient(const QString& clientId)
 {
     if (ConversationSessionRequest::isCanonicalUuid(clientId))
@@ -169,7 +159,6 @@ QVariantMap ConversationSessionSource::stateFor(const Session& session) const
     state.insert(QStringLiteral("isMistakeShot"), session.isMistakeShot);
     state.insert(QStringLiteral("tasteIntakeEnabled"), session.tasteIntakeEnabled);
     state.insert(QStringLiteral("aiConfigured"), m_manager->isConfigured());
-    state.insert(QStringLiteral("reportUrl"), m_reportUrl);
     if (!ServicePayload::fits(state, MaxStatePayloadBytes)) {
         state.insert(QStringLiteral("lastResponse"), QString());
         state.insert(QStringLiteral("transcript"), QString());
@@ -605,6 +594,7 @@ void ConversationSessionSource::archive(QString clientId, QString requestId,
                 ? QByteArray() : AIConversation::archivedConversationText(data, false).toUtf8();
             result = {{QStringLiteral("text"), QString::fromUtf8(transcript.left(MaxTranscriptBytes))},
                 {QStringLiteral("truncated"), transcript.size() > MaxTranscriptBytes},
+                {QStringLiteral("messageCount"), data.value(QStringLiteral("messages")).toArray().size()},
                 {QStringLiteral("label"), label}, {QStringLiteral("key"), key}};
             if (!ServicePayload::fits(result, MaxStatePayloadBytes)) {
                 result[QStringLiteral("text")] = QString();

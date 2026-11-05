@@ -1858,6 +1858,9 @@ set(QML_FILES
     qml/components/KeyboardAwareContainer.qml
     qml/components/LocalFileTransfer.qml
     qml/components/LocalFileDownload.qml
+    qml/components/HostFileDownload.qml
+    qml/components/MemoryUsageDialog.qml
+    qml/components/LocalTextFileReader.qml
     qml/components/SystemLogDownload.qml
     qml/components/ConversationOverlay.qml
     qml/components/ConversationArchiveDialog.qml
@@ -1919,6 +1922,7 @@ set(QML_FILES
     qml/components/StyledComboBox.qml
     qml/components/SelectionDialog.qml
     qml/components/StyledIconButton.qml
+    qml/components/StyledTabBar.qml
     qml/components/StyledTabButton.qml
     qml/components/FlipClockScreensaver.qml
     qml/components/StrangeAttractorScreensaver.qml
