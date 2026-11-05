@@ -88,7 +88,7 @@ T.Page {
         target: HistoryService
         function onStateChanged() {
             if (HistoryService.ready) {
-                var reconnected = !shotHistoryPage._serviceWasReady
+                let reconnected = !shotHistoryPage._serviceWasReady
                 shotHistoryPage._serviceWasReady = true
                 if (shotHistoryPage._waitingForHistoryService) {
                     shotHistoryPage._waitingForHistoryService = false

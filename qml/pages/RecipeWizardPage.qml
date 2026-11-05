@@ -887,7 +887,7 @@ T.Page {
         if (d.stepTempsC && d.stepTempsC.length > 0)
             temps = d.stepTempsC.slice()
         else {
-            var steps = d.steps || []
+            let steps = d.steps || []
             for (let i = 0; i < steps.length; ++i) {
                 let stTemp = steps[i] ? Number(steps[i].temperature) : 0
                 if (stTemp > 0)
@@ -1161,7 +1161,7 @@ T.Page {
         if (detail.stepTempsC && detail.stepTempsC.length > 0)
             pickedTemps = detail.stepTempsC.slice()
         else {
-            var pickedSteps = detail.steps || []
+            let pickedSteps = detail.steps || []
             for (let psi = 0; psi < pickedSteps.length; ++psi) {
                 let psTemp = pickedSteps[psi] ? Number(pickedSteps[psi].temperature) : 0
                 if (psTemp > 0)

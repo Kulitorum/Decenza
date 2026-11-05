@@ -72,6 +72,11 @@ name: Text invariants
 #     the post-shot AI Advice button dead. Blocking, because the fix is always mechanical (bind
 #     the value to a local first).
 #
+#   check_qml_banned_types.py — no QML instantiates a type Decenza wraps. A bare FileDialog or
+#     FolderDialog destroyed while open leaves Qt's Android helper registered for activity
+#     results, and the picker's result crashed the app (#2176). Blocking: the fix is mechanical
+#     (use the Decenza wrapper), and nothing else sees it before a user does.
+#
 #   check_qml_aot_declarations.py — no QML function with typed parameters lacks a return
 #     annotation, and no root object declares a signal above a property. Qt 6.12's compiler and
 #     run time disagree on both, and the run time then runs every calling unit interpreted,
@@ -219,6 +224,12 @@ jobs:
         run: |
           python3 scripts/check_qml_aot_declarations.py --self-test
           python3 scripts/check_qml_aot_declarations.py
+
+      # Blocking: a bare dialog compiles, lints and tests clean, and crashes only on Android.
+      - name: No QML type Decenza replaces with a wrapper
+        run: |
+          python3 scripts/check_qml_banned_types.py --self-test
+          python3 scripts/check_qml_banned_types.py
 
       - name: Every settings card and adjustment is searchable
         run: |

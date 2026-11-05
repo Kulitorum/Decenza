@@ -331,7 +331,7 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
     `Qt.platform.os` tests near the uses — those are the same guard written a different way, and
     they are the ones that stay correct.
 
-## Reading the qmllint gate — four things that will save you a day
+## Reading the qmllint gate — five things that will save you a day
 
 The gate runs in every default desktop build and fails it on a new diagnostic; a passing build prints
 `QML diagnostics gate passed` near the end. On demand: `python3 scripts/qmllint_report.py --check`
@@ -357,6 +357,11 @@ The gate runs in every default desktop build and fails it on a new diagnostic; a
    which looks exactly like an improvement — that is how PR Kulitorum/Decenza#1680 shipped three ceilings the tree
    could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
    route around either.
+5. **On Qt 6.12.0, qmllint's text output drops findings; read `--json`.** A function whose type
+   propagation re-runs (typically a loop) discards every finding buffered earlier in that file
+   (`qqmljslogger.cpp:411-418`; QTBUG-151969, fixed for 6.12.1). The gate reads JSON for that
+   reason; a hand run in text mode that prints nothing has proven nothing. It hid 60 findings
+   here, four of them shipped `ReferenceError`s.
 
 ## Settings search: `SettingsCard`, titles, and the scanner
 

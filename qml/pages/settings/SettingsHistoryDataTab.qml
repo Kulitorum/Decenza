@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Dialogs
 import Decenza
 
 KeyboardAwareContainer {
@@ -855,7 +854,7 @@ KeyboardAwareContainer {
         }
     }
 
-    FileDialog {
+    DecenzaFileDialog {
         id: backupRestoreFileDialog
         title: TranslationManager.translate("settings.data.selectBackupFile", "Select a Decenza backup")
         nameFilters: ["Decenza backups (*.zip *.dcbackup *.db)"]
@@ -876,7 +875,7 @@ KeyboardAwareContainer {
     }
 
     // File dialogs for shot import
-        FileDialog {
+        DecenzaFileDialog {
             id: shotZipDialog
             title: TranslationManager.translate("settings.history.selectZipTitle", "Select shot history ZIP archive")
             nameFilters: ["ZIP archives (*.zip)", "All files (*)"]
@@ -887,7 +886,7 @@ KeyboardAwareContainer {
             }
         }
 
-        FolderDialog {
+        DecenzaFolderDialog {
             id: shotFolderDialog
             title: TranslationManager.translate("settings.history.selectFolderTitle", "Select folder containing .shot files")
             property bool overwrite: false

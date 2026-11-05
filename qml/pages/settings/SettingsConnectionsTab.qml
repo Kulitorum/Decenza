@@ -80,7 +80,7 @@ Item {
     function request(operation: string, args: var): string {
         var id = SettingsConnectionsService.execute(operation, args || ({}))
         if (id.length) {
-            var updated = Object.assign({}, pendingActions)
+            let updated = Object.assign({}, pendingActions)
             updated[id] = operation
             pendingActions = updated
         }

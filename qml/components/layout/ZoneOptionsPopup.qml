@@ -69,7 +69,7 @@ DecenzaDialog {
     function choicesFor(key, labels) {
         var values = LayoutService.zoneOptionValues(key)
         var result = []
-        for (var i = 0; i < values.length; ++i)
+        for (let i = 0; i < values.length; ++i)
             result.push({ value: values[i], label: labels[i] || values[i] })
         return result
     }

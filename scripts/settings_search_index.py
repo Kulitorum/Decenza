@@ -22,6 +22,9 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_qml_banned_types import BANNED_TYPES  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 TABS_QML = "qml/components/SettingsTabs.qml"
 REGISTRY_QML = "qml/components/SettingsSearchRegistry.qml"
@@ -437,7 +440,7 @@ TYPE_CLASSES = {
     },
     VIEW: {"Repeater", "ListView"},
     OVERLAY: {
-        "DecenzaDialog", "Dialog", "Popup", "FileDialog", "FolderDialog", "DatePickerDialog",
+        "DecenzaDialog", "Dialog", "Popup", "DecenzaFileDialog", "DecenzaFolderDialog", "DatePickerDialog",
         "SelectionDialog", "DeviceMigrationDialog", "CustomEditorPopup", "ScreensaverEditorPopup",
         "ZoneOptionsPopup", "ReadoutOptionsPopup", "SleepEditorPopup", "BackgroundPickerDialog",
         "ThemeAdvancedDialog", "ConversationArchiveDialog", "MemoryUsageDialog", "UnsavedChangesDialog",
@@ -667,7 +670,10 @@ class FileScan:
             # A labelled Loader remains searchable even before its inline content is created.
             return VIEW if obj.prop("SettingsSearch.title") or not obj.children else STRUCTURAL
         cls = CLASS_OF.get(obj.type)
-        if cls is None:
+        if cls is None and obj.type in BANNED_TYPES:
+            replacement, _, why = BANNED_TYPES[obj.type]
+            self.error(obj.line, f"bare `{obj.type}`: use `{replacement}`; {why}")
+        elif cls is None:
             self.error(obj.line, f"unclassified type `{obj.type}`: add it to TYPE_CLASSES in "
                                  f"scripts/settings_search_index.py")
         return cls
@@ -996,6 +1002,7 @@ FIXTURES = [
     ("clean card", CARD.format(body=SWITCH.format(key="k.a", text="Alpha")), None,
      [("card", "Card", []), ("adjustment", "Alpha", [])], TAB),
     ("unclassified type", CARD.format(body="FancySlider { }"), "unclassified type `FancySlider`", None, TAB),
+    ("bare file dialog", CARD.format(body="FileDialog { }"), "use `DecenzaFileDialog`", None, TAB),
     ("card title not literal", 'SettingsCard { searchId: "c"; title: someVar }',
      "SettingsCard title must be a literal", None, TAB),
     ("missing searchId", "SettingsCard { title: " + TR.format("t", "T") + " }", "needs a literal searchId", None, TAB),

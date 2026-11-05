@@ -527,16 +527,22 @@ function pageProperties(entry, hostId) {
     }
 }
 
+// A page's optional `navigationContext`, read here because a page is an untyped Item to the shells.
+function pageNavigationContext(page) {
+    return page && page.navigationContext && typeof page.navigationContext === "object"
+        ? page.navigationContext : null
+}
+
 function entryWithPageContext(entry, page) {
     var names = {settings: "settingsPage", history: "shotHistoryPage",
                  shotDetail: "postShotReviewPage", postShotReview: "postShotReviewPage",
                  recipes: "recipesPage", beans: "bagInventoryPage", shotComparison: "shotComparisonPage",
                  stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage",
                  sensorCalibration: "sensorCalibrationPage"}
-    if (!entry || !page || names[entry.route] !== page.objectName
-            || !page.navigationContext || typeof page.navigationContext !== "object")
+    var context = pageNavigationContext(page)
+    if (!entry || !page || names[entry.route] !== page.objectName || !context)
         return null
-    return normalizeEntry({route: entry.route, args: Object.assign({}, entry.args, page.navigationContext)})
+    return normalizeEntry({route: entry.route, args: Object.assign({}, entry.args, context)})
 }
 
 function pageHasUnsavedChanges(page) {

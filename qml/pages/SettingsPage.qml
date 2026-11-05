@@ -652,7 +652,7 @@ T.Page {
     // binding dependency, so the highlight follows a freshly loaded tab while its layouts settle.
     function offsetIn(item, host) {
         var x = 0, y = 0
-        for (var p = item; p && p !== host; p = p.parent) {
+        for (let p = item; p && p !== host; p = p.parent) {
             x += p.x
             y += p.y
         }

@@ -189,7 +189,7 @@ Item {
             onTapped: function(eventPoint) {
                 var focusedField = root.getActiveFocusField()
                 if (focusedField) {
-                    var position = dismissTap.parent.mapToItem(focusedField, eventPoint.position.x, eventPoint.position.y)
+                    let position = dismissTap.parent.mapToItem(focusedField, eventPoint.position.x, eventPoint.position.y)
                     if (focusedField.contains(position))
                         return
                     root.dismissTextInput()

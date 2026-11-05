@@ -632,9 +632,9 @@ T.Page {
     Binding {
         target: Theme
         property: "doseLiveNetG"
-        value: (idlePage.visible && beanCapture.active && beanCapture.loadPresent && !beanCapture.isCaptured
+        value: (idlePage.visible && idlePage.beanCapture.active && idlePage.beanCapture.loadPresent && !idlePage.beanCapture.isCaptured
                 && idlePage.brewUiPreferences.doseCupTareWeight > 0)
-               ? Math.max(0, beanCapture.netWeight) : -1
+               ? Math.max(0, idlePage.beanCapture.netWeight) : -1
     }
     Binding {
         target: Theme
@@ -701,11 +701,11 @@ T.Page {
         // Only while a load sits in the capture window with a cup saved. Outside
         // [minNet, maxNet] no capture will ever fire, so don't tell the user to wait
         // for a bell that can't ring (a too-heavy cup or the wrong vessel).
-        readonly property bool beansSettling: beanCapture.active && !beanCapture.isCaptured
+        readonly property bool beansSettling: idlePage.beanCapture.active && !idlePage.beanCapture.isCaptured
                                               && idlePage.brewUiPreferences.doseCupTareWeight > 0
-                                              && beanCapture.loadPresent
-                                              && beanCapture.netWeight >= beanCapture.minNet
-                                              && beanCapture.netWeight <= beanCapture.maxNet
+                                              && idlePage.beanCapture.loadPresent
+                                              && idlePage.beanCapture.netWeight >= idlePage.beanCapture.minNet
+                                              && idlePage.beanCapture.netWeight <= idlePage.beanCapture.maxNet
         readonly property bool milkSettling: idleMilkCapture.active && !idleMilkCapture.isCaptured
                                             && idleMilkCapture.cupWeight > 0
                                             && idleMilkCapture.loadPresent
@@ -1122,12 +1122,12 @@ T.Page {
                             // True while prompting the user to place beans (no load on
                             // the scale yet) — this state pulses (PromptPulse).
                             readonly property bool showingPlacePrompt: !idlePage.beanCaptureShown
-                                && !beanCapture.loadPresent
+                                && !idlePage.beanCapture.loadPresent
                             text: {
                                 if (idlePage.beanCaptureShown)
                                     return idlePage.beanCaptureText
-                                if (beanCapture.loadPresent)
-                                    return beanCapture.netWeight.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
+                                if (idlePage.beanCapture.loadPresent)
+                                    return idlePage.beanCapture.netWeight.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
                                 // The beep hint only when the capture sound will actually play
                                 // (doseCaptureSoundEnabled, default off) — same rule as the pitcher prompt.
                                 return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"

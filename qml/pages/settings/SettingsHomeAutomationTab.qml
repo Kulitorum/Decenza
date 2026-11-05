@@ -266,7 +266,7 @@ KeyboardAwareContainer {
                             enabled: !caFileReader.busy
                             onClicked: caFilePicker.open()
                         }
-                        FileDialog {
+                        DecenzaFileDialog {
                             id: caFilePicker
                             title: TranslationManager.translate("mqtt.caCertificateSelectFile", "Select a CA certificate")
                             fileMode: FileDialog.OpenFile

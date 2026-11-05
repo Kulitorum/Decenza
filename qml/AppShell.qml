@@ -57,7 +57,7 @@ QtObject {
 
     function updateBrowserDialog(dialog: var, dismissible: bool, dirty: bool): void {
         var next = _browserDialogs.slice()
-        for (var i = 0; i < next.length; ++i) {
+        for (let i = 0; i < next.length; ++i) {
             if (next[i].dialog === dialog) {
                 next[i] = Object.assign({}, next[i], {dismissible: dismissible, dirty: dirty})
                 _browserDialogs = next

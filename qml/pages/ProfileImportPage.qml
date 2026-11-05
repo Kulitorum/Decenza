@@ -7,7 +7,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Templates as T
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import Decenza
 
@@ -421,7 +420,7 @@ T.Page {
     }
 
     // File picker dialog (used on iOS, available on all platforms)
-    FileDialog {
+    DecenzaFileDialog {
         id: profileFileDialog
         title: TranslationManager.translate("profileimport.ios.dialog_title", "Select Profile File")
         nameFilters: ["Profile files (*.json *.tcl)", "JSON profiles (*.json)", "TCL profiles (*.tcl)", "All files (*)"]
@@ -430,7 +429,7 @@ T.Page {
         }
     }
 
-    FolderDialog {
+    DecenzaFolderDialog {
         id: profileDirectoryDialog
         title: TranslationManager.translate("profileimport.dialog.select_folder", "Select folder containing profiles")
         onAccepted: profileFileTransfer.start([selectedFolder], "profileFiles", {})

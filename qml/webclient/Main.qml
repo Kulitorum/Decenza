@@ -27,10 +27,7 @@ ApplicationWindow {
     property bool applyingBrowserHistory: false
     property bool browserRouteHistoryReady: false
     readonly property bool stackedPagesHaveUnsavedChanges: BrowserRouteHistory.stackHasUnsavedChanges(pageStack)
-    readonly property var currentNavigationContext: {
-        const current = pageStack.currentItem
-        return current && typeof current.navigationContext === "object" ? current.navigationContext : null
-    }
+    readonly property var currentNavigationContext: BrowserRouteHistory.pageNavigationContext(pageStack.currentItem)
     onCurrentNavigationContextChanged: Qt.callLater(syncCurrentNavigationContext)
     readonly property bool recipeServicesReady: RecipeService.ready && BagService.ready
         && ProfileService.ready && RecipeContext.ready && RecipeContext.historyReady
