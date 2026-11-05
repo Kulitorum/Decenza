@@ -6,6 +6,8 @@
 #include <QtTest>
 #include <private/qv4engine_p.h>
 #include <private/qv4mm_p.h>
+#include <private/qv4persistent_p.h>
+#include <private/qv4qobjectwrapper_p.h>
 #include "core/btlogfilter.h"
 #include "core/gcdeferredabort.h"
 
@@ -49,7 +51,7 @@ private:
 private slots:
     void normalAndRescannedMarksContinue()
     {
-        for (const QByteArray mode : {QByteArrayLiteral("normal"), QByteArrayLiteral("rescan")}) {
+        for (const QByteArray &mode : {QByteArrayLiteral("normal"), QByteArrayLiteral("rescan")}) {
             QProcess::ExitStatus status;
             int code;
             const QByteArray output = runChild(mode, &status, &code);
@@ -102,6 +104,36 @@ private slots:
         QVERIFY2(output.contains("GC_TEST_CHILD_CONTINUED"), output.constData());
     }
 
+    void weakHistorySeparatesOwnershipChangesFromLostMarks()
+    {
+        for (const QByteArray &mode : {QByteArrayLiteral("weak-ownership"),
+                                     QByteArrayLiteral("weak-mark-loss")}) {
+            QProcess::ExitStatus status;
+            int code;
+            const QByteArray output = runChild(mode, &status, &code);
+            QVERIFY2(status == QProcess::NormalExit && code == 0, output.constData());
+            QVERIFY2(output.contains("WEAK_HISTORY object="), output.constData());
+            QVERIFY2(output.contains("seen=1 incomplete=0"), output.constData());
+            QVERIFY2(output.contains("POST_RESCAN_MISMATCH differences="), output.constData());
+            if (mode == "weak-ownership") {
+                QVERIFY2(output.contains("weakSeen=1 weakKeep=0 weakMarked=0 weakTop=1->3"),
+                         output.constData());
+                QVERIFY2(output.contains("priorTopFlags=1 keepAlive=0 markedBefore=0 markedAfter=0"),
+                         output.constData());
+                QVERIFY2(output.contains("currentTopFlags=3"), output.constData());
+            } else {
+                QVERIFY2(output.contains("weakSeen=1 weakKeep=1 weakMarked=1 weakTop=3->3"),
+                         output.constData());
+                // QQmlData and this test can each hold a weak handle; the last
+                // original visit may already find the wrapper marked.
+                QVERIFY2(QRegularExpression(
+                    "priorTopFlags=3 keepAlive=1 markedBefore=[01] markedAfter=1")
+                    .match(QString::fromUtf8(output)).hasMatch(), output.constData());
+            }
+            QVERIFY2(output.contains("GC_TEST_CHILD_CONTINUED"), output.constData());
+        }
+    }
+
 
 };
 
@@ -124,6 +156,44 @@ int main(int argc, char **argv)
             });
         }
         QJSEngine engine;
+        const QByteArray mode = qgetenv("DECENZA_GC_TEST_MODE");
+        if (mode == "weak-ownership" || mode == "weak-mark-loss") {
+            QObject root;
+            QObject child(&root);
+            const bool ownershipChange = mode == "weak-ownership";
+            QJSEngine::setObjectOwnership(&root, ownershipChange
+                ? QJSEngine::JavaScriptOwnership : QJSEngine::CppOwnership);
+            QJSEngine::setObjectOwnership(&child, QJSEngine::JavaScriptOwnership);
+            auto *v4 = engine.handle();
+            QV4::WeakValue wrapper(v4, QV4::Value::fromReturnedValue(
+                QV4::QObjectWrapper::wrap(v4, &child)));
+            auto *mm = v4->memoryManager;
+            auto *gc = mm->gcStateMachine.get();
+            gc->reset();
+            gc->deadline = QDeadlineTimer::Forever;
+            mm->gcBlocked = QV4::MemoryManager::NormalBlocked;
+            for (int step = 0; gc->state != QV4::GCState::MarkDrain; ++step) {
+                if (step == 10000 || gc->state == QV4::GCState::Invalid)
+                    qFatal("GC_TEST_SETUP_FAILED no weak scan");
+                auto &info = gc->stateInfoMap[int(gc->state)];
+                gc->state = info.execute(gc, gc->stateData);
+            }
+            if (wrapper.asManaged()->markBit() == ownershipChange)
+                qFatal("GC_TEST_SETUP_FAILED unexpected original mark");
+            if (ownershipChange) {
+                QJSEngine::setObjectOwnership(&root, QJSEngine::CppOwnership);
+            } else {
+                // Diagnostic test only: manufacture a lost mark to verify that
+                // the original visit survives both later stop-the-world marks.
+                auto *item = reinterpret_cast<QV4::HeapItem *>(wrapper.asManaged()->heapObject());
+                auto *chunk = item->chunk();
+                QV4::Chunk::clearBit(chunk->blackBitmap, item - chunk->realBase());
+            }
+            if (!mm->tryForceGCCompletion())
+                qFatal("GC_TEST_SETUP_FAILED collection unfinished");
+            qInfo("GC_TEST_CHILD_CONTINUED");
+            return 0;
+        }
         const QJSValue root = engine.evaluate(QStringLiteral("({nested: {value: 42}})"));
         Q_UNUSED(root);
         for (int i = 0; i < 20; ++i) {

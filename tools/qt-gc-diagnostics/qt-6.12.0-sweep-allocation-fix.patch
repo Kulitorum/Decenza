@@ -1,0 +1,50 @@
+Upstream: https://github.com/qt/qtdeclarative/commit/059ee9db91507b8b86cdf4bf033985c9ea41e0d4
+Task: QTBUG-149512
+
+--- a/src/qml/memory/qv4mm.cpp
++++ b/src/qml/memory/qv4mm.cpp
+@@ -262,9 +262,16 @@
+     HeapItem *o = realBase();
+     bool lastSlotFree = false;
+     for (uint i = 0; i < Chunk::EntriesInBitmap; ++i) {
+-        quintptr toFree = objectBitmap[i] ^ blackBitmap[i];
++        // Snapshots. The destructors below may allocate, and setAllocatedSlots() then
++        // sets object and extends bits in this very word. We have to remember what we
++        // decided to free, so that we can clear exactly that further down rather than
++        // assigning the words wholesale and dropping those bits again.
++        const quintptr objectsToFree = objectBitmap[i] ^ blackBitmap[i];
++        const quintptr extendsBefore = extendsBitmap[i];
++
++        quintptr toFree = objectsToFree;
+         Q_ASSERT((toFree & objectBitmap[i]) == toFree); // check all black objects are marked as being used
+-        quintptr e = extendsBitmap[i];
++        quintptr e = extendsBefore;
+         SDUMP() << "   index=" << i;
+         SDUMP() << "        toFree      =" << binary(toFree);
+         SDUMP() << "        black       =" << binary(blackBitmap[i]);
+@@ -300,12 +307,13 @@
+             heaptrack_report_free(itemToFree);
+ #endif
+         }
+-        Q_V4_PROFILE_DEALLOC(engine, qPopulationCount((objectBitmap[i] | extendsBitmap[i])
+-                                                      - (blackBitmap[i] | e)) * Chunk::SlotSize,
++        const quintptr extendsToFree = extendsBefore & ~e;
++        Q_V4_PROFILE_DEALLOC(engine,
++                             qPopulationCount(objectsToFree | extendsToFree) * Chunk::SlotSize,
+                              Profiling::RegularItem);
+-        objectBitmap[i] = blackBitmap[i];
+-        hasUsedSlots |= (blackBitmap[i] != 0);
+-        extendsBitmap[i] = e;
++        objectBitmap[i] &= ~objectsToFree;
++        extendsBitmap[i] &= ~extendsToFree;
++        hasUsedSlots |= (objectBitmap[i] != 0);
+         lastSlotFree = !((objectBitmap[i]|extendsBitmap[i]) >> (sizeof(quintptr)*8 - 1));
+         SDUMP() << "        new extends =" << binary(e);
+         SDUMP() << "        lastSlotFree" << lastSlotFree;
+@@ -1221,5 +1229,5 @@
+ #ifdef Q_OS_ANDROID
+     if (crossValidateIncrementalGC)
+-        qInfo("[Memory][QmlGc] Instrumented Qt 6.12.0 Android collector active: post-rescan mismatch requests deferred abort");
++        qInfo("[Memory][QmlGc] Instrumented Qt 6.12.0 Android collector active: post-rescan mismatch requests deferred abort; gcdiag-v2 sweep-fix=QTBUG-149512 weak-history=1");
+ #endif
+ #ifdef V4_USE_VALGRIND

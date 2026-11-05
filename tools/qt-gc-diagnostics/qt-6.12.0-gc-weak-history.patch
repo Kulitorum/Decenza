@@ -1,0 +1,176 @@
+--- a/src/qml/memory/qv4mm.cpp
++++ b/src/qml/memory/qv4mm.cpp
+@@ -655,9 +655,79 @@
+     }
+ };
+ thread_local DiagnosticMarkTrace *activeDiagnosticTrace = nullptr;
++
++// Original incremental weak visits only. Full validation/tracing must not
++// overwrite the evidence they are intended to explain.
++struct DiagnosticWeakHistory {
++    struct Visit {
++        quintptr qobject = 0;
++        quintptr topParent = 0;
++        unsigned objectFlags = 0;
++        unsigned topFlags = 0;
++        bool keepAlive = false;
++        bool markedBefore = false;
++        bool markedAfter = false;
++        unsigned visits = 0;
++    };
++    std::unordered_map<Heap::Base *, Visit> visits;
++    bool remarking = false;
++    bool incomplete = false;
++    static constexpr size_t limit = 200000;
++};
++thread_local std::unordered_map<MemoryManager *, DiagnosticWeakHistory> diagnosticWeakHistories;
++
++unsigned diagnosticOwnershipFlags(QObject *object)
++{
++    auto *data = QQmlData::get(object, false);
++    // Bit 0: data exists, bit 1: C++ ownership, bit 2: root in creation.
++    return data ? 1u | (data->indestructible ? 2u : 0u)
++                        | (data->rootObjectInCreation ? 4u : 0u) : 0u;
++}
++
++void beginDiagnosticWeakHistory(GCStateMachine *gc)
++{
++    if (!gc->mm->crossValidateIncrementalGC || gc->mm->aggressiveGC
++            || gc->timeLimit.count() <= 0) {
++        diagnosticWeakHistories.erase(gc->mm);
++        return;
++    }
++    auto &history = diagnosticWeakHistories[gc->mm];
++    if (!history.remarking) {
++        history.visits.clear();
++        history.incomplete = false;
++    }
++}
++
++void recordDiagnosticWeakVisit(GCStateMachine *gc, QObjectWrapper *wrapper,
++                               QObject *object, bool keepAlive, bool markedBefore)
++{
++    auto found = diagnosticWeakHistories.find(gc->mm);
++    if (found == diagnosticWeakHistories.end() || found->second.remarking)
++        return;
++    auto &history = found->second;
++    auto prior = history.visits.find(wrapper->d());
++    if (prior == history.visits.end() && history.visits.size() >= history.limit) {
++        history.incomplete = true;
++        return;
++    }
++    QObject *top = object;
++    while (top->parent())
++        top = top->parent();
++    auto &visit = history.visits[wrapper->d()];
++    ++visit.visits;
++    visit.qobject = quintptr(object);
++    visit.topParent = quintptr(top);
++    visit.objectFlags = diagnosticOwnershipFlags(object);
++    visit.topFlags = diagnosticOwnershipFlags(top);
++    visit.keepAlive = keepAlive;
++    visit.markedBefore = markedBefore;
++    visit.markedAfter = wrapper->markBit();
++}
++
+ using ExtraData = GCStateInfo::ExtraData;
+ GCState markStart(GCStateMachine *that, ExtraData &)
+ {
++    beginDiagnosticWeakHistory(that);
+     //Initialize the mark stack
+     that->mm->m_markStack = std::make_unique<MarkStack>(that->mm->engine);
+     that->mm->engine->isGCOngoing = true;
+@@ -747,8 +817,10 @@
+             }
+         }
+ 
++        const bool markedBefore = qobjectWrapper->markBit();
+         if (keepAlive)
+             qobjectWrapper->mark(that->mm->markStack());
++        recordDiagnosticWeakVisit(that, qobjectWrapper, qobject, keepAlive, markedBefore);
+     }
+     return GCState::MarkWeakValues;
+ }
+@@ -782,11 +854,15 @@
+ 
+ GCState crossValidateIncrementalMarkPhase(GCStateMachine *that, ExtraData &)
+ {
++    auto &weakHistory = diagnosticWeakHistories[that->mm];
++    QScopedValueRollback<bool> remarkGuard(weakHistory.remarking, true);
++
+ #ifdef DECENZA_QML_GC_TEST_HOOKS
+     qInfo("GC_TEST_REACHED mode=%s", qgetenv("DECENZA_GC_TEST_MODE").constData());
+ #endif
+     std::size_t diagnosticDifferences = 0;
+     std::vector<Heap::Base *> diagnosticTargets;
++    QString diagnosticWeakSummary;
+     struct {
+         Chunk* operator()(Chunk* chunk) { return chunk; }
+         Chunk* operator()(const HugeItemAllocator::HugeChunk& chunk) { return chunk.chunk; }
+@@ -819,8 +895,8 @@
+         }
+     };
+ 
+-    auto checkBlackBitmap = [&that, &getChunk, &diagnosticDifferences, &diagnosticTargets](auto& allocator, const std::vector<quintptr>& storedBitmap, const char *allocatorName) {
+-        auto reportError = [&allocator, &getChunk, &that, &diagnosticDifferences, &diagnosticTargets, allocatorName](std::size_t chunk_index, std::size_t bitmap_index, uint bit_index){
++    auto checkBlackBitmap = [&that, &getChunk, &diagnosticDifferences, &diagnosticTargets, &diagnosticWeakSummary](auto& allocator, const std::vector<quintptr>& storedBitmap, const char *allocatorName) {
++        auto reportError = [&allocator, &getChunk, &that, &diagnosticDifferences, &diagnosticTargets, &diagnosticWeakSummary, allocatorName](std::size_t chunk_index, std::size_t bitmap_index, uint bit_index){
+             #ifdef QT_BUILD_INTERNAL
+             // If we're collecting errors, don't output the debug message.
+             if (auto errors = that->bitmapErrors) {
+@@ -842,6 +918,36 @@
+             if (type == Managed::Type_V4QObjectWrapper) {
+                 QObject *qobject = static_cast<Heap::QObjectWrapper *>(object)->object();
+                 if (qobject) {
++                    auto &history = diagnosticWeakHistories.at(that->mm);
++                    const auto found = history.visits.find(object);
++                    QObject *top = qobject;
++                    while (top->parent())
++                        top = top->parent();
++                    if (found == history.visits.end()) {
++                        if (diagnosticWeakSummary.isEmpty())
++                            diagnosticWeakSummary = QStringLiteral("weakSeen=0 weakIncomplete=%1")
++                                .arg(history.incomplete);
++                        qCritical().noquote()
++                            << QStringLiteral("[Memory][QmlGc] WEAK_HISTORY object=0x%1 seen=0 incomplete=%2 currentQObject=0x%3 currentTop=0x%4 currentFlags=%5 currentTopFlags=%6")
++                                .arg(quintptr(object), 0, 16).arg(history.incomplete)
++                                .arg(quintptr(qobject), 0, 16).arg(quintptr(top), 0, 16)
++                                .arg(diagnosticOwnershipFlags(qobject)).arg(diagnosticOwnershipFlags(top));
++                    } else {
++                        const auto &v = found->second;
++                        if (diagnosticWeakSummary.isEmpty())
++                            diagnosticWeakSummary = QStringLiteral("weakSeen=1 weakKeep=%1 weakMarked=%2 weakTop=%3->%4 weakParentChanged=%5 weakObjectChanged=%6 weakIncomplete=%7")
++                                .arg(v.keepAlive).arg(v.markedAfter).arg(v.topFlags)
++                                .arg(diagnosticOwnershipFlags(top)).arg(v.topParent != quintptr(top))
++                                .arg(v.qobject != quintptr(qobject)).arg(history.incomplete);
++                        qCritical().noquote()
++                            << QStringLiteral("[Memory][QmlGc] WEAK_HISTORY object=0x%1 seen=1 incomplete=%2 visits=%3 priorQObject=0x%4 priorTop=0x%5 priorFlags=%6 priorTopFlags=%7 keepAlive=%8 markedBefore=%9 markedAfter=%10 currentQObject=0x%11 currentTop=0x%12 currentFlags=%13 currentTopFlags=%14")
++                                .arg(quintptr(object), 0, 16).arg(history.incomplete).arg(v.visits)
++                                .arg(v.qobject, 0, 16).arg(v.topParent, 0, 16)
++                                .arg(v.objectFlags).arg(v.topFlags).arg(v.keepAlive)
++                                .arg(v.markedBefore).arg(v.markedAfter)
++                                .arg(quintptr(qobject), 0, 16).arg(quintptr(top), 0, 16)
++                                .arg(diagnosticOwnershipFlags(qobject)).arg(diagnosticOwnershipFlags(top));
++                    }
+                     QStringList classes;
+                     for (QObject *p = qobject; p && classes.size() < 8; p = p->parent())
+                         classes.append(QString::fromLatin1(p->metaObject()->className()));
+@@ -973,8 +1079,8 @@
+         }
+         // The app's crash reporter keeps the first 512 bytes of the final Qt
+         // message even when its separate debug-log tail is not submitted.
+-        const QByteArray fatal = QStringLiteral("[Memory][QmlGc] POST_RESCAN_MISMATCH differences=%1 incomplete=%2 %3")
+-                .arg(diagnosticDifferences).arg(trace.incomplete).arg(firstPath).toLocal8Bit();
++        const QByteArray fatal = QStringLiteral("[Memory][QmlGc] POST_RESCAN_MISMATCH differences=%1 incomplete=%2 %3 %4")
++                .arg(diagnosticDifferences).arg(trace.incomplete).arg(diagnosticWeakSummary, firstPath).toLocal8Bit();
+         qCritical("[Memory][QmlGc] DEFERRED_ABORT %s", fatal.constData());
+     }
+ #ifdef DECENZA_QML_GC_TEST_HOOKS
+@@ -1596,6 +1702,7 @@
+ 
+ MemoryManager::~MemoryManager()
+ {
++    diagnosticWeakHistories.erase(this);
+     delete m_persistentValues;
+     dumpStats();
+ 
