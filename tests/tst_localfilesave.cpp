@@ -466,8 +466,6 @@ private slots:
 
 int main(int argc, char* argv[])
 {
-    // The shared QtTest PCH is parsed without QtWidgets, so QTEST_MAIN's
-    // application choice is already fixed there (Qt 6.12 qtest.h:282-296).
     QApplication app(argc, argv);
     const QStringList installedFamilies = QFontDatabase::families();
     QFont font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);

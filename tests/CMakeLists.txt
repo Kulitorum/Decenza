@@ -2950,6 +2950,8 @@ add_decenza_test(tst_localfilesave tst_localfilesave.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/localfileselection.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/localfileselection.h)
 target_link_libraries(tst_localfilesave PRIVATE Qt6::Widgets Qt6::Qml decenza_filebundletestlib)
+# Qt Widgets defines QT_WIDGETS_LIB, which is absent from the shared QtTest PCH.
+set_property(TARGET tst_localfilesave PROPERTY DISABLE_PRECOMPILE_HEADERS ON)
 set_tests_properties(tst_localfilesave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_decenza_test(tst_globalsupportconfirmationstate
