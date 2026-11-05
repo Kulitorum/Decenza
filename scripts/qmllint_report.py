@@ -183,7 +183,7 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
         raw_out: str | None, batch: int, timeout: int) -> list[dict]:
     """Lint the module and return qmllint's per-file JSON entries; abort rather than under-report.
 
-    One process unless --batch. qmllint's exit status is checked, and load_json() proves every
+    One process unless --batch. qmllint's exit status is checked, and read_json() proves every
     file has an entry: a run that stops early would otherwise record each unreached file as clean.
     """
     if rsp:
@@ -210,6 +210,7 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
     size = batch if batch > 0 else len(all_files)
     chunks = [all_files[i:i + size] for i in range(0, len(all_files), size)]
     entries: list[dict] = []
+    revisions: set[int] = set()
     with log_path.open("w") as fh:
         for n, chunk in enumerate(chunks, 1):
             json_path = work / f"batch{n}.json"
@@ -239,7 +240,7 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
             # complete (tools/qmllint/main.cpp:564-565, :612); warnings exit 0. So read the JSON
             # first: findings fail the gate as findings, and only a missing or partial JSON is a
             # tool failure.
-            batch_entries, problem = read_json(json_path, chunk)
+            batch_entries, revision, problem = read_json(json_path, chunk)
             if problem:
                 why = ("" if proc.returncode == 0 else
                        f"qmllint {'killed by signal ' + str(-proc.returncode) if proc.returncode < 0 else 'exited ' + str(proc.returncode)}. ")
@@ -249,18 +250,24 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
                     f"from this run can be trusted. qmllint's own output: {log_path}"
                 )
             entries += batch_entries
+            revisions.add(revision)
             print(f"\r  linted {len(entries)}/{len(all_files)} files", end="", file=sys.stderr,
                   flush=True)
     print(file=sys.stderr)
     shutil.rmtree(work, ignore_errors=True)
     if raw_out:
-        Path(raw_out).write_text(json.dumps({"files": entries}) + "\n")
+        # --from-raw re-validates the revision, so it must survive the merge of the batches.
+        if len(revisions) != 1:
+            sys.exit(f"internal: batches reported JSON revisions {sorted(revisions)}; cannot write "
+                     f"one --raw-out file for them.")
+        Path(raw_out).write_text(json.dumps({"revision": revisions.pop(), "files": entries}) + "\n")
     return entries
 
 
-def read_json(path: Path, expected: list[str]) -> tuple[list[dict], str]:
-    """(entries, "") for qmllint --json output with exactly one entry per expected file, else
-    ([], why). A file the linter never reached has no entry, and would otherwise record as clean.
+def read_json(path: Path, expected: list[str]) -> tuple[list[dict], int, str]:
+    """(entries, revision, "") for qmllint --json output with exactly one entry per expected
+    file, else ([], 0, why). A file the linter never reached has no entry, and would otherwise
+    record as clean.
     """
     try:
         doc = json.loads(path.read_text())
@@ -270,16 +277,16 @@ def read_json(path: Path, expected: list[str]) -> tuple[list[dict], str]:
             for w in e["warnings"]:
                 w["id"], w["type"], w["message"]
     except (OSError, ValueError, KeyError, TypeError) as e:
-        return [], f"cannot read qmllint JSON at {path} ({e!r})."
+        return [], 0, f"cannot read qmllint JSON at {path} ({e!r})."
     if doc.get("revision") not in KNOWN_JSON_REVISIONS:
-        return [], (f"qmllint JSON revision {doc.get('revision')!r} is not one this reader has been "
+        return [], 0, (f"qmllint JSON revision {doc.get('revision')!r} is not one this reader has been "
                     f"checked against ({sorted(KNOWN_JSON_REVISIONS)}). Re-verify tally() and "
                     f"qml_qualify.py against it, then add it to KNOWN_JSON_REVISIONS.")
     want = Counter(relative_to_repo(f) for f in expected)
     got = Counter(relative_to_repo(e["filename"]) for e in entries)
     if want != got:
         missing, extra = sorted((want - got).elements()), sorted((got - want).elements())
-        return [], (
+        return [], 0, (
             f"qmllint's JSON does not match the files it was given — "
             f"{len(missing)} missing, {len(extra)} unexpected.\n"
             + "".join(f"  missing: {f}\n" for f in missing[:10])
@@ -289,13 +296,13 @@ def read_json(path: Path, expected: list[str]) -> tuple[list[dict], str]:
     # the file was not linted.
     unexplained = [e["filename"] for e in entries if not e.get("success", True) and not e["warnings"]]
     if unexplained:
-        return [], (f"qmllint reported failure with no diagnostic for "
+        return [], 0, (f"qmllint reported failure with no diagnostic for "
                     f"{', '.join(unexplained[:5])}. Those files were not linted.")
-    return entries, ""
+    return entries, doc["revision"], ""
 
 
 def load_json(path: Path, expected: list[str], what: str) -> list[dict]:
-    entries, problem = read_json(path, expected)
+    entries, _, problem = read_json(path, expected)
     if problem:
         sys.exit(f"{what}: {problem}")
     return entries
@@ -635,7 +642,7 @@ def main() -> int:
                          "their siblings on the command line, so smaller batches invent extra "
                          "import/missing-property warnings (measured: 22 -> 34 and 323 -> 351 "
                          "at --batch 10). It exists only as an escape hatch for a qmllint that "
-                         "cannot finish the tree in one process — see the note in run().")
+                         "cannot finish the tree in one process.")
     ap.add_argument("--allow-stale", action="store_true",
                     help="skip the staleness checks, QML and type registry (for debugging only)")
     ap.add_argument("--allow-ceiling-rise", action="store_true",
