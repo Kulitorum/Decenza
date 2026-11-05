@@ -1267,10 +1267,10 @@ private slots:
             zipBytes.append(completed.last().at(3).toMap().value(QStringLiteral("data")).toByteArray());
         }
         const QString zipPath = directory.filePath(QStringLiteral("download.zip"));
-        QFile zipFile(zipPath);
-        QVERIFY(zipFile.open(QIODevice::WriteOnly));
-        QCOMPARE(zipFile.write(zipBytes), zipBytes.size());
-        zipFile.close();
+        QFile downloadedArchive(zipPath);
+        QVERIFY(downloadedArchive.open(QIODevice::WriteOnly));
+        QCOMPARE(downloadedArchive.write(zipBytes), zipBytes.size());
+        downloadedArchive.close();
         const QString extracted = directory.filePath(QStringLiteral("extracted"));
         int files = 0;
         QVERIFY(ZipArchive::extract(zipPath, extracted, &files));
