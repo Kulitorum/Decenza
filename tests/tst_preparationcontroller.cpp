@@ -9,6 +9,7 @@
 #include "core/settings.h"
 #include "machine/machinestate.h"
 #include "mocks/MockScaleDevice.h"
+#include "helpers/diagnosticcapture.h"
 
 namespace {
 const QString kIdleRow = QStringLiteral("client-a/idleRow");
@@ -102,6 +103,44 @@ private slots:
         AppSettings store;
         store.clear();
         store.sync();
+    }
+
+    void milkDiagnosticsSummarizeSamplesAndRemoval()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        DiagnosticCapture capture({QStringLiteral("[Steam]")});
+        f.advance(1);
+        f.setWeight(150.0);
+        f.advance(1200);
+        f.setWeight(150.2);
+        f.advance(1300);
+        const auto captured = capture.lines().filter(QStringLiteral("Milk captured"));
+        QCOMPARE(captured.size(), 1);
+        QVERIFY(captured.first().contains(QStringLiteral("scaleSample=150.2 captureRaw=150.2")));
+        QVERIFY(captured.first().contains(QStringLiteral("samples=2 windowMs=2500 ageMs=1300 range=150.0..150.2")));
+        QVERIFY(captured.first().contains(QStringLiteral("tareBaseline=0 tareNow=0")));
+        f.setWeight(0.0);
+        f.advance(1000);
+        const auto unloaded = capture.lines().filter(QStringLiteral("Milk unloaded settled"));
+        QCOMPARE(unloaded.size(), 1);
+        QVERIFY(unloaded.first().contains(QStringLiteral("captureRaw=0.0 zero=0.0")));
+        f.advance(1000);
+        QCOMPARE(capture.lines().filter(QStringLiteral("Milk unloaded settled")).size(), 1);
+    }
+
+    void milkRejectionReportsAStaleSample()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        DiagnosticCapture capture({QStringLiteral("[Steam]")});
+        f.advance(1);
+        f.setWeight(90.0); // 40 g net is below the 50 g minimum.
+        f.advance(2500);
+        const auto rejected = capture.lines().filter(QStringLiteral("Milk load rejected"));
+        QCOMPARE(rejected.size(), 1);
+        QVERIFY(rejected.first().contains(QStringLiteral("net=40.0")));
+        QVERIFY(rejected.first().contains(QStringLiteral("samples=1 windowMs=2500 ageMs=2500 range=90.0..90.0")));
     }
 
     void modeSelectionDoesNotStartMachineAndOperatingRejectsChanges()

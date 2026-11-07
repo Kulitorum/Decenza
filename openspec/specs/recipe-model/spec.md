@@ -116,6 +116,12 @@ Every recipe surface (wizard, MCP, web editor) SHALL present yield as none, an a
 ### Requirement: Steam block with pitcher snapshot
 A recipe's steam block SHALL contain `hasMilk`, milk weight (g), steam temperature, flow and timeout, and either a pitcher snapshot (name and volume, by value) or an off marker. The off marker SHALL be a stable field, and SHALL NOT carry a pitcher name. A block with neither SHALL be treated as the off marker. A missing pitcher SHALL NOT block activation; a real one MAY be re-created, but an off-marker block SHALL NOT create a preset.
 
+An espresso recipe SHALL NOT inherit a shot's or the currently selected pitcher's steam settings when milk was not included.
+
+#### Scenario: Promote an espresso shot with a previously selected pitcher
+- **WHEN** a shot carrying an ambient pitcher snapshot is promoted without milk
+- **THEN** the new recipe does not contain that pitcher or the last milk weight
+
 #### Scenario: Pitcher preset edited after recipe creation
 - **WHEN** the user reorders, edits, or deletes entries in the global steam pitcher presets after a recipe was saved
 - **THEN** the recipe's steam behavior is unchanged, because the pitcher was snapshotted by value

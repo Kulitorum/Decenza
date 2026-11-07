@@ -52,6 +52,7 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     result.capturedGrams = evaluation.capturedGrams;
     result.rejectedGrams = evaluation.rejectedGrams;
     result.nextWakeMs = evaluation.nextWakeMs;
+    result.baselineSettled = evaluation.baselineSettled;
     return result;
 }
 
@@ -67,6 +68,7 @@ StableWeightCapture::Result StableWeightCapture::reset(qint64 nowMs)
     result.capturedGrams = evaluation.capturedGrams;
     result.rejectedGrams = evaluation.rejectedGrams;
     result.nextWakeMs = evaluation.nextWakeMs;
+    result.baselineSettled = evaluation.baselineSettled;
     return result;
 }
 
@@ -94,6 +96,7 @@ StableWeightCapture::Evaluation StableWeightCapture::evaluate(qint64 nowMs)
         if (settled(nowMs, m_config.baselineMs, &result)) {
             m_virtualZero = m_rawWeight;
             m_seeded = true;
+            result.baselineSettled = true;
         }
         return result;
     }
@@ -118,8 +121,10 @@ StableWeightCapture::Evaluation StableWeightCapture::evaluate(qint64 nowMs)
     }
 
     if (!loaded) {
-        if (settled(nowMs, m_config.baselineMs, &result))
+        if (settled(nowMs, m_config.baselineMs, &result)) {
             m_virtualZero = m_rawWeight;
+            result.baselineSettled = true;
+        }
         return result;
     }
 

@@ -117,6 +117,7 @@ private slots:
     void sharedPresetDraftUsesCapturedRevisionAndExplicitReload();
     void vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts();
     void recipeWaterEditorPreservesLegacyValuesAndConvertsTea();
+    void recipeDraftKeepsOptionalBlocksAndClonesSavedSettings();
     void recipeWaterPreviewPassesSelectedProfileRecommendation();
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
     void hotWaterAndFlushInputsStayBoundToSharedDrafts();
@@ -1481,7 +1482,7 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
 {
     const auto source = readSource(SrcPath::kRecipeWizard);
     QString methods;
-    for (const auto* name : {"applyHotWaterJson", "recipeVesselSnapshot", "buildHotWaterJson", "vesselTileModel", "selectDrinkType"}) {
+    for (const auto* name : {"applyHotWaterJson", "recipeVesselSnapshot", "buildHotWaterJson", "vesselTileModel", "setMilkIncluded", "setWaterIncluded", "selectDrinkType"}) {
         const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
         QVERIFY(!method.isEmpty());
         methods += method + QLatin1Char('\n');
@@ -1491,6 +1492,8 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         var fHasWater = true, fVesselName = "Cup", fWaterAmountMode = "fixed", fWaterRatio = 2.5;
         var fVesselMode = "weight", fVesselVolume = 0, fVesselFlowRate = 40, fVesselTemperatureC = 0;
         var fWaterOrder = "after", fDrinkType = "americano", waterEspressoTargetG = 40;
+        var fHasMilk = false, _fromSavedRecipe = false, _waterRemoved = false, legacyWaterSettings = false;
+        var _steamChoiceEdited = false, _steamRemoved = false;
         var templates = {americano: {bagKind: "coffee", water: true}, tea_hotwater: {bagKind: "tea", water: true}};
         var RecipeService = {requestLastEquipmentForDrinkType: function() {}};
         function suggestName() {}
@@ -1516,6 +1519,66 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         var tea = JSON.parse(buildHotWaterJson());
         legacy && tea.amountMode === "fixed" && tea.volume === 100 && tea.mode === "weight"
             && tea.waterToEspressoRatio === undefined;
+    )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
+void TestCustomWidgetHtml::recipeDraftKeepsOptionalBlocksAndClonesSavedSettings()
+{
+    const auto source = readSource(SrcPath::kRecipeWizard);
+    const auto binding = QRegularExpression(QStringLiteral(
+        R"(readonly property bool _fromSavedRecipe:\s*([^\r\n]+))")).match(source);
+    QVERIFY(binding.hasMatch());
+    QJSEngine bindingEngine;
+    const auto bindingResult = bindingEngine.evaluate(QStringLiteral(R"JS(
+        var mode = 'create', prefill = {clonedFromRecipeId: 17};
+        var cloned = %1;
+        prefill = {createdFromShotId: 17};
+        var promoted = %1;
+        mode = 'edit'; prefill = null;
+        var edited = %1;
+        cloned && !promoted && edited;
+    )JS").arg(binding.captured(1)));
+    QVERIFY2(!bindingResult.isError(), qPrintable(bindingResult.toString()));
+    QVERIFY(bindingResult.toBool());
+    QString methods;
+    for (const auto* name : {"applySteamJson", "buildSteamJson", "applyHotWaterJson",
+                             "buildHotWaterJson", "setMilkIncluded", "setWaterIncluded"}) {
+        const auto method = liftFunction(source, QStringLiteral("function %1(").arg(QLatin1String(name)));
+        QVERIFY2(!method.isEmpty(), name);
+        methods += method + QLatin1Char('\n');
+    }
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var _fromSavedRecipe = true, legacySteamSettings = false, legacyWaterSettings = false;
+        var _loadedSteamJson = '', _steamChoiceEdited = false, _loadedSteamHasDetails = false, _steamRemoved = false;
+        var _loadedWaterJson = '', _waterChoiceEdited = false, _loadedWaterHasDetails = false, _waterRemoved = false;
+        var fHasMilk = false, fMilkWeightG = 0, fHeaterOff = false, fPitcherName = '';
+        var fPitcherDurationSec = 0, fPitcherFlow = 0, fPitcherTemperatureC = 0;
+        var fHasWater = false, fVesselName = '', fVesselVolume = 0, fVesselMode = 'weight';
+        var fVesselFlowRate = 40, fVesselTemperatureC = 0, fWaterOrder = 'after';
+        var fWaterAmountMode = 'fixed', fWaterRatio = 2.5;
+        function recipeVesselSnapshot() { return {amountMode: fWaterAmountMode,
+            volume: fVesselVolume, mode: fVesselMode, flowRate: fVesselFlowRate,
+            temperatureC: fVesselTemperatureC, waterToEspressoRatio: fWaterRatio}; }
+        var WebDebugLogger = {warn: function() {}};
+        %1
+        var oldSteam = '{"hasMilk":false,"pitcherName":"Small","durationSec":30,"milkWeightG":125}';
+        var oldWater = '{"hasWater":false,"vesselName":"Cup","volume":150}';
+        applySteamJson(oldSteam); applyHotWaterJson(oldWater);
+        var cloneKeeps = buildSteamJson() === oldSteam && buildHotWaterJson() === oldWater;
+        setMilkIncluded(true); setWaterIncluded(true);
+        setMilkIncluded(false); setWaterIncluded(false);
+        var excluded = buildSteamJson() === '' && buildHotWaterJson() === '';
+        setMilkIncluded(true); setWaterIncluded(true);
+        var steam = JSON.parse(buildSteamJson()), water = JSON.parse(buildHotWaterJson());
+        var restored = steam.pitcherName === 'Small' && steam.durationSec === 30
+            && steam.milkWeightG === 125 && water.vesselName === 'Cup' && water.volume === 150;
+        _fromSavedRecipe = false;
+        applySteamJson(oldSteam); applyHotWaterJson(oldWater);
+        var fresh = buildSteamJson() === '' && buildHotWaterJson() === '';
+        cloneKeeps && excluded && restored && fresh;
     )JS").arg(methods));
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     QVERIFY(result.toBool());

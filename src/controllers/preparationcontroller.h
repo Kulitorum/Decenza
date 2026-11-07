@@ -11,6 +11,7 @@
 
 #include <optional>
 #include <functional>
+#include <deque>
 #include <vector>
 
 class MachineState;
@@ -91,6 +92,7 @@ private:
     double selectedPitcherWeight() const;
     void handleBeanResult(const StableWeightCapture::Result& result);
     void handleMilkResult(const StableWeightCapture::Result& result, double rawWeight);
+    QString milkSampleDiagnostics(const StableWeightCapture::Result& result, double rawWeight) const;
     qint64 monotonicNowMs() const;
     WeightCaptureSnapshot beanSnapshot(const StableWeightCapture::Result& result,
                                        bool active, double raw, double cup) const;
@@ -129,4 +131,11 @@ private:
     bool m_loggedMilkSeeded = false;
     bool m_loggedMilkLoad = false;
     double m_loggedMilkZero = 0.0;
+    struct MilkSample { qint64 timeMs; double weight; };
+    std::deque<MilkSample> m_milkSamples;
+    std::optional<MilkSample> m_lastMilkSample;
+    quint64 m_tareSequence = 0;
+    quint64 m_milkBaselineTareSequence = 0;
+    bool m_milkRemovalPending = false;
+    bool m_milkAwaitingEmpty = false;
 };

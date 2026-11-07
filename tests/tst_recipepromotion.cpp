@@ -83,9 +83,8 @@ private slots:
         QVERIFY(!f.contains("yieldValue"));
     }
 
-    // No hasMilk override: the shot's own steam snapshot carries through
-    // verbatim (the MCP tool's default behavior).
-    void fieldsCarryShotDataVerbatimWithoutOverride() {
+    // Ambient steam settings are not ingredients of an espresso recipe.
+    void fieldsCarryShotDataWithoutAmbientSteam() {
         const ShotRecord record = sampleShotRecord();
         const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
             record, "My espresso", std::nullopt, QString());
@@ -104,7 +103,7 @@ private slots:
         // The shot's 92.5 absolute converts to an offset against the profile
         // snapshot's 90° (recipe-relative-temp-offset).
         QCOMPARE(fields.value("tempOffsetC").toDouble(), 2.5);
-        QCOMPARE(fields.value("steamJson").toString(), record.steamJson);
+        QVERIFY(fields.value("steamJson").toString().isEmpty());
         QCOMPARE(fields.value("hotWaterJson").toString(), record.hotWaterJson);
         QCOMPARE(fields.value("createdFromShotId").toLongLong(), qint64(42));
     }
@@ -180,16 +179,41 @@ private slots:
         QCOMPARE(steam.value("milkWeightG").toDouble(), 150.0);
     }
 
-    // A shot that predates steam snapshots (empty steamJson) falls back to
-    // the caller-supplied current-settings snapshot — matching the MCP tool's
-    // existing older-shot behavior.
-    void emptySteamJsonFallsBackToCallerSnapshot() {
+    // A current pitcher is not silently copied to a legacy espresso shot.
+    void emptySteamJsonDoesNotInheritCurrentPitcher() {
         ShotRecord record = sampleShotRecord();
         record.steamJson.clear();
         const QString fallback = "{\"hasMilk\":false,\"pitcherName\":\"Small\"}";
         const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
             record, "n", std::nullopt, fallback);
-        QCOMPARE(fields.value("steamJson").toString(), fallback);
+        QVERIFY(fields.value("steamJson").toString().isEmpty());
+    }
+
+    void espressoOverrideDiscardsShotPitcherAndLastMilk() {
+        ShotRecord record = sampleShotRecord();
+        record.steamJson = R"({"hasMilk":true,"pitcherName":"80","milkWeightG":125})";
+        const auto fields = RecipePromotion::fieldsFromShotRecord(
+            record, "Espresso", std::optional<bool>(false), QString());
+        QVERIFY(fields.value("steamJson").toString().isEmpty());
+    }
+
+    void milkRecipeRetainsItsExplicitSteamBlock() {
+        ShotRecord record = sampleShotRecord();
+        record.steamJson = R"({"hasMilk":true,"pitcherName":"Small","milkWeightG":150})";
+        const auto fields = RecipePromotion::fieldsFromShotRecord(
+            record, "Milk", std::nullopt, QString());
+        QCOMPARE(fields.value("steamJson").toString(), record.steamJson);
+    }
+
+    void explicitlyAddingMilkRetainsSelectedPitcher() {
+        ShotRecord record = sampleShotRecord();
+        record.steamJson = R"({"hasMilk":false,"pitcherName":"Small","durationSec":30})";
+        const auto fields = RecipePromotion::fieldsFromShotRecord(
+            record, "Espresso with milk", std::optional<bool>(true), QString());
+        const auto steam = QJsonDocument::fromJson(fields.value("steamJson").toString().toUtf8()).object();
+        QVERIFY(steam.value("hasMilk").toBool());
+        QCOMPARE(steam.value("pitcherName").toString(), QStringLiteral("Small"));
+        QCOMPARE(steam.value("durationSec").toInt(), 30);
     }
 
     // hasMilkOverride with no steam snapshot AND no fallback synthesizes a
@@ -227,8 +251,7 @@ private slots:
     }
 
     void milkPreselectedWhenMilkWeightPositive() {
-        // hasMilk absent/false but a nonzero milkWeightG still pre-selects
-        // milk — the persistent last-steam-ever value.
+        // The upgrade dialog offers a choice; last milk supplies its default.
         QVERIFY(RecipePromotion::milkPreselectedFromSteamJson(
             "{\"hasMilk\":false,\"milkWeightG\":180}"));
     }

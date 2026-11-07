@@ -17,7 +17,10 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     const QString beanBaseId = BeanBaseBlob::canonicalId(record.beanBaseJson);
 
     QString steamJson = !record.steamJson.isEmpty() ? record.steamJson : fallbackSteamJson;
-    if (hasMilkOverride.has_value() && !steamJson.isEmpty()) {
+    if (hasMilkOverride.has_value() && !*hasMilkOverride) {
+        // A shot's ambient steam snapshot is not an espresso ingredient.
+        steamJson.clear();
+    } else if (hasMilkOverride.has_value() && !steamJson.isEmpty()) {
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(steamJson.toUtf8(), &parseError);
         if (parseError.error != QJsonParseError::NoError) {
@@ -31,6 +34,10 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     } else if (hasMilkOverride.has_value() && steamJson.isEmpty()) {
         steamJson = QString::fromUtf8(QJsonDocument(
             QJsonObject{{"hasMilk", *hasMilkOverride}}).toJson(QJsonDocument::Compact));
+    } else if (!hasMilkOverride.has_value() && !steamJson.isEmpty()) {
+        const auto steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
+        if (!steam.value(QStringLiteral("hasMilk")).toBool())
+            steamJson.clear();
     }
 
     QVariantMap fields;
