@@ -40,6 +40,26 @@ The recipe wizard SHALL be the single surface for creating and editing recipes. 
 ### Requirement: Drink-type templates set defaults without restricting composition
 Each drink type SHALL configure the wizard through a static template: the profile beverage-type filter, the bag kind filter, block pre-seeds, and the details-step field list. The stored blocks SHALL remain the sole source of truth for machine behavior. The summary SHALL offer add/remove affordances for the milk and hot-water blocks regardless of template, so every block combination the recipe model allows stays creatable.
 
+#### Scenario: New espresso does not inherit ambient milk settings
+- **WHEN** a new espresso recipe is created from a shot and milk is not included
+- **THEN** the shot's ambient pitcher and last milk weight are not saved
+
+#### Scenario: Milk explicitly added to espresso
+- **WHEN** the user adds milk and selects a pitcher on an espresso recipe
+- **THEN** the milk block and the chosen pitcher are saved and applied
+
+#### Scenario: Review hidden settings in an existing recipe
+- **WHEN** an existing recipe has saved pitcher or water-vessel settings with the corresponding block off
+- **THEN** the summary shows the saved settings and lets the user remove them without changing the recipe until Save
+
+#### Scenario: Review a saved grind or RPM without matching equipment
+- **WHEN** an existing recipe has a grind or RPM that its current drink type or equipment would normally hide
+- **THEN** the summary shows it and the editor allows it to be cleared
+
+#### Scenario: Explicitly selecting no equipment
+- **WHEN** a user selects None while the default-equipment request is pending
+- **THEN** a later default response does not replace that choice
+
 #### Scenario: Latte template pre-seeds milk
 - **WHEN** the user picks Latte/Cappuccino
 - **THEN** the details step includes the milk fields and the saved recipe carries a steam block with hasMilk true

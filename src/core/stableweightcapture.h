@@ -27,6 +27,7 @@ public:
         bool loadPresent = false;
         double netWeight = 0.0;
         bool captured = false;
+        bool baselineSettled = false;
         std::optional<double> capturedGrams;
         std::optional<double> rejectedGrams;
         std::optional<qint64> nextWakeMs;
@@ -53,6 +54,7 @@ public:
 
 private:
     struct Evaluation {
+        bool baselineSettled = false;
         std::optional<double> capturedGrams;
         std::optional<double> rejectedGrams;
         std::optional<qint64> nextWakeMs;

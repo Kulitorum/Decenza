@@ -141,12 +141,20 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
     m_scaleDeviceProxy = proxy;
     m_scaleTargetAwaitingSample = true;
     m_realScaleSamplePending = false;
+    m_milkSamples.clear();
+    m_lastMilkSample.reset();
+    m_milkRemovalPending = false;
+    m_milkAwaitingEmpty = false;
     if (proxy) {
         m_scaleConnections.emplace_back(connect(proxy, &ScaleDeviceProxy::connectedChanged,
                                                 this, [this] {
             const bool connected = m_scaleDeviceProxy && m_scaleDeviceProxy->connected();
             if (!connected) {
                 m_scaleTargetAwaitingSample = true;
+                m_milkSamples.clear();
+                m_lastMilkSample.reset();
+                m_milkRemovalPending = false;
+                m_milkAwaitingEmpty = false;
             }
             DIAG_DEBUG(STEAM, "PreparationController")
                 << QStringLiteral("Scale %1 — capture reset")
@@ -160,6 +168,10 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
             // emits an actual sample.
             m_scaleTargetAwaitingSample = true;
             m_realScaleSamplePending = false;
+            m_milkSamples.clear();
+            m_lastMilkSample.reset();
+            m_milkRemovalPending = false;
+            m_milkAwaitingEmpty = false;
             DIAG_DEBUG(STEAM, "PreparationController")
                 << "Scale target changed — capture reset, waiting for its first sample";
             refresh(true);
@@ -363,6 +375,16 @@ void PreparationController::refreshPass(bool resetDetectors)
 
     logMilkTransitions(milkResult, milkArming, milkGateReason, rawWeight, milkCupWeight);
     const bool wasMilkLoadPresent = m_snapshot.milk.loadPresent;
+    if (milkResult.baselineSettled)
+        m_milkBaselineTareSequence = m_tareSequence;
+    if (m_milkAwaitingEmpty && wasMilkLoadPresent && !milkResult.loadPresent)
+        m_milkRemovalPending = true;
+    if (m_milkRemovalPending && milkResult.baselineSettled && !milkResult.loadPresent) {
+        DIAG_DEBUG(STEAM, "PreparationController")
+            << QStringLiteral("Milk unloaded settled %1").arg(milkSampleDiagnostics(milkResult, rawWeight));
+        m_milkRemovalPending = false;
+        m_milkAwaitingEmpty = false;
+    }
     handleBeanResult(beanResult);
     handleMilkResult(milkResult, rawWeight);
 
@@ -420,6 +442,13 @@ void PreparationController::onScaleWeightSampleReceived(double weight)
     }
     m_scaleTargetAwaitingSample = false;
     m_realScaleSamplePending = true;
+    const qint64 now = monotonicNowMs();
+    m_lastMilkSample = MilkSample{now, weight};
+    m_milkSamples.push_back(*m_lastMilkSample);
+    while (!m_milkSamples.empty()
+           && (m_milkSamples.front().timeMs < now - m_milkCapture.config().stableMs
+               || m_milkSamples.size() > 256))
+        m_milkSamples.pop_front();
     refresh();
 }
 
@@ -435,6 +464,11 @@ void PreparationController::onShotTimeChanged()
 void PreparationController::onTareCompleted()
 {
     DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — capture reset";
+    ++m_tareSequence;
+    m_milkSamples.clear();
+    m_lastMilkSample.reset();
+    m_milkRemovalPending = false;
+    m_milkAwaitingEmpty = false;
     m_rejectedMilkRaw.reset();
     m_rejectedMilkNet.reset();
     refresh(true);
@@ -748,6 +782,37 @@ void PreparationController::handleBeanResult(const StableWeightCapture::Result& 
         emit captureDingRequested();
 }
 
+QString PreparationController::milkSampleDiagnostics(const StableWeightCapture::Result& result,
+                                                      double rawWeight) const
+{
+    const qint64 now = monotonicNowMs();
+    const qint64 since = now - m_milkCapture.config().stableMs;
+    int count = 0;
+    double minimum = 0.0;
+    double maximum = 0.0;
+    for (const auto& sample : m_milkSamples) {
+        if (sample.timeMs < since)
+            continue;
+        if (count++ == 0)
+            minimum = maximum = sample.weight;
+        else {
+            minimum = std::min(minimum, sample.weight);
+            maximum = std::max(maximum, sample.weight);
+        }
+    }
+    const QString last = m_lastMilkSample ? formatGrams(m_lastMilkSample->weight) : QStringLiteral("none");
+    const QString age = m_lastMilkSample ? QString::number(now - m_lastMilkSample->timeMs) : QStringLiteral("none");
+    const QString range = count ? formatGrams(minimum) + QStringLiteral("..") + formatGrams(maximum)
+                                : QStringLiteral("none");
+    return QStringLiteral("[scaleSample=%1 captureRaw=%2 zero=%3 pitcher=%4 net=%5 samples%6=%7 windowMs=%8 ageMs=%9 range=%10 tareBaseline=%11 tareNow=%12]")
+        .arg(last).arg(formatGrams(rawWeight))
+        .arg(result.seeded ? formatGrams(result.virtualZero) : QStringLiteral("none"))
+        .arg(formatGrams(selectedPitcherWeight())).arg(formatGrams(result.netWeight))
+        .arg(m_milkSamples.size() == 256 ? QStringLiteral("AtLeast") : QString())
+        .arg(count).arg(m_milkCapture.config().stableMs).arg(age).arg(range)
+        .arg(m_milkBaselineTareSequence).arg(m_tareSequence);
+}
+
 void PreparationController::handleMilkResult(const StableWeightCapture::Result& result,
                                              double rawWeight)
 {
@@ -757,15 +822,17 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
         m_rejectedMilkRaw = rawWeight;
         m_rejectedMilkNet = *result.rejectedGrams;
         const auto config = m_milkCapture.config();
+        m_milkAwaitingEmpty = true;
         DIAG_DEBUG(STEAM, "PreparationController")
-            << QStringLiteral("Milk load rejected net=%1 outside %2-%3 g raw=%4")
+            << QStringLiteral("Milk load rejected net=%1 outside %2-%3 g %4")
                    .arg(formatGrams(*result.rejectedGrams), formatGrams(config.minNet),
-                        formatGrams(config.maxNet), formatGrams(rawWeight));
+                        formatGrams(config.maxNet), milkSampleDiagnostics(result, rawWeight));
     }
     if (!result.capturedGrams || !m_brew)
         return;
 
     const double grams = *result.capturedGrams;
+    m_milkAwaitingEmpty = true;
     int seconds = 0;
     m_snapshot.sessionMeasuredMilkG = grams;
     QStringList owners(m_milkOwners.cbegin(), m_milkOwners.cend());
@@ -781,11 +848,12 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
     }
     const char* blocker = steamTimeBlocker();
     DIAG_INFO(STEAM, "PreparationController")
-        << QStringLiteral("Milk captured %1 g for %2 -> %3")
+        << QStringLiteral("Milk captured %1 g for %2 -> %3 %4")
                .arg(formatGrams(grams), owners.join(QLatin1String(", ")),
                     seconds > 0 ? QStringLiteral("%1 s steam").arg(seconds)
                                 : QStringLiteral("time not scaled: %1")
-                                      .arg(QLatin1String(blocker ? blocker : "rate gave 0 s")));
+                                      .arg(QLatin1String(blocker ? blocker : "rate gave 0 s")),
+                    milkSampleDiagnostics(result, rawWeight));
     m_snapshot.lastMilkGrams = grams;
     m_snapshot.lastMilkSeconds = seconds;
     if (m_snapshot.milkCaptureSequence < MaxSafeSequence)

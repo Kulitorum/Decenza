@@ -185,7 +185,7 @@ T.Page {
                 // there with the tea profile list restored (and undo the
                 // row's hot-water pre-seed; picking it again re-applies).
                 fDrinkType = "tea"
-                fHasWater = false
+                setWaterIncluded(false)
                 _enterStep("profile")
             } else {
                 _enterStep("profile")
@@ -263,6 +263,7 @@ T.Page {
     property string fCoffee: ""
     property string fBagBlob: ""          // selected bag's beanBaseData (tea brewing seeds)
     property real fEquipmentId: 0
+    property bool _equipmentChoiceMade: false
     property string fEquipmentName: ""
     // Grinder identity of the recipe's selected package — the grind control's
     // context (grind-value-entry: the recipe's grinder, never the active one).
@@ -294,6 +295,15 @@ T.Page {
     property int fPitcherDurationSec: 0
     property int fPitcherFlow: 0
     property real fPitcherTemperatureC: 0
+    property string _loadedSteamJson: ""
+    property bool _steamChoiceEdited: false
+    property bool _loadedSteamHasDetails: false
+    property bool _steamRemoved: false
+    // A clone is an editable copy of a saved recipe, not a shot prefill.
+    readonly property bool _fromSavedRecipe: mode === "edit" || (prefill && prefill.clonedFromRecipeId > 0)
+    readonly property bool legacySteamSettings: _fromSavedRecipe && !fHasMilk && !_steamRemoved
+        && (fPitcherName !== "" || fHeaterOff || fMilkWeightG > 0
+            || (!_steamChoiceEdited && _loadedSteamHasDetails))
     property bool fHasWater: false
     property string fVesselName: ""
     property int fVesselVolume: 0
@@ -311,6 +321,14 @@ T.Page {
     property int fVesselFlowRate: 40
     property real fVesselTemperatureC: 0
     property string fWaterOrder: "after"
+    property string _loadedWaterJson: ""
+    property bool _waterChoiceEdited: false
+    property bool _loadedWaterHasDetails: false
+    property bool _waterRemoved: false
+    readonly property bool legacyWaterSettings: _fromSavedRecipe && !fHasWater && !_waterRemoved
+        && (fVesselName !== "" || (!_waterChoiceEdited && _loadedWaterHasDetails))
+    readonly property bool showSavedGrind: activeTemplate.grind
+        || (_fromSavedRecipe && (fGrind.trim() !== "" || fRpmPinned > 0))
     property string errorMessage: ""
     property string _autoName: ""
 
@@ -440,7 +458,7 @@ T.Page {
                     ? fTeaTempC - fProfileTempC : 0)
                 : fLoadedTempOffsetC)
             : (Math.abs(fTempDeltaC) > 0.05 ? fTempDeltaC : 0),
-        grindPinned: (!activeTemplate.grind) ? "" : fGrind.trim(),
+        grindPinned: showSavedGrind ? fGrind.trim() : "",
         steamJson: buildSteamJson(),
         hotWaterJson: buildHotWaterJson()
     })
@@ -676,12 +694,15 @@ T.Page {
     }
 
     function applySteamJson(json) {
+        _loadedSteamJson = json || ""
+        _steamChoiceEdited = false; _loadedSteamHasDetails = false; _steamRemoved = false
         fHasMilk = false; fMilkWeightG = 0; fHeaterOff = false
         fPitcherName = ""; fPitcherDurationSec = 0; fPitcherFlow = 0; fPitcherTemperatureC = 0
         if (!json || json === "")
             return
         try {
             let s = JSON.parse(json)
+            _loadedSteamHasDetails = Object.keys(s).some(function(k) { return k !== "hasMilk" })
             fHasMilk = !!s.hasMilk
             fMilkWeightG = s.milkWeightG || 0
             fHeaterOff = !!s.heaterOff
@@ -695,6 +716,15 @@ T.Page {
     }
 
     function buildSteamJson() {
+        // A new recipe must not inherit a shot's ambient pitcher when milk was
+        // not included. Existing recipes lack provenance, so preserve their
+        // saved settings on edit rather than guessing whether they were chosen.
+        if (!fHasMilk && _steamRemoved)
+            return ""
+        if (_fromSavedRecipe && !fHasMilk && !_steamChoiceEdited)
+            return _loadedSteamJson
+        if (!fHasMilk && !legacySteamSettings)
+            return ""
         if (!fHasMilk && fMilkWeightG <= 0 && fPitcherName === "" && !fHeaterOff)
             return ""
         var s = { hasMilk: fHasMilk }
@@ -713,6 +743,8 @@ T.Page {
     }
 
     function applyHotWaterJson(json) {
+        _loadedWaterJson = json || ""
+        _waterChoiceEdited = false; _loadedWaterHasDetails = false; _waterRemoved = false
         fHasWater = false; fVesselName = ""; fVesselVolume = 0
         fVesselMode = "weight"; fVesselFlowRate = 40; fVesselTemperatureC = 0
         fWaterOrder = "after"
@@ -721,6 +753,7 @@ T.Page {
             return
         try {
             let w = JSON.parse(json)
+            _loadedWaterHasDetails = Object.keys(w).some(function(k) { return k !== "hasWater" })
             fHasWater = !!w.hasWater
             fVesselName = w.vesselName || ""
             fVesselVolume = w.volume || 0
@@ -736,7 +769,11 @@ T.Page {
     }
 
     function buildHotWaterJson() {
-        if (!fHasWater && fVesselName === "")
+        if (!fHasWater && _waterRemoved)
+            return ""
+        if (_fromSavedRecipe && !fHasWater && !_waterChoiceEdited)
+            return _loadedWaterJson
+        if (!fHasWater && !legacyWaterSettings)
             return ""
         var w = { hasWater: fHasWater, order: fWaterOrder }
         if (fVesselName !== "") {
@@ -951,11 +988,10 @@ T.Page {
                 : (Math.abs(fTempDeltaC) > 0.05 ? fTempDeltaC : 0),
             // Grind always lives on the recipe (fix-recipe-grind-integrity):
             // whatever is on the field saves as the recipe's own value. Tea
-            // recipes never store grind (nothing to grind).
-            grindPinned: (!activeTemplate.grind) ? "" : fGrind.trim(),
-            rpmPinned: (activeTemplate.grind
-                        && (fEquipmentRpmCapable || fRpmPinned > 0))
-                ? fRpmPinned : 0,
+            // Tea does not acquire a grind by default; an existing saved
+            // value stays visible until the user clears it.
+            grindPinned: showSavedGrind ? fGrind.trim() : "",
+            rpmPinned: showSavedGrind ? fRpmPinned : 0,
             steamJson: buildSteamJson(),
             hotWaterJson: buildHotWaterJson()
         }
@@ -1054,6 +1090,20 @@ T.Page {
 
     // --- wizard step actions -----------------------------------------------
 
+    // Inclusion controls serialization, not the draft: toggling a block back
+    // on restores the user's pitcher, milk amount, vessel and water settings.
+    function setMilkIncluded(included) {
+        _steamChoiceEdited = true
+        _steamRemoved = !included
+        fHasMilk = included
+    }
+
+    function setWaterIncluded(included) {
+        _waterChoiceEdited = true
+        _waterRemoved = !included
+        fHasWater = included
+    }
+
     function selectDrinkType(type) {
         var was = fDrinkType
         if (type === "tea_hotwater" && fWaterAmountMode === "ratio") {
@@ -1068,12 +1118,14 @@ T.Page {
         // Block pre-seeds. Only when the type actually changed — re-visiting
         // the step from the summary must not clobber tuned blocks.
         if (was !== type) {
-            fHasMilk = t.milk === true
+            if (fHasMilk !== (t.milk === true)) {
+                setMilkIncluded(t.milk === true)
+            }
+            if (fHasWater !== (t.water === true)) {
+                setWaterIncluded(t.water === true)
+            }
             if (t.water === true) {
-                fHasWater = true
                 fWaterOrder = t.waterOrder || "after"
-            } else {
-                fHasWater = false
             }
             // Crossing the coffee/tea boundary invalidates the bag choice.
             if (was !== "" && (templates[was] || {}).bagKind !== t.bagKind) {
@@ -1183,7 +1235,7 @@ T.Page {
     function selectJustHotWater() {
         fDrinkType = "tea_hotwater"
         fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0; fProfileYieldG = 0
-        fHasWater = true
+        setWaterIncluded(true)
         fWaterOrder = "after"
         suggestName()
         stepDone("details")
@@ -1194,6 +1246,7 @@ T.Page {
     // window's inline tiles. `pkg` is a flattened package map, or a
     // { isNone: true } sentinel / null to clear.
     function selectEquipment(pkg) {
+        _equipmentChoiceMade = true
         if (!pkg || pkg.isNone) {
             fEquipmentId = 0
             fEquipmentName = ""
@@ -1244,6 +1297,7 @@ T.Page {
     // Snapshot the chosen steam pitcher preset onto the recipe BY VALUE (never
     // a preset index). Shared by the steam window's tiles.
     function selectPitcher(preset) {
+        _steamChoiceEdited = true
         if (preset.disabled === true) {
             fHeaterOff = true
             fPitcherName = ""; fPitcherDurationSec = 0
@@ -1331,6 +1385,7 @@ T.Page {
     }
 
     function selectVessel(preset) {
+        _waterChoiceEdited = true
         fVesselName = preset.name || ""
         fVesselVolume = preset.volume || 0
         fWaterAmountMode = preset.amountMode || "fixed"
@@ -1350,6 +1405,7 @@ T.Page {
     // DrinkType.fromRecipe() reads its blocks and calls it a long black. Any
     // other type (a tea, a milk drink that also takes water) keeps its type.
     function setWaterOrder(order) {
+        _waterChoiceEdited = true
         fWaterOrder = order
         if (fDrinkType === "americano" || fDrinkType === "long_black")
             fDrinkType = order === "before" ? "long_black" : "americano"
@@ -1530,19 +1586,18 @@ T.Page {
             parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
         } else if (dose > 0) {
             parts.push(dose.toFixed(1) + "g")
+        } else if (yieldG > 0) {
+            parts.push(TranslationManager.translate("recipes.wizard.summary.yield", "yield %1g").arg(yieldG.toFixed(1)))
         }
         var tempStr = summaryEffectiveTempStr()
         if (tempStr !== "")
             parts.push(tempStr)
-        if (activeTemplate.grind) {
+        if (showSavedGrind) {
             let g = fGrind.trim()
-            if (g !== "") {
-                let rpm = fRpmPinned
-                let grindStr = TranslationManager.translate("recipes.wizard.summary.grind", "grind %1").arg(g)
-                if (fEquipmentRpmCapable && rpm > 0)
-                    grindStr += " · " + TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm)
-                parts.push(grindStr)
-            }
+            if (g !== "")
+                parts.push(TranslationManager.translate("recipes.wizard.summary.grind", "grind %1").arg(g))
+            if (fRpmPinned > 0)
+                parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(fRpmPinned))
         }
         return parts.length > 0 ? parts.join(" · ") : "—"
     }
@@ -2034,7 +2089,7 @@ T.Page {
             wizardPage._existingRecipeNames = names
         }
         function onLastEquipmentForDrinkTypeFailed(drinkType) {
-            if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0)
+            if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0 || wizardPage._equipmentChoiceMade)
                 return
             var message = TranslationManager.translate("recipes.wizard.equipmentDefaultFailed",
                 "Could not load the usual equipment for this drink. Please choose equipment manually.")
@@ -2045,7 +2100,7 @@ T.Page {
             // Per-drink-type default: only fills an EMPTY equipment choice.
             // No recipe of this type yet → fall back to the currently active
             // package (design D10), so the row prefills instead of "None".
-            if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0)
+            if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0 || wizardPage._equipmentChoiceMade)
                 return
             var id = equipmentId > 0 ? equipmentId : EquipmentService.activePackageId
             if (id > 0) {
@@ -2120,7 +2175,7 @@ T.Page {
             // package, and when the inventory holds exactly ONE in-inventory
             // package fill it in and SKIP the window entirely — there is
             // nothing to ask. Back from the numbers window still reaches it.
-            if (wizardPage.fEquipmentId <= 0 && !wizardPage._fromSummary
+            if (wizardPage.fEquipmentId <= 0 && !wizardPage._equipmentChoiceMade && !wizardPage._fromSummary
                     && wizardPage.currentStep === "details"
                     && wizardPage._detailsPage === "equipment") {
                 let inInv = packages.filter(function(p) { return p.inInventory !== false })
@@ -3307,7 +3362,7 @@ T.Page {
                             // Grind rides with the numbers window — after
                             // equipment, so the rpm field's grinder gate is set.
                             // Shown expanded (its own screen, no collapse).
-                            visible: wizardPage.activeTemplate.grind && wizardPage._detailsPage === "numbers"
+                            visible: wizardPage.showSavedGrind && wizardPage._detailsPage === "numbers"
                             collapsible: false
                             title: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
                             Label {
@@ -3397,6 +3452,12 @@ T.Page {
                                     wizardPage._detailsUserEdited = true
                                 }
                             }
+                            AccessibleButton {
+                                visible: wizardPage.fRpmPinned > 0 && !wizardPage.fEquipmentRpmCapable
+                                text: TranslationManager.translate("recipes.wizard.clearSavedRpm", "Remove saved RPM (%1)").arg(wizardPage.fRpmPinned)
+                                accessibleName: text
+                                onClicked: { wizardPage.fRpmPinned = 0; wizardPage._detailsUserEdited = true }
+                            }
                         }
 
                         // Milk block (latte template, or added on the summary).
@@ -3406,7 +3467,7 @@ T.Page {
                         // and the milk INTENT, which drives the heater hold.
                         SectionCard {
                             // The steam window (milk drinks).
-                            visible: wizardPage.fHasMilk && wizardPage._detailsPage === "steam"
+                            visible: (wizardPage.fHasMilk || wizardPage.legacySteamSettings) && wizardPage._detailsPage === "steam"
                             title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
                             Label {
                                 Layout.fillWidth: true
@@ -3451,7 +3512,7 @@ T.Page {
                         // templates, or added on the summary).
                         SectionCard {
                             // The hot-water window.
-                            visible: wizardPage.fHasWater && wizardPage._detailsPage === "water"
+                            visible: (wizardPage.fHasWater || wizardPage.legacyWaterSettings) && wizardPage._detailsPage === "water"
                             title: TranslationManager.translate("recipes.composer.sectionHotWater", "Hot water")
                             // Order BEFORE the vessel: the vessel tile is the
                             // terminal choice and moves on by itself, so the
@@ -3747,7 +3808,7 @@ T.Page {
                         SummaryRow {
                             // Coffee drinks pin a grind; tea does not — keep the
                             // title honest for each.
-                            label: wizardPage.activeTemplate.grind
+                            label: wizardPage.showSavedGrind
                                 ? TranslationManager.translate("recipes.wizard.rowDoseYieldTempGrind", "Dose, yield, temp & grind")
                                 : TranslationManager.translate("recipes.wizard.rowDoseYieldTemp", "Dose, yield & temp")
                             value: wizardPage.summaryDetailsValue()
@@ -3757,8 +3818,10 @@ T.Page {
                         // Every stored block gets a visible row: a latte's
                         // milk shows ON the summary, not only behind an edit.
                         SummaryRow {
-                            visible: wizardPage.fHasMilk
-                            label: TranslationManager.translate("recipes.wizard.rowSteam", "Steam / milk")
+                            visible: wizardPage.fHasMilk || wizardPage.legacySteamSettings
+                            label: wizardPage.legacySteamSettings
+                                ? TranslationManager.translate("recipes.wizard.savedSteam", "Saved steam settings (milk off)")
+                                : TranslationManager.translate("recipes.wizard.rowSteam", "Steam / milk")
                             value: {
                                 var parts = []
                                 if (wizardPage.fHeaterOff)
@@ -3768,14 +3831,23 @@ T.Page {
                                 if (wizardPage.fMilkWeightG > 0)
                                     parts.push(TranslationManager.translate(
                                         "recipes.list.milkWeight", "%1g milk").arg(wizardPage.fMilkWeightG))
+                                if (wizardPage.legacySteamSettings) {
+                                    if (wizardPage.fPitcherDurationSec > 0) parts.push(wizardPage.fPitcherDurationSec + "s")
+                                    if (wizardPage.fPitcherFlow > 0)
+                                        parts.push(TranslationManager.translate("recipes.wizard.savedFlow", "flow %1").arg(wizardPage.fPitcherFlow))
+                                    if (wizardPage.fPitcherTemperatureC > 0)
+                                        parts.push(Theme.formatTemperature(wizardPage.fPitcherTemperatureC, 0))
+                                }
                                 return parts.length > 0 ? parts.join(" · ") : "—"
                             }
                             step: "details"
                             detailsPage: "steam"
                         }
                         SummaryRow {
-                            visible: wizardPage.fHasWater
-                            label: TranslationManager.translate("recipes.wizard.rowHotWater", "Hot water")
+                            visible: wizardPage.fHasWater || wizardPage.legacyWaterSettings
+                            label: wizardPage.legacyWaterSettings
+                                ? TranslationManager.translate("recipes.wizard.savedWater", "Saved water settings (water off)")
+                                : TranslationManager.translate("recipes.wizard.rowHotWater", "Hot water")
                             value: {
                                 var parts = []
                                 if (wizardPage.fVesselName !== "")
@@ -3785,6 +3857,10 @@ T.Page {
                                 else if (wizardPage.fVesselVolume > 0)
                                     parts.push(wizardPage.fVesselVolume
                                         + (wizardPage.fVesselMode === "volume" ? "ml" : "g"))
+                                if (wizardPage.legacyWaterSettings && wizardPage.fVesselTemperatureC > 0)
+                                    parts.push(Theme.formatTemperature(wizardPage.fVesselTemperatureC, 0))
+                                if (wizardPage.legacyWaterSettings && wizardPage.fVesselFlowRate > 0)
+                                    parts.push(TranslationManager.translate("recipes.wizard.savedFlow", "flow %1").arg(wizardPage.fVesselFlowRate))
                                 if (!wizardPage.isHotWaterTea)
                                     parts.push(wizardPage.fWaterOrder === "before"
                                         ? TranslationManager.translate("recipes.wizard.waterBeforeShort", "before the espresso")
@@ -3798,7 +3874,7 @@ T.Page {
 
                         // Template escape hatches: any block combination the
                         // model allows stays expressible.
-                        RowLayout {
+                        Flow {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.spacingSmall
                             spacing: Theme.spacingMedium
@@ -3808,11 +3884,20 @@ T.Page {
                                     : TranslationManager.translate("recipes.wizard.addMilk", "Add milk")
                                 accessibleName: text
                                 onClicked: {
-                                    wizardPage.fHasMilk = !wizardPage.fHasMilk
+                                    wizardPage.setMilkIncluded(!wizardPage.fHasMilk)
                                     if (wizardPage.fHasMilk) {
                                         wizardPage._detailsPage = "steam"
                                         wizardPage.openStep("details")
                                     }
+                                }
+                            }
+                            AccessibleButton {
+                                visible: wizardPage.legacySteamSettings
+                                text: TranslationManager.translate("recipes.wizard.removeSavedSteam", "Remove saved steam settings")
+                                accessibleName: text
+                                onClicked: {
+                                    wizardPage._steamChoiceEdited = true
+                                    wizardPage._steamRemoved = true
                                 }
                             }
                             AccessibleButton {
@@ -3821,14 +3906,19 @@ T.Page {
                                     : TranslationManager.translate("recipes.wizard.addWater", "Add hot water")
                                 accessibleName: text
                                 onClicked: {
-                                    wizardPage.fHasWater = !wizardPage.fHasWater
+                                    wizardPage.setWaterIncluded(!wizardPage.fHasWater)
                                     if (wizardPage.fHasWater) {
                                         wizardPage._detailsPage = "water"
                                         wizardPage.openStep("details")
                                     }
                                 }
                             }
-                            Item { Layout.fillWidth: true }
+                            AccessibleButton {
+                                visible: wizardPage.legacyWaterSettings
+                                text: TranslationManager.translate("recipes.wizard.removeSavedWater", "Remove saved water settings")
+                                accessibleName: text
+                                onClicked: { wizardPage._waterChoiceEdited = true; wizardPage._waterRemoved = true }
+                            }
                         }
                     }
                     }
