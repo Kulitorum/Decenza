@@ -50,13 +50,11 @@ namespace GrinderAliases { struct GrinderEntry; }
 // survives because the review page and MCP still legitimately read and write
 // it — but nothing on a save path may read it again.
 //
-// Bean model (bean-bag-inventory): the active coffee bag IS the bean state.
-// The dye/* QSettings keys act as a synchronous write-through cache of the
-// active bag — selecting a bag copies its fields in (applyActiveBag), and
-// every bean/grinder/dose setter writes through to the bag row on a
-// background thread. There is no separate preset list and no modified-state
-// tracking; the old bean/presets QSettings array is migrated to the
-// coffee_bags table by ShotHistoryStorage.
+// Bean model (bean-bag-inventory): selecting a bag copies its bean identity and
+// dose/yield defaults into the dye/* cache (applyActiveBag), and bean-identity
+// and dose setters write back to the bag row on a background thread. Grinder
+// identity and the grind dial belong to the active equipment package, not the
+// bag.
 class SettingsDye : public QObject {
     Q_OBJECT
 
@@ -157,9 +155,9 @@ public:
     // stamp) refresh the cache.
     void setBagStorage(CoffeeBagStorage* storage);
 
-    // Non-owning; attached by MainController after storage init. The active
-    // bag's equipment_id points at a package here; the dye grinder identity is
-    // resolved through it (add-equipment-packages).
+    // Non-owning; attached by MainController after storage init. The dye
+    // grinder identity is resolved through the active package
+    // (dye/activeEquipmentId).
     void setEquipmentStorage(EquipmentStorage* storage);
     // The live storage instance, for a caller that wrote to the database on its
     // own connection and now has to tell the app (see
@@ -213,7 +211,7 @@ public:
     void setActiveEquipmentId(qint64 id);
 
     // User-facing equipment switch: adopt the package's grinder identity and its
-    // last dial (grind setting + rpm), and point the active bag at it. `pkg` is a
+    // last dial (grind setting + rpm). `pkg` is a
     // package map from EquipmentStorage (id, grinderBrand/Model/Burrs,
     // lastGrindSetting, lastRpm).
     Q_INVOKABLE void switchToEquipment(const QVariantMap& pkg);
@@ -309,10 +307,9 @@ public:
     void setActiveBagId(int bagId);
     // Select a bag WITHOUT copying its stored fields into the dye cache —
     // for callers about to apply field values of their own (loading a
-    // historical shot's setup, where the shot's grind/dose should win over
-    // the bag's last-used values; the subsequent setters write through, so
-    // the bag adopts the shot's values). Lifecycle display fields still
-    // refresh.
+    // historical shot's setup, where the shot's dose should win over the
+    // bag's; the subsequent setters write through, so the bag adopts it).
+    // Lifecycle display fields still refresh.
     Q_INVOKABLE void setActiveBagKeepFields(int bagId);
     // Publish an already-approved review patch without bag/package write-through.
     // The owner must suppress recipe and brew-reset observers around this call.
@@ -432,11 +429,8 @@ private:
 
 
     void ensureDyeCacheLoaded() const;
-    // Apply a bag row on a switch: bean identity always (including empties —
-    // absence is silence), equipment as stored (even none), grind/dose only
-    // when present so a fresh bag inherits the current dial and adopts it via
-    // write-through later. A same-bag reload only refreshes the caches — see
-    // m_appliedBagId.
+    // Apply bean identity and available dose/yield defaults on a bag switch.
+    // A same-bag reload only refreshes the caches — see m_appliedBagId.
     void applyActiveBag(const QVariantMap& bag);
     void applyBagRow(qint64 bagId, const QVariantMap& bag);
     void refreshBagCaches(const QVariantMap& bag);

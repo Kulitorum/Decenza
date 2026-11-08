@@ -156,37 +156,6 @@ For the tea drink type, the profile step SHALL include a fixed "Just hot water" 
 - **WHEN** the user has Favorites on and a search text that matches nothing
 - **THEN** the "Just hot water" card is still shown
 
-### Requirement: Details step prefills from history, then bag data, then profile defaults
-The details step SHALL seed its fields in priority order: (1) the most recent shot with the chosen bean and profile pair (dose, yield, temperature, grind); (2) for tea, the bag's structured brewing data; (3) the profile's recommended dose, target weight, and temperature. Prefilled values SHALL never overwrite a value the user has edited in this wizard session.
-
-#### Scenario: History beats profile defaults
-- **WHEN** the user picks a bean+profile pair they have brewed before
-- **THEN** dose/yield/temp/grind show the values from the most recent such shot, not the profile's recommendations
-
-#### Scenario: Type-matched tea profile keeps its temperature
-- **WHEN** a black tea bag stating 100°C is paired with the stock black-tea profile
-- **THEN** no temperature override is seeded
-
-#### Scenario: Generic tea profile gets corrected
-- **WHEN** a sencha bag stating 70°C is paired with a generic tea profile at 94°C
-- **THEN** the temperature field seeds 70°C as a recipe override
-
-#### Scenario: Grind hint translates direction across profiles
-- **WHEN** the bean's last grind on the selected equipment was 15 dialed for D-Flow and the user picked Rao Allongé
-- **THEN** the grind section shows the 15 (naming D-Flow) and that Allongé typically grinds coarser — no computed number for Allongé
-
-#### Scenario: No shot history falls back to the bag's current dial
-- **WHEN** the user creates a recipe for a bean+profile pair with no prior shot history, and the linked bag's current grind is "18"
-- **THEN** the grind field prefills "18" as a one-time default, not a live-following value
-
-#### Scenario: Hot-water tea uses bag brewing numbers
-- **WHEN** the user creates a hot-water tea recipe from a bag stating brewTempC and leafGramsPer100Ml
-- **THEN** the fields use the bag's brewing numbers verbatim, with the leaf dose computed from leafGramsPer100Ml and the target volume
-
-#### Scenario: Edited field is not overwritten
-- **WHEN** the user has edited the dose and a prefill tier would otherwise seed it
-- **THEN** the user's dose is kept
-
 ### Requirement: Grind hint names the last grind for the bean
 For coffee drinks the grind section SHALL show a hint: the latest grind dialed for this bean on the selected equipment package regardless of profile, falling back to same-roast-level beans, naming its profile. Without a full-package match it SHALL retry on packages with the same grinder (brand, model, burrs) and basket (brand, model). The hint SHALL NEVER present a computed number for a different profile, only the relative direction when both profiles have UGS positions.
 
@@ -213,13 +182,6 @@ For coffee drinks the grind section SHALL show a hint: the latest grind dialed f
 #### Scenario: No equipment retains an equipment-agnostic hint
 - **WHEN** the user deliberately chooses no equipment and bean history contains a qualifying grind
 - **THEN** the grind section may show the latest bean or same-roast hint without package filtering
-
-### Requirement: No-history grind default comes from the bag once
-With no matching shot history for the chosen bean and profile, the grind and rpm fields SHALL fall back to the linked bag's current grinderSetting and rpm as a one-time editable default, offered rather than silently applied. With no linked bag and no history, the fields SHALL start empty.
-
-#### Scenario: Default is editable before saving
-- **WHEN** the user changes the prefilled grind before saving
-- **THEN** the recipe saves with the changed grind
 
 ### Requirement: Drink-type-specific details fields
 The details step SHALL show only the fields relevant to the drink type. Espresso and filter show dose, yield, temperature, grind (recipe-owned, with no inherit/override toggle) and equipment; americano and long black add the water-vessel picker with order fixed by type; latte/cappuccino add milk weight and pitcher.
@@ -545,3 +507,65 @@ The steam pitcher picker SHALL offer the built-in "Heater off" entry alongside r
 #### Scenario: A recipe carrying the marker displays it
 - **WHEN** a recipe carrying the off marker is opened in the wizard
 - **THEN** the steam card names the "Heater off" entry as the selection, not a blank pitcher
+
+### Requirement: Recipe details prefill from history and brewing defaults
+The details step SHALL seed its fields in priority order: (1) the most recent shot with the chosen bean and profile pair (dose, yield, temperature); (2) for tea, the bag's structured brewing data; (3) the profile's recommended dose, target weight, and temperature. Prefilled values SHALL never overwrite a value the user has edited in this wizard session.
+
+#### Scenario: History beats profile defaults
+- **WHEN** the user picks a bean+profile pair they have brewed before
+- **THEN** dose/yield/temp show the values from the most recent such shot, not the profile's recommendations
+
+#### Scenario: Type-matched tea profile keeps its temperature
+- **WHEN** a black tea bag stating 100°C is paired with the stock black-tea profile
+- **THEN** no temperature override is seeded
+
+#### Scenario: Generic tea profile gets corrected
+- **WHEN** a sencha bag stating 70°C is paired with a generic tea profile at 94°C
+- **THEN** the temperature field seeds 70°C as a recipe override
+
+#### Scenario: Grind hint translates direction across profiles
+- **WHEN** the bean's last grind on the selected equipment was 15 dialed for D-Flow and the user picked Rao Allongé
+- **THEN** the grind section shows the 15 (naming D-Flow) and that Allongé typically grinds coarser — no computed number for Allongé
+
+#### Scenario: No matching shot leaves the grind empty
+- **WHEN** there is no matching shot with a recorded grind
+- **THEN** the grind remains empty rather than adopting a bag dial
+
+#### Scenario: Hot-water tea uses bag brewing numbers
+- **WHEN** the user creates a hot-water tea recipe from a bag stating brewTempC and leafGramsPer100Ml
+- **THEN** the fields use the bag's brewing numbers verbatim, with the leaf dose computed from leafGramsPer100Ml and the target volume
+
+#### Scenario: Edited field is not overwritten
+- **WHEN** the user has edited the dose and a prefill tier would otherwise seed it
+- **THEN** the user's dose is kept
+
+### Requirement: Last matching bean grind seeds the recipe
+Interactive creation SHALL default to the most recent non-empty shot-history grind for the same bean across profiles and equipment, with its RPM and known profile/equipment context. It SHALL remain editable and SHALL NOT be replaced by a late response or a bag value.
+
+#### Scenario: Most recent grind across profiles
+- **WHEN** the newest matching bean grind was recorded on another profile or grinder
+- **THEN** its grind and same-shot RPM seed the recipe with available context
+
+#### Scenario: No qualifying shot
+- **WHEN** no same-bean shot records a grind
+- **THEN** grind remains empty
+
+#### Scenario: Conflicting canonical identities
+- **WHEN** bean and shot have different non-empty canonical IDs
+- **THEN** the shot does not match even if names match
+
+#### Scenario: Legacy shot without canonical ID
+- **WHEN** a shot lacks an ID but has matching non-empty roaster and coffee names without identity ambiguity
+- **THEN** it can match the bean
+
+#### Scenario: Timestamp tie
+- **WHEN** qualifying shots share the latest timestamp
+- **THEN** the shot with the greater ID is selected
+
+#### Scenario: Competing asynchronous results
+- **WHEN** bean-profile and latest-bean queries finish in either order
+- **THEN** only the latest-bean query can seed grind and RPM, and neither overwrites a user edit
+
+#### Scenario: Stale selection or explicit clear
+- **WHEN** the bean changes or the user clears grind before a lookup returns
+- **THEN** the stale or unwanted result does not overwrite the current field

@@ -13,7 +13,7 @@ import Decenza
 // This is one of the TWO surfaces whose grinder context IS the active grinder
 // (Brew Settings is the other) — both edit the live dial-in. The record hosts
 // inject the grinder that owns their value instead: the shot's in post-shot
-// review, the bag's in the beans dialog, the recipe's package in the wizard.
+// review, the recipe's package in the wizard.
 LayoutWidgetItem {
     id: root
     readonly property string labelText:
@@ -87,17 +87,10 @@ LayoutWidgetItem {
                 ? RecipeContext.preferences.dyeGrinderRpm : 0
 
             // RecipeContext's host setter delegates to SettingsDye, which keeps
-            // the active bag and package last-used dial-in current.
+            // the active package's last-used dial-in current.
             //
-            // Explicit clears APPLY here too. An earlier draft made the pill
-            // "the sole exception" that ignored them, reasoning that the live
-            // dial-in had never been clearable. That was preserving an
-            // ARTEFACT, not a decision: the old pill had no text entry, so a
-            // clear was simply not expressible. Now it is — emptying the field
-            // and pressing Done is as deliberate as typing a value, and
-            // dropping it is the same silent swallow this change removed
-            // everywhere else. Every host applies clears; there is no
-            // exception.
+            // Explicit clears apply here too: emptying the field and pressing
+            // Done is deliberate. Every host applies clears.
             onDialInCommitted: function(fields) { root.setGrindPreference(fields) }
         }
     }

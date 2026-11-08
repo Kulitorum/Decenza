@@ -3622,13 +3622,13 @@ T.Page {
         }
     }
     // Re-point this shot's grinder to a different/new package. The picker
-    // doesn't touch the active bag (applyToActiveBag:false); we resolve the
-    // chosen package and persist equipmentId here.
+    // doesn't change the active equipment (makeActive:false); we resolve
+    // the chosen package and persist equipmentId here.
     OnDemandLoader {
         id: equipmentDialogLoader
         sourceComponent: Component {
             SwitchEquipmentDialog {
-                applyToActiveBag: false
+                makeActive: false
                 onPackageSaved: function(packageId) {
                     postShotReviewPage._pendingEquipmentId = packageId
                     EquipmentService.requestPackage(packageId)

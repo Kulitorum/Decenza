@@ -225,7 +225,7 @@ A recipe SHALL link a specific bag via a `bag_id` column, riding transfer and ba
 
 #### Scenario: Two open bags of the same bean
 - **WHEN** two recipes link two different open bags of the same bean and each is activated in turn
-- **THEN** each activation selects exactly its own linked bag and inherits that bag's grind
+- **THEN** each activation selects exactly its own linked bag and applies its own grind
 
 #### Scenario: Bean-less recipe unaffected
 - **WHEN** a recipe with no bag link is activated
@@ -241,54 +241,6 @@ A one-time forward migration SHALL populate `bag_id` for existing recipes by res
 #### Scenario: Migration with no open bag
 - **WHEN** the database migrates with a recipe whose bean has no open bag
 - **THEN** the recipe migrates without a bag link and shows the bag-finished state until relinked
-
-### Requirement: Recipe-owned grind
-Grind SHALL always live on the recipe. Every recipe of a grind-bearing drink type, linked to a bag or not, SHALL store its own `grindPinned` (opaque text) and optional `rpmPinned`. Grind-less drink types (`tea` and `tea_hotwater`) SHALL store neither. A recipe's grind SHALL never be read from its bag at activation. Editing grind on an active recipe SHALL write to the recipe and, per `coffee-bag-model`, to the linked bag at once.
-
-#### Scenario: Editing grind on an active recipe updates the recipe and the bag together
-- **WHEN** a recipe is active and the user edits its grind or rpm
-- **THEN** that recipe's own `grindPinned`/`rpmPinned` change immediately
-- **AND** the linked bag's stored grind/rpm are also updated immediately to the same value (coffee-bag-model)
-
-#### Scenario: Sibling recipes on the same bag are independent
-- **WHEN** two recipes are linked to the same bag and one recipe's grind is edited
-- **THEN** the other recipe's own `grindPinned`/`rpmPinned` is unchanged, even though the shared bag's stored grind just changed — no recipe ever reads its grind from the bag
-
-#### Scenario: Bag re-dial does not affect any recipe's grind
-- **WHEN** the linked bag's stored grind changes (via a live edit while no recipe governs it, a different recipe's edit, or a manual bag edit)
-- **THEN** no *other* recipe's own `grindPinned`/`rpmPinned` changes as a result
-
-### Requirement: New-recipe grind defaults from the bag, once
-A recipe created with a linked bag SHALL read the bag's grind and rpm once, at creation, as an editable default. On the wizard, whatever the field holds at save becomes the recipe's own value, and rpm is offered only for rpm-capable equipment. Non-interactive create surfaces SHALL adopt the bag's grind and rpm when grind is omitted, but store an explicitly empty grind as empty. The default SHALL NOT be re-offered on later views.
-
-#### Scenario: New recipe defaults to the bag's current dial
-- **WHEN** the user creates a recipe and links a bag whose current grind is "18" with rpm 1200
-- **THEN** the recipe's grind field shows "18" and rpm field shows 1200 as editable defaults (if the chosen equipment is rpm-capable)
-- **AND** the recipe is saved with whatever is on the field at that point, independent of later bag changes
-
-#### Scenario: User overrides the offered default before saving
-- **WHEN** the user creates a recipe, the grind field defaults to the bag's "18", and the user changes it to "20" before saving
-- **THEN** the recipe saves with "20" as its own grind — the bag's value was only ever an offered starting point, not something silently written into the recipe
-
-#### Scenario: Rpm does not default for a non-rpm grinder
-- **WHEN** the user creates a recipe with equipment whose grinder does not report rpm
-- **THEN** the rpm field has no default and is not shown
-
-#### Scenario: Editing an existing recipe does not re-offer the default
-- **WHEN** the user reopens an existing recipe's details for editing
-- **THEN** the grind/rpm fields show the recipe's own stored values, not a fresh read of the bag's current dial
-
-#### Scenario: MCP create omitting grind adopts the bag's dial
-- **WHEN** an MCP or web client creates a recipe linking a bag whose current grind is "18", without providing a grind value
-- **THEN** the recipe saves with "18" as its own grind
-
-#### Scenario: Explicitly empty grind is respected
-- **WHEN** a create supplies an explicitly empty grind value alongside a linked bag
-- **THEN** the recipe saves with no grind — the empty value is not overridden by the bag default
-
-#### Scenario: Promote-from-shot defaults from the shot, not the bag
-- **WHEN** the user promotes a shot that was pulled at grind "17", and the linked bag's dial has since moved to "18"
-- **THEN** the new recipe's grind defaults to "17" (the shot's recorded value), editable before saving
 
 ### Requirement: Promote-from-shot grind comes from the shot
 Promote-from-shot, in the wizard and in MCP `recipe_create_from_shot`, SHALL default grind and rpm from the shot's own recorded values, the dial that produced the shot, and SHALL NOT use the bag's current dial.
@@ -430,3 +382,30 @@ Shots from ratio-water recipes SHALL retain both the water ratio specification a
 - **WHEN** an Americano's intended espresso target changes from 40 g to 42 g before water starts at 2.5×
 - **THEN** its captured target and saved history both use 105 g
 - **AND** this is true whether water finishes before or after the espresso row is saved
+
+### Requirement: Recipes own grind independently of bags
+Grind SHALL always live on the recipe. Every recipe of a grind-bearing drink type, linked to a bag or not, SHALL store its own `grindPinned` (opaque text) and optional `rpmPinned`. Grind-less drink types (`tea` and `tea_hotwater`) SHALL store neither. A recipe's grind SHALL never be read from its bag at activation. Editing grind on an active recipe SHALL write to that recipe, not to its bag.
+
+#### Scenario: Editing grind updates the active recipe, not the bag
+- **WHEN** a recipe is active and the user edits its grind or rpm
+- **THEN** that recipe's own `grindPinned`/`rpmPinned` change immediately
+- **AND** no grind or RPM is written to the bag
+
+#### Scenario: Sibling recipes on the same bag are independent
+- **WHEN** two recipes are linked to the same bag and one recipe's grind is edited
+- **THEN** the other recipe's own `grindPinned`/`rpmPinned` is unchanged, and no recipe reads grind from the bag
+
+#### Scenario: A live grind change outside a recipe does not alter recipes
+- **WHEN** the live grind is adjusted outside a recipe
+- **THEN** it does not change any recipe grind or a bag grind field
+
+### Requirement: Recipe creation never inherits a bag grind
+A newly created recipe SHALL own its grind and RPM and SHALL NOT adopt them from a bag. Explicitly provided values, including an empty grind, SHALL be retained.
+
+#### Scenario: Explicit empty grind
+- **WHEN** recipe creation supplies an empty grind
+- **THEN** the recipe stores no grind and does not inherit one
+
+#### Scenario: Historical shot promotion
+- **WHEN** a shot is promoted to a recipe
+- **THEN** its recorded grind and RPM are used

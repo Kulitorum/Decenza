@@ -226,11 +226,11 @@ The `devices_connection_status` tool SHALL report the current detection epoch an
 
 ### Requirement: MCP grinder reads SHALL resolve via the equipment package
 
-MCP surfaces reporting grinder identity (the `de1://dialing` resource in `mcpresources.cpp`, `dialing_get_context`, `dialing_get_grinder_calibration`, `ai_advisor_invoke`) SHALL resolve brand, model and burrs through the equipment package: the active bag's package for live snapshots, the shot's `equipment_id` for shot-derived blocks. They SHALL also expose the package `id`, `name`, `rpmAdjustable` and the `rpm` dial-in.
+MCP surfaces reporting grinder identity (the `de1://dialing` resource in `mcpresources.cpp`, `dialing_get_context`, `dialing_get_grinder_calibration`, `ai_advisor_invoke`) SHALL resolve brand, model and burrs through the equipment package: the active equipment package for live snapshots, the shot's `equipment_id` for shot-derived blocks. They SHALL also expose the package `id`, `name`, `rpmAdjustable` and the `rpm` dial-in.
 
 #### Scenario: Dialing resource reports the package
 - **WHEN** the `de1://dialing` resource is read
-- **THEN** the grinder block SHALL include the resolved brand/model/setting plus `rpm` and `rpmAdjustable`, sourced from the active bag's equipment package
+- **THEN** the grinder block SHALL include the resolved brand/model/setting plus `rpm` and `rpmAdjustable`, sourced from the active equipment package
 
 #### Scenario: Data conventions on grinder reads
 - **WHEN** a dialing MCP surface reports grinder identity
@@ -244,19 +244,19 @@ The MCP server SHALL provide an `equipment` tool with an `action: "list"` (model
 - **THEN** it SHALL receive the inventory of equipment packages with the fields above
 
 ### Requirement: equipment_select tool
-The MCP server SHALL provide an `equipment` tool with an `action: "select"` (modeled on the `bag` tool's `select` action) that sets the active bag's equipment package by id (or clears it with 0). Selecting a package SHALL apply that package's last grind setting / rpm to the active bag per the dual-memory rule.
+The MCP server SHALL provide an `equipment` tool with an `action: "select"` (modeled on the `bag` tool's `select` action) that sets the active equipment package by id (or clears it with 0). Selecting a package SHALL apply that package's last grind setting / rpm to the live dial.
 
 #### Scenario: Selecting a package
 - **WHEN** an agent calls `equipment` with `action: "select"` and a valid package id
-- **THEN** the active bag's `equipment_id` SHALL be set to that package
-- **AND** the active bag's grind setting and rpm SHALL be set to the package's last-dial values
+- **THEN** that package SHALL become active
+- **AND** the live grind setting and RPM SHALL be set to the package's last-dial values
 
 ### Requirement: equipment_update tool
-The MCP server SHALL provide an `equipment` tool with an `action: "update"` (modeled on the `bag` tool's `update` action) that edits a package's grinder identity (brand/model/burrs) and SHALL support creating a package. On a brand/model change, `rpmCapable` SHALL re-derive from the registry. Edits use reference semantics (apply to all referencing bags/shots).
+The MCP server SHALL provide an `equipment` tool with an `action: "update"` (modeled on the `bag` tool's `update` action) that edits a package's grinder identity (brand/model/burrs) and SHALL support creating a package. On a brand/model change, `rpmCapable` SHALL re-derive from the registry. Edits use reference semantics (apply to all referencing shots).
 
 #### Scenario: Editing a package
 - **WHEN** an agent calls `equipment` with `action: "update"` changing a package's grinder model
-- **THEN** the package SHALL be updated, `rpmAdjustable` re-derived, and all referencing bags/shots SHALL resolve to the new identity
+- **THEN** the package SHALL be updated, `rpmAdjustable` re-derived, and all referencing shots SHALL resolve to the new identity
 
 ### Requirement: Equipment MCP tools SHALL read and write the basket identity
 The MCP `equipment_*` tools SHALL include the package's basket identity
@@ -342,11 +342,11 @@ The recipe tool family (`mcptools_recipes.cpp`) SHALL register `recipe_list`, `r
 
 ### Requirement: Recipe fields follow the data conventions
 
-Recipe tool responses and inputs SHALL follow the house data conventions. Grind SHALL be an object carrying `mode` (`inherited` or `pinned`), `value`, and the resolved effective value, with inherited grind resolving from the linked bag. Responses SHALL expose the linked bag (`bagId` and display identity), and create and update SHALL accept `bagId`. The hot-water block SHALL round-trip as the steam block does.
+Recipe tool responses and inputs SHALL follow the house data conventions. Grind SHALL expose the recipe's own value and RPM, never inherited from a bag. Responses SHALL expose the linked bag (`bagId` and display identity), and create and update SHALL accept `bagId`. The hot-water block SHALL round-trip as the steam block does.
 
 #### Scenario: Grind representation
-- **WHEN** `recipe_get` returns a recipe that inherits grind from its linked bag
-- **THEN** the response shows `"grind": {"mode": "inherited", "value": <linked bag's current grind>}`
+- **WHEN** `recipe_get` returns a recipe with its own grind
+- **THEN** the response shows its own grind and RPM
 
 #### Scenario: Bag link over MCP
 - **WHEN** an MCP client calls `recipe_get` on a recipe whose linked bag was finished
@@ -1187,3 +1187,10 @@ The Connections tab's Network card SHALL offer a confirmation-gated sign-out (fo
 #### Scenario: Sign-out offered before login
 - **WHEN** a tsnet node exists but is still waiting for login
 - **THEN** the Network card offers sign-out, and confirming it wipes the node state
+
+### Requirement: MCP does not write bag equipment or grind
+MCP bag writes SHALL refuse non-empty obsolete equipment, grind and RPM fields with a clear reason. Recipe creation SHALL NOT silently adopt a bag grind.
+
+#### Scenario: Obsolete bag grind write
+- **WHEN** a client submits a non-empty bag grind
+- **THEN** the write is refused with a reason

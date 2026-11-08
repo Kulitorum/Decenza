@@ -42,7 +42,7 @@ QtObject {
 
     property string inventoryTitle: "Equipment"
     property string inventoryEmptyTitle: "No equipment yet"
-    property string inventoryEmptyHint: "Add your grinder to track its model, burrs and dial-in per bag."
+    property string inventoryEmptyHint: "Add your grinder to track its model, burrs and last-used grind."
     property string inventoryAddButton: "Equipment"
     property string inventoryAccessibleAdd: "Add a new equipment package"
     property string cardRemove: "Remove"

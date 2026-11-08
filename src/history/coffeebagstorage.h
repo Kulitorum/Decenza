@@ -62,7 +62,7 @@ struct CoffeeBag {
     // Bag kind (add-recipe-wizard-tea): "coffee" | "tea". Stamped by the
     // creation entry point (Add Coffee / Add Tea) and never edited after —
     // a mis-created zero-shot bag is deleted and recreated. Tea bags skip
-    // roast level, grind, Bean Base linking, and the Visualizer canonical
+    // roast level, Bean Base linking, and the Visualizer canonical
     // search lane; tea-specific descriptive/brewing fields (teaType,
     // brewTempC, leafGramsPer100Ml, …) live in the beanBaseData blob.
     QString kind = QStringLiteral("coffee");
@@ -91,22 +91,8 @@ struct CoffeeBag {
     double startWeightG = 0; // 0 = unset; local-only, never synced to Visualizer
     bool inInventory = true;
 
-    // Grinder identity is no longer persisted on the bag (migration 23 dropped
-    // the grinder_brand/model/burrs columns); it resolves through equipmentId to
-    // the package's grinder item. These fields are a display cache: not stored as
-    // columns, but populated at load by loadBagStatic via a JOIN on
-    // equipment_items (so consumers like MCP bag_list see the grinder identity).
-    QString grinderBrand;
-    QString grinderModel;
-    QString grinderBurrs;
-    // Bean-scoped dial memory, split on the measurement/intent line
-    // (add-yield-ratio-anchor): grinderSetting/rpm/doseWeightG are dial-in —
-    // things the user physically did — and keep their unconditional
-    // write-through from edits plus the dose stamp on shot save. The yield
-    // spec below is design intent and is button-protected: it changes ONLY
-    // via the explicit "Update Bag" action in Brew Settings — never from a
-    // shot save, Brew Settings OK, dose capture, or bag selection.
-    QString grinderSetting;
+    // Dose is remembered on the bag. Its yield spec below changes only through
+    // an explicit bag edit, never from a shot save or bag selection.
     double doseWeightG = 0;  // 0 = unset
     // The bean's OWN yield spec ("none" | "absolute" | "ratio", see
     // src/core/yieldspec.h) — a first-class anchor, not a deviation from the
@@ -115,11 +101,6 @@ struct CoffeeBag {
     // leaves dead in place.
     double yieldValue = 0;   // 0 = unset (grams when absolute, multiplier when ratio)
     QString yieldMode = QStringLiteral("none");
-
-    // Equipment (add-equipment-packages). equipmentId points at the bag's
-    // grinder package; rpm is the grinder rpm dial-in (sibling of grinderSetting).
-    qint64 equipmentId = 0;  // FK -> equipment_packages.id; 0 = unset
-    qint64 rpm = 0;          // 0 = unset
 
     // Visualizer Coffee Management sync state
     QString visualizerBagId;
@@ -206,8 +187,9 @@ struct CoffeeBag {
     // A non-empty coffee-only field on a tea bag (`changes` overlaid on `stored`
     // decides the kind); clearing one is fine. "" when none.
     static QString kindFieldError(const QVariantMap& stored, const QVariantMap& changes);
-    // Every check a bag write must pass: the kind's fields, each changed lifecycle
-    // field, then the order against `stored`.
+    // Every check a bag write must pass: obsolete legacy dial keys (only a clear
+    // passes), then the kind's fields, each changed lifecycle field, then the
+    // order against `stored`.
     static QString writeError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today);
 
     // What an edit changed: the keys of `current` that differ from `opened`. The
@@ -415,18 +397,18 @@ public:
 
     // True when `fields` (camelCase CoffeeBag keys) contains at least one field
     // that Visualizer stores on its coffee bag — the identity/lifecycle/canonical
-    // fields, NOT the local-only grinder/dose/yield/lifecycle-id columns. Drives
+    // fields, NOT the local-only dose/yield/lifecycle-id columns. Drives
     // the bagVisualizerFieldsChanged signal so a Visualizer PATCH fires only for
-    // edits the remote bean record actually reflects (a grinder write-through or
-    // dose/yield stamp must not hit the network). Single source of truth for the
+    // edits the remote bean record actually reflects (a dose/yield stamp must
+    // not hit the network). Single source of truth for the
     // local-key → Visualizer-field mapping.
     static bool touchesVisualizerFields(const QVariantMap& fields);
 
     // Convert one legacy bean preset JSON object (SettingsDye "bean/presets"
     // entry: name/brand/type/roastDate/roastLevel/grinder*/barista/showOnIdle/
     // beanBaseId/beanBaseData) into a CoffeeBag. Preset `name` lands in notes
-    // when it differs from "{brand} {type}"; barista and showOnIdle are
-    // intentionally dropped (per-shot concept / superseded by inInventory).
+    // when it differs from "{brand} {type}"; grinder*, barista and showOnIdle are
+    // intentionally dropped.
     static CoffeeBag bagFromLegacyPreset(const QJsonObject& preset);
 
     // Merge-import legacy presets: inserts presets that do not match an
@@ -478,13 +460,8 @@ public:
     // dest bags first. Source DBs from before migration 19 have no
     // coffee_bags table — returns true with an empty map. Runs inside the
     // caller's destDb transaction.
-    // packageIdMap remaps each source bag's equipment_id to the imported
-    // package's new dest id (built by EquipmentStorage::importEquipmentStatic,
-    // which runs first). A source equipment_id absent from the map (e.g. an
-    // older source with no equipment tables) becomes NULL.
     static bool importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
-                                 QHash<qint64, qint64>& outIdMap,
-                                 const QHash<qint64, qint64>& packageIdMap);
+                                 QHash<qint64, qint64>& outIdMap);
 
 signals:
     void inventoryReady(const QVariantList& bags);

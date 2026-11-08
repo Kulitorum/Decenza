@@ -852,7 +852,7 @@ void EquipmentStorage::requestDeletePackageImpl(
     auto success = std::make_shared<bool>(false);
     runAsync("equip_delete",
         [packageId, success](QSqlDatabase& db) {
-            // Packages referenced by any bag or shot are history — only Remove
+            // Packages referenced by any shot are history — only Remove
             // (soft-delete) is allowed. Hard delete is for mistaken creations.
             // Also block when another package's superseded_by points here: hard-
             // deleting a fork target would leave that older package with a
@@ -868,7 +868,6 @@ void EquipmentStorage::requestDeletePackageImpl(
             const bool hasRecipes = db.tables().contains(QStringLiteral("recipes"));
             const QString countSql = QStringLiteral(
                 "SELECT "
-                "(SELECT COUNT(*) FROM coffee_bags WHERE equipment_id = :id) + "
                 "(SELECT COUNT(*) FROM shots WHERE equipment_id = :id) + "
                 "(SELECT COUNT(*) FROM equipment_packages WHERE superseded_by = :id)")
                 + (hasRecipes ? QStringLiteral(" + (SELECT COUNT(*) FROM recipes WHERE equipment_id = :id)")
@@ -1472,8 +1471,9 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                                                             const QString& basketBrand,
                                                             const QString& basketModel,
                                                             const QString& puckPrep,
-                                                            bool includeArchived)
+                                                            bool includeArchived, bool* lookupOk)
 {
+    if (lookupOk) *lookupOk = false;
     // Full-identity match: grinder brand/model/burrs AND the package's basket
     // brand/model AND its puckprep canonical flag string. EVERY component —
     // including the grinder, which is optional since grinder-less basket-only
@@ -1552,16 +1552,23 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
             && sameToken(query.value(4).toString(), basketBrand)
             && sameToken(query.value(5).toString(), basketModel)
             && query.value(6).toString() == puckWanted)
+        {
+            if (lookupOk) *lookupOk = true;
             return query.value(0).toLongLong();
+        }
     }
+    if (lookupOk) *lookupOk = !query.lastError().isValid();
     return 0;
 }
 
-qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)
+qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId, bool* lookupOk)
 {
+    if (lookupOk) *lookupOk = false;
     const QString target = name.trimmed();
-    if (target.isEmpty())
+    if (target.isEmpty()) {
+        if (lookupOk) *lookupOk = true;
         return 0;  // A blank name is derived from brand+model and never collides.
+    }
     // The comparison is done in C++, NOT in SQL: SQLite's LOWER() folds ASCII
     // only, so "Café"/"CAFÉ" would compare unequal here while the QML gate's
     // JS toLowerCase() (full Unicode) called them equal — the two layers would
@@ -1575,9 +1582,12 @@ qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString
     if (!query.exec())
         return 0;
     while (query.next()) {
-        if (QString::compare(query.value(1).toString().trimmed(), target, Qt::CaseInsensitive) == 0)
+        if (QString::compare(query.value(1).toString().trimmed(), target, Qt::CaseInsensitive) == 0) {
+            if (lookupOk) *lookupOk = true;
             return query.value(0).toLongLong();
+        }
     }
+    if (lookupOk) *lookupOk = !query.lastError().isValid();
     return 0;
 }
 
@@ -1601,14 +1611,13 @@ EquipmentMergeResult EquipmentStorage::mergePackagesStatic(QSqlDatabase& db, qin
         return result;   // guard rolls back
     if (!txn.commit()) {
         EQUIP_WARN_STDERR("Merge", QString("merge commit failed: %1").arg(txn.commitError()));
-        return EquipmentMergeResult{false, 0, 0, 0, QStringLiteral("sqlFailed")};
+        return EquipmentMergeResult{false, 0, 0, QStringLiteral("sqlFailed")};
     }
     EQUIP_INFO_STDERR("Merge",
-                      QString("package %1 folded into %2 and deleted - %3 shots, %4 bags, %5 recipes moved")
+                      QString("package %1 folded into %2 and deleted - %3 shots, %4 recipes moved")
                           .arg(sourceId)
                           .arg(targetId)
                           .arg(result.shotsMoved)
-                          .arg(result.bagsMoved)
                           .arg(result.recipesMoved));
     return result;
 }
@@ -1664,7 +1673,6 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
         return true;
     };
     if (!repoint("shots", &result.shotsMoved)
-        || !repoint("coffee_bags", &result.bagsMoved)
         || !repoint("recipes", &result.recipesMoved)) {
         result.error = QStringLiteral("sqlFailed");
         return result;
@@ -1755,11 +1763,10 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     // ELSE'S transaction and has committed nothing. The outcome line belongs to
     // whoever commits — mergePackagesStatic below, or migration 35 for the heal.
     EQUIP_LOG_STDERR("Merge",
-                     QString("staged fold of package %1 into %2 - %3 shots, %4 bags, %5 recipes")
+                     QString("staged fold of package %1 into %2 - %3 shots, %4 recipes")
                          .arg(sourceId)
                          .arg(targetId)
                          .arg(result.shotsMoved)
-                         .arg(result.bagsMoved)
                          .arg(result.recipesMoved));
     return result;
 }
@@ -2100,25 +2107,20 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         q.bindValue(":id", packageId);
         return (q.exec() && q.next()) ? q.value(0).toLongLong() : 0;
     };
-    // Bags and recipes are live references and follow the package; shots are
+    // Recipes are live references and follow the package; shots are
     // history and stay put. A table not created yet has no rows (see
     // mergePackagesUnlockedStatic for why skipping it is legitimate).
     const QStringList presentTables = db.tables();
     auto repointLiveRefs = [&](qint64 from, qint64 to) -> bool {
-        for (const char* table : {"coffee_bags", "recipes"}) {
-            if (!presentTables.contains(QLatin1String(table)))
-                continue;
-            QSqlQuery q(db);
-            q.prepare(QString("UPDATE %1 SET equipment_id = :to WHERE equipment_id = :from")
-                          .arg(QLatin1String(table)));
-            q.bindValue(":to", to);
-            q.bindValue(":from", from);
-            if (!q.exec()) {
-                EQUIP_WARN_STDERR("Identity",
-                                  QString("repoint %1 failed: %2")
-                                      .arg(table, q.lastError().text()));
-                return false;
-            }
+        if (!presentTables.contains(QStringLiteral("recipes")))
+            return true;
+        QSqlQuery q(db);
+        q.prepare("UPDATE recipes SET equipment_id = :to WHERE equipment_id = :from");
+        q.bindValue(":to", to);
+        q.bindValue(":from", from);
+        if (!q.exec()) {
+            EQUIP_WARN_STDERR("Identity", QString("repoint recipes failed: %1").arg(q.lastError().text()));
+            return false;
         }
         return true;
     };
@@ -2138,8 +2140,8 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     };
 
     // The whole identity edit must be atomic — a partial commit could repoint
-    // bags and recipes without retiring the old package (a duplicate live package). Wrap in a
-    // transaction and roll back on any failure.
+    // recipes without retiring the old package (a duplicate live package). Wrap in
+    // a transaction and roll back on any failure.
     //
     // Failure returns -1, NOT packageId. Both are "the package still has its old
     // identity", but packageId is also what a successful edit-in-place returns,
@@ -2259,7 +2261,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return editedId;
     }
 
-    // Used package: fork (copy name + last dial), repoint bags and recipes, retire the old.
+    // Used package: fork (copy name + last dial), repoint recipes, retire the old.
     const EquipmentPackage old = loadPackageStatic(db, packageId);
     EquipmentPackage np;
     np.name = old.name;

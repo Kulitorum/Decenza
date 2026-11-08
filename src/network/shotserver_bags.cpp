@@ -11,7 +11,6 @@
 #include "../core/settings.h"
 #include "../core/settings_network.h"
 #include "../core/settings_dye.h"
-#include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
@@ -50,13 +49,13 @@ namespace {
 // Editable bag columns accepted from the web form. Full app parity
 // (polish-shotserver-inventory-pages): the descriptive bean attributes ride in
 // the beanBaseData JSON blob (the client parses/merges it), and beanBaseId +
-// beanBaseData together carry a Bean Base canonical link. equipmentId/rpm are
-// the per-bag equipment link + rpm dial-in.
-const QStringList kBagEditableKeys = {
+// beanBaseData together carry a Bean Base canonical link. The legacy dial keys
+// stay accepted so a non-empty value can be refused rather than dropped.
+const QStringList kBagEditableKeys = QStringList{
     "roasterName", "coffeeName", "roastDate", "roastLevel", "frozenDate",
     "defrostDate", "openedDate", "storageHint", "notes", "startWeightG",
-    "grinderSetting", "doseWeightG", "equipmentId", "rpm",
-    "beanBaseId", "beanBaseData", "inInventory"};
+    "doseWeightG", "beanBaseId", "beanBaseData", "inInventory"}
+    + CoffeeBagFields::legacyDialKeys();
 
 QVariantMap bagFieldsFromBody(const QJsonObject& body)
 {
@@ -729,6 +728,16 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             QVariantMap fields = editorFieldsFromBody(bodyJson);
+            // Validate legacy fields before comparing against the opened form:
+            // an old client must not silently resubmit a non-empty bag dial.
+            QVariantMap legacyFields;
+            for (const QString& key : CoffeeBagFields::legacyDialKeys()) {
+                if (fields.contains(key)) legacyFields.insert(key, fields.value(key));
+            }
+            if (const QString err = CoffeeBag::writeError({}, legacyFields, QDate::currentDate()); !err.isEmpty()) {
+                respondJson(QJsonObject{{"error", err}}, 400);
+                return;
+            }
             // The web editor sends the form as it opened too: write only what the
             // user changed, as the app does (CoffeeBag::editChanges). Without it
             // the order check runs in storage, whose refusal reaches the reply.
@@ -1027,15 +1036,7 @@ QString ShotServer::generateBeansPage() const
 
         <details class="dialog-section">
             <summary>Dial-in</summary>
-            <!-- Equipment first: the grinder gates the RPM field and scopes the
-                 grind candidates, so it is chosen before the dial-in that
-                 depends on it — same ordering as the app's bag form and the
-                 recipe wizard's equipment-then-grind windows. -->
-            <label>Equipment</label>
-            <select id="fEquipment" onchange="refreshGrindCandidates()"><option value="0">None</option></select>
             <div class="grid-2">
-                <div><label>Grind setting</label><input id="fGrind"></div>
-                <div><label>RPM</label><input id="fRpm" type="number" step="1"></div>
                 <div><label>Dose (g)</label><input id="fDose" type="number" step="0.1"></div>
                 <div><label>Start weight (g)</label><input id="fStartWeight" type="number" step="1"></div>
             </div>
@@ -1078,13 +1079,11 @@ QString ShotServer::generateBeansPage() const
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_MANAGEMENT;
-    html += WEB_JS_GRIND_DATALIST;
     html += QStringLiteral("\n        const BAG_RULES = %1;\n").arg(bagRulesJson());
     html += R"HTML(
         let editingId = null;
         let editingKind = 'coffee';
         let bags = [];
-        let equipmentList = [];     // for the per-bag equipment link picker
         let editBlob = {};          // working copy of the bag's beanBaseData blob
         let editBeanBaseId = '';    // canonical id when linked
         let editOpenedLink = '';    // product URL as the form opened (image-refresh gate)
@@ -1149,15 +1148,6 @@ QString ShotServer::generateBeansPage() const
 
         function load() {
             status('Loading…');
-            // Equipment list backs the per-bag link picker; best-effort.
-            getJson('/api/equipment')
-                .then(d => { equipmentList = d.equipment || []; })
-                .catch(e => {
-                    // The picker falls back to a "(not loaded)" placeholder, but
-                    // say why — an empty equipment list reads as "none exist".
-                    console.warn('Could not load equipment:', e);
-                    equipmentList = [];
-                });
             getJson('/api/bags')
                 .then(d => {
                     status('');
@@ -1166,39 +1156,6 @@ QString ShotServer::generateBeansPage() const
                 })
                 .then(loadFinished)
                 .catch(e => status('Could not load bags: ' + e.message));
-        }
-
-        function equipmentLabel(p) {
-            return p.name || ((p.grinderBrand || '') + ' ' + (p.grinderModel || '')).trim()
-                || ('Package ' + p.id);
-        }
-        function fillEquipmentSelect(selectedId) {
-            const sel = el('fEquipment');
-            sel.innerHTML = '<option value="0">None</option>'
-                + equipmentList.map(p => '<option value="' + p.id + '">' + esc(equipmentLabel(p)) + '</option>').join('');
-            // The equipment fetch can fail or still be in flight. Without this,
-            // a bag whose package is missing from the list falls back to the
-            // "None" option and SAVE SILENTLY UNLINKS it — a data loss with no
-            // message. Keep the id selectable via a placeholder so the link
-            // round-trips untouched.
-            if (selectedId > 0 && !equipmentList.some(p => p.id === selectedId)) {
-                const opt = document.createElement('option');
-                opt.value = String(selectedId);
-                opt.textContent = 'Package ' + selectedId + ' (not loaded)';
-                sel.appendChild(opt);
-            }
-            sel.value = String(selectedId || 0);
-        }
-
-        // Stepped grind/RPM candidates for the BAG's linked package — the
-        // record's own grinder, never the active one (grind-value-entry).
-        // Re-attached when the equipment selection changes mid-edit, so the
-        // candidates follow the grinder the bag will actually be ground on.
-        function refreshGrindCandidates() {
-            const pkgId = parseInt(el('fEquipment').value, 10) || 0;
-            const pkg = equipmentList.find(p => p.id === pkgId);
-            attachGrindDatalist(el('fGrind'), el('fRpm'),
-                                pkg ? pkg.grinderBrand : '', pkg ? pkg.grinderModel : '');
         }
 
         function attrLine(b, bb) {
@@ -1251,7 +1208,6 @@ QString ShotServer::generateBeansPage() const
             const meta = metaLine(b);
             if (meta) body += '<div class="meta-line">' + meta + '</div>';
             const dial = bullet([
-                b.grinderSetting ? 'grind ' + esc(b.grinderSetting) + (b.rpm > 0 ? ' · ' + b.rpm + ' RPM' : '') : '',
                 b.doseWeightG > 0 ? b.doseWeightG.toFixed(1) + 'g dose' : '',
                 b.shotCount > 0 ? b.shotCount + ' shots' : '']);
             if (dial) body += '<div class="plan-line">' + dial + '</div>';
@@ -1348,7 +1304,7 @@ QString ShotServer::generateBeansPage() const
                     ? (finished.length || finishedState !== 'ready' ? ''
                        : '<p class="muted">No bags match &ldquo;' + esc(listView.query) + '&rdquo;.</p>')
                     : '<div class="empty"><h2>No bags yet</h2>'
-                      + '<div>Track your beans, freshness and grinder settings here.</div></div>';
+                      + '<div>Track your beans and their freshness here.</div></div>';
             renderFinished(finished);
         }
 
@@ -1510,7 +1466,7 @@ QString ShotServer::generateBeansPage() const
             el('coffeeDetails').style.display = isTea ? 'none' : '';
             el('teaDetails').style.display = isTea ? '' : 'none';
             el('lblCoffee').textContent = isTea ? 'Tea name' : 'Coffee';
-            const inputFor = { roastLevel: 'fRoastLevel', grinderSetting: 'fGrind', rpm: 'fRpm' };
+            const inputFor = { roastLevel: 'fRoastLevel' };
             BAG_RULES.coffeeOnly.forEach(k => {
                 const e = el(inputFor[k]);
                 if (e) e.parentElement.style.display = isTea ? 'none' : '';
@@ -1551,22 +1507,10 @@ QString ShotServer::generateBeansPage() const
             // A new bag has no portion in use yet: thaw and opened are edit-only (app parity).
             document.querySelectorAll('#editor .edit-only').forEach(e => e.style.display = id ? '' : 'none');
             ['fRoastDate', 'fFrozen', 'fDefrost', 'fOpened'].forEach(f => el(f).max = today());
-            el('fGrind').value = b.grinderSetting || '';
-            el('fRpm').value = b.rpm > 0 ? b.rpm : '';
             el('fDose').value = b.doseWeightG > 0 ? b.doseWeightG : '';
             el('fStartWeight').value = b.startWeightG > 0 ? b.startWeightG : '';
             el('fYieldMode').value = b.yieldMode || 'none';
             el('fYieldValue').value = b.yieldValue > 0 ? b.yieldValue : '';
-            // A NEW bag defaults to the ACTIVE equipment package (app parity —
-            // the in-app form arrives with the current equipment resolved, so
-            // the grind picker's RPM half matches the real grinder instead of
-            // the "unknown grinder -> assume rpm-capable" fallback an empty
-            // identity triggers). An existing bag keeps its own link; a restock
-            // takes its source bag's, as the app's re-buy form does.
-            const defaultPkg = id ? (b.equipmentId || 0)
-                : (b.equipmentId || (equipmentList.find(p => p.isActive) || { id: 0 }).id);
-            fillEquipmentSelect(defaultPkg);
-            refreshGrindCandidates();
             el('fNotes').value = b.notes || '';
             COFFEE_KEYS.concat(TEA_KEYS, LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e) e.value = editBlob[key] || ''; });
             dismissFoundPage();
@@ -1887,11 +1831,8 @@ QString ShotServer::generateBeansPage() const
                 roastLevel: el('fRoastLevel').value.trim(),
                 frozenDate: el('fFrozen').value.trim(),
                 storageHint: el('fStorage').value,
-                grinderSetting: el('fGrind').value.trim(),
-                rpm: parseInt(el('fRpm').value) || 0,
                 doseWeightG: parseFloat(el('fDose').value) || 0,
                 startWeightG: parseFloat(el('fStartWeight').value) || 0,
-                equipmentId: parseInt(el('fEquipment').value, 10) || 0,
                 notes: el('fNotes').value.trim(),
                 // An unreadable blob goes back as stored; the merge leaves it alone.
                 beanBaseData: !editBlobReadable ? editRawBlob

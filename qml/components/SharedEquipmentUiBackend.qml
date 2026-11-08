@@ -47,14 +47,14 @@ EquipmentUiBackend {
     function serviceRequestId(requestId) {
         return serviceRequestPrefix + String(requestId || "")
     }
-    function createPackage(fields, applyToActiveBag, requestId) {
-        EquipmentService.createPackage(fields, applyToActiveBag, serviceRequestId(requestId))
+    function createPackage(fields, makeActive, requestId) {
+        EquipmentService.createPackage(fields, makeActive, serviceRequestId(requestId))
     }
     function updatePackage(packageId, fields, expectedEditable, requestId) {
         EquipmentService.updatePackage(packageId, fields, expectedEditable, serviceRequestId(requestId))
     }
-    function activatePackage(packageId, applyToActiveBag, requestId) {
-        EquipmentService.activatePackage(packageId, applyToActiveBag, serviceRequestId(requestId))
+    function activatePackage(packageId, makeActive, requestId) {
+        EquipmentService.activatePackage(packageId, makeActive, serviceRequestId(requestId))
     }
 
     property Connections serviceConnections: Connections {

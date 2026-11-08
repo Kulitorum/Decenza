@@ -224,6 +224,7 @@ void ShotHistoryStorage::close()
 
 bool ShotHistoryStorage::initialize(const QString& dbPath)
 {
+    m_bagGrindNoticePending = false;
     m_dbPath = dbPath;
     if (m_dbPath.isEmpty()) {
         QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -284,6 +285,17 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     QSqlQuery walQuery(m_db);
     if (walQuery.exec("PRAGMA wal_checkpoint(TRUNCATE)")) {
         DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Startup WAL checkpoint completed";
+    }
+
+    {
+        QSqlQuery noticeQuery(m_db);
+        if (noticeQuery.exec("SELECT 1 FROM bag_grind_notice WHERE id = 1")) {
+            m_bagGrindNoticePending = noticeQuery.next();
+            if (m_bagGrindNoticePending)
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "bag grind upgrade notice pending";
+        } else
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to read the bag grind notice state:"
+                       << noticeQuery.lastError().text() << "- it will be checked again next launch";
     }
 
     // Sync count at startup (before UI, acceptable on init)
@@ -476,6 +488,10 @@ bool ShotHistoryStorage::createTables()
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_enjoyment ON shots(enjoyment)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shot_phases_shot ON shot_phases(shot_id)");
 
+    // Holds one row while migration 52's upgrade notice awaits acknowledgement.
+    if (!query.exec("CREATE TABLE IF NOT EXISTS bag_grind_notice (id INTEGER PRIMARY KEY CHECK(id = 1))"))
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create bag_grind_notice:" << query.lastError().text();
+
     // Schema version table
     query.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)");
     // Only insert initial version if table is empty (avoid creating duplicate rows
@@ -484,6 +500,56 @@ bool ShotHistoryStorage::createTables()
 
     return true;
 }
+
+namespace {
+
+struct MigrationStep {
+    const char* name;
+    QString error;
+};
+
+// remove-bag-equipment-and-grind design.md "Explain the change": no active
+// recipe, no active or in-inventory package, and the active bag is one of at
+// least two open coffee bags holding a grind that no live recipe owns. nullopt
+// when a query fails; `step` says which.
+std::optional<bool> bagDialNoticeEligible(QSqlDatabase& db, qint64 recipeId, qint64 equipmentId,
+                                          qint64 bagId, MigrationStep* step)
+{
+    auto counts = [&](const char* name, const char* sql, const QVariantList& binds)
+        -> std::optional<std::pair<qint64, qint64>> {
+        *step = {name, {}};
+        QSqlQuery q(db);
+        if (q.prepare(QString::fromLatin1(sql))) {
+            for (const QVariant& value : binds)
+                q.addBindValue(value);
+            if (q.exec() && q.next())
+                return std::make_pair(q.value(0).toLongLong(), q.value(1).toLongLong());
+        }
+        step->error = q.lastError().text();
+        return std::nullopt;
+    };
+    if (bagId <= 0)
+        return false;
+    const auto active = counts("active selection",
+        "SELECT (SELECT COUNT(*) FROM recipes WHERE id = ?), "
+        "(SELECT COUNT(*) FROM equipment_packages WHERE id = ? OR in_inventory = 1)",
+        {recipeId, equipmentId});
+    if (!active)
+        return std::nullopt;
+    if (active->first > 0 || active->second > 0)
+        return false;
+    const auto bags = counts("bag grinds",
+        "SELECT COUNT(*), COALESCE(MAX(b.id = ?), 0) FROM coffee_bags b "
+        "WHERE b.in_inventory = 1 AND b.kind = 'coffee' "
+        "AND TRIM(COALESCE(b.grinder_setting, '')) <> '' "
+        "AND NOT EXISTS (SELECT 1 FROM recipes r WHERE r.bag_id = b.id AND r.archived = 0)",
+        {bagId});
+    if (!bags)
+        return std::nullopt;
+    return bags->first >= 2 && bags->second == 1;
+}
+
+} // namespace
 
 bool ShotHistoryStorage::runMigrations()
 {
@@ -1308,11 +1374,11 @@ bool ShotHistoryStorage::runMigrations()
 #ifdef DECENZA_TESTING
             // Model the locked DB faithfully: the same lock that failed the
             // orphan-link also fails every later migration's writes this pass,
-            // so nothing persists past version 19 and the WHOLE deferred chain
-            // (migrations 21, 22, and 23) retries next launch. Without this abort,
-            // the independently-gated later migrations would advance the version
-            // via their own ">= N" gates (ending at 23) and the < 20 block would
-            // never run again, stranding the orphan bag_id links.
+            // so nothing persists past version 19 and every later migration
+            // retries next launch. Without this abort, the independently-gated
+            // later migrations would advance the version via their own ">= N"
+            // gates and the < 20 block would never run again, stranding the
+            // orphan bag_id links.
             if (linkFaulted) {
                 m_schemaVersion = currentVersion;
                 return true;
@@ -1708,9 +1774,8 @@ bool ShotHistoryStorage::runMigrations()
     // "empty grind_pinned = inherit from the bag" mode is retired — grind
     // always lives on the recipe. Pure data pass, no schema change: each
     // inherit-mode row adopts its linked bag's current grinder_setting/rpm
-    // once (the historical equivalent of the creation-time default). Rows
-    // whose bag has no dial (tea bags, never-dialed) are skipped, bag-less
-    // rows untouched. Idempotent and gated ">= 29 && < 30", mirroring 29:
+    // once. Rows whose bag has no dial (tea bags, never-dialed) are skipped,
+    // bag-less rows untouched. Idempotent and gated ">= 29 && < 30", mirroring 29:
     // a transient failure retries next launch instead of stranding rows.
     if (currentVersion >= 29 && currentVersion < 30) {
         DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 30 (recipe-owned grind)";
@@ -2490,6 +2555,84 @@ bool ShotHistoryStorage::runMigrations()
             // Previews branched before main's 47 and lack its added-water column.
             {QStringLiteral("shots"), QStringLiteral("hot_water_result_json"), QStringLiteral("TEXT")},
         }, "Until it completes, shots cannot be saved or opened", previewStatements);
+    }
+
+    // Migration 52 (remove-bag-equipment-and-grind): bags stop carrying a grind
+    // or equipment. It reads the active ids from dye/* settings and never writes
+    // settings, so a failure rolls back and retries next launch.
+    if (versionReadOk && currentVersion == 51) {
+        query.finish();
+#ifdef DECENZA_TESTING
+        // An isolated DB must never read the developer's live settings.
+        QSettings settings(m_dbPath + QStringLiteral(".upgrade-settings"), QSettings::IniFormat);
+#else
+        AppSettings settings;
+#endif
+        // A heal earlier in this run may have merged the selected package away.
+        const qint64 equipmentId = m_healedActiveEquipmentId > 0 ? m_healedActiveEquipmentId
+            : settings.value("dye/activeEquipmentId", -1).toLongLong();
+        const qint64 recipeId = settings.value("dye/activeRecipeId", -1).toLongLong();
+        const qint64 bagId = settings.value("dye/activeBagId", -1).toLongLong();
+        // Unreadable settings would read as "nothing active" and drop the notice.
+        MigrationStep step{"settings read", {}};
+        bool notice = false;
+        bool ok = settings.status() == QSettings::NoError;
+        if (!ok)
+            step.error = QStringLiteral("QSettings status %1").arg(int(settings.status()));
+        std::optional<DbWriteTxn> txn;
+        if (ok) {
+            step = {"begin transaction", QStringLiteral("see the transaction line above")};
+            txn.emplace(DbWriteTxn::begin(m_db, "migration 52 bag dial removal", 1));
+            ok = txn->ok();
+        }
+        if (ok) {
+            const std::optional<bool> eligible = bagDialNoticeEligible(m_db, recipeId, equipmentId, bagId, &step);
+            ok = eligible.has_value();
+            notice = eligible.value_or(false);
+        }
+        if (ok && notice) {
+            step = {"record notice", {}};
+            ok = query.exec("INSERT OR IGNORE INTO bag_grind_notice (id) VALUES (1)");
+            if (!ok)
+                step.error = query.lastError().text();
+        }
+        for (const char* column : {"grinder_setting", "equipment_id", "rpm"}) {
+            if (!ok)
+                break;
+            step = {column, {}};
+            const std::optional<bool> present = columnPresent(QStringLiteral("coffee_bags"),
+                                                              QLatin1String(column));
+            if (!present.has_value()) {
+                step.error = QStringLiteral("could not inspect coffee_bags (see above)");
+                ok = false;
+            } else if (*present && !query.exec(QStringLiteral("ALTER TABLE coffee_bags DROP COLUMN %1")
+                                                   .arg(QLatin1String(column)))) {
+                step.error = query.lastError().text();
+                ok = false;
+            }
+        }
+        if (ok) {
+            step = {"schema_version", {}};
+            ok = query.exec("DELETE FROM schema_version")
+                && query.exec("INSERT INTO schema_version (version) VALUES (52)");
+            if (!ok)
+                step.error = query.lastError().text();
+        }
+        if (ok) {
+            step = {"commit", {}};
+            ok = txn->commit();
+            if (!ok)
+                step.error = txn->commitError();
+        }
+        if (ok) {
+            currentVersion = 52;
+            // INFO: its failure is a WARN that promises a retry, and the resolution belongs beside it.
+            DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 52 complete - upgrade notice"
+                                                     << (notice ? "pending" : "not needed");
+        } else {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 52 incomplete at" << step.name << "-"
+                                                     << step.error << "- will retry next launch";
+        }
     }
 
     m_schemaVersion = currentVersion;
@@ -3591,6 +3734,27 @@ void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
         if (!opened)
             DIAG_WARN(STORAGE, "ShotHistoryStorage") << "repair flag on shot" << shotId
                        << "not cleared - DB open failed; it will be re-checked next boot";
+    });
+}
+
+void ShotHistoryStorage::acknowledgeBagGrindNotice()
+{
+    if (!m_bagGrindNoticePending)
+        return;
+    m_bagGrindNoticePending = false;
+    const QString dbPath = m_dbPath;
+    runOnDbThread([dbPath]() {
+        const bool opened = withTempDb(dbPath, "shs_baggrindnotice", [](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            if (query.exec("DELETE FROM bag_grind_notice"))
+                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "bag grind upgrade notice acknowledged";
+            else
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "could not record the bag grind notice as read:"
+                           << query.lastError().text() << "- it will show again next launch";
+        });
+        if (!opened)
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "bag grind notice not recorded as read - DB open failed;"
+                       << "it will show again next launch";
     });
 }
 
@@ -5531,13 +5695,12 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         }
 
         {
-            // Import equipment packages first so both bags and shots can remap
-            // their equipment_id to the new package ids (add-equipment-packages
-            // task 2.8). Pre-equipment sources have no tables and yield an empty
-            // map — bags/shots then null their equipment_id, same as before.
+            // Import equipment packages first so shots and recipes can remap
+            // their equipment_id to the new package ids. Pre-equipment sources
+            // have no tables and yield an empty map — the ids then go NULL.
             QHash<qint64, qint64> packageIdMap;
             if (!EquipmentStorage::importEquipmentStatic(srcDb, destDb, merge, packageIdMap)) {
-            EQUIP_WARN_STDERR("Import", QStringLiteral("database import failed - equipment packages not imported"));
+                EQUIP_WARN_STDERR("Import", QStringLiteral("database import failed - equipment packages not imported"));
                 destDb.rollback();
                 goto cleanup;
             }
@@ -5550,10 +5713,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // Import coffee bags next so shots.bag_id can be remapped
             // (bean-bag-inventory): bag row ids change on insert, exactly
             // like shot ids. Pre-migration-19 sources have no coffee_bags
-            // table and yield an empty map. packageIdMap remaps each bag's
-            // equipment_id.
+            // table and yield an empty map.
             QHash<qint64, qint64> bagIdMap;
-            if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap, packageIdMap)) {
+            if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap)) {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Bag import failed";
                 destDb.rollback();
                 goto cleanup;

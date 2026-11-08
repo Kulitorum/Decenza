@@ -168,7 +168,7 @@ A finished card SHALL offer Restore, which returns that same bag to inventory wi
 
 ### Requirement: Restock SHALL create a new bag from an existing one
 
-Restock SHALL be offered on finished bags and on bags in inventory. It SHALL open the new-bag form prefilled from that bag's identity, bean details, equipment and dial-in, with roast date, freezer dates, opened date and notes left blank. Saving SHALL create a new bag and SHALL leave the original bag's state unchanged.
+Restock SHALL be offered on finished bags and on bags in inventory. It SHALL open the new-bag form prefilled from that bag's identity, bean details, dose and yield, with roast date, freezer dates, opened date and notes left blank. Saving SHALL create a new bag and SHALL leave the original bag's state unchanged.
 
 #### Scenario: Restock on a bag still in use keeps it in inventory
 

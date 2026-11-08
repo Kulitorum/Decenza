@@ -51,7 +51,7 @@ DecenzaDialog {
     // Coffee" / "Bag of Tea" / edit's bag row) and immutable after creation.
     // Tea mode is SUBTRACTION over the coffee form: the Visualizer canonical
     // lane is suppressed (coffee-only database), identity labels read
-    // Brand/Tea, and roast level + grind/rpm + canonical-link affordances
+    // Brand/Tea, and roast level + canonical-link affordances
     // are hidden. URL + Get info + photo + weight fields stay.
     property string bagKind: "coffee"
     readonly property bool isTea: bagKind === "tea"
@@ -92,21 +92,6 @@ DecenzaDialog {
     // True when the user linked/unlinked Bean Base in this edit session —
     // Save then propagates the bag's link to all its shots.
     property bool fLinkDirty: false
-    // Grinder identity (brand/model/burrs) is owned by the equipment package, not
-    // the bag (add-equipment-packages); only the grind-setting dial-in stays here.
-    // The bag points at a package via fEquipmentId; brand/model/burrs are the
-    // resolved read-only display (refreshed via EquipmentStorage.packageReady).
-    property string fGrinderSetting: ""
-    property int fRpm: 0               // grinder rpm dial-in (0 = unset — uniform across surfaces)
-    property int fEquipmentId: -1
-    property string fEquipmentName: ""  // package display name (resolved via packageReady)
-    property string fEquipmentBrand: ""
-    property string fEquipmentModel: ""
-    property string fEquipmentBurrs: ""
-    // Display the package name (defaults to "{brand} {model}").
-    readonly property string fEquipmentLabel: fEquipmentName.length > 0
-        ? fEquipmentName
-        : [fEquipmentBrand, fEquipmentModel].filter(function(s){ return s && s.length > 0 }).join(" ")
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
     // Yield anchor (add-yield-ratio-anchor): the bag's own yield is a spec —
@@ -672,18 +657,6 @@ DecenzaDialog {
         fRoaster = ""; fCoffee = ""; fRoastDate = ""; fRoastLevel = ""
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
-        fGrinderSetting = ""
-        // Never START with an empty equipment package: default to the ACTIVE
-        // one — a new bag is almost always for the grinder in use today, and
-        // an empty identity would trip the unknown-grinder RPM fallback in the
-        // grind picker. Re-buy prefills overwrite this with the SOURCE bag's
-        // package (prefillFromBag): past beans keep the equipment they were
-        // actually ground on. The user can still Switch before saving.
-        fEquipmentId = EquipmentService.activePackageId > 0 ? EquipmentService.activePackageId : -1
-        fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
-        if (fEquipmentId > 0 && EquipmentService)
-            EquipmentService.requestPackage(fEquipmentId)
-        fRpm = 0
         fDose = ""; fYield = ""; fYieldRatio = ""; fYieldAnchor = "none"; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         fStorageHint = ""; fOpenedDate = ""
@@ -753,8 +726,6 @@ DecenzaDialog {
                 return
             }
             root._pendingUpdateReason = ""
-            if (bagId === BagService.activeBagId)
-                EquipmentService.activatePackage(root.fEquipmentId > 0 ? root.fEquipmentId : -1, false)
             root.close()
         }
     }
@@ -782,17 +753,6 @@ DecenzaDialog {
         fBeanBaseData = bag.beanBaseData || ""
         syncDetailFieldsFromBlob()
         _openedLink = fLink
-        fGrinderSetting = bag.grinderSetting || ""
-        // Source bag's package when it has one; else fall back to the active
-        // package (never empty — same rule as resetForm).
-        fEquipmentId = bag.equipmentId
-            || (EquipmentService.activePackageId > 0 ? EquipmentService.activePackageId : -1)
-        fRpm = (bag.rpm ?? 0) > 0 ? bag.rpm : 0
-        // Resolve the package's name + grinder identity for the read-only label
-        // (packageReady fills fEquipmentName/Brand/Model/Burrs below).
-        fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
-        if (fEquipmentId > 0 && EquipmentService)
-            EquipmentService.requestPackage(fEquipmentId)
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
         // "37.8", not "37.800000000000004" — matching the brew-settings format.
         fDose = (bag.doseWeightG ?? 0) > 0 ? Number(bag.doseWeightG).toFixed(1) : ""
@@ -1035,10 +995,6 @@ DecenzaDialog {
                 _awaitingUpdate = true
                 BagService.requestUpdateBag(editBagId, changed, fLinkDirty)
             } else {
-                // If this is the active bag, sync the active equipment selection so
-                // Brew Settings reflects the change.
-                if (editBagId === BagService.activeBagId)
-                    EquipmentService.activatePackage(fEquipmentId > 0 ? fEquipmentId : -1, false)
                 root.close()
             }
         } else {
@@ -1060,8 +1016,6 @@ DecenzaDialog {
             "roastLevel": isTea ? "" : fRoastLevel,
             "beanBaseId": fBeanBaseId,
             "beanBaseData": mergedBlob,
-            "grinderSetting": isTea ? "" : fGrinderSetting.trim(),
-            "rpm": isTea ? 0 : fRpm,
             "doseWeightG": parseWeight(fDose),
             // Yield spec: only the anchor is stored (one value + a mode).
             "yieldValue": fYieldAnchor === "ratio"
@@ -1104,8 +1058,6 @@ DecenzaDialog {
             fields["defrostDate"] = ""
             fields["inInventory"] = true
         }
-        // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
-        fields["equipmentId"] = fEquipmentId
         return fields
     }
 
@@ -1200,40 +1152,12 @@ DecenzaDialog {
         }
     }
 
-    // Re-point THIS bag's equipment package. The picker doesn't switch the
-    // active bag (applyToActiveBag:false); we record the chosen id and resolve
-    // its grinder identity for the label via packageReady below. Persisted on
-    // Save (fields.equipmentId).
-    SwitchEquipmentDialog {
-        id: bagEquipmentDialog
-        applyToActiveBag: false
-        onPackageSaved: function(packageId) {
-            root.fEquipmentId = packageId
-            if (EquipmentService)
-                EquipmentService.requestPackage(packageId)
-        }
-    }
-    EquipmentInfoDialog {
-        id: bagEquipmentInfoDialog
-    }
     // Shared details viewer for the search results' info button — one instance,
     // re-pointed at whichever canonical row was tapped. imageKey defaults to the
     // blob's canonical id, so the popup resolves and shows the extracted product
     // photo on open (same viewer as BagCard / BeanInfoPage).
     BeanBaseDetailsPopup {
         id: canonicalPreviewPopup
-    }
-    Connections {
-        target: EquipmentService
-        // Fills the read-only label for whichever package this bag now points at
-        // (both the edit-open prefill and a fresh pick funnel through fEquipmentId).
-        function onPackageReady(packageId, pkg) {
-            if (packageId !== root.fEquipmentId) return
-            root.fEquipmentBrand = pkg.grinderBrand || ""
-            root.fEquipmentModel = pkg.grinderModel || ""
-            root.fEquipmentBurrs = pkg.grinderBurrs || ""
-            root.fEquipmentName = (pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : ""
-        }
     }
 
     onAboutToShow: {
@@ -2512,7 +2436,7 @@ DecenzaDialog {
                         }
                     }
 
-                    // --- Freeze tracking (under roast level, above grind) ---
+                    // --- Freeze tracking (under roast level) ---
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
@@ -2610,72 +2534,6 @@ DecenzaDialog {
                         onValueEdited: function(dateString) { root.fOpenedDate = dateString }
                     }
 
-                    // Equipment package (read-only NAME + info + re-point button).
-                    // Grinder identity is owned by the package, not the bag; tap
-                    // Switch/Add to point this bag at a different package, or the
-                    // info button to see the package's contents.
-                    FieldRow {
-                        labelKey: "changebeans.form.equipment"
-                        labelFallback: "Equipment"
-
-                        Text {
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            text: root.fEquipmentLabel.length > 0
-                                  ? root.fEquipmentLabel
-                                  : TranslationManager.translate("changebeans.form.equipmentNotSet", "Not set")
-                            font: Theme.bodyFont
-                            color: root.fEquipmentLabel.length > 0 ? Theme.textColor : Theme.textSecondaryColor
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: TranslationManager.translate("changebeans.form.equipment", "Equipment") + " " + text
-                        }
-                        AccessibleButton {
-                            visible: root.fEquipmentId > 0
-                            icon.source: "qrc:/icons/info.svg"
-                            accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
-                            onClicked: bagEquipmentInfoDialog.openFor(root.fEquipmentId)
-                        }
-                        AccessibleButton {
-                            text: root.fEquipmentLabel.length > 0
-                                  ? TranslationManager.translate("changebeans.form.switchEquipment", "Switch")
-                                  : TranslationManager.translate("changebeans.form.addEquipment", "Add")
-                            accessibleName: TranslationManager.translate("changebeans.form.switchEquipmentAccessible", "Switch equipment package")
-                            onClicked: bagEquipmentDialog.openPicker()
-                        }
-                    }
-
-                    // --- Grinder dial-in (the per-bag grind + RPM, one control).
-                    // Tap-to-open: the shared GrindField shows "grind · rpm" and
-                    // opens the grind picker (wheels + keyboard entry); the old
-                    // inline grind/RPM text fields are gone, so neither needs
-                    // KeyboardAwareContainer registration — the picker owns its
-                    // own keyboard handling. Grinder context is the BAG's linked
-                    // equipment (fEquipmentBrand/Model), not the active grinder.
-                    // Sits BELOW the Equipment row: the grinder is chosen
-                    // before the dial-in that depends on it for RPM
-                    // capability — the same ordering the recipe wizard's
-                    // equipment-then-grind windows encode.
-                    // Tea has nothing to grind: row hidden. ---
-                    FieldRow {
-                        visible: !root.isTea
-                        labelKey: "changebeans.form.grindSetting"
-                        labelFallback: "Grind"
-
-                        GrindField {
-                            Layout.fillWidth: true
-                            presentation: "field"
-                            grinderBrand: root.fEquipmentBrand
-                            grinderModel: root.fEquipmentModel
-                            grindSetting: root.fGrinderSetting
-                            rpmValue: root.fRpm
-                            accessibleName: TranslationManager.translate("changebeans.form.grindSetting.accessible", "Grinder setting")
-                            // Empty commit is an explicit clear — a bag's grind
-                            // is legitimately unsettable (grind-value-entry).
-                            onGrindCommitted: function(v) { root.fGrinderSetting = v }
-                            onRpmCommitted: function(rpm) { root.fRpm = rpm }
-                        }
-                    }
-
                     FieldRow {
                         labelKey: "changebeans.form.dose"
                         labelFallback: "Dose"
@@ -2750,10 +2608,7 @@ DecenzaDialog {
                         }
                     }
 
-                    // Notes — always visible. Grinder IDENTITY is no longer edited
-                    // here: it's owned by the Equipment package (add-equipment-
-                    // packages), set via Switch Equipment in Brew Settings. The bag
-                    // keeps only its grind-setting dial-in (above).
+                    // Notes — always visible.
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
@@ -2812,12 +2667,9 @@ DecenzaDialog {
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             Layout.alignment: Qt.AlignVCenter
-            // "Equipment:" is the widest label used through this row (see
-            // BrewDialog.qml's equivalent row), so let it size to its content
-            // (min = the shared 85px column) rather than a fixed 85px that
-            // clips it and lets the value butt right against it — this is
-            // what happens on Windows, where Segoe UI renders it wider than
-            // Roboto/San Francisco do at the same pixel size.
+            // Size to content (min = the shared 85px column), not a fixed 85px
+            // that clips the widest label — Windows' Segoe UI renders wider than
+            // Roboto/San Francisco at the same pixel size.
             Layout.minimumWidth: Theme.scaled(85)
             Accessible.ignored: true
         }

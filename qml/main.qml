@@ -700,7 +700,7 @@ T.ApplicationWindow {
             || noScaleAbortDialog.visible || globalSupportDialogs.crashReportDialog.visible
             || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
             || localNetworkDeniedDialog.visible || decentMachineDialog.visible
-            || quitConfirmDialog.visible
+            || quitConfirmDialog.visible || bagGrindNoticeDialog.visible
     }
 
     function showNextPendingPopup() {
@@ -733,6 +733,7 @@ T.ApplicationWindow {
             case "update": updateDialog.open(); break
             case "chargingMismatch": chargingMismatchDialog.open(); break
             case "localNetworkDenied": localNetworkDeniedDialog.open(); break
+            case "bagGrindNotice": bagGrindNoticeDialog.open(); break
             case "bleError":
                 // Skip a stale generic connection error if the DE1 has since
                 // reconnected (e.g. an overnight link drop that self-healed while
@@ -899,6 +900,10 @@ T.ApplicationWindow {
 
         // Mark app as initialized
         root.appInitialized = true
+        if (MainController.shotHistory.bagGrindNoticePending()) {
+            root.queuePopup("bagGrindNotice")
+            Qt.callLater(root.showNextPendingPopup)
+        }
 
         // startupGracePeriod is cleared by the phaseChanged handler when the
         // machine first reaches a non-Sleep state (no timer needed)
@@ -1462,6 +1467,49 @@ T.ApplicationWindow {
             // freshly-selected (never-connected) scale. disconnectScaleRequested
             // fires from connectToScale / clearSavedScale / setDisabled.
             root.scaleDropPending = false
+        }
+    }
+
+    DecenzaDialog {
+        id: bagGrindNoticeDialog
+        logName: "Bean grind change"
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        closePolicy: Dialog.NoAutoClose
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        onClosed: root.showNextPendingPopup()
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryContrastColor
+        }
+        contentItem: Column {
+            spacing: Theme.spacingMedium
+            Tr {
+                key: "main.dialog.bagGrindNotice.title"
+                fallback: "Grind settings have moved"
+                font: Theme.subtitleFont
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+            Tr {
+                key: "main.dialog.bagGrindNotice.messageNoEquipment"
+                fallback: "Changing bags no longer recalls a grind setting. Your current grind is unchanged. Use recipes to save different grinds, or add your grinder under Equipment to recall its last-used grind."
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+            }
+            AccessibleButton {
+                text: trCommonOk.text
+                accessibleName: trCommonOk.text
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    MainController.shotHistory.acknowledgeBagGrindNotice()
+                    bagGrindNoticeDialog.close()
+                }
+            }
         }
     }
 
@@ -3329,6 +3377,7 @@ T.ApplicationWindow {
         // Re-queue so they show after wake. screensaverActive is already true,
         // so showNextPendingPopup() (called by onClosed) is a no-op.
         var popups = [
+            { dialog: bagGrindNoticeDialog,      id: "bagGrindNotice" },
             { dialog: updateDialog,            id: "update" },
             { dialog: flowScaleDialog,         id: "flowScale" },
             { dialog: scaleDisconnectedDialog, id: "scaleDisconnected" },

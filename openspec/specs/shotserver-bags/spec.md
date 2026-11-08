@@ -31,7 +31,7 @@ The ShotServer SHALL expose, behind the existing auth gate (`shotserver_bags.cpp
 
 ### Requirement: Create and update SHALL accept the full app field set
 
-`POST /api/bags` and `POST /api/bag/<id>` SHALL accept the full app field set, including `kind` (create-only), the yield anchor (`yieldG` or `yieldRatio`, mutually exclusive), `rpmPinned`, the per-bag equipment link, the freeze-lifecycle dates and the full bean attributes. Create SHALL take only `frozenDate` and `storageHint` of those dates. Update SHALL support linking and unlinking a Bean Base canonical record.
+`POST /api/bags` and `POST /api/bag/<id>` SHALL accept the full app field set, including `kind` (create-only), the yield anchor (`yieldG` or `yieldRatio`, mutually exclusive), the freeze-lifecycle dates and the full bean attributes. Create SHALL take only `frozenDate` and `storageHint` of those dates. Update SHALL support linking and unlinking a Bean Base canonical record.
 
 #### Scenario: Create a tea bag with its kind
 - **WHEN** a client POSTs to `/api/bags` with `kind` set to tea
@@ -89,7 +89,7 @@ The ShotServer SHALL serve a `/beans` page listing the bag inventory (open bags 
 
 - **WHEN** the user works with bags on `/beans`
 - **THEN** it SHALL offer separate Bag of Coffee and Bag of Tea creation (setting `kind`) with the tea fields, and every bean attribute the app edits (origin, region, farm/producer, variety, elevation, process, harvest, quality score, place of purchase, tasting notes, product link) besides roaster, coffee, roast date and roast level
-- **AND** the yield anchor (grams or ratio), RPM and the per-bag equipment link
+- **AND** the yield anchor (grams or ratio), with no equipment or grind controls
 - **AND** Freeze and Thaw as card actions that ask for the date, with editable frozen, thawed and opened dates; the opened date is stamped by a portion's first shot, so there is no action for it
 - **AND** Bean Base search and canonical linking via `/api/beans/search` with the verified badge and a full-detail info popup, and AI "get info from page" via `/api/beans/extract`
 
@@ -131,6 +131,13 @@ The web `/beans` page SHALL NOT carry its own copy of a bag rule the app also ap
 - **AND** neither surface SHALL ask for confirmation before Bag finished or Delete
 
 #### Scenario: A tea bag refuses coffee-only fields on every surface
-- **WHEN** the app, the web API or MCP writes a non-empty roast level, grinder setting or rpm to a tea bag
+- **WHEN** the app, the web API or MCP writes a non-empty roast level to a tea bag
 - **THEN** storage SHALL refuse the write and the caller SHALL receive the reason
 - **AND** clearing those fields SHALL be allowed
+
+### Requirement: Obsolete bag dial writes are refused
+The bag API SHALL reject non-empty equipment, grind or RPM fields with a clear error; harmless empty legacy fields MAY be ignored.
+
+#### Scenario: Old client writes a grind
+- **WHEN** a client submits a non-empty bag grind
+- **THEN** the request is refused with a reason

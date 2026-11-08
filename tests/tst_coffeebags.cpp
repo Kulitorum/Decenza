@@ -49,6 +49,8 @@ using ShotRowFixtures::hasColumn;
 
 using ShotRowFixtures::hasTable;
 
+using ShotRowFixtures::restoreLegacyBagColumns;
+
 // Minimal shot row insert for link / history-lane tests.
 static qint64 insertShot(QSqlDatabase& db, const QString& brand, const QString& type,
                          qint64 timestamp, const QString& beanBaseId = QString(),
@@ -118,6 +120,52 @@ private:
         const QString path = m_tempDir.filePath(QString("bags_%1.db").arg(m_dbCounter++));
         ShotHistoryStorage storage;
         return initAndClose(path, storage) ? path : QString();
+    }
+
+    // A DB awaiting migration 52: version 51 with the bag dial columns back.
+    QString freshLegacyDb() {
+        const QString path = freshDb();
+        bool ok = false;
+        withRawDb(path, "legacy_bag_fixture", [&](QSqlDatabase& db) {
+            ok = restoreLegacyBagColumns(db) && QSqlQuery(db).exec("UPDATE schema_version SET version = 51");
+        });
+        return ok ? path : QString();
+    }
+
+    // Under DECENZA_TESTING migration 52 reads the dye selection from here.
+    static void writeUpgradeSettings(const QString& dbPath, const QVariantMap& values) {
+        QSettings settings(dbPath + ".upgrade-settings", QSettings::IniFormat);
+        for (auto it = values.cbegin(); it != values.cend(); ++it)
+            settings.setValue(it.key(), it.value());
+        settings.sync();
+    }
+
+    // Two open dialled bags, one of them active: migration 52 owes a notice.
+    QString pendingNoticeLegacyDb() {
+        const QString path = freshLegacyDb();
+        if (path.isEmpty())
+            return {};
+        qint64 active = -1;
+        withRawDb(path, "pending_notice_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            if (q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, grinder_setting) "
+                       "VALUES ('R', 'One', '7'), ('R', 'Two', '8')"))
+                active = q.lastInsertId().toLongLong();
+        });
+        if (active <= 0)
+            return {};
+        writeUpgradeSettings(path, {{"dye/activeBagId", active}});
+        return path;
+    }
+
+    static int schemaVersion(QSqlDatabase& db) {
+        QSqlQuery q(db);
+        return q.exec("SELECT MAX(version) FROM schema_version") && q.next() ? q.value(0).toInt() : -1;
+    }
+
+    static int bagGrindNoticeRows(QSqlDatabase& db) {
+        QSqlQuery q(db);
+        return q.exec("SELECT COUNT(*) FROM bag_grind_notice") && q.next() ? q.value(0).toInt() : -1;
     }
 
     // Isolate from dye state a previous test in this file left behind.
@@ -250,10 +298,9 @@ private slots:
 
             // Partial update: only the named field changes; empty clears to NULL.
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {
-                {"defrostDate", "2026-06-10"}, {"grinderSetting", "14"}}));
+                {"defrostDate", "2026-06-10"}}));
             loaded = CoffeeBagStorage::loadBagStatic(db, id);
             QCOMPARE(loaded.defrostDate, QString("2026-06-10"));
-            QCOMPARE(loaded.grinderSetting, QString("14"));
             QCOMPARE(loaded.roasterName, QString("Prodigal"));  // untouched
 
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"inInventory", false}}));
@@ -273,50 +320,37 @@ private slots:
             QVERIFY(id > 0);
 
             for (const auto& [key, value] : {std::pair<QString, QVariant>{"grinderSetting", "12"},
-                                             {"roastLevel", "Light"}, {"rpm", 800}}) {
-                QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: .*do not apply to tea"));
+                                             {"roastLevel", "Light"}, {"rpm", 800}, {"equipmentId", 4}}) {
+                QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                    key == "roastLevel" ? "update refused:.*do not apply to tea bags"
+                                        : "update refused:.*is no longer stored on bags"));
                 QString refusal;
                 QVERIFY(!CoffeeBagStorage::updateBagFieldsStatic(db, id, {{key, value}}, &refusal));
                 QVERIFY2(refusal.contains(key), qPrintable(refusal));
             }
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"grinderSetting", ""}, {"rpm", 0}}));
+            // A clear-only update still needs the bag to exist.
+            QVERIFY(!CoffeeBagStorage::updateBagFieldsStatic(db, 999999, {{"rpm", 0}}));
             QVERIFY(!CoffeeBag::writeError({}, {{"kind", "tea"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
-            QVERIFY(CoffeeBag::writeError({}, {{"kind", "coffee"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
+            QVERIFY(!CoffeeBag::writeError({}, {{"kind", "coffee"}, {"rpm", 800}}, QDate(2026, 10, 8)).isEmpty());
+            QVERIFY(!CoffeeBag::writeError({}, {{"grinderSetting", "0"}}, QDate(2026, 10, 8)).isEmpty());
         });
     }
 
-    // loadBagStatic materializes the bag's grinder identity from its equipment
-    // package (the bag no longer stores brand/model/burrs — migration 23), so
-    // MCP bag_list etc. still surface the grinder. Burrs comes from the item's
-    // attrs JSON; a bag with no equipment_id leaves the fields empty.
-    void loadBagResolvesGrinderFromPackage() {
+    void loadBagOmitsLegacyGrinderFields() {
         const QString path = freshDb();
         withRawDb(path, "bag_grinder", [&](QSqlDatabase& db) {
-            EquipmentPackage pkg;
-            const qint64 pid = EquipmentStorage::createPackageWithGrinderStatic(
-                db, pkg, "Niche", "Zero", "63mm conical");
-            QVERIFY(pid > 0);
-
             CoffeeBag linked;
             linked.roasterName = "Onyx";
             linked.coffeeName = "Geometry";
-            linked.equipmentId = pid;
-            linked.grinderSetting = "12";
             const qint64 linkedId = CoffeeBagStorage::insertBagStatic(db, linked);
             QVERIFY(linkedId > 0);
 
-            const CoffeeBag loaded = CoffeeBagStorage::loadBagStatic(db, linkedId);
-            QCOMPARE(loaded.grinderBrand, QString("Niche"));
-            QCOMPARE(loaded.grinderModel, QString("Zero"));
-            QCOMPARE(loaded.grinderBurrs, QString("63mm conical"));  // from attrs JSON
-            QCOMPARE(loaded.grinderSetting, QString("12"));          // real bag column
-
-            // A bag with no equipment_id resolves to empty grinder identity.
-            CoffeeBag unlinked;
-            unlinked.roasterName = "SEY";
-            const qint64 unlinkedId = CoffeeBagStorage::insertBagStatic(db, unlinked);
-            const CoffeeBag u = CoffeeBagStorage::loadBagStatic(db, unlinkedId);
-            QVERIFY(u.grinderBrand.isEmpty() && u.grinderModel.isEmpty() && u.grinderBurrs.isEmpty());
+            const QVariantMap loaded = CoffeeBagStorage::loadBagStatic(db, linkedId).toVariantMap();
+            QVERIFY(!loaded.contains("grinderBrand"));
+            QVERIFY(!loaded.contains("grinderSetting"));
+            QVERIFY(!loaded.contains("equipmentId"));
+            QVERIFY(!loaded.contains("rpm"));
         });
     }
 
@@ -332,7 +366,6 @@ private slots:
         QCOMPARE(named.coffeeName, QString("First Batch"));
         QCOMPARE(named.roastDate, QString("2026-05-01"));
         QCOMPARE(named.notes, QString("Morning blend"));
-        QCOMPARE(named.grinderSetting, QString("15"));
         QVERIFY(named.inInventory);
 
         CoffeeBag redundant = CoffeeBagStorage::bagFromLegacyPreset(
@@ -638,6 +671,16 @@ private slots:
                 unsafeBagPatch.insert("yieldValue", 60.0);
                 unsafePlan.insert("bagPatch", unsafeBagPatch);
                 auto txn = DbWriteTxn::begin(db, "test unapproved write");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, unsafePlan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("invalid"));
+            }
+            {
+                auto unsafePlan = plan;
+                auto unsafeBagPatch = plan.value("bagPatch").toMap();
+                unsafeBagPatch.insert("grinderSetting", "11");
+                unsafePlan.insert("bagPatch", unsafeBagPatch);
+                auto txn = DbWriteTxn::begin(db, "test obsolete bag grind");
                 QVERIFY(txn.ok());
                 QCOMPARE(stageShotReviewWrites(db, txn, shotId, unsafePlan, approvedPatch, originalBag, originalRecipe),
                          QStringLiteral("invalid"));
@@ -1210,6 +1253,7 @@ private slots:
 
         // Upgrade path: fake a v23 database (column stripped), re-run the chain.
         withRawDb(path, "m24_strip", [&](QSqlDatabase& db) {
+            QVERIFY(restoreLegacyBagColumns(db));
             QSqlQuery q(db);
             QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN visualizer_sync_pending"));
             QVERIFY(q.exec("DELETE FROM schema_version"));
@@ -1238,6 +1282,8 @@ private slots:
         const QString srcPath = freshDb();
         const QString destPath = freshDb();
         withRawDb(srcPath, "old_src", [&](QSqlDatabase& db) {
+            // Pre-52 backups still carry the bag dial columns.
+            QVERIFY(restoreLegacyBagColumns(db));
             CoffeeBag bag;
             bag.roasterName = "Old Backup";
             bag.coffeeName = "Roast";
@@ -1246,8 +1292,6 @@ private slots:
             QSqlQuery q(db);
             // Strip columns newer than the pretend source version.
             QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN visualizer_sync_pending"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN equipment_id"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN rpm"));
             // kind is NOT NULL DEFAULT 'coffee' in the dest: the missing
             // source column reads as "" and must normalize at bind time
             // (bindKind), not blow up the INSERT with an explicit NULL.
@@ -1270,7 +1314,6 @@ private slots:
             QCOMPARE(bags.size(), 1);
             QCOMPARE(bags.first().bag.roasterName, QString("Old Backup"));
             QVERIFY(!bags.first().bag.visualizerSyncPending);
-            QCOMPARE(bags.first().bag.equipmentId, qint64(0));
             QCOMPARE(bags.first().bag.kind, QString("coffee"));
             // The new lifecycle fields land on their empty defaults.
             QVERIFY(bags.first().bag.storageHint.isEmpty());
@@ -1361,7 +1404,7 @@ private slots:
             QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
 
             // Updating an unrelated field leaves the storage plan alone.
-            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"grinderSetting", "12"}}));
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"notes", "fresh"}}));
             loaded = CoffeeBagStorage::loadBagStatic(db, id);
             QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
             QCOMPARE(loaded.openedDate, QString("2026-06-12"));
@@ -1459,10 +1502,12 @@ private slots:
     void restockTemplateCarriesHabits() {
         const QVariantMap t = CoffeeBag::restockTemplate(
             {{"id", 7}, {"coffeeName", "Hometown"}, {"roastDate", "2026-09-01"}, {"frozenDate", "2026-09-03"},
-             {"defrostDate", "2026-10-07"}, {"storageHint", "vacuum-sealed"}}, QDate(2026, 10, 8));
+             {"defrostDate", "2026-10-07"}, {"storageHint", "vacuum-sealed"},
+             {"equipmentId", 5}, {"grinderSetting", "15"}, {"rpm", 900}}, QDate(2026, 10, 8));
         QCOMPARE(t.value("frozenDate").toString(), QString("2026-10-08"));
         QCOMPARE(t.value("storageHint").toString(), QString("vacuum-sealed"));
         QVERIFY(!t.contains("id") && !t.contains("roastDate") && !t.contains("defrostDate"));
+        QVERIFY(!t.contains("equipmentId") && !t.contains("grinderSetting") && !t.contains("rpm"));
     }
 
     // The edit diff both editors send: unchanged fields drop out, and the blob
@@ -1609,6 +1654,358 @@ private slots:
             // Unknown pair -> empty map.
             QVERIFY(ShotHistoryStorage::loadLatestShotForBeanProfileStatic(
                         db, "R", "Kenya", "P").isEmpty());
+        });
+    }
+
+    // Migration 52's notice (design.md "Explain the change"). Every row stands
+    // on its own v51 DB; the bag "First" is dialled and "Blank" is not.
+    void bagGrindNoticeEligibility_data() {
+        QTest::addColumn<QString>("secondBag");  // coffee | tea | finished | owned | archivedOwner | none
+        QTest::addColumn<QString>("activeBag");  // first | blank | finished | owned | unset
+        QTest::addColumn<QString>("recipe");     // none | active | stale
+        QTest::addColumn<QString>("equipment");  // none | active | stale | inventory | retired
+        QTest::addColumn<bool>("notice");
+        QTest::newRow("two dialled bags, one active") << "coffee" << "first" << "none" << "none" << true;
+        QTest::newRow("active bag holds no grind") << "coffee" << "blank" << "none" << "none" << false;
+        QTest::newRow("no active bag") << "coffee" << "unset" << "none" << "none" << false;
+        QTest::newRow("a package in inventory") << "coffee" << "first" << "none" << "inventory" << false;
+        QTest::newRow("a recipe active") << "coffee" << "first" << "active" << "none" << false;
+        QTest::newRow("retired equipment active") << "coffee" << "first" << "none" << "active" << false;
+        QTest::newRow("retired equipment, not selected") << "coffee" << "first" << "none" << "retired" << true;
+        QTest::newRow("active bag finished, two others dialled") << "coffee" << "finished" << "none" << "none" << false;
+        QTest::newRow("active bag owned, two others dialled") << "coffee" << "owned" << "none" << "none" << false;
+        QTest::newRow("stale recipe id") << "coffee" << "first" << "stale" << "none" << true;
+        QTest::newRow("stale equipment id") << "coffee" << "first" << "none" << "stale" << true;
+        QTest::newRow("second bag is tea") << "tea" << "first" << "none" << "none" << false;
+        QTest::newRow("second bag finished") << "finished" << "first" << "none" << "none" << false;
+        QTest::newRow("second bag owned by a recipe") << "owned" << "first" << "none" << "none" << false;
+        QTest::newRow("second bag's recipe archived") << "archivedOwner" << "first" << "none" << "none" << true;
+        QTest::newRow("one dialled bag") << "none" << "first" << "none" << "none" << false;
+    }
+    void bagGrindNoticeEligibility() {
+        QFETCH(QString, secondBag);
+        QFETCH(QString, activeBag);
+        QFETCH(QString, recipe);
+        QFETCH(QString, equipment);
+        QFETCH(bool, notice);
+        clearDyeSettings();  // migration 22 seeds a package from the app's live grinder
+        const QString path = freshLegacyDb();
+        QVERIFY(!path.isEmpty());
+        QVariantMap selection;
+        withRawDb(path, "notice_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            const auto bag = [&](const QString& name, const QString& kind, int inInventory,
+                                 const QString& grind) -> qint64 {
+                q.prepare("INSERT INTO coffee_bags (roaster_name, coffee_name, kind, in_inventory, "
+                          "grinder_setting) VALUES ('R', ?, ?, ?, ?)");
+                q.addBindValue(name); q.addBindValue(kind);
+                q.addBindValue(inInventory); q.addBindValue(grind);
+                return q.exec() ? q.lastInsertId().toLongLong() : -1;
+            };
+            const qint64 first = bag("First", "coffee", 1, "7");
+            const qint64 blank = bag("Blank", "coffee", 1, "  ");
+            QVERIFY(first > 0 && blank > 0);
+            const auto ownBy = [&](qint64 bagId, int archived) {
+                q.prepare("INSERT INTO recipes (name, profile_title, bag_id, archived) VALUES ('Owner', 'P', ?, ?)");
+                q.addBindValue(bagId);
+                q.addBindValue(archived);
+                QVERIFY(q.exec());
+            };
+            qint64 active = activeBag == "first" ? first : activeBag == "blank" ? blank : -1;
+            if (activeBag == "finished" || activeBag == "owned") {
+                // Dialled, but not counted: First and Second are the two that are.
+                active = bag("ActiveOther", "coffee", activeBag == "finished" ? 0 : 1, "9");
+                QVERIFY(active > 0);
+                if (activeBag == "owned")
+                    ownBy(active, 0);
+            }
+            if (activeBag != "unset")
+                selection.insert("dye/activeBagId", active);
+            if (secondBag != "none") {
+                const qint64 second = bag("Second", secondBag == "tea" ? "tea" : "coffee",
+                                          secondBag == "finished" ? 0 : 1, "8");
+                QVERIFY(second > 0);
+                if (secondBag == "owned" || secondBag == "archivedOwner")
+                    ownBy(second, secondBag == "archivedOwner" ? 1 : 0);
+            }
+            if (recipe == "active") {
+                QVERIFY(q.exec("INSERT INTO recipes (name, profile_title) VALUES ('Active', 'P')"));
+                selection.insert("dye/activeRecipeId", q.lastInsertId().toLongLong());
+            } else if (recipe == "stale") {
+                selection.insert("dye/activeRecipeId", qint64(999999));
+            }
+            if (equipment == "active" || equipment == "inventory" || equipment == "retired") {
+                EquipmentPackage package;
+                const qint64 id = EquipmentStorage::createPackageWithGrinderStatic(db, package, "Niche", "Zero", "");
+                QVERIFY(id > 0);
+                if (equipment != "inventory")
+                    QVERIFY(q.exec(QString("UPDATE equipment_packages SET in_inventory = 0 WHERE id = %1").arg(id)));
+                if (equipment == "active")
+                    selection.insert("dye/activeEquipmentId", id);
+            } else if (equipment == "stale") {
+                selection.insert("dye/activeEquipmentId", qint64(999999));
+            }
+        });
+        writeUpgradeSettings(path, selection);
+
+        ShotHistoryStorage storage;
+        QVERIFY(initAndClose(path, storage));
+        QCOMPARE(storage.bagGrindNoticePending(), notice);
+        withRawDb(path, "notice_check", [&](QSqlDatabase& db) {
+            QCOMPARE(bagGrindNoticeRows(db), notice ? 1 : 0);
+        });
+    }
+
+    void migration52DropsOnlyTheBagDialColumns() {
+        clearDyeSettings();
+        const QString path = freshLegacyDb();
+        qint64 bagId = -1, packageId = -1;
+        withRawDb(path, "m52_seed", [&](QSqlDatabase& db) {
+            EquipmentPackage package;
+            packageId = EquipmentStorage::createPackageWithGrinderStatic(db, package, "Niche", "Zero", "");
+            QVERIFY(packageId > 0);
+            QSqlQuery q(db);
+            // A column already gone is skipped, not a failed drop.
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN rpm"));
+            QVERIFY(q.exec(QString("INSERT INTO coffee_bags (roaster_name, coffee_name, dose_weight_g, yield_value, "
+                                   "yield_mode, grinder_setting, equipment_id) "
+                                   "VALUES ('Roaster', 'Coffee', 18.5, 40, 'absolute', '7', %1)").arg(packageId)));
+            bagId = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec(QString("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, bag_id, "
+                                   "grinder_setting, rpm, equipment_id) "
+                                   "VALUES ('m52-shot', 1234, 'P', 30, %1, '6.5', 700, %2)").arg(bagId).arg(packageId)));
+        });
+        QVERIFY(bagId > 0);
+        ShotHistoryStorage storage;
+        QVERIFY(initAndClose(path, storage));
+        withRawDb(path, "m52_check", [&](QSqlDatabase& db) {
+            QCOMPARE(schemaVersion(db), 52);
+            for (const char* column : {"grinder_setting", "equipment_id", "rpm"})
+                QVERIFY2(!hasColumn(db, "coffee_bags", column), column);
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+            QCOMPARE(bag.roasterName, QString("Roaster"));
+            QCOMPARE(bag.coffeeName, QString("Coffee"));
+            QCOMPARE(bag.doseWeightG, 18.5);
+            QCOMPARE(bag.yieldValue, 40.0);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT bag_id, grinder_setting, rpm, equipment_id FROM shots WHERE uuid = 'm52-shot'"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toLongLong(), bagId);
+            QCOMPARE(q.value(1).toString(), QString("6.5"));
+            QCOMPARE(q.value(2).toInt(), 700);
+            QCOMPARE(q.value(3).toLongLong(), packageId);
+        });
+    }
+
+    // The notice, the three drops and the version stamp commit together: a
+    // failed drop leaves a v51 DB that the next launch upgrades in full.
+    void migration52FailureRollsBackAndRetries() {
+        clearDyeSettings();
+        const QString path = pendingNoticeLegacyDb();
+        QVERIFY(!path.isEmpty());
+        withRawDb(path, "m52_block", [&](QSqlDatabase& db) {
+            // SQLite refuses to drop an indexed column, so the LAST drop fails.
+            QVERIFY(QSqlQuery(db).exec("CREATE INDEX m52_blocker ON coffee_bags(rpm)"));
+        });
+        {
+            ShotHistoryStorage storage;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("migration 52 incomplete at rpm"));
+            QVERIFY(initAndClose(path, storage));
+            QVERIFY(!storage.bagGrindNoticePending());
+        }
+        withRawDb(path, "m52_rolled_back", [&](QSqlDatabase& db) {
+            QCOMPARE(schemaVersion(db), 51);
+            QVERIFY(hasColumn(db, "coffee_bags", "grinder_setting"));
+            QVERIFY(hasColumn(db, "coffee_bags", "equipment_id"));
+            QCOMPARE(bagGrindNoticeRows(db), 0);
+            QVERIFY(QSqlQuery(db).exec("DROP INDEX m52_blocker"));
+        });
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(initAndClose(path, storage));
+            QVERIFY(storage.bagGrindNoticePending());
+        }
+        withRawDb(path, "m52_retried", [&](QSqlDatabase& db) {
+            QCOMPARE(schemaVersion(db), 52);
+            QVERIFY(!hasColumn(db, "coffee_bags", "rpm"));
+        });
+    }
+
+    // Unreadable settings read as "nothing active", which would drop an
+    // eligible user's notice for good; the migration must wait instead.
+    void migration52WaitsForReadableSettings() {
+        clearDyeSettings();
+        const QString path = pendingNoticeLegacyDb();
+        QVERIFY(!path.isEmpty());
+        const QString settingsPath = path + QStringLiteral(".upgrade-settings");
+        QVariantMap saved;
+        {
+            QSettings settings(settingsPath, QSettings::IniFormat);
+            for (const QString& key : settings.allKeys())
+                saved.insert(key, settings.value(key));
+        }
+        QVERIFY(!saved.isEmpty());
+        // A path Qt cannot open is AccessError (qsettings.cpp:1388-1389). A
+        // directory also defeats Qt's per-path INI cache, which a chmod would
+        // not (size and mtime unchanged, qsettings.cpp:1338-1340).
+        QVERIFY(QFile::remove(settingsPath));
+        QVERIFY(QDir().mkdir(settingsPath));
+        {
+            ShotHistoryStorage storage;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("migration 52 incomplete at settings read"));
+            QVERIFY(initAndClose(path, storage));
+            QVERIFY(!storage.bagGrindNoticePending());
+        }
+        QVERIFY(QDir().rmdir(settingsPath));
+        writeUpgradeSettings(path, saved);
+        withRawDb(path, "m52_settings_wait", [&](QSqlDatabase& db) {
+            QCOMPARE(schemaVersion(db), 51);
+            QVERIFY(hasColumn(db, "coffee_bags", "grinder_setting"));
+        });
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(initAndClose(path, storage));
+            QVERIFY(storage.bagGrindNoticePending());
+        }
+    }
+
+    // A fresh install has no bags to explain and must not act on a stale
+    // selection: nothing is created and the settings are only read.
+    void migration52FreshInstallLeavesSettingsAlone() {
+        clearDyeSettings();
+        const QString path = m_tempDir.filePath(QString("bags_%1.db").arg(m_dbCounter++));
+        const QVariantMap stale{{"dye/activeBagId", qint64(3)}, {"dye/activeRecipeId", qint64(5)},
+                                {"dye/activeEquipmentId", qint64(7)}, {"dye/grinderSetting", "7.5"}};
+        writeUpgradeSettings(path, stale);
+        ShotHistoryStorage storage;
+        QVERIFY(initAndClose(path, storage));
+        QVERIFY(!storage.bagGrindNoticePending());
+        withRawDb(path, "m52_fresh", [&](QSqlDatabase& db) {
+            QCOMPARE(schemaVersion(db), 52);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT COUNT(*) FROM equipment_packages"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 0);
+        });
+        QSettings after(path + ".upgrade-settings", QSettings::IniFormat);
+        QVariantMap read;
+        for (const QString& key : after.allKeys())
+            read.insert(key, after.value(key));
+        QCOMPARE(read.keys(), stale.keys());
+        for (auto it = stale.cbegin(); it != stale.cend(); ++it)
+            QCOMPARE(read.value(it.key()).toString(), it.value().toString());
+    }
+
+    void bagGrindNoticeAcknowledgementPersists() {
+        clearDyeSettings();
+        const QString path = pendingNoticeLegacyDb();
+        QVERIFY(!path.isEmpty());
+        {
+            ShotHistoryStorage upgraded;
+            QVERIFY(initAndClose(path, upgraded));
+        }
+        {
+            // A later launch, past migration 52: pending only if the row was kept.
+            ShotHistoryStorage storage;
+            QVERIFY(storage.initialize(path));
+            QVERIFY(storage.bagGrindNoticePending());
+            storage.acknowledgeBagGrindNotice();
+            QVERIFY(!storage.bagGrindNoticePending());
+            QTRY_VERIFY(storage.isDbWorkIdle());
+            storage.close();
+        }
+        ShotHistoryStorage restarted;
+        QVERIFY(initAndClose(path, restarted));
+        QVERIFY(!restarted.bagGrindNoticePending());
+    }
+
+    void recipeGrindDefaultMatchesBeanIdentity() {
+        const QString path = freshDb();
+        withRawDb(path, "recipe_grind_default", [&](QSqlDatabase& db) {
+            auto shot = [&](qint64 timestamp, const QString& id, const QString& grind, int rpm) {
+                QSqlQuery q(db);
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "bean_brand, bean_type, beanbase_id, grinder_setting, rpm) "
+                          "VALUES (?, ?, 'Profile', 30, 'Roaster', 'Coffee', ?, ?, ?)");
+                q.addBindValue(QUuid::createUuid().toString(QUuid::WithoutBraces));
+                q.addBindValue(timestamp);
+                q.addBindValue(id);
+                q.addBindValue(grind);
+                q.addBindValue(rpm);
+                QVERIFY(q.exec());
+            };
+            shot(100, "A", "10", 800);
+            shot(200, "", "11", 900);
+            auto result = ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "A", " roaster ", "COFFEE");
+            QCOMPARE(result.value("grinderSetting").toString(), QString("11"));
+            QCOMPARE(result.value("rpm").toInt(), 900);
+
+            // A conflicting identity excludes the nameless fallback, not the
+            // explicit canonical match, even when the conflicting shot is newer.
+            shot(300, "B", "12", 1000);
+            result = ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "A", "Roaster", "Coffee");
+            QCOMPARE(result.value("grinderSetting").toString(), QString("10"));
+            QVERIFY(ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "", "Roaster", "Coffee").isEmpty());
+            QVERIFY(ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "", "Roaster", "").isEmpty());
+
+            // Equal timestamps use the later shot ID; an empty grind is skipped.
+            shot(400, "A", "13", 1100);
+            shot(400, "A", "14", 1200);
+            shot(500, "A", "", 1300);
+            result = ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "A", "Roaster", "Coffee");
+            QCOMPARE(result.value("grinderSetting").toString(), QString("14"));
+            QCOMPARE(result.value("rpm").toInt(), 1200);
+
+            EquipmentPackage equipment;
+            equipment.name = "Kitchen grinder";
+            const qint64 packageId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, equipment, "Niche", "Zero", "");
+            QVERIFY(packageId > 0);
+            shot(600, "A", "15", 1400);
+            QSqlQuery context(db);
+            context.prepare("UPDATE shots SET equipment_id = ? WHERE timestamp = 600");
+            context.addBindValue(packageId);
+            QVERIFY(context.exec());
+            result = ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "A", "Roaster", "Coffee");
+            QCOMPARE(result.value("grinderSetting").toString(), QString("15"));
+            QCOMPARE(result.value("profileName").toString(), QString("Profile"));
+            QCOMPARE(result.value("equipmentName").toString(), QString("Kitchen grinder"));
+            QCOMPARE(result.value("timestamp").toLongLong(), qint64(600));
+            QVERIFY(context.exec("ALTER TABLE coffee_bags RENAME TO coffee_bags_unavailable"));
+            QString error;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("recipe grind default: .* query failed"));
+            QVERIFY(ShotHistoryStorage::loadRecipeGrindDefaultStatic(
+                db, "A", "Roaster", "Coffee", &error).isEmpty());
+            QCOMPARE(error, QStringLiteral("queryFailed"));
+        });
+
+        // Bags alone can make the names ambiguous: two bags of the same
+        // roaster/coffee carry different Bean Base ids, and no shot says so.
+        withRawDb(freshDb(), "recipe_grind_default_bags", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, beanbase_id) "
+                           "VALUES ('Roaster', 'Coffee', 'X'), ('Roaster', 'Coffee', 'Y')"));
+            auto shot = [&](qint64 timestamp, const QString& brand, const QString& type,
+                            const QString& id, const QString& grind) {
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "bean_brand, bean_type, beanbase_id, grinder_setting) "
+                          "VALUES (?, ?, 'Profile', 30, ?, ?, ?, ?)");
+                q.addBindValue(QUuid::createUuid().toString(QUuid::WithoutBraces));
+                q.addBindValue(timestamp);
+                q.addBindValue(brand);
+                q.addBindValue(type);
+                q.addBindValue(id);
+                q.addBindValue(grind);
+                QVERIFY(q.exec());
+            };
+            shot(100, "Roaster", "Coffee", "X", "20");
+            shot(200, "Roaster", "Coffee", "", "21");
+            shot(300, "", "", "", "22");
+            QVERIFY(ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "", "Roaster", "Coffee").isEmpty());
+            QCOMPARE(ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "X", "Roaster", "Coffee")
+                         .value("grinderSetting").toString(), QString("20"));
+            // Empty names never match a nameless shot.
+            QVERIFY(ShotHistoryStorage::loadRecipeGrindDefaultStatic(db, "A", "", "").isEmpty());
         });
     }
 
@@ -1853,6 +2250,7 @@ private slots:
         // and the version write (column present, version still 23).
         const QString path = freshDb();
         withRawDb(path, "m24_crash", [&](QSqlDatabase& db) {
+            QVERIFY(restoreLegacyBagColumns(db));
             QSqlQuery q(db);
             QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));  // ALTER "already ran"
             QVERIFY(q.exec("DELETE FROM schema_version"));
@@ -1884,6 +2282,7 @@ private slots:
             QVERIFY(initAndClose(path, storage));
         }
         withRawDb(path, "m26_strip", [&](QSqlDatabase& db) {
+            QVERIFY(restoreLegacyBagColumns(db));
             QSqlQuery q(db);
             QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));  // fresh path had it
             QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN rpm_pinned"));
@@ -2453,7 +2852,7 @@ private slots:
         CoffeeBag bag;
         withRawDb(path, "review_bag_seed", [&](QSqlDatabase& db) {
             CoffeeBag seed; seed.roasterName = "New"; seed.coffeeName = "Coffee";
-            seed.doseWeightG = 16; seed.grinderSetting = "3";
+            seed.doseWeightG = 16;
             seed.yieldMode = QStringLiteral("absolute"); seed.yieldValue = 39;
             const qint64 id = CoffeeBagStorage::insertBagStatic(db, seed);
             bag = CoffeeBagStorage::loadBagStatic(db, id);
@@ -2483,7 +2882,6 @@ private slots:
         withRawDb(path, "review_bag_check", [&](QSqlDatabase& db) {
             const CoffeeBag stored = CoffeeBagStorage::loadBagStatic(db, bag.id);
             QCOMPARE(stored.doseWeightG, 16.0);
-            QCOMPARE(stored.grinderSetting, QStringLiteral("3"));
             QCOMPARE(stored.yieldValue, 39.0);
         });
         bool updateDone = false;
@@ -2750,19 +3148,18 @@ private slots:
         QCOMPARE(dye.activeEquipmentId(), 26);
         QCOMPARE(appliedSpy.count(), 0);
 
-        // A real switch to a package-less bag still follows the row.
+        // A real bag switch also keeps the current equipment.
         dye.setActiveBagId(-1);
         dye.setActiveBagId(static_cast<int>(bagNoPackage));
         QTRY_COMPARE(readySpy.count(), 2);
-        QVERIFY(dye.activeEquipmentId() <= 0);
+        QCOMPARE(dye.activeEquipmentId(), 26);
 
-        // A same-bag reload never moves the equipment, even when the row now
-        // names a package: the bag dialog sets the active equipment itself.
-        storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("equipmentId"), 30}});
+        // A same-bag reload leaves equipment alone as well.
+        storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("notes"), QStringLiteral("updated")}});
         QTRY_COMPARE(committedSpy.size(), 2);
         QTRY_VERIFY(storage.isDbWorkIdle());
         QCOMPARE(readySpy.count(), 2);
-        QVERIFY(dye.activeEquipmentId() <= 0);
+        QCOMPARE(dye.activeEquipmentId(), 26);
 
         drainDbWork(storage);
         clearDyeSettings();
@@ -2953,12 +3350,9 @@ private slots:
         drainDbWork(storage);
     }
 
-    // SettingsDye is the equipment switch + dual-write-through orchestrator
-    // (add-equipment-packages). Drives the real async chain via the public API:
-    // switchToEquipment applies the package's identity + last dial and points the
-    // active bag at it; editing the dial fans out to BOTH the bag and the active
-    // package's last-dial memory.
-    void settingsDyeEquipmentSwitchAndDualWrite() {
+    // Selecting a bag leaves the live dial alone; switching equipment applies
+    // the package's identity and last dial, and dial edits write back to it.
+    void settingsDyeEquipmentSwitchWritesDialToPackage() {
         clearDyeSettings();
 
         const QString path = freshDb();
@@ -2981,16 +3375,17 @@ private slots:
         dye.setBagStorage(&bagStorage);
         dye.setEquipmentStorage(&eqStorage);
 
-        // Select the bag and let its async apply settle (applyActiveBag sets
-        // activeEquipmentId from the bag's equipment_id, which would otherwise
-        // race the switch below). Wait on the WORK, not on a duration: idle is
+        // Select the bag and let its async apply settle. Wait on the WORK,
+        // not on a duration: idle is
         // false until run()'s done callback has been delivered on this thread,
         // which is what applyActiveBag runs from — and it also covers the
         // requestTouchLastUsed that setActiveBagId posts behind requestBag. The
         // 400 ms fixed loop this replaces was the "timers as guards" pattern
         // CLAUDE.md forbids, and isDbWorkIdle() exists precisely to retire it.
+        dye.setDyeGrinderSetting("9.0");
         dye.setActiveBagId(static_cast<int>(bagId));
         drainDbWork(bagStorage);
+        QCOMPARE(dye.dyeGrinderSetting(), QString("9.0"));
 
         // Switch equipment: identity + last dial applied synchronously from the map.
         QVariantMap pkg;
@@ -3003,89 +3398,23 @@ private slots:
         QCOMPARE(dye.dyeGrinderSetting(), QString("3.0"));
         QCOMPARE(dye.dyeGrinderRpm(), 1200);
 
-        auto bagEq = [&]() { qint64 v = -1; withRawDb(path, "eqdye_bageq",
-            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).equipmentId; }); return v; };
-        // Generous timeout: these are cross-thread background DB write-throughs
-        // (QThread::create + withTempDb) whose latency spikes under full-suite
-        // load — the default 5s QTRY window occasionally lapses on a cold/
-        // contended run. 15s is ample headroom; a real logic failure still fails.
-        QTRY_COMPARE_WITH_TIMEOUT(bagEq(), pkgId, 15000);   // bag adopted the package
-
-        // Dual write-through: editing the dial updates BOTH the bag and the
-        // active package's last dial. Edit one field at a time and let each land
-        // (as the user would) — firing both at once would race two concurrent
-        // background writes to the same DB.
-        auto bagGrind = [&]() { QString v; withRawDb(path, "eqdye_bg",
-            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).grinderSetting; }); return v; };
+        // Edit one field at a time and let each land (as the user would) —
+        // firing both at once would race two background writes to the same DB.
+        // 15 s, not the default 5: these cross-thread write-throughs spike under
+        // full-suite load, and a real logic failure still fails.
         auto pkgGrind = [&]() { QString v; withRawDb(path, "eqdye_pg",
             [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastGrindSetting; }); return v; };
-        auto bagRpm = [&]() { qint64 v = -1; withRawDb(path, "eqdye_br",
-            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).rpm; }); return v; };
         auto pkgRpm = [&]() { qint64 v = -1; withRawDb(path, "eqdye_pr",
             [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastRpm; }); return v; };
 
         dye.setDyeGrinderSetting("2.5");
-        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("2.5"), 15000);
         QTRY_COMPARE_WITH_TIMEOUT(pkgGrind(), QString("2.5"), 15000);
 
         dye.setDyeGrinderRpm(1350);
-        QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1350), 15000);
         QTRY_COMPARE_WITH_TIMEOUT(pkgRpm(), static_cast<qint64>(1350), 15000);
 
         drainDbWork(bagStorage);
         QTRY_VERIFY(eqStorage.isDbWorkIdle());
-        clearDyeSettings();
-    }
-
-    // Unconditional grind write-through (fix-recipe-grind-integrity): the bag
-    // always mirrors the most recently dialed grind and rpm — the old
-    // recipe-pin suspension is retired (an active recipe's own grind is
-    // stamped independently by MainController off the same edit). Every edit
-    // lands on the bag row, exactly like the other bag-backed dye fields.
-    void settingsDyeGrindWritesThroughUnconditionally() {
-        clearDyeSettings();
-
-        const QString path = freshDb();
-        withRawDb(path, "pin_tables", [&](QSqlDatabase& db) {
-            CoffeeBagStorage::ensureTableStatic(db);
-        });
-        qint64 bagId = -1;
-        withRawDb(path, "pin_seed", [&](QSqlDatabase& db) {
-            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Pin"; b.grinderSetting = "1.0";
-            bagId = CoffeeBagStorage::insertBagStatic(db, b);
-        });
-        QVERIFY(bagId > 0);
-
-        CoffeeBagStorage bagStorage; bagStorage.initialize(path);
-        SettingsDye dye;
-        dye.setBagStorage(&bagStorage);
-
-        dye.setActiveBagId(static_cast<int>(bagId));
-        QTRY_COMPARE_WITH_TIMEOUT(dye.dyeGrinderSetting(), QString("1.0"), 15000);
-
-        auto bagGrind = [&]() { QString v; withRawDb(path, "pin_bg",
-            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).grinderSetting; }); return v; };
-
-        // Every grind edit writes through to the bag row — no mode, no flag.
-        dye.setDyeGrinderSetting("2.0");
-        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("2.0"), 15000);
-        dye.setDyeGrinderSetting("3.0");
-        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("3.0"), 15000);
-
-        // RPM rides with the dial: every rpm edit lands on the bag too.
-        auto bagRpm = [&]() { qint64 v = -1; withRawDb(path, "pin_br",
-            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).rpm; }); return v; };
-        dye.setDyeGrinderRpm(1200);
-        QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1200), 15000);
-        dye.setDyeGrinderRpm(1400);
-        QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1400), 15000);
-
-        // Drain before teardown. ~CoffeeBagStorage joins its worker thread
-        // (SerialDbWorker quit()+wait()), but joining is not the same as
-        // finishing: quit() DISCARDS anything still queued rather than running
-        // it, so a write from setDyeGrinderSetting/setDyeGrinderRpm above could
-        // vanish here with nothing to show for it if this didn't wait first.
-        drainDbWork(bagStorage);
         clearDyeSettings();
     }
 
@@ -3099,7 +3428,7 @@ private slots:
     // first-observation: QTRY passes the instant it sees "49", and a reverted
     // per-thread build could expose "49" transiently mid-race before an earlier
     // write commits last — only the post-drain re-read distinguishes "49 is final"
-    // (FIFO) from "49 was briefly seen" (reordered). (The existing dual-write test
+    // (FIFO) from "49 was briefly seen" (reordered). (The existing write-through test
     // above has a settle loop that mostly closes the window, so it only caught the
     // bug flakily — this one is deterministic.)
     void packageWritesApplyInSubmissionOrder() {

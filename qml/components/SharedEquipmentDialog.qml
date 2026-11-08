@@ -38,7 +38,7 @@ SharedDecenzaDialog {
     property string fBasketBrand: ""
     property string fBasketModel: ""
     property var fPuck: ({})
-    property bool applyToActiveBag: true
+    property bool makeActive: true
     property var _originalName: ""
     property int _requestSequence: 0
     property string _pendingRequestId: ""
@@ -179,7 +179,7 @@ SharedDecenzaDialog {
     function nameFor(pkg) { return String(pkg && pkg.name || "") }
 
     function startActivation(packageId, action) {
-        if (!applyToActiveBag) {
+        if (!makeActive) {
             completeSave(packageId)
             return
         }
@@ -192,7 +192,7 @@ SharedDecenzaDialog {
         if (saving || backend.loading || backend.errorMessage.length > 0
             || !pkg || pkg.id === undefined) return
         listError = ""
-        if (applyToActiveBag) startActivation(pkg.id, "picker-activation")
+        if (makeActive) startActivation(pkg.id, "picker-activation")
         else completeSave(pkg.id)
     }
     function completeSave(packageId) {
@@ -693,7 +693,7 @@ SharedDecenzaDialog {
             _pendingAction = "create"
             _pendingRequestId = nextRequestId()
             saving = true
-            backend.createPackage(fields, applyToActiveBag, _pendingRequestId)
+            backend.createPackage(fields, makeActive, _pendingRequestId)
         }
     }
 }

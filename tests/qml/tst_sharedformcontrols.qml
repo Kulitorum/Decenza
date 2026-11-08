@@ -320,17 +320,17 @@ TestCase {
         property int refreshCount: 0
 
         function refresh() { refreshCount += 1 }
-        function createPackage(fields, applyToActiveBag, requestId) {
+        function createPackage(fields, makeActive, requestId) {
             lastOperation = ({ kind: "create", fields: fields,
-                               applyToActiveBag: applyToActiveBag, requestId: requestId })
+                               makeActive: makeActive, requestId: requestId })
         }
         function updatePackage(packageId, fields, expectedEditable, requestId) {
             lastOperation = ({ kind: "update", packageId: packageId, fields: fields,
                                expectedEditable: expectedEditable, requestId: requestId })
         }
-        function activatePackage(packageId, applyToActiveBag, requestId) {
+        function activatePackage(packageId, makeActive, requestId) {
             lastOperation = ({ kind: "activate", packageId: packageId,
-                               applyToActiveBag: applyToActiveBag, requestId: requestId })
+                               makeActive: makeActive, requestId: requestId })
         }
         function completeOperation(requestId, success, resultId, reason) {
             operationCompleted(requestId, success, resultId, reason)
@@ -345,7 +345,7 @@ TestCase {
         backend: fakeEquipmentBackend
         equipmentStyle: equipmentDialogStyle
         strings: equipmentDialogStrings
-        applyToActiveBag: true
+        makeActive: true
     }
 
     property var inventoryTestPackages: []
@@ -1827,7 +1827,7 @@ TestCase {
     }
 
     function test_sharedEquipmentEditorForwardsCreateDraftAndActiveBagChoice() {
-        sharedEquipmentDialogTest.applyToActiveBag = false
+        sharedEquipmentDialogTest.makeActive = false
         sharedEquipmentDialogTest.openForCreate()
         tryVerify(function() { return sharedEquipmentDialogTest.visible }, 3000)
         compare(sharedEquipmentDialogTest.fBrand, "Seed brand")
@@ -1842,7 +1842,7 @@ TestCase {
         sharedEquipmentDialogTest.save()
 
         compare(fakeEquipmentBackend.lastOperation.kind, "create")
-        compare(fakeEquipmentBackend.lastOperation.applyToActiveBag, false)
+        compare(fakeEquipmentBackend.lastOperation.makeActive, false)
         compare(fakeEquipmentBackend.lastOperation.fields.name, "Travel setup")
         compare(fakeEquipmentBackend.lastOperation.fields.grinderBrand, "Comandante")
         compare(fakeEquipmentBackend.lastOperation.fields.grinderModel, "C40")
@@ -1860,7 +1860,7 @@ TestCase {
     }
 
     function test_sharedEquipmentEditorIgnoresOtherRequestAndClosesOnMatchingSuccess() {
-        sharedEquipmentDialogTest.applyToActiveBag = false
+        sharedEquipmentDialogTest.makeActive = false
         sharedEquipmentDialogTest.openForCreate()
         sharedEquipmentDialogTest.fBrand = "Niche"
         sharedEquipmentDialogTest.fModel = "Zero"

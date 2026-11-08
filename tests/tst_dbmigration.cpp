@@ -127,6 +127,13 @@ private:
 
     // Run initialize, close, and let background DB work drain.
     void initAndClose(const QString& path, ShotHistoryStorage& storage) {
+        // A test that rewound a current DB replays the chain against the pre-52 shape.
+        withRawDb(path, "restore_legacy_bag_columns", [](QSqlDatabase& db) {
+            if (!hasTable(db, "schema_version") || getSchemaVersion(db) >= 52
+                || !hasTable(db, "coffee_bags") || hasColumn(db, "coffee_bags", "grinder_setting"))
+                return;
+            QVERIFY(ShotRowFixtures::restoreLegacyBagColumns(db));
+        });
         ShotRowFixtures::initAndCloseStorage(path, storage);
     }
 
@@ -452,6 +459,7 @@ private slots:
         // had the PORTAL summary columns without a presence flag or added water.
         const bool fromMain = previousVersion == 47;
         withRawDb(path, "portal_rewind", [&](QSqlDatabase& db) {
+            QVERIFY(ShotRowFixtures::restoreLegacyBagColumns(db));
             QSqlQuery q(db);
             QVERIFY(q.exec(QStringLiteral("UPDATE schema_version SET version=%1").arg(previousVersion)));
             if (fromMain) {
@@ -684,8 +692,7 @@ private slots:
     // ==========================================
     // Migration 8 added grinder_brand/model/burrs; migration 23 (add-equipment-
     // packages) drops them from BOTH shots and coffee_bags — grinder identity
-    // resolves through equipment_id to the package's grinder item. Only the
-    // per-shot/per-bag grind setting survives.
+    // resolves through equipment_id to the package's grinder item.
     void grinderIdentityColumnsDropped() {
         QString path = freshDbPath();
         ShotHistoryStorage storage;
@@ -696,9 +703,6 @@ private slots:
                 QVERIFY2(!hasColumn(db, table, "grinder_brand"), table);
                 QVERIFY2(!hasColumn(db, table, "grinder_model"), table);
                 QVERIFY2(!hasColumn(db, table, "grinder_burrs"), table);
-                // The dial-in + equipment pointer survive on both tables.
-                QVERIFY2(hasColumn(db, table, "grinder_setting"), table);
-                QVERIFY2(hasColumn(db, table, "equipment_id"), table);
             }
             // The grinder index is gone (it was on the dropped shots columns).
             QVERIFY(!hasIndex(db, "idx_shots_grinder"));
@@ -747,6 +751,7 @@ private slots:
         withRawDb(path, "v29_seed", [&](QSqlDatabase& db) {
             // Rewind to 29 and seed an inherit-mode row, simulating a DB that
             // upgraded to 29 before this migration shipped.
+            QVERIFY(ShotRowFixtures::restoreLegacyBagColumns(db));
             QSqlQuery q(db);
             QVERIFY(q.exec("DELETE FROM schema_version"));
             QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (29)"));
@@ -1010,6 +1015,73 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);
         });
         AppSettings().remove("dye/activeEquipmentId");
+    }
+
+    // Migration 52 runs in the same launch as a heal, so its "is equipment
+    // active" check must use the healed id: the stored one names a package the
+    // heal deleted. Shape: A -> B (burrs named, a fold) -> C (burrs swapped,
+    // kept), C retired, so nothing is in inventory and only the selection can
+    // suppress the notice that two dialled bags would otherwise earn.
+    void bagGrindNoticeUsesTheHealedActiveEquipmentId() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        qint64 a = 0, b = 0, c = 0, bagId = 0;
+        withRawDb(path, "m52_heal_seed", [&](QSqlDatabase& db) {
+            QVERIFY(ShotRowFixtures::restoreLegacyBagColumns(db));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (34)"));
+            EquipmentPackage pa, pb, pc;
+            a = EquipmentStorage::createPackageWithGrinderStatic(db, pa, "Niche", "Zero", "");
+            b = EquipmentStorage::createPackageWithGrinderStatic(db, pb, "Niche", "Zero", "63mm conical");
+            c = EquipmentStorage::createPackageWithGrinderStatic(db, pc, "Niche", "Zero", "83mm flat");
+            QVERIFY(a > 0 && b > 0 && c > 0);
+            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
+                                          "superseded_by = %1 WHERE id = %2").arg(b).arg(a)));
+            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
+                                          "superseded_by = %1 WHERE id = %2").arg(c).arg(b)));
+            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0 WHERE id = %1").arg(c)));
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, in_inventory, grinder_setting) "
+                           "VALUES ('R', 'One', 1, '7'), ('R', 'Two', 1, '8')"));
+            bagId = q.lastInsertId().toLongLong();
+        });
+        QVERIFY(bagId > 0);
+
+        // The heal reads the app store; migration 52 reads the DB's test store.
+        {
+            AppSettings settings;
+            settings.setValue("dye/activeEquipmentId", static_cast<qlonglong>(a));
+            settings.sync();
+            QSettings upgrade(path + ".upgrade-settings", QSettings::IniFormat);
+            upgrade.setValue("dye/activeEquipmentId", static_cast<qlonglong>(a));
+            upgrade.setValue("dye/activeBagId", static_cast<qlonglong>(bagId));
+            upgrade.sync();
+        }
+
+        qint64 healedTo = -1;
+        bool noticePending = true;
+        {
+            ShotHistoryStorage s;
+            initAndClose(path, s);
+            healedTo = s.healedActiveEquipmentId();
+            noticePending = s.bagGrindNoticePending();
+        }
+        AppSettings().remove("dye/activeEquipmentId");
+
+        QCOMPARE(healedTo, b);
+        withRawDb(path, "m52_heal_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id = %1").arg(a)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 0);
+            q.finish();
+            QVERIFY(q.exec("SELECT COUNT(*) FROM equipment_packages WHERE in_inventory = 1"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 0);
+        });
+        QVERIFY(!noticePending);
     }
 
     void v33ToV34AddsYieldSpecs() {

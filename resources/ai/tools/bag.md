@@ -1,6 +1,8 @@
 # bag
 
-Coffee (and tea) bags. `action` is `list`, `create`, `update` or `select`.
+Coffee (and tea) bags. `action` is `list`, `create`, `update` or `select`. A bag holds no grind
+or equipment: `grinderSetting`, `rpm` and `equipmentId` accept only a clear (`""`, `0`, or `-1` for
+`equipmentId`).
 
 `select` makes a bag active, so new shots record against it. `bagId: 0` clears the selection —
 but `bagId` itself is required: omitting it is an error, not a clear.
@@ -8,7 +10,7 @@ but `bagId` itself is required: omitting it is an error, not a clear.
 ## kind
 
 `create` takes `kind`: `coffee` (default) or `tea`. It is set once and cannot be changed
-afterwards. Several fields are gated on it — `roastLevel`, `grinderSetting` and `rpm` are coffee
+afterwards. Several fields are gated on it — `roastLevel` is coffee
 only; `teaType`, `garden`, `cultivar`, `flush`, `brewTempC`, `leafGramsPer100Ml` and `steepTime`
 are tea only. Sending a gated field for the wrong kind is an error, not a silent drop.
 
@@ -29,11 +31,10 @@ the dose (2.0 = 1:2, clamped 0.5-100) so the gram target follows the dose actual
 Writing either replaces the other — no separate clear is needed — and sending both keys in one
 call is rejected. `0` clears the yield entirely.
 
-## Grind memory
+## Inventory
 
-`grinderSetting` and `rpm` are bean-scoped: they are this bag's dial, paired. `inInventory:
-false` marks the bag finished and `true` restores it; `list` hides finished bags unless
-`includeEmpty` is set. To restock a finished bag (a new bag of the same coffee), `create` one
+`inInventory: false` marks the bag finished and `true` restores it; `list` hides finished bags
+unless `includeEmpty` is set. To restock a finished bag (a new bag of the same coffee), `create` one
 with its roaster, coffee, roast level and details and the new roast date; don't restore the old
 bag, whose dates and shots belong to the earlier bag.
 

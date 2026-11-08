@@ -43,13 +43,23 @@ QVariantList CoffeeBagFields::lifecycleParts(const QVariantMap& bag, const QDate
     return parts;
 }
 
+const QStringList& CoffeeBagFields::legacyDialKeys()
+{
+    static const QStringList keys{QStringLiteral("equipmentId"), QStringLiteral("grinderSetting"),
+                                  QStringLiteral("rpm")};
+    return keys;
+}
+
 QVariantMap CoffeeBagFields::restockTemplate(QVariantMap bag, const QDate& today)
 {
     const bool wasFrozen = !bag.value(QStringLiteral("frozenDate")).toString().isEmpty();
+    // `bag` can be an older client's map, so the removed keys are stripped too.
     for (const char* key : {"id", "roastDate", "frozenDate", "defrostDate", "openedDate", "notes",
                             "startWeightG", "inInventory", "lastUsedEpoch", "shotCount", "actions",
-                            "lifecycleParts"})
+                            "lifecycleParts", "grinderBrand", "grinderModel", "grinderBurrs"})
         bag.remove(QString::fromLatin1(key));
+    for (const QString& key : legacyDialKeys())
+        bag.remove(key);
     if (wasFrozen)
         bag.insert(QStringLiteral("frozenDate"), today.toString(Qt::ISODate));
     return bag;

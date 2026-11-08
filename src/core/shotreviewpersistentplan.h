@@ -49,9 +49,6 @@ inline QVariantMap shotReviewPersistentPlan(const ShotReviewSetup& setup,
     };
     if (bagId > 0) {
         add(QStringLiteral("bag"), bag, bagPatch, QStringLiteral("doseWeight"), QStringLiteral("doseWeightG"));
-        add(QStringLiteral("bag"), bag, bagPatch, QStringLiteral("grinderSetting"), QStringLiteral("grinderSetting"));
-        add(QStringLiteral("bag"), bag, bagPatch, QStringLiteral("rpm"), QStringLiteral("rpm"));
-        add(QStringLiteral("bag"), bag, bagPatch, QStringLiteral("equipmentId"), QStringLiteral("equipmentId"));
     }
     if (recipeId > 0) {
         add(QStringLiteral("recipe"), recipe, recipePatch, QStringLiteral("bagId"), QStringLiteral("bagId"));

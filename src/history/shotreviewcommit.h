@@ -110,9 +110,7 @@ inline QString stageShotReviewWrites(QSqlDatabase& db, const DbWriteTxn& transac
     const QVariantMap recipePatch = plan.value(QStringLiteral("recipePatch")).toMap();
     const qint64 equipmentId = plan.value(QStringLiteral("equipmentId")).toLongLong();
     const QVariantMap equipmentPatch = plan.value(QStringLiteral("equipmentPatch")).toMap();
-    const QMap<QString, QString> bagSource{{QStringLiteral("doseWeightG"), QStringLiteral("doseWeight")},
-        {QStringLiteral("grinderSetting"), QStringLiteral("grinderSetting")},
-        {QStringLiteral("rpm"), QStringLiteral("rpm")}, {QStringLiteral("equipmentId"), QStringLiteral("equipmentId")}};
+    const QMap<QString, QString> bagSource{{QStringLiteral("doseWeightG"), QStringLiteral("doseWeight")}};
     const QMap<QString, QString> recipeSource{{QStringLiteral("bagId"), QStringLiteral("bagId")},
         {QStringLiteral("doseG"), QStringLiteral("doseWeight")},
         {QStringLiteral("grindPinned"), QStringLiteral("grinderSetting")},

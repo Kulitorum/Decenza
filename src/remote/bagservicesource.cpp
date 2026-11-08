@@ -20,7 +20,7 @@ const QSet<QString>& bagStringFields()
         QStringLiteral("roastLevel"), QStringLiteral("kind"), QStringLiteral("beanBaseId"),
         QStringLiteral("beanBaseData"), QStringLiteral("frozenDate"), QStringLiteral("defrostDate"),
         QStringLiteral("storageHint"), QStringLiteral("openedDate"), QStringLiteral("notes"),
-        QStringLiteral("grinderSetting"), QStringLiteral("yieldMode"),
+        QStringLiteral("yieldMode"),
         QStringLiteral("visualizerBagId"), QStringLiteral("visualizerRoasterId"),
         QStringLiteral("visualizerSeen")
     };
@@ -33,7 +33,6 @@ bool validPatch(const QVariantMap& fields, bool create)
         return false;
     static const QSet<QString> updateOnly{
         QStringLiteral("startWeightG"), QStringLiteral("inInventory"),
-        QStringLiteral("equipmentId"), QStringLiteral("rpm"),
         QStringLiteral("doseWeightG"), QStringLiteral("yieldValue"),
         QStringLiteral("visualizerSyncPending"), QStringLiteral("beanBaseDataPatch")
     };
@@ -41,7 +40,14 @@ bool validPatch(const QVariantMap& fields, bool create)
     for (auto it = fields.cbegin(); it != fields.cend(); ++it) {
         const QString& key = it.key();
         const QVariant& value = it.value();
-        if (bagStringFields().contains(key)) {
+        if (CoffeeBagFields::legacyDialKeys().contains(key)) {
+            // Storage refuses anything but a clear, with a message.
+            const int type = value.metaType().id();
+            const bool null = type == QMetaType::UnknownType || type == QMetaType::Nullptr;
+            if ((type != QMetaType::QString && !null && !ServiceValue::finiteNumber(value, nullptr))
+                || value.toString().size() > 16384)
+                return false;
+        } else if (bagStringFields().contains(key)) {
             if (!create && key == QLatin1String("kind"))
                 return false;
             if (value.metaType().id() != QMetaType::QString || value.toString().size() > 16384)
@@ -50,10 +56,6 @@ bool validPatch(const QVariantMap& fields, bool create)
         } else if (updateOnly.contains(key)) {
             if (key == QLatin1String("inInventory") || key == QLatin1String("visualizerSyncPending")) {
                 if (value.metaType().id() != QMetaType::Bool)
-                    return false;
-            } else if (key == QLatin1String("equipmentId") || key == QLatin1String("rpm")) {
-                if (!ServiceValue::finiteNumber(value, nullptr) || std::floor(value.toDouble()) != value.toDouble()
-                    || std::abs(value.toDouble()) > 9007199254740991.0)
                     return false;
             } else if (key == QLatin1String("beanBaseDataPatch")) {
                 if (create || value.metaType().id() != QMetaType::QVariantMap || value.toMap().size() > 128)

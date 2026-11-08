@@ -44,8 +44,8 @@ EquipmentDialogText {
     switchFallbackLabel: TranslationManager.translate("switch.accessibility.toggle", "Toggle")
     inventoryTitle: TranslationManager.translate("equipment.inventory.title", "Equipment")
     inventoryEmptyTitle: TranslationManager.translate("equipment.inventory.empty.title", "No equipment yet")
-    inventoryEmptyHint: TranslationManager.translate("equipment.inventory.empty.hint",
-        "Add your grinder to track its model, burrs and dial-in per bag.")
+    inventoryEmptyHint: TranslationManager.translate("equipment.inventory.empty.grindHint",
+        "Add your grinder to track its model, burrs and last-used grind.")
     inventoryAddButton: TranslationManager.translate("equipment.inventory.addButton", "Equipment")
     inventoryAccessibleAdd: TranslationManager.translate("equipment.inventory.accessible.add",
         "Add a new equipment package")

@@ -21,10 +21,10 @@ public:
     SettingsDye* dye() const { return m_dye; }
     void setStorage(EquipmentStorage* value) { if (m_storage != value) { m_storage = value; emit storageChanged(); } }
     void setDye(SettingsDye* value) { if (m_dye != value) { m_dye = value; emit dyeChanged(); } }
-    Q_INVOKABLE void createPackage(const QVariantMap& fields, bool applyToActiveBag, const QString& requestId);
+    Q_INVOKABLE void createPackage(const QVariantMap& fields, bool makeActive, const QString& requestId);
     Q_INVOKABLE void updatePackage(qint64 id, const QVariantMap& fields,
                                   const QVariantMap& expectedEditable, const QString& requestId);
-    Q_INVOKABLE void activatePackage(qint64 id, bool applyToActiveBag, const QString& requestId);
+    Q_INVOKABLE void activatePackage(qint64 id, bool makeActive, const QString& requestId);
     Q_INVOKABLE void removePackage(qint64 id, const QString& requestId);
     Q_INVOKABLE void restorePackage(qint64 id, const QString& requestId);
     Q_INVOKABLE void deletePackage(qint64 id, const QString& requestId);

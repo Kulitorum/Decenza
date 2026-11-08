@@ -1302,6 +1302,129 @@ void ShotHistoryStorage::requestLatestGrindForBeanRequest(const QString& request
     });
 }
 
+// Reads every shot: name matching folds Unicode case, which SQL cannot prefilter.
+// Measured 2026-11-08 on a 2023 MacBook Pro, warm cache: 5 ms at 1,339 shots
+// (24 MB DB), 36 ms at 13,390 (140 MB). It runs on a DB thread when a bean is
+// picked, so nothing waits on it.
+QVariantMap ShotHistoryStorage::loadRecipeGrindDefaultStatic(QSqlDatabase& db,
+                                                            const QString& beanBaseId,
+                                                            const QString& beanBrand,
+                                                            const QString& beanType,
+                                                            QString* error)
+{
+    if (error) error->clear();
+    auto failed = [&](const char* what, const QSqlQuery& query) -> QVariantMap {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "recipe grind default:" << what << "query failed -"
+                                                 << query.lastError().text();
+        if (error) *error = QStringLiteral("queryFailed");
+        return {};
+    };
+    const QString id = beanBaseId.trimmed();
+    const QString brand = beanBrand.trimmed().toCaseFolded();
+    const QString type = beanType.trimmed().toCaseFolded();
+    const bool haveNames = !brand.isEmpty() && !type.isEmpty();
+    if (id.isEmpty() && !haveNames)
+        return {};
+
+    auto namesMatch = [&](const QString& b, const QString& t) {
+        return haveNames && b.trimmed().toCaseFolded() == brand
+                         && t.trimmed().toCaseFolded() == type;
+    };
+    QSet<QString> identities;
+    if (haveNames) {
+        QSqlQuery bags(db);
+        if (!bags.exec(QStringLiteral("SELECT roaster_name, coffee_name, beanbase_id FROM coffee_bags")))
+            return failed("bag", bags);
+        while (bags.next()) {
+            const QString candidate = bags.value(2).toString().trimmed();
+            if (!candidate.isEmpty() && namesMatch(bags.value(0).toString(), bags.value(1).toString()))
+                identities.insert(candidate);
+        }
+        if (bags.lastError().isValid()) return failed("bag", bags);
+    }
+
+    QSqlQuery shots(db);
+    if (!shots.exec(QStringLiteral("SELECT id, timestamp, bean_brand, bean_type, beanbase_id, "
+                                   "grinder_setting, rpm, profile_name, equipment_id FROM shots "
+                                   "ORDER BY timestamp DESC, id DESC")))
+        return failed("shot", shots);
+    QVariantMap exact, fallback;
+    while (shots.next()) {
+        const QString shotId = shots.value(4).toString().trimmed();
+        const bool sameName = namesMatch(shots.value(2).toString(), shots.value(3).toString());
+        if (sameName && !shotId.isEmpty())
+            identities.insert(shotId);
+        const QString grind = shots.value(5).toString().trimmed();
+        if (grind.isEmpty())
+            continue;
+        const bool exactId = !id.isEmpty() && !shotId.isEmpty() && id == shotId;
+        const bool nameFallback = sameName && (id.isEmpty() || shotId.isEmpty());
+        if ((!exactId || !exact.isEmpty()) && (!nameFallback || !fallback.isEmpty()))
+            continue;
+        QVariantMap candidate{{QStringLiteral("shotId"), shots.value(0)},
+                              {QStringLiteral("timestamp"), shots.value(1)},
+                              {QStringLiteral("beanBaseId"), shotId},
+                              {QStringLiteral("grinderSetting"), grind},
+                              {QStringLiteral("rpm"), shots.value(6)},
+                              {QStringLiteral("profileName"), shots.value(7)},
+                              {QStringLiteral("equipmentId"), shots.value(8)}};
+        if (exactId && exact.isEmpty()) exact = candidate;
+        if (nameFallback && fallback.isEmpty()) fallback = candidate;
+    }
+    if (shots.lastError().isValid()) return failed("shot", shots);
+    if (!id.isEmpty())
+        identities.insert(id);
+    if (identities.size() > 1)
+        fallback.clear();
+    QVariantMap result = exact;
+    if (!fallback.isEmpty() && (result.isEmpty()
+        || fallback.value(QStringLiteral("timestamp")).toLongLong() > result.value(QStringLiteral("timestamp")).toLongLong()
+        || (fallback.value(QStringLiteral("timestamp")) == result.value(QStringLiteral("timestamp"))
+            && fallback.value(QStringLiteral("shotId")).toLongLong() > result.value(QStringLiteral("shotId")).toLongLong())))
+        result = fallback;
+    if (!result.isEmpty() && result.value(QStringLiteral("equipmentId")).toLongLong() > 0) {
+        QSqlQuery package(db);
+        // The name is context only: the default stands without it.
+        if (package.prepare(QStringLiteral("SELECT name FROM equipment_packages WHERE id = ?"))) {
+            package.addBindValue(result.value(QStringLiteral("equipmentId")));
+            if (package.exec()) {
+                if (package.next())
+                    result.insert(QStringLiteral("equipmentName"), package.value(0));
+            }
+        }
+        if (package.lastError().isValid())
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "recipe grind default: package name lookup failed -"
+                                                     << package.lastError().text();
+    }
+    return result;
+}
+
+void ShotHistoryStorage::requestRecipeGrindDefault(const QString& requestId,
+                                                    const QString& beanBaseId,
+                                                    const QString& beanBrand,
+                                                    const QString& beanType)
+{
+    if (!m_ready) {
+        emit recipeGrindDefaultReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, requestId, beanBaseId, beanBrand, beanType, destroyed]() {
+        QVariantMap result;
+        QString reason;
+        const bool opened = withTempDb(dbPath, "shs_recipe_grind_default", [&](QSqlDatabase& db) {
+            result = loadRecipeGrindDefaultStatic(db, beanBaseId, beanBrand, beanType, &reason);
+        });
+        if (!opened && reason.isEmpty()) reason = QStringLiteral("unavailable");
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, resultData = std::move(result), reason, destroyed]() {
+            if (!*destroyed)
+                emit recipeGrindDefaultReady(requestId, resultData, reason);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ShotHistoryStorage::requestDistinctBeanBrandsForRequest(const QString& requestId)
 {
     if (!m_ready) {

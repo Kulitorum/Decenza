@@ -13,7 +13,7 @@ class EquipmentState
     SLOT(void refresh())
     SLOT(void execute(QString requestId, QString operation, qint64 packageId,
                       QVariantMap fields, QVariantMap expectedEditable,
-                      bool applyToActiveBag))
+                      bool makeActive))
     SLOT(void requestPackage(QString requestId, qint64 packageId))
     SLOT(void requestArchived(QString requestId))
     SLOT(void requestGrindContext(QString requestId, QString kind, QVariantMap query))

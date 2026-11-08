@@ -592,9 +592,8 @@ void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
                 return;
             *recipe = r.toVariantMap();
             // The hard bag link, applied whether or not the bag is still in
-            // inventory — a stale recipe activates fully with the finished
-            // bag's data (its last dial is a better starting point than
-            // nothing). Only a deleted bag row degrades to bean-less.
+            // inventory — a stale recipe activates with the finished bag's
+            // bean data. Only a deleted bag row degrades to bean-less.
             if (r.bagId > 0) {
                 const CoffeeBag linked = CoffeeBagStorage::loadBagStatic(db, r.bagId);
                 if (linked.isValid()) {
@@ -681,21 +680,6 @@ void RecipeStorage::requestCreateRecipeImpl(const QVariantMap& recipeMap,
                     DIAG_WARN(RECIPES, "RecipeStorage") << "create carried unknown bag id"
                                << recipe.bagId << "- dropping the bag link";
                     recipe.bagId = 0;
-                }
-            }
-            // Grind default: grind always lives on the recipe, and the linked
-            // bag's dial is read exactly once, at creation. A bag-linked
-            // create map that OMITS grind adopts the bag's current dial here —
-            // the non-interactive surfaces' (MCP/web) equivalent of the
-            // wizard's editable prefill. An explicitly empty grind in the map
-            // is a deliberate "no grind" and stays empty.
-            if (recipe.grindPinned.isEmpty() && recipe.bagId > 0
-                && !recipeMap.contains(QStringLiteral("grindPinned"))) {
-                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, recipe.bagId);
-                if (bag.isValid() && !bag.grinderSetting.isEmpty()) {
-                    recipe.grindPinned = bag.grinderSetting;
-                    if (recipe.rpmPinned <= 0 && bag.rpm > 0)
-                        recipe.rpmPinned = bag.rpm;
                 }
             }
             // Active-name uniqueness (block-duplicate-active-names): a new recipe
@@ -1709,23 +1693,9 @@ bool RecipeStorage::migrateBagLinksStatic(QSqlDatabase& db)
 }
 
 // static
-bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db,
-                                                const QVector<qint64>* onlyRecipeIds)
+bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db)
 {
-    // The one-time data pass of migration 30 (fix-recipe-grind-integrity):
-    // grind always lives on the recipe now, so the retired "empty grind_pinned
-    // = inherit from the bag" rows get their linked bag's current dial copied
-    // in ONCE — the historical equivalent of the creation-time default. Rows
-    // whose bag has no dial yet (tea bags, never-dialed bags) are skipped, not
-    // stamped with empty strings; bag-less rows stay untouched ("no grind
-    // recorded yet" is a valid state). Also reused by importRecipesStatic —
-    // a transfer/backup source DB can predate this migration, and its rows
-    // arrive after the local pass already ran. The import pass MUST scope to
-    // the just-inserted rows (onlyRecipeIds): post-migration, "empty grind +
-    // linked bag" is a supported, deliberate state (an explicitly cleared
-    // grind), and a table-wide re-run would silently stamp the bag's dial
-    // back onto such local rows on every import.
-    QString sql = QStringLiteral(
+    const QString sql = QStringLiteral(
         "UPDATE recipes SET "
         "  grind_pinned = (SELECT b.grinder_setting FROM coffee_bags b WHERE b.id = recipes.bag_id), "
         "  rpm_pinned = (SELECT COALESCE(b.rpm, 0) FROM coffee_bags b WHERE b.id = recipes.bag_id) "
@@ -1733,15 +1703,6 @@ bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db,
         "  AND bag_id IS NOT NULL "
         "  AND EXISTS (SELECT 1 FROM coffee_bags b WHERE b.id = recipes.bag_id "
         "              AND COALESCE(b.grinder_setting,'') <> '')");
-    if (onlyRecipeIds) {
-        if (onlyRecipeIds->isEmpty())
-            return true;  // nothing imported, nothing to backfill
-        QStringList ids;
-        ids.reserve(onlyRecipeIds->size());
-        for (qint64 id : *onlyRecipeIds)
-            ids << QString::number(id);
-        sql += QStringLiteral(" AND id IN (%1)").arg(ids.join(QLatin1Char(',')));
-    }
     QSqlQuery query(db);
     const bool ok = query.exec(sql);
     if (!ok) {
@@ -2209,10 +2170,31 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         return false;
     }
 
+    // Only pre-30 sources used an empty grind to mean "inherit". A current
+    // source's empty value is intentional and must never be backfilled.
+    int sourceVersion = 0;
+    bool sourceVersionKnown = false;
+    if (srcDb.tables().contains(QStringLiteral("schema_version"))) {
+        QSqlQuery version(srcDb);
+        if (!version.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !version.next()) {
+            DIAG_WARN(RECIPES, "RecipeStorage") << "recipe import: source schema version read failed -"
+                                                << version.lastError().text();
+            return false;
+        }
+        sourceVersion = version.value(0).toInt(&sourceVersionKnown);
+    }
+    if (!sourceVersionKnown)
+        DIAG_DEBUG(RECIPES, "RecipeStorage") << "recipe import: source schema version unknown -"
+                                             << "inherited grinds are not recovered";
+    const bool legacyGrind = sourceVersionKnown && sourceVersion < 30;
     int imported = 0, matched = 0;
-    QVector<qint64> insertedIds;  // scope for the post-import grind backfill
     while (srcRecipes.next()) {
         Recipe recipe = recipeFromQueryRow(srcRecipes);
+        qint64 sourceBagId = recipe.bagId;
+        // A pre-29 source has no bag_id: resolve the bean's open bag in the
+        // SOURCE, to read its grind and remap the link.
+        if (legacyGrind && !srcColumns.contains(QStringLiteral("bag_id")))
+            sourceBagId = resolveOpenBagStatic(srcDb, recipe);
         const double legacyAbsTemp = srcHasOverrideCol
             ? srcRecipes.value(kColCount).toDouble() : 0.0;
         const bool rowUnconverted = srcHasOverrideCol
@@ -2220,14 +2202,14 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         // Remap the source equipment_id to the imported package's new dest id
         // (EquipmentStorage::importEquipmentStatic ran first). A source id
         // absent from the map (older source with no equipment tables, or an
-        // unmatched package) becomes 0 -> NULL, same as bags. The bag link is
+        // unmatched package) becomes 0 -> NULL, as on shots. The bag link is
         // remapped through the bag id-map the same way (importBagsStatic ran
         // first); an absent source bag becomes NULL → the stale display
         // state. The bean identity fields carry verbatim — they are the
         // relink matching key, so wake-on-restock can later re-home the
         // recipe.
         recipe.equipmentId = packageIdMap.value(recipe.equipmentId, 0);
-        recipe.bagId = bagIdMap.value(recipe.bagId, 0);
+        recipe.bagId = bagIdMap.value(sourceBagId, 0);
 
         if (srcNeedsYieldConversion) {
             const double legacyYieldG = srcRecipes.value(yieldTrailingIdx).toDouble();
@@ -2271,11 +2253,32 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         }
 
         if (destId < 0) {
-            destId = insertRecipeStatic(destDb, recipe);
-            if (destId < 0)
+            if (legacyGrind && recipe.grindPinned.isEmpty() && sourceBagId > 0) {
+                // Read the SOURCE bag: destination bags no longer carry grind.
+                // A merge into an existing recipe never backfills.
+                QSqlQuery sourceBag(srcDb);
+                if (!sourceBag.prepare(QStringLiteral("SELECT grinder_setting, rpm FROM coffee_bags WHERE id = ?"))) {
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "legacy bag grind read failed:" << sourceBag.lastError().text();
+                    return false;
+                }
+                sourceBag.addBindValue(sourceBagId);
+                if (!sourceBag.exec()) {
+                    DIAG_WARN(RECIPES, "RecipeStorage") << "legacy bag grind read failed:" << sourceBag.lastError().text();
+                    return false;
+                }
+                if (sourceBag.next() && !sourceBag.value(0).toString().isEmpty()) {
+                    recipe.grindPinned = sourceBag.value(0).toString();
+                    recipe.rpmPinned = sourceBag.value(1).toLongLong();
+                }
+            }
+            QString waterError;
+            destId = insertRecipeStatic(destDb, recipe, {}, &waterError);
+            if (destId < 0) {
+                DIAG_WARN(RECIPES, "RecipeStorage") << "recipe import: could not insert" << recipe.name
+                                                    << (waterError.isEmpty() ? QStringLiteral("(insert failed)") : waterError);
                 return false;
+            }
             imported++;
-            insertedIds.append(destId);
             // Preserve the source's original creation timestamp. created_at is
             // read-only in kCols, so the INSERT let the DEFAULT stamp it with
             // import-time; restamp it here when the source carried a value, so
@@ -2309,18 +2312,6 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         }
         outIdMap.insert(recipe.id, destId);
     }
-
-    // A source DB from before migration 30 carries inherit-mode rows (empty
-    // grind_pinned + a bag link) that arrive AFTER this device's migration
-    // already ran — run the same backfill, scoped to the rows THIS import
-    // inserted, so they adopt their (remapped) bag's dial like local rows did
-    // at upgrade. Scoping is load-bearing: a pre-existing local recipe with a
-    // deliberately cleared grind must not have its bag's dial stamped back by
-    // an unrelated import (post-migration, empty grind is a supported state).
-    if (!RecipeStorage::migrateGrindOwnershipStatic(destDb, &insertedIds))
-        DIAG_WARN(RECIPES, "RecipeStorage") << "post-import grind-ownership backfill failed"
-                   << "- imported inherit-mode recipes stay grind-less (a valid state; "
-                      "editing the recipe sets one)";
 
     DIAG_DEBUG(RECIPES, "RecipeStorage") << "recipe import -" << imported << "imported," << matched << "matched existing";
     return true;

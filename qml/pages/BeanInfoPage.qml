@@ -372,8 +372,8 @@ T.Page {
                     Tr {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.maximumWidth: flickable.width * 0.8
-                        key: "beaninfo.inventory.empty.hint"
-                        fallback: "Add your first bag to track beans, freshness and grinder settings per bag."
+                        key: "beaninfo.inventory.empty.bagHint"
+                        fallback: "Add your first bag to track its beans, freshness and dose."
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         horizontalAlignment: Text.AlignHCenter

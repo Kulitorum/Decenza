@@ -423,8 +423,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
         "Create a recipe. Only `name` is always required; `profileTitle` is required unless the recipe "
         "is a profile-less hot-water tea. Bag link, equipment and every parameter are optional. "
         "Link a bag with bagId, or pass bean identity fields to resolve that bean's open bag once "
-        "at save time. Grind lives on the recipe: omit grindPinned to adopt the bag's current dial "
-        "(recommended). Field rules: get_agent_file topic \"recipe_create\".",
+        "at save time. Grind lives on the recipe and is optional. "
+        "Field rules: get_agent_file topic \"recipe_create\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -453,8 +453,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0/omitted = brew at the profile's own temperature)"}}},
                 {"grindPinned", QJsonObject{{"type", "string"},
-                    {"description", "The recipe's own grind. Omitted = adopt the linked bag's "
-                                    "current dial at save time; explicitly empty = no grind"}}},
+                    {"description", "The recipe's own grind; omitted or empty means no grind"}}},
                 {"rpmPinned", QJsonObject{{"type", "integer"},
                     {"description", "The recipe's own grinder rpm (0 = unset)"}}},
                 {"steam", steamBlockSchema()},

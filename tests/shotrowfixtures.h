@@ -288,6 +288,21 @@ inline bool hasIndex(QSqlDatabase& db, const QString& indexName)
     return q.exec() && q.next();
 }
 
+// Migration 52 dropped coffee_bags' dial columns. A test that rewinds a current
+// DB below 52 puts them back so the replayed chain sees the shape it ran on
+// (migrations 30 and 52 read coffee_bags.grinder_setting).
+inline bool restoreLegacyBagColumns(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    for (const char* column : {"grinder_setting TEXT", "equipment_id INTEGER", "rpm INTEGER"}) {
+        if (!q.exec(QStringLiteral("ALTER TABLE coffee_bags ADD COLUMN %1").arg(QLatin1String(column)))) {
+            qWarning() << "restoreLegacyBagColumns:" << column << "-" << q.lastError().text();
+            return false;
+        }
+    }
+    return true;
+}
+
 // Initialize, close, and let background DB work drain.
 //
 // Drains on the real condition (isDbWorkIdle) rather than a fixed sleep. The

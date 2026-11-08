@@ -5,6 +5,7 @@
 Governs how grind and RPM values are entered and edited on every surface, in the app and the ShotServer. One shared picker control serves all surfaces, steps resolve against the grinder that owns each value, and an emptied grind is treated as an explicit commit.
 
 ## Requirements
+
 ### Requirement: A single shared control SHALL accept grind and RPM on every surface
 Every surface that accepts a grinder dial-in value SHALL use one shared control rather than a per-site text field. The control SHALL offer `pill` (the brew bar's capsule) and `field` (a bordered control sized to drop in where a text input sits today). Both SHALL be tap-to-open, displaying the current value and opening the picker when activated.
 
@@ -29,17 +30,17 @@ Every surface that accepts a grinder dial-in value SHALL use one shared control 
 - **THEN** its appearance, zone handling, background-image treatment and write-through path SHALL be unchanged
 
 ### Requirement: Hosts own the value and grinder identity
-The value, its writer and the grinder identity the value belongs to SHALL all be supplied by the host. The control SHALL NOT read or write `Settings.dye` directly, so one control serves the live dial-in, a past shot's value, a bag's default and a recipe's pinned value. Adopting hosts SHALL NOT retain inline grind or RPM text inputs; all typing SHALL happen inside the picker's text mode.
+The value, its writer and the grinder identity the value belongs to SHALL all be supplied by the host. The control SHALL NOT read or write `Settings.dye` directly, so one control serves the live dial-in, a past shot's value, and a recipe's pinned value. Adopting hosts SHALL NOT retain inline grind or RPM text inputs; all typing SHALL happen inside the picker's text mode.
 
 #### Scenario: Past shot value uses the same control
 - **WHEN** a past shot's grind value is edited
 - **THEN** the shared control opens with the host's value and grinder identity, not the live dial-in
 
 ### Requirement: Adopting surfaces
-The adopting QML surfaces SHALL be `BrewDialog`, `PostShotReviewPage`, `ChangeBeansDialog` and `RecipeWizardPage`.
+The adopting QML surfaces SHALL be `BrewDialog`, `PostShotReviewPage` and `RecipeWizardPage`.
 
 #### Scenario: Each adopting surface opens the shared picker
-- **WHEN** a grind or RPM value is edited on any of the four surfaces
+- **WHEN** a grind or RPM value is edited on any of the three surfaces
 - **THEN** the shared picker control is used
 
 ### Requirement: Every grinder-derived behaviour SHALL resolve against the value's own grinder
@@ -66,7 +67,7 @@ The grinder is a property of the value being edited, not of the application. Eac
 - **THEN** it SHALL follow `grinderRpmCapable()` called with that surface's own grinder identity
 
 ### Requirement: Each surface resolves against its owning grinder context
-The brew bar pill and `BrewDialog` SHALL use the active grinder, since they edit the live dial-in. `PostShotReviewPage` SHALL use the grinder recorded on that shot. `ChangeBeansDialog` SHALL use the bag's linked equipment. `RecipeWizardPage` SHALL use the package selected for that recipe.
+The brew bar pill and `BrewDialog` SHALL use the active grinder, since they edit the live dial-in. `PostShotReviewPage` SHALL use the grinder recorded on that shot. `RecipeWizardPage` SHALL use the package selected for that recipe.
 
 #### Scenario: Reviewing an old shot uses that shot's grinder
 - **WHEN** an old shot's grind is edited in `PostShotReviewPage`
@@ -256,7 +257,7 @@ All surfaces accepting a dial-in SHALL agree on the following by inheriting them
 #### Scenario: Suggestions are available where a value is created
 
 - **GIVEN** observed grind settings exist for the grinder that surface owns
-- **WHEN** the user creates a new bag or a new recipe
+- **WHEN** the user creates a new recipe
 - **THEN** those observed settings SHALL be offered
 
 #### Scenario: Keyboard avoidance lives in the picker, not the hosts
@@ -273,49 +274,17 @@ Observed grind settings SHALL be offered as picker candidates via the observed-h
 - **WHEN** two surfaces own different grinders
 - **THEN** their suggestions may differ, and that difference is correct
 
-### Requirement: Committing an emptied grind SHALL clear the value where blank is meaningful
-Committing Done with an emptied grind or RPM field SHALL clear the stored value (grind to empty, RPM to `0`) on EVERY host, with no exceptions. The picker SHALL treat an empty commit as explicit input, which SHALL NOT be silently discarded.
-
-#### Scenario: Recipe blank-adopts-bag survives the picker
-
-- **GIVEN** a recipe being created with a linked bag
-- **WHEN** the user clears the grind field in the picker and commits
-- **THEN** the recipe SHALL be created with no pinned grind, adopting the bag's dial as today
-
-#### Scenario: Bag grind can be cleared
-
-- **GIVEN** a bag with a recorded grind default
-- **WHEN** the user empties the grind field and commits
-- **THEN** the bag's grind SHALL be stored as unset
-
-#### Scenario: The live dial-in is clearable from the pill
-
-- **GIVEN** the brew-bar pill's picker in text mode, with an RPM set
-- **WHEN** the user empties the RPM field and commits
-- **THEN** the live dial-in's RPM SHALL be cleared to `0`
-- **AND** the pill SHALL stop showing the RPM half
-
-### Requirement: Blank is a valid stored grind value
-Blank SHALL remain a valid stored grind value. A recipe with no pinned grind adopts the linked bag's dial on create, and a bag's or a shot's grind may simply be unset.
-
-#### Scenario: Unset bag grind stays unset
-- **WHEN** a bag has no grind value
-- **THEN** the grind stays empty and nothing is substituted
-
 ### Requirement: Web grind and RPM inputs SHALL offer the same stepped candidates
-The ShotServer shot, bag and recipe edit forms SHALL offer stepped candidate values through a native `<input list>` and `<datalist>` pair, not a free-standing text input. Free text SHALL remain accepted, so values outside the candidate list, including non-numeric notations, SHALL still be enterable and saved. The markup SHALL be produced by a shared helper, not inlined per page.
+The ShotServer shot and recipe edit forms SHALL offer stepped candidate values through a native `<input list>` and `<datalist>` pair, not a free-standing text input. Free text SHALL remain accepted, so values outside the candidate list, including non-numeric notations, SHALL still be enterable and saved. The markup SHALL be produced by a shared helper, not inlined per page.
 
 #### Scenario: RPM field hidden for a non-RPM grinder on the web
-
-- **GIVEN** a bag whose selected package is a Niche Zero (not RPM-capable)
-- **WHEN** the `/beans` edit dialog resolves its grind candidates
-- **THEN** the RPM field SHALL be hidden
-- **AND** selecting an RPM-capable package SHALL bring it back
+- **WHEN** a web recipe uses a grinder without RPM support
+- **THEN** its RPM control is hidden
 
 #### Scenario: Candidates offered on the web
 
 - **GIVEN** a grind value with a derivable step
-- **WHEN** the shot, bag, or recipe edit form is rendered
+- **WHEN** the shot or recipe edit form is rendered
 - **THEN** the grind input SHALL offer the stepped candidates as a `<datalist>`
 
 #### Scenario: Web candidates resolve against the record's grinder
@@ -331,21 +300,14 @@ The ShotServer shot, bag and recipe edit forms SHALL offer stepped candidate val
 
 #### Scenario: Shared helper, not per-page markup
 
-- **WHEN** the three forms render their grind inputs
+- **WHEN** the two forms render their grind inputs
 - **THEN** the markup SHALL come from one shared helper in the common ShotServer layer
-
-### Requirement: Web candidates are computed server-side per record
-Candidates SHALL be computed server-side by the existing C++ stepping machinery, resolved against each record's own grinder (the shot's, the bag's linked package, the recipe's selected package), never the active one. The stepping logic SHALL NOT be reimplemented in JavaScript.
-
-#### Scenario: Candidates for a bag follow the bag's linked package
-- **WHEN** a bag's candidates are requested
-- **THEN** they are computed against the bag's linked package
 
 ### Requirement: Candidates come from a dedicated endpoint
 Candidates SHALL be served by a dedicated `GET /api/grind-candidates` endpoint taking the grinder identity as parameters, not embedded per record in list payloads. The page SHALL re-request when the selected equipment changes, so candidates follow the grinder the value will be ground on.
 
 #### Scenario: Changing equipment refreshes candidates
-- **WHEN** the user changes the selected equipment in a bag or recipe dialog
+- **WHEN** the user changes the selected equipment in a recipe dialog
 - **THEN** the page re-requests candidates for the new grinder
 
 ### Requirement: The web does not reproduce the wheel
@@ -448,3 +410,34 @@ This behaviour SHALL be inherited from the shared control by every adopting surf
 - **WHEN** an existing grind value is edited on any adopting surface
 - **THEN** the wide-wheel anchor is not applied
 
+### Requirement: Committing an empty grind clears the value
+Committing Done with an emptied grind or RPM field SHALL clear the stored value (grind to empty, RPM to `0`) on EVERY host, with no exceptions. The picker SHALL treat an empty commit as explicit input, which SHALL NOT be silently discarded.
+
+#### Scenario: Explicitly cleared recipe grind remains empty
+- **WHEN** a user clears and commits a recipe grind
+- **THEN** the recipe stores an empty grind without adopting the bag dial
+
+#### Scenario: The live dial-in is clearable from the pill
+
+- **GIVEN** the brew-bar pill's picker in text mode, with an RPM set
+- **WHEN** the user empties the RPM field and commits
+- **THEN** the live dial-in's RPM SHALL be cleared to `0`
+- **AND** the pill SHALL stop showing the RPM half
+
+#### Scenario: Bag editor has no grind field
+- **WHEN** a bag is edited
+- **THEN** there is no bag grind field to clear
+
+### Requirement: Blank remains a valid recipe or shot grind
+Blank SHALL remain a valid recipe or shot grind value and SHALL NOT inherit a bag dial.
+
+#### Scenario: Explicitly empty recipe grind stays empty
+- **WHEN** a recipe is saved with an explicitly empty grind
+- **THEN** its grind stays empty
+
+### Requirement: Web candidates use the edited record grinder
+Candidates SHALL be computed server-side by the existing C++ stepping machinery, resolved against each record's own grinder (the shot's and the recipe's selected package), never the active one. The stepping logic SHALL NOT be reimplemented in JavaScript.
+
+#### Scenario: Candidates for a recipe follow its equipment
+- **WHEN** a recipe's candidates are requested
+- **THEN** they are computed against its selected package

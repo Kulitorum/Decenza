@@ -21,7 +21,7 @@ public:
     void refresh() override;
     void execute(QString requestId, QString operation, qint64 packageId,
                  QVariantMap fields, QVariantMap expectedEditable,
-                 bool applyToActiveBag) override;
+                 bool makeActive) override;
     void requestPackage(QString requestId, qint64 packageId) override;
     void requestArchived(QString requestId) override;
     void requestGrindContext(QString requestId, QString kind, QVariantMap query) override;

@@ -26,11 +26,8 @@ class SerialDbWorker;
 // Grind: always the recipe's own (fix-recipe-grind-integrity — the old
 // "empty grindPinned = inherit from the bag" mode is retired; migration 30
 // backfilled inherit-mode rows from their bag). grindPinned is this recipe's
-// own opaque grind text, rpmPinned rides with it. The linked bag's dial is
-// read exactly once, at creation, as the field's editable default (the
-// wizard offers it; requestCreateRecipe adopts it when a bag-linked create
-// map OMITS grind — an explicitly empty grind stays empty). Grind-less drink
-// types (tea) store none.
+// own opaque grind text, rpmPinned rides with it. A bag does not supply the
+// recipe's grind. Grind-less drink types (tea) store none.
 //
 // Steam: steamJson holds the drink's steam block, serialized as
 // {hasMilk, milkWeightG, pitcherName, durationSec, flow, temperatureC}. The
@@ -486,17 +483,11 @@ public:
     // instead of silently stranding every recipe stale forever.
     static bool migrateBagLinksStatic(QSqlDatabase& db);
 
-    // Migration 30 data pass (fix-recipe-grind-integrity): copy the linked
-    // bag's current grinder_setting/rpm into empty grind_pinned/rpm_pinned
-    // rows — the one-time backfill retiring "empty = inherit". Skips rows
-    // whose bag has no dial; leaves bag-less rows untouched. Also run by
-    // importRecipesStatic for pre-migration source DBs, which MUST pass
-    // onlyRecipeIds (the just-inserted rows): post-migration, empty grind is
-    // a supported deliberate state on local rows and a table-wide re-run
-    // would clobber it. Returns false when the pass could not run (the
-    // migration caller must not bump the version then).
-    static bool migrateGrindOwnershipStatic(QSqlDatabase& db,
-                                            const QVector<qint64>* onlyRecipeIds = nullptr);
+    // Migration 30 data pass: copy each linked bag's grinder_setting/rpm into
+    // empty grind_pinned/rpm_pinned rows. Skips bags with no dial and leaves
+    // bag-less rows alone. False when the pass could not run (the caller must
+    // not bump the version).
+    static bool migrateGrindOwnershipStatic(QSqlDatabase& db);
 
     // Migration 31 data pass (recipe-relative-temp-offset): convert the legacy
     // absolute temp_override_c into the relative temp_offset_c. Touches ONLY

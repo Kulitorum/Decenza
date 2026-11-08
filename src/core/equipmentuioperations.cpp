@@ -1,17 +1,17 @@
 #include "equipmentuioperations.h"
 #include <optional>
 
-void EquipmentUiOperations::createPackage(const QVariantMap& fields, bool applyToActiveBag,
+void EquipmentUiOperations::createPackage(const QVariantMap& fields, bool makeActive,
                                           const QString& requestId)
 {
-    if (!m_storage || (applyToActiveBag && !m_dye)) {
+    if (!m_storage || (makeActive && !m_dye)) {
         emit operationCompleted(requestId, false, -1, QStringLiteral("unavailable"));
         return;
     }
     const QPointer<SettingsDye> dye = m_dye;
     m_storage->requestCreatePackageWithCompletion(fields, this,
-        [this, dye, applyToActiveBag, requestId](qint64 id, const QVariantMap& package) {
-            if (id > 0 && applyToActiveBag && dye)
+        [this, dye, makeActive, requestId](qint64 id, const QVariantMap& package) {
+            if (id > 0 && makeActive && dye)
                 dye->switchToEquipment(package);
             emit operationCompleted(requestId, id > 0, id, package.value(QStringLiteral("error")).toString());
         });
@@ -34,13 +34,13 @@ void EquipmentUiOperations::updatePackage(qint64 id, const QVariantMap& fields,
         }, std::nullopt, expectedEditable);
 }
 
-void EquipmentUiOperations::activatePackage(qint64 id, bool applyToActiveBag, const QString& requestId)
+void EquipmentUiOperations::activatePackage(qint64 id, bool makeActive, const QString& requestId)
 {
-    if (!m_storage || (applyToActiveBag && !m_dye) || id <= 0) {
+    if (!m_storage || (makeActive && !m_dye) || id <= 0) {
         emit operationCompleted(requestId, false, id, QStringLiteral("unavailable"));
         return;
     }
-    if (!applyToActiveBag) {
+    if (!makeActive) {
         emit operationCompleted(requestId, true, id, {});
         return;
     }
