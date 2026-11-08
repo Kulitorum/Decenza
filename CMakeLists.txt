@@ -209,7 +209,7 @@ if(Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0")
 endif()
 
 # Enable QML debugging in debug builds, or in an optimised build with DECENZA_QML_DEBUG
-# (android-release.yml's qml_profiling input): the QML profiler needs the debug services,
+# (release.yml's qml_profiling input): the QML profiler needs the debug services,
 # not unoptimised C++, which distorts the timings being measured. Never on for a shipped build.
 option(DECENZA_QML_DEBUG "Profiling build: QML debug services on port 3768, and an Android APK profileable by simpleperf" OFF)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DECENZA_QML_DEBUG)
@@ -1446,6 +1446,7 @@ qt_add_resources(Decenza zip_licenses PREFIX "/licenses" FILES ${DECENZA_ZIP_LIC
 target_link_libraries(Decenza PRIVATE
     decenza_package_identity
     decenza_zip
+    ZLIB::ZLIB
     Qt6::Core
     Qt6::CorePrivate
     Qt6::Gui
@@ -1554,7 +1555,7 @@ endif()
 
 # The compile platform is Qt 6.12's own choice for its Java
 # (qtbase/cmake/QtPublicAndroidHelpers.cmake:70). android/build.gradle parses it and
-# android-release.yml installs it from this line, so it is stated only here.
+# release.yml installs it from this line, so it is stated only here.
 if(ANDROID)
     # The namespace and application id; the manifest no longer carries a package attribute.
     set_property(TARGET Decenza PROPERTY QT_ANDROID_PACKAGE_NAME "io.github.kulitorum.decenza_de1")

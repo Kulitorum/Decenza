@@ -1,6 +1,5 @@
 #include "decentshotuploader.h"
 #include "decentshoturl.h"
-#include "core/gzip.h"
 
 #include "core/dbutils.h"
 #include "core/diagnosticlogging.h"
@@ -16,6 +15,36 @@
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QUrlQuery>
+
+#include <limits>
+#include <zlib.h>
+
+namespace {
+
+// gzip (RFC 1952) from the zlib that ships with QuaZip (cmake/quazip.cmake).
+// Empty when the body cannot be compressed, and it is then sent plain.
+QByteArray gzipCompress(const QByteArray& data)
+{
+    // avail_in is a uInt: a larger body would be compressed truncated, not refused.
+    if (data.isEmpty() || data.size() > qsizetype(std::numeric_limits<uInt>::max()))
+        return {};
+    z_stream zs{};
+    // windowBits 15 + 16 selects the gzip wrapper instead of zlib's (zlib.h, deflateInit2).
+    if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK)
+        return {};
+    // One Z_FINISH call into deflateBound() bytes always completes (zlib.h, deflateBound).
+    QByteArray out(qsizetype(deflateBound(&zs, uLong(data.size()))), Qt::Uninitialized);
+    zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data.constData()));
+    zs.avail_in = uInt(data.size());
+    zs.next_out = reinterpret_cast<Bytef*>(out.data());
+    zs.avail_out = uInt(out.size());
+    const int rc = deflate(&zs, Z_FINISH);
+    out.resize(qsizetype(zs.total_out));
+    deflateEnd(&zs);
+    return rc == Z_STREAM_END ? out : QByteArray();
+}
+
+}  // namespace
 
 DecentShotUploader::DecentShotUploader(QNetworkAccessManager* network, DecentAccount* account,
                                        ShotHistoryStorage* storage, QObject* parent)
@@ -135,7 +164,7 @@ void DecentShotUploader::attemptSavedShot(qint64 shotId, Send how) {
         if (p.error == Result::None && !p.skip) {
             writeDebugFile(QStringLiteral("last_decent_upload.json"), QJsonDocument::fromJson(p.body).toJson(QJsonDocument::Indented));
             // Decent asked for gzip uploads. A body that cannot be compressed goes plain.
-            if (QByteArray gzipped = Gzip::compress(p.body); !gzipped.isEmpty()) {
+            if (QByteArray gzipped = gzipCompress(p.body); !gzipped.isEmpty()) {
                 p.body = std::move(gzipped);
                 p.gzipped = true;
             }

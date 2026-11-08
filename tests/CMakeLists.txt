@@ -1497,9 +1497,7 @@ add_decenza_test(tst_decentshotupload
     ${CMAKE_SOURCE_DIR}/src/network/decentshotuploader.cpp
     $<TARGET_OBJECTS:decenza_testairesources>
 )
-# NetworkPrivate: QDecompressHelper decodes the gzip upload body.
-find_package(Qt6 REQUIRED COMPONENTS NetworkPrivate)
-target_link_libraries(tst_decentshotupload PRIVATE decenza_shotlib Qt6::NetworkPrivate)
+target_link_libraries(tst_decentshotupload PRIVATE decenza_shotlib ZLIB::ZLIB)
 target_include_directories(tst_decentshotupload PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid, Acaia) ---
@@ -1852,7 +1850,7 @@ target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 # Without it ProfileManager cannot open ":/profiles/default.json" and falls
 # back to whatever a PREVIOUS test left on disk — so this passed on a developer
 # machine and on CI retry, and failed on the first attempt of every clean run.
-# See the note on the ctest retry in linux-release.yml.
+# See the note on the ctest retry in release.yml.
 target_sources(tst_mcptools_profiles PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---

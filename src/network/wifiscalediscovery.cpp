@@ -17,7 +17,6 @@
 #include <QElapsedTimer>
 #include <QJniObject>
 #include <QMap>
-#include <QtCore/private/qandroidextras_p.h>
 #endif
 
 #include "mdnsresolver.h"
