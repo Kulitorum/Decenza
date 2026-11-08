@@ -828,7 +828,7 @@ QString ShotServer::generateRecipesPage() const
             <input id="fYieldValue" type="number" step="0.1">
         </div>
         <div class="grid-2">
-            <div><label>Grind (blank adopts the bag's dial on create)</label><input id="fGrind"></div>
+            <div><label>Grind</label><input id="fGrind"></div>
             <div><label>RPM (0 = unset)</label><input id="fRpm" type="number" step="1"></div>
         </div>
         <label>Drink type</label>
@@ -1292,11 +1292,6 @@ QString ShotServer::generateRecipesPage() const
                 else if (yMode === 'absolute' && yVal > 0) bodyData.yieldG = yVal;
                 else bodyData.yieldG = 0;
             }
-            // Create: OMIT a blank grind so storage adopts the linked bag's
-            // dial (the omit-adopts rule). Update keeps sending '' — there it
-            // means "clear this recipe's grind".
-            if (!editingId && bodyData.grindPinned === '')
-                delete bodyData.grindPinned;
             // Create: link the ACTIVE equipment package (never an empty one),
             // matching the app wizard's default. Awaits the equipment list so a
             // quick save right after page load, or a failed first fetch, does

@@ -221,6 +221,10 @@ NativeRecipeContextSource::NativeRecipeContextSource(Settings* settings,
                 [this](const QString& id, const QVariantMap& result, const QString& reason) {
             finishHistory(id, QStringLiteral("latestGrindForBean"), reason.isEmpty(), result, reason);
         });
+        connect(m_history, &ShotHistoryStorage::recipeGrindDefaultReady, this,
+                [this](const QString& id, const QVariantMap& result, const QString& reason) {
+            finishHistory(id, QStringLiteral("recipeGrindDefault"), reason.isEmpty(), result, reason);
+        });
         connect(m_history, &ShotHistoryStorage::grindContextRequestReady, this,
                 [this](const QString& id, const QVariantMap& result, const QString& reason) {
             finishGrindContext(id, result, reason);
@@ -1060,6 +1064,21 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
             return;
         }
         m_history->requestLatestShotForBeanProfileRequest(requestId, brand, bean, profile);
+        return;
+    }
+    if (operation == QLatin1String("recipeGrindDefault")) {
+        QString id, brand, bean;
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("beanBaseId"),
+                                                QStringLiteral("beanBrand"),
+                                                QStringLiteral("beanType")})
+            || !stringField(QStringLiteral("beanBaseId"), &id)
+            || !stringField(QStringLiteral("beanBrand"), &brand)
+            || !stringField(QStringLiteral("beanType"), &bean)) {
+            m_pendingRequestIds.remove(requestId);
+            fail(QStringLiteral("invalidFields"));
+            return;
+        }
+        m_history->requestRecipeGrindDefault(requestId, id, brand, bean);
         return;
     }
     if (operation == QLatin1String("latestGrindForBean")) {

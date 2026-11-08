@@ -13,9 +13,8 @@ identity fields instead resolves them to that bean's open bag ONCE, at save time
 
 ## Grind lives on the recipe
 
-Omit `grindPinned` to adopt the linked bag's current dial as this recipe's own starting grind —
-this is the recommended path. Set it explicitly to pin a different value. An explicitly empty
-string stores no grind at all.
+Set `grindPinned` to the grind for this recipe. Omitting it or supplying an empty string
+stores no grind; the linked bag does not provide one.
 
 ## Added water
 

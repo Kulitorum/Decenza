@@ -10,10 +10,10 @@
 //
 // Candidates come from GET /api/grind-candidates — computed server-side by the
 // existing C++ stepping machinery, resolved against the grinder identity the
-// PAGE passes in (the shot's grinder, the bag's linked package, the recipe's
-// package — never the active grinder). Nothing is stepped in browser JS.
+// PAGE passes in (the shot's grinder, the recipe's package — never the active
+// grinder). Nothing is stepped in browser JS.
 //
-// Embedded by the shot detail, /beans and /recipes pages; do not re-inline a
+// Embedded by the shot detail and /recipes pages; do not re-inline a
 // private copy per page (SHOTSERVER.md reuse rule).
 inline constexpr const char* WEB_JS_GRIND_DATALIST = R"JS(
         // Fill (or create) the <datalist> for an input and point the input at it.

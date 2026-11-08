@@ -571,6 +571,7 @@ private slots:
         withRawDb(path, "eq_delete_reference_guard", [&](QSqlDatabase& db) {
             QVERIFY(EquipmentStorage::ensureTablesStatic(db));
             QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            QVERIFY(QSqlQuery(db).exec("ALTER TABLE coffee_bags DROP COLUMN equipment_id"));
             createMinimalShots(db);
             EquipmentPackage package;
             package.name = QStringLiteral("Referenced grinder");
@@ -578,11 +579,10 @@ private slots:
                 db, package, QStringLiteral("Turin"), QStringLiteral("DF83V"),
                 QStringLiteral("83mm flat steel"));
             QVERIFY(packageId > 0);
-            CoffeeBag bag;
-            bag.roasterName = QStringLiteral("Roaster");
-            bag.coffeeName = QStringLiteral("Coffee");
-            bag.equipmentId = packageId;
-            QVERIFY(CoffeeBagStorage::insertBagStatic(db, bag) > 0);
+            QSqlQuery shot(db);
+            shot.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+            shot.addBindValue(packageId);
+            QVERIFY(shot.exec());
         });
 
         EquipmentStorage storage;
@@ -605,20 +605,12 @@ private slots:
         withRawDb(path, "eq_cow", [](QSqlDatabase& db) {
             QVERIFY(EquipmentStorage::ensureTablesStatic(db));
             QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            QVERIFY(QSqlQuery(db).exec("ALTER TABLE coffee_bags DROP COLUMN equipment_id"));
             createMinimalShots(db);
 
-            auto bagEq = [&](qint64 id) {
-                QSqlQuery q(db); q.prepare("SELECT equipment_id FROM coffee_bags WHERE id=?");
-                q.addBindValue(id); q.exec(); q.next(); return q.value(0).toLongLong();
-            };
             auto shotEq = [&](qint64 id) {
                 QSqlQuery q(db); q.prepare("SELECT equipment_id FROM shots WHERE id=?");
                 q.addBindValue(id); q.exec(); q.next(); return q.value(0).toLongLong();
-            };
-            auto addBag = [&](qint64 eq) {
-                QSqlQuery q(db);
-                q.prepare("INSERT INTO coffee_bags (roaster_name, equipment_id, in_inventory) VALUES ('R', ?, 1)");
-                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
             };
             auto addShot = [&](qint64 eq) {
                 QSqlQuery q(db);
@@ -626,10 +618,9 @@ private slots:
                 q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
             };
 
-            // Package P, used by a shot and pointed at by a bag.
+            // Package P, used by a shot.
             EquipmentPackage base;
             const qint64 P = EquipmentStorage::createPackageWithGrinderStatic(db, base, "Turin", "DF83V", "83mm flat steel");
-            const qint64 bag = addBag(P);
             const qint64 shot = addShot(P);
 
             // Edit burrs on a USED package -> fork (copy-on-write).
@@ -643,8 +634,7 @@ private slots:
             const EquipmentPackage newP = EquipmentStorage::loadPackageStatic(db, fork);
             QCOMPARE(newP.name, QString("Turin DF83V"));  // name preserved on fork
             QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, fork).burrs, QString("83mm DLC flat"));
-            // Bag repointed to the fork; shot stays on the old package (history).
-            QCOMPARE(bagEq(bag), fork);
+            // The shot stays on the old package (history).
             QCOMPARE(shotEq(shot), P);
 
             // Unchanged identity -> no-op (no new fork).
@@ -736,14 +726,10 @@ private slots:
         withRawDb(path, "eq_merge_ids", [](QSqlDatabase& db) {
             QVERIFY(EquipmentStorage::ensureTablesStatic(db));
             QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            QVERIFY(QSqlQuery(db).exec("ALTER TABLE coffee_bags DROP COLUMN equipment_id"));
             createMinimalShots(db);
             auto addShot = [&](qint64 eq) {
                 QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
-                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
-            };
-            auto addBag = [&](qint64 eq) {
-                QSqlQuery q(db);
-                q.prepare("INSERT INTO coffee_bags (roaster_name, equipment_id, in_inventory) VALUES ('R', ?, 1)");
                 q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
             };
             auto shotEq = [&](qint64 id) {
@@ -766,20 +752,13 @@ private slots:
             const qint64 fresh = EquipmentStorage::supersedeOrEditGrinderStatic(db, old_, "Eureka", "Mignon Single Dose", "Lebrew Sweet");
             QVERIFY(fresh > 0 && fresh != old_);
             const qint64 newShot = addShot(fresh);
-            const qint64 bag = addBag(fresh);
 
             const EquipmentMergeResult r = EquipmentStorage::mergePackagesStatic(db, fresh, old_);
             QVERIFY2(r.ok, qPrintable(r.error));
             QCOMPARE(r.shotsMoved, (qint64)1);
-            QCOMPARE(r.bagsMoved, (qint64)1);
             QCOMPARE(r.recipesMoved, (qint64)0);          // no recipes table in this fixture
             QCOMPARE(shotEq(newShot), old_);              // history united on the survivor
             QCOMPARE(shotEq(oldShot), old_);
-            QSqlQuery bagQ(db);
-            bagQ.prepare("SELECT equipment_id FROM coffee_bags WHERE id=?");
-            bagQ.addBindValue(bag);
-            QVERIFY(bagQ.exec() && bagQ.next());
-            QCOMPARE(bagQ.value(0).toLongLong(), old_);
             QVERIFY(!pkgExists(fresh));                   // source gone, no dangling references
             const EquipmentPackage survivor = EquipmentStorage::loadPackageStatic(db, old_);
             QVERIFY(survivor.inInventory);                // revived: it holds the history now

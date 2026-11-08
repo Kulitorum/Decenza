@@ -338,13 +338,8 @@ void SettingsDye::setDyeGrinderSetting(const QString& value) {
     if (dyeGrinderSetting() != value) {
         m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
-        // Unconditional, like every other bag-backed dye field: the bag always
-        // mirrors the most recently dialed grind (fix-recipe-grind-integrity —
-        // the recipe-pin suspension is retired; an active recipe's own grind
-        // is stamped independently by MainController off the same edit).
-        writeThroughToBag("grinderSetting", value);
-        // Dual write-through: the grind setting is grinder-scoped too, so keep
-        // the active package's last dial current (add-equipment-packages).
+        // The active package remembers its last dial; recipes are stamped
+        // independently by MainController.
         writeThroughToActivePackage("lastGrindSetting", value);
         emit dyeGrinderSettingChanged();
     }
@@ -359,8 +354,6 @@ void SettingsDye::setDyeGrinderRpm(int value) {
     if (dyeGrinderRpm() != value) {
         m_dyeGrinderRpmCache = value;
         m_settings.setValue("dye/grinderRpm", value);
-        // Unconditional, like grind above — rpm rides with the dial.
-        writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
         writeThroughToActivePackage("lastRpm", value > 0 ? QVariant(value) : QVariant());
         emit dyeGrinderRpmChanged();
     }
@@ -374,9 +367,6 @@ void SettingsDye::setActiveEquipmentId(qint64 id) {
     if (activeEquipmentId() == id)
         return;
     m_settings.setValue("dye/activeEquipmentId", id);
-    // The active bag adopts the package (skipped during applyActiveBag via the
-    // m_applyingBag guard inside writeThroughToBag).
-    writeThroughToBag("equipmentId", id > 0 ? QVariant(id) : QVariant());
     emit activeEquipmentIdChanged();
     // Resolve the package to refresh the grinder-identity display cache.
     if (id > 0 && m_equipmentStorage)
@@ -884,11 +874,6 @@ void SettingsDye::applyReviewProtectedBagUpdate(qint64 bagId, const QVariantMap&
     if (changed("roastLevel")) setDyeRoastLevel(bag.value(QStringLiteral("roastLevel")).toString());
     if (changed("beanBaseId")) setDyeBeanBaseId(bag.value(QStringLiteral("beanBaseId")).toString());
     if (changed("beanBaseData")) setDyeBeanBaseData(bag.value(QStringLiteral("beanBaseData")).toString());
-    if (changed("equipmentId")) setActiveEquipmentId(bag.value(QStringLiteral("equipmentId")).toLongLong());
-    const QString grind = bag.value(QStringLiteral("grinderSetting")).toString();
-    if (changed("grinderSetting") && !grind.isEmpty()) setDyeGrinderSetting(grind);
-    const int rpm = bag.value(QStringLiteral("rpm")).toInt();
-    if (changed("rpm") && rpm > 0) setDyeGrinderRpm(rpm);
     refreshBagCaches(bag);
     if (changed("doseWeightG") && m_activeBagDoseG > 0 && doseOwner() != DoseOwner::Recipe)
         setDyeBeanWeight(m_activeBagDoseG);
@@ -964,26 +949,6 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     setDyeBeanBaseId(bag.value("beanBaseId").toString());
     setDyeBeanBaseData(bag.value("beanBaseData").toString());
 
-    // Grinder IDENTITY is not on the bag — it resolves from the equipment
-    // package the bag points at (equipment_id). Grind setting + rpm are the
-    // bag's bean-scoped dial-in; apply when present (a fresh bag with none keeps
-    // the current dial and adopts it on the next edit / shot stamp). Guarded by
-    // m_applyingBag so none of this writes back to the bag/package.
-    //
-    // Equipment only on a switch. A recipe's package that is already active is
-    // not written onto its bag (setActiveEquipmentId returns early on an equal
-    // id), so the row may name none or another package, and re-applying it on
-    // the post-shot reload deactivated the recipe through the equipment
-    // watcher (maincontroller.cpp, activeEquipmentIdChanged). An edit of the
-    // active bag's package sets the active equipment itself (ChangeBeansDialog).
-    if (bagChanged)
-        setActiveEquipmentId(bag.value("equipmentId", -1).toLongLong());
-    const QString grindSetting = bag.value("grinderSetting").toString();
-    if (!grindSetting.isEmpty())
-        setDyeGrinderSetting(grindSetting);
-    const int bagRpm = bag.value("rpm", 0).toInt();
-    if (bagRpm > 0)
-        setDyeGrinderRpm(bagRpm);
     // Caches first: doseOwner() below reads the dose rung.
     refreshBagCaches(bag);
     // Applying the bag's dose is gated on no recipe supplying one — the
@@ -1038,7 +1003,7 @@ void SettingsDye::refreshBagCaches(const QVariantMap& bag)
 
 void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
 {
-    // The "Update Bag" write — the only path a yield reaches the bag. Goes
+    // The "Update Bag" write — SettingsDye's only path from yield to bag. Goes
     // through writeThroughToBag per field (skips when no bag/storage is
     // attached, and dodges the bagUpdated echo via m_pendingSelfWrites).
     // Writing a spec whose mode is "none" clears the bag's anchor.

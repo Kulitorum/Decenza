@@ -51,18 +51,6 @@ The system SHALL create `equipment_packages` and `equipment_items` SQLite tables
 - **THEN** the `equipment_packages` and `equipment_items` tables SHALL be created
 - **AND** the schema version SHALL be set to 22 only after the migration transaction commits
 
-### Requirement: coffee_bags and shots reference a package via equipment_id
-Migration 22 SHALL add a nullable `equipment_id` INTEGER foreign-key column to both `coffee_bags` and `shots`, pointing at `equipment_packages.id`, and SHALL drop the `grinder_brand`, `grinder_model`, and `grinder_burrs` columns from both tables. Both tables SHALL **retain** `grinder_setting` and SHALL **add** a nullable `rpm` INTEGER column.
-
-#### Scenario: Grinder identity resolves through the pointer
-- **WHEN** code needs a bag's or shot's grinder brand/model/burrs
-- **THEN** it SHALL resolve them by following `equipment_id` to the package's grinder item
-- **AND** no grinder identity strings SHALL be stored on the `coffee_bags` or `shots` rows
-
-#### Scenario: Dial-in stays on the row
-- **WHEN** a shot is saved
-- **THEN** its `grinder_setting` and `rpm` SHALL be snapshotted on the `shots` row (not on the package)
-
 ### Requirement: Reference semantics with soft-delete
 Equipment packages SHALL use reference semantics: editing a package's fields SHALL be reflected by every bag and shot pointing at it. Removing a package from use SHALL set `inInventory = 0` and SHALL NOT delete the row, so historical bags and shots continue to resolve.
 
@@ -91,23 +79,23 @@ When a package's grinder item is created or its brand/model is edited, the syste
 - **THEN** `rpmCapable` SHALL be re-derived from the registry for the new identity
 
 ### Requirement: Grinder-scoped dial memory and dual write-through
-Switching the active bag's equipment package SHALL apply that package's `lastGrindSetting`/`lastRpm` to the active bag's grind setting and rpm (and thereby Brew Settings), never leaving them blank but leaving them editable. Editing the grind setting or rpm SHALL write through to **both** the active bag and the active package's `lastGrindSetting`/`lastRpm`.
+Switching the active equipment package SHALL apply that package's `lastGrindSetting`/`lastRpm` to the live grind setting and RPM (and thereby Brew Settings), never leaving them blank but leaving them editable. Editing the grind setting or rpm SHALL write through to the active package's `lastGrindSetting`/`lastRpm`.
 
 #### Scenario: Switch equipment pre-fills the dial
-- **WHEN** the user switches the active bag to a different equipment package
-- **THEN** the active bag's grind setting and rpm SHALL be set to that package's `lastGrindSetting`/`lastRpm`
+- **WHEN** the user switches to a different equipment package
+- **THEN** the live grind setting and RPM SHALL be set to that package's `lastGrindSetting`/`lastRpm`
 - **AND** the values SHALL remain editable
 
 #### Scenario: Editing the dial updates both memories
 - **WHEN** the user edits the grind setting or rpm in Brew Settings
-- **THEN** the new value SHALL be written to the active bag AND to the active package's last-dial fields
+- **THEN** the new value SHALL be written to the active package's last-dial fields and not to the bag
 
 ### Requirement: SettingsDye exposes resolved grinder identity and equipment selection
-`SettingsDye` SHALL expose `dyeGrinderBrand`, `dyeGrinderModel`, and `dyeGrinderBurrs` as **read-only** values resolved through the active bag's `equipment_id`. It SHALL expose `dyeGrinderSetting` and a new `dyeGrinderRpm` as writable dial-in values (writing through to bag and active package per the dual write-through rule), and an `activeEquipmentId` for selecting/switching the package.
+`SettingsDye` SHALL expose `dyeGrinderBrand`, `dyeGrinderModel`, and `dyeGrinderBurrs` as **read-only** values resolved through the active equipment package. It SHALL expose `dyeGrinderSetting` and a new `dyeGrinderRpm` as writable dial-in values (writing through to the active package), and an `activeEquipmentId` for selecting/switching the package.
 
 #### Scenario: Read resolves via the package
 - **WHEN** `dyeGrinderModel` is read
-- **THEN** it SHALL return the model of the active bag's package grinder item, or empty when no package is linked
+- **THEN** it SHALL return the model of the active package grinder item, or empty when no package is active
 
 ### Requirement: Migration 22 splits combined grind+rpm settings
 Migration 22 SHALL perform a best-effort, marker-gated split of every existing `grinder_setting` on `coffee_bags` and `shots`: a trailing token matching `(\d+)\s*rpm` (case-insensitive) SHALL move the number into `rpm` and leave the remainder (trimmed) in `grinder_setting`. A setting with no explicit `rpm` marker SHALL be left exactly as-is with `rpm` null.
@@ -142,12 +130,12 @@ Migration 22 SHALL create equipment packages keyed on grinder identity `(brand, 
 - **AND** a per-grinder package's `lastGrindSetting`/`lastRpm` SHALL seed from that grinder's most-recent shot
 
 ### Requirement: Equipment survives backup restore and device-to-device transfer
-The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `equipment_packages` and `equipment_items` rows and remap `coffee_bags.equipment_id` and `shots.equipment_id` to the new package ids (alongside the existing bag-id remap). `SettingsSerializer` SHALL exclude `dye/activeEquipmentId` from export.
+The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `equipment_packages` and `equipment_items` rows and remap `shots.equipment_id` to the new package ids (alongside the existing bag-id remap). `SettingsSerializer` SHALL exclude `dye/activeEquipmentId` from export.
 
 #### Scenario: Restoring a backup with equipment
 - **WHEN** a backup containing equipment tables is restored
 - **THEN** all packages and items SHALL be imported with new ids
-- **AND** imported bags' and shots' `equipment_id` SHALL point at the corresponding imported packages
+- **AND** imported shots' `equipment_id` SHALL point at the corresponding imported packages
 
 ### Requirement: A package MAY own an optional basket component
 An equipment package SHALL be able to own at most one `equipment_items` row of
@@ -493,3 +481,17 @@ a forked package.
 - **GIVEN** an archived package and an in-inventory package both named "Niche Zero"
 - **WHEN** the user restores the archived package
 - **THEN** it returns to inventory with its name unchanged
+
+### Requirement: Shots retain their equipment and dial snapshots
+Shots SHALL retain their equipment reference, recorded grind and RPM independently of bags.
+
+#### Scenario: Load an existing shot
+- **WHEN** a shot recorded before the upgrade is opened
+- **THEN** its recorded equipment, grind and RPM remain available and unchanged
+
+### Requirement: Equipment lifecycle does not depend on bags
+Equipment deletion, merging and identity edits SHALL work without bag equipment references while preserving the existing protection of shots, recipes and package lineage.
+
+#### Scenario: Merge after upgrade
+- **WHEN** equipment packages are merged after bag fields are removed
+- **THEN** the operation applies its existing shot, recipe and lineage rules without querying a bag equipment field

@@ -106,8 +106,8 @@ QVariant bindYieldMode(const CoffeeBag& b) { return YieldSpec::normalizedMode(b.
 void setYieldMode(CoffeeBag& b, const QVariant& v) { b.yieldMode = YieldSpec::normalizedMode(v.toString()); }
 
 // String columns carry an explicit Visualizer flag (the identity/lifecycle
-// strings sync; the grinder/visualizer-id strings do not). The numeric/bool
-// columns are local-only, except in_inventory, spelled out below.
+// strings sync; storage_hint/opened_date and the visualizer_* strings do not).
+// The numeric/bool columns are local-only, except in_inventory, spelled out below.
 #define COL_STR(sqlName, member, viz) \
     BagCol{ sqlName, #member, viz, true, \
             &readStr<&CoffeeBag::member>, &bindStr<&CoffeeBag::member>, \
@@ -157,21 +157,14 @@ const BagCol kCols[] = {
     BagCol   { "in_inventory", "inInventory", true, true,
                &readBool<&CoffeeBag::inInventory>, &bindBool<&CoffeeBag::inInventory>,
                &getMember<&CoffeeBag::inInventory>, &setBool<&CoffeeBag::inInventory> },
-    // Grinder identity (brand/model/burrs) is no longer stored on the bag —
-    // it resolves through equipment_id to the package's grinder item
-    // (migration 23 dropped the columns). The grind setting + rpm stay as the
-    // bag's bean-scoped dial memory.
-    COL_STR  ("grinder_setting",       grinderSetting,      false),
-    COL_EPOCH("equipment_id",          equipmentId),
-    COL_EPOCH("rpm",                   rpm),
     COL_DBL  ("dose_weight_g",         doseWeightG),
-    // Yield spec (add-yield-ratio-anchor). Local-only like the rest of the
-    // dial memory (visualizer=false on both columns — Visualizer's bag record
+    // Yield spec (add-yield-ratio-anchor). Local-only like the dose
+    // (visualizer=false on both columns — Visualizer's bag record
     // has no yield concept, so an anchor edit must never trigger a PATCH).
     // Plain COL_DBL is safe for yield_value (strictly positive in both
     // modes); yield_mode normalizes through YieldSpec so NULL/junk reads as
     // "none". The legacy yield_override_g column is dead in place
-    // (migration 34), like the grinder identity columns above.
+    // (migration 34).
     COL_DBL  ("yield_value",           yieldValue),
     BagCol   { "yield_mode", "yieldMode", false, true,
                &readYieldMode, &bindYieldMode,
@@ -399,8 +392,7 @@ const QStringList& CoffeeBag::teaOnlyKeys()
 // static
 const QStringList& CoffeeBag::coffeeOnlyKeys()
 {
-    static const QStringList keys = {
-        QStringLiteral("roastLevel"), QStringLiteral("grinderSetting"), QStringLiteral("rpm")};
+    static const QStringList keys = {QStringLiteral("roastLevel")};
     return keys;
 }
 
@@ -424,6 +416,14 @@ QString CoffeeBag::kindFieldError(const QVariantMap& stored, const QVariantMap& 
 // static
 QString CoffeeBag::writeError(const QVariantMap& stored, const QVariantMap& changes, const QDate& today)
 {
+    for (const QString& key : CoffeeBagFields::legacyDialKeys()) {
+        const QString value = changes.value(key).toString().trimmed();
+        const bool clear = value.isEmpty()
+            || (key != QLatin1String("grinderSetting") && value == QLatin1String("0"))
+            || (key == QLatin1String("equipmentId") && value == QLatin1String("-1"));
+        if (!clear)
+            return QStringLiteral("%1 is no longer stored on bags").arg(key);
+    }
     if (const QString err = kindFieldError(stored, changes); !err.isEmpty())
         return err;
     const QString fieldError = lifecycleFieldError(changes, today);
@@ -723,11 +723,13 @@ void CoffeeBagStorage::requestCreateBagImpl(const QVariantMap& bagMap, QObject* 
     }
     auto newId = std::make_shared<qint64>(-1);
     auto created = std::make_shared<QVariantMap>();
+    auto failure = std::make_shared<QString>();
     runAsync("bags_create",
-        [bagMap, newId, created](QSqlDatabase& db) {
+        [bagMap, newId, created, failure](QSqlDatabase& db) {
             const QString fieldError = CoffeeBag::writeError({}, bagMap, QDate::currentDate());
             if (!fieldError.isEmpty()) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "create refused:" << fieldError;
+                *failure = fieldError;
                 return;
             }
             CoffeeBag bag = CoffeeBag::fromVariantMap(bagMap);
@@ -737,7 +739,7 @@ void CoffeeBagStorage::requestCreateBagImpl(const QVariantMap& bagMap, QObject* 
                 *created = loadBagStatic(db, *newId).toVariantMap();
         },
         // Write: emit regardless — *newId is -1 on failure, a terminal status.
-        [this, newId, created, contextGuard, completion, emitLegacySignals](bool dbOpened) {
+        [this, newId, created, failure, contextGuard, completion, emitLegacySignals](bool dbOpened) {
             if (emitLegacySignals)
                 emit bagCreated(*newId, *created);
             if (*newId > 0) {
@@ -747,7 +749,7 @@ void CoffeeBagStorage::requestCreateBagImpl(const QVariantMap& bagMap, QObject* 
             if (completion && contextGuard) {
                 const bool success = dbOpened && *newId > 0;
                 completion(*newId, success, *created,
-                           success ? QString() : QStringLiteral("createFailed"));
+                           success ? QString() : failure->isEmpty() ? QStringLiteral("createFailed") : *failure);
             }
         });
 }
@@ -1290,10 +1292,10 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             notes TEXT,
             start_weight_g REAL,
             in_inventory INTEGER NOT NULL DEFAULT 1,
-            -- Grinder identity columns are created here for the migration chain
-            -- (migration 22 reads them to seed equipment packages) and dropped by
-            -- migration 23 once identity resolves via equipment_id. Runtime
-            -- reads/writes go through kCols, which no longer lists them.
+            -- Grinder and dial columns exist only for the migration chain:
+            -- migration 22 reads grinder_* to seed equipment packages, 23 drops
+            -- the identity columns, and 52 drops grinder_setting, equipment_id
+            -- and rpm. Runtime reads/writes go through kCols, which lists none.
             grinder_brand TEXT,
             grinder_model TEXT,
             grinder_burrs TEXT,
@@ -1393,24 +1395,7 @@ CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId, QStrin
     }
     if (!query.next())
         return CoffeeBag();
-    CoffeeBag bag = bagFromQueryRow(query);
-    // Materialize the read-only grinder identity from the bag's equipment package
-    // (the bag no longer stores brand/model/burrs — migration 23). Keeps the
-    // CoffeeBag display-cache fields useful for consumers like MCP bag_list;
-    // burrs lives in the grinder item's attrs JSON. Self-contained so there's no
-    // dependency on EquipmentStorage. NULL equipment_id leaves the fields empty.
-    if (bag.equipmentId > 0) {
-        QSqlQuery gi(db);
-        gi.prepare("SELECT brand, model, json_extract(attrs, '$.burrs') FROM equipment_items "
-                   "WHERE package_id = :id AND kind = 'grinder' LIMIT 1");
-        gi.bindValue(":id", bag.equipmentId);
-        if (gi.exec() && gi.next()) {
-            bag.grinderBrand = gi.value(0).toString();
-            bag.grinderModel = gi.value(1).toString();
-            bag.grinderBurrs = gi.value(2).toString();
-        }
-    }
-    return bag;
+    return bagFromQueryRow(query);
 }
 
 QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db, bool finished,
@@ -1465,6 +1450,21 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "update refused:" << writeError;
         if (refusal)
             *refusal = writeError;
+        return false;
+    }
+    // Legacy keys that passed writeError are clears: drop them. A request of
+    // only clears succeeds as a no-op when the bag exists.
+    for (const QString& key : CoffeeBagFields::legacyDialKeys())
+        fields.remove(key);
+    if (fields.isEmpty() && !inFields.isEmpty()) {
+        QSqlQuery exists(db);
+        if (exists.prepare(QStringLiteral("SELECT 1 FROM coffee_bags WHERE id = ?"))) {
+            exists.addBindValue(bagId);
+            if (exists.exec())
+                return exists.next();
+        }
+        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "could not check bag" << bagId << "exists:"
+                                                << exists.lastError().text();
         return false;
     }
     // beanBaseDataPatch: blob keys to set ("" or null removes), merged into the
@@ -1697,9 +1697,9 @@ bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
     // canonical_coffee_bag_id; beanBaseData -> the descriptive blob
     // (country/variety/process/tasting/...); roasterName maps to the bag's
     // roaster_id (re-resolved on rename); inInventory -> archived_at.
-    // Deliberately EXCLUDES the local-only columns (grinder*/dose/yield/
-    // startWeight/lastUsed and the visualizer_* sync state itself) so a grinder
-    // write-through or dose/yield stamp never triggers a network PATCH.
+    // Deliberately EXCLUDES the local-only columns (dose/yield/startWeight/
+    // lastUsed and the visualizer_* sync state itself) so a dose/yield stamp
+    // never triggers a network PATCH.
     const QSet<QString>& kVisualizerKeys = bagVisualizerKeys();
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
         if (kVisualizerKeys.contains(it.key()) || it.key() == QLatin1StringView("beanBaseDataPatch"))
@@ -1716,10 +1716,6 @@ CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)
     bag.roastLevel = preset.value("roastLevel").toString();
     bag.beanBaseId = preset.value("beanBaseId").toString();
     bag.beanBaseData = preset.value("beanBaseData").toString();
-    // Grinder identity is no longer a bag column (migration 23) — it resolves
-    // through equipment_id. Legacy presets predate the equipment model and carry
-    // no package linkage, so only the grind setting is carried across.
-    bag.grinderSetting = preset.value("grinderSetting").toString();
     bag.inInventory = true;
 
     // The user-chosen preset label survives in notes when it carried more
@@ -1905,8 +1901,7 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
 }
 
 bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
-                                        QHash<qint64, qint64>& outIdMap,
-                                        const QHash<qint64, qint64>& packageIdMap)
+                                        QHash<qint64, qint64>& outIdMap)
 {
     // Pre-migration-19 source: no coffee_bags table, nothing to import.
     {
@@ -1925,7 +1920,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     }
 
     // Build the source SELECT tolerantly: a backup from an older version lacks
-    // newer columns (equipment_id/rpm pre-22, visualizer_sync_pending pre-24),
+    // newer columns (visualizer_sync_pending pre-24, yield_value pre-34),
     // and naming a missing column fails the whole SELECT — so missing ones are
     // substituted with NULL, keeping bagFromQueryRow's positional read aligned
     // with kCols while absent fields land on the struct defaults.
@@ -1983,12 +1978,6 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 bag.yieldMode = YieldSpec::modeAbsolute();
             }
         }
-        // Remap the source equipment_id to the imported package's new dest id
-        // (add-equipment-packages task 2.8). A source id absent from the map
-        // (older source with no equipment tables, or an unmatched package)
-        // becomes 0 -> NULL. rpm (a plain dial-in number) carries fine as-is.
-        bag.equipmentId = packageIdMap.value(bag.equipmentId, 0);
-
         qint64 destId = -1;
         if (merge) {
             QSqlQuery dupQuery(destDb);

@@ -1898,10 +1898,9 @@ DecenzaDialog {
             // Grind setting (+ rpm when the grinder is rpm-adjustable) — dial-in.
             // One tap-to-open control for both halves ("grind · rpm"): tapping
             // opens the grind picker (wheels + keyboard entry). Commits land on
-            // the dialog's PENDING grindSetting/grindRpm; the dual write-through
-            // (active bag + package) still happens on the dialog's own commit
-            // button, unchanged (brew-settings-equipment). Context is the active
-            // grinder — this dialog edits the live dial-in.
+            // the dialog's PENDING grindSetting/grindRpm; the write-through to
+            // the active package happens on the dialog's own commit button.
+            // Context is the active grinder — this dialog edits the live dial-in.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)

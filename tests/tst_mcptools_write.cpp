@@ -825,6 +825,20 @@ private slots:
         QJsonObject dr = f.callAsyncTool("bag", withAction("create", def));
         QVERIFY2(dr["success"].toBool(), qPrintable(QJsonDocument(dr).toJson()));
         QCOMPARE(dr["bag"].toObject()["kind"].toString(), QString("coffee"));
+        const qint64 bagId = dr["bag"].toObject()["bagId"].toInteger();
+        QVERIFY(bagId > 0);
+        for (const auto& field : {QStringLiteral("grinderSetting"), QStringLiteral("rpm"),
+                                  QStringLiteral("equipmentId")}) {
+            QJsonObject oldCreate = def;
+            oldCreate[field] = field == QLatin1String("grinderSetting") ? QJsonValue("8") : QJsonValue(100);
+            QVERIFY(f.callAsyncTool("bag", withAction("create", oldCreate)).contains("error"));
+            QJsonObject oldUpdate{{"bagId", bagId}, {field, oldCreate[field]}};
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("update refused: " + field));
+            QVERIFY(f.callAsyncTool("bag", withAction("update", oldUpdate)).contains("error"));
+            oldUpdate[field] = field == QLatin1String("grinderSetting") ? QJsonValue("") : QJsonValue(0);
+            const QJsonObject cleared = f.callAsyncTool("bag", withAction("update", oldUpdate));
+            QVERIFY2(cleared["success"].toBool(), qPrintable(QJsonDocument(cleared).toJson()));
+        }
 
         // Neither roaster nor coffee name: rejected.
         QJsonObject empty; empty["kind"] = "tea";

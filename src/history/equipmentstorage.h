@@ -50,14 +50,14 @@ struct EquipmentItem {
     void setAttrsFromJson(const QString& json);
 };
 
-// An equipment package: the switchable container the active bag points at via
-// coffee_bags.equipment_id (and shots.equipment_id snapshots). It owns zero or
+// An equipment package: the switchable container selected by
+// dye/activeEquipmentId (and snapshotted in shots.equipment_id). It owns zero or
 // more EquipmentItems — at most one grinder, OPTIONAL since
 // add-recipe-wizard-tea (a basket-only tea setup is a grinder-less package:
 // display name falls back to the basket identity, grind/rpm surfaces stay
-// absent). The package also carries the grinder-scoped "last dial" memory —
-// switching to a package applies these to the active bag's grind setting /
-// rpm (the bean-scoped memory lives on the bag).
+// absent). The package also carries the "last dial" memory — switching to a
+// package applies it to the live grind setting / rpm (dye/grinderSetting,
+// dye/grinderRpm).
 struct EquipmentPackage {
     qint64 id = 0;
 
@@ -130,7 +130,6 @@ struct PackageIdentity {
 struct EquipmentMergeResult {
     bool ok = false;
     qint64 shotsMoved = 0;
-    qint64 bagsMoved = 0;
     qint64 recipesMoved = 0;
     QString error;  // "", "samePackage", "sourceNotFound", "targetNotFound", "sqlFailed"
 };
@@ -193,8 +192,8 @@ public:
     // NOT go through this object's async methods and so emitted nothing itself.
     // The MCP equipment tools are that case: they write on their own withTempDb
     // connection, and without this the Equipment page keeps showing a package the
-    // merge deleted, which the user can then still tap (writing a dangling
-    // equipment_id onto the active bag — the orphaning the merge exists to undo).
+    // merge deleted, which the user can then still tap (selecting a dangling
+    // package id — the orphaning the merge exists to undo).
     // Call on the GUI thread, after the write has committed.
     void notifyPackagesChangedExternally() { emit packagesChanged(); }
 
@@ -224,7 +223,7 @@ public:
     void requestRestorePackageWithCompletion(qint64 packageId, QObject* context,
                                              PackageUpdateCompletion completion);
     Q_INVOKABLE void requestTouchLastUsed(qint64 packageId);              // bump MRU (no signal)
-    // Deletes only when no bag/shot references the package; emits
+    // Deletes only when no shot, recipe or superseded_by references the package; emits
     // packageDeleted(packageId, success) — success false when references exist.
     Q_INVOKABLE void requestDeletePackage(qint64 packageId);
     void requestDeletePackageWithCompletion(qint64 packageId, QObject* context,
@@ -302,16 +301,16 @@ public:
     // as active:
     //   - identity unchanged                      -> same id (no-op)
     //   - another in-inventory package matches     -> merge: repoint this
-    //       package's bags and recipes to it, delete this package if unused else soft-delete
+    //       package's recipes to it, delete this package if unused else soft-delete
     //       it with superseded_by -> that id
     //   - package unused (no shots)                -> edit in place -> same id
     //   - every differing component was EMPTY      -> edit in place -> same id
     //       (enrichment: filling in gear the package always had, not a swap)
     //   - package used (>=1 shot)                  -> fork a new package (copies
-    //       name + last dial), repoint bags and recipes, soft-delete old (superseded_by) -> new id
+    //       name + last dial), repoint recipes, soft-delete old (superseded_by) -> new id
     // Identity is the full (grinder brand/model/burrs + basket brand/model +
     // puckprep canonical flag string) tuple; "no basket" / "no puck prep" are
-    // distinct values. Bags and recipes are repointed here (shots never are: they
+    // distinct values. Recipes are repointed here (shots never are: they
     // keep the gear they were pulled with); the active-equipment selection is the
     // caller's to update from the returned id.
     static qint64 supersedeOrEditStatic(QSqlDatabase& db, qint64 packageId,
@@ -327,7 +326,7 @@ public:
                                                const QString& brand, const QString& model,
                                                const QString& burrs);
 
-    // Fold `sourceId` into `targetId` and delete the source: every shot, bag and
+    // Fold `sourceId` into `targetId` and delete the source: every shot and
     // recipe pointing at the source is repointed at the target, lineage pointers
     // that named the source name the target instead, and a retired target is
     // brought back into inventory (the package that ends up holding the history
@@ -414,13 +413,14 @@ public:
                                                      const QString& basketBrand = QString(),
                                                      const QString& basketModel = QString(),
                                                      const QString& puckPrep = QString(),
-                                                     bool includeArchived = false);
+                                                     bool includeArchived = false,
+                                                     bool* lookupOk = nullptr);
 
     // The id of an IN-INVENTORY package whose name matches `name` (trimmed,
     // case-insensitive), excluding `excludeId`, or 0. Backs the active-name
     // uniqueness guard (block-duplicate-active-names). A blank name never matches.
     static qint64 findPackageByNameStatic(QSqlDatabase& db, const QString& name,
-                                          qint64 excludeId = 0);
+                                          qint64 excludeId = 0, bool* lookupOk = nullptr);
 
     // rpmCapable for a grinder identity: the registry's variableRpm when the
     // brand/model matches an alias, else true (a custom grinder shows the rpm
@@ -451,7 +451,7 @@ public:
     // Device-transfer import (add-equipment-packages task 2.8). Imports
     // equipment_packages + equipment_items from srcDb into destDb with new ids,
     // filling outIdMap[srcPackageId] = destPackageId so the caller can remap
-    // coffee_bags.equipment_id and shots.equipment_id. superseded_by is remapped
+    // shots.equipment_id and recipes.equipment_id. superseded_by is remapped
     // through the same map after all packages are inserted. In merge mode an
     // in-inventory source package whose grinder identity already exists in dest
     // maps to that existing package WITHOUT copying a duplicate package/items;
@@ -495,8 +495,8 @@ signals:
     // not read alike).
     void packageUpdateFailed(qint64 packageId, const QString& reason);
     void packageDeleted(qint64 packageId, bool success);
-    // An update forked or merged `fromId` into `toId` (bags and recipes moved
-    // with it). Emitted immediately BEFORE packageUpdated(toId, true).
+    // An update forked or merged `fromId` into `toId` (recipes moved with it).
+    // Emitted immediately BEFORE packageUpdated(toId, true).
     void packageSuperseded(qint64 fromId, qint64 toId);
     void packagesChanged();
 

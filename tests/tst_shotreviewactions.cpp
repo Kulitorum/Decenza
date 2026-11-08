@@ -360,7 +360,9 @@ private slots:
         const auto bagPatch = plan.value("bagPatch").toMap();
         const auto recipePatch = plan.value("recipePatch").toMap();
         QCOMPARE(bagPatch.value("doseWeightG").toDouble(), 20.0);
-        QCOMPARE(bagPatch.value("grinderSetting").toString(), QStringLiteral("11"));
+        QVERIFY(!bagPatch.contains("grinderSetting"));
+        QVERIFY(!bagPatch.contains("rpm"));
+        QVERIFY(!bagPatch.contains("equipmentId"));
         QVERIFY(!bagPatch.contains("yieldValue"));
         QVERIFY(!bagPatch.contains("yieldMode"));
         QCOMPARE(recipePatch.value("doseG").toDouble(), 20.0);

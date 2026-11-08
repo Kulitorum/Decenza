@@ -72,7 +72,7 @@ The confirmation SHALL offer keeping the next shot unchanged or applying the dis
 
 #### Scenario: Corrected bag with unrelated saved dial-in values
 - **GIVEN** the next shot uses 19 g, grind 10 and a 59 g absolute target
-- **AND** the corrected bag stores a different dose, grind, equipment and yield
+- **AND** the corrected bag stores a different dose and yield
 - **WHEN** the user accepts a bean-only correction
 - **THEN** the next shot uses the corrected bag and retains 19 g, grind 10, its equipment and 59 g absolute target
 - **AND** the corrected bag's other saved settings are not rewritten
@@ -85,7 +85,7 @@ The confirmation SHALL offer keeping the next shot unchanged or applying the dis
 #### Scenario: Accepted dial correction survives equipment selection
 - **WHEN** the user accepts a grind or RPM correction with equipment selected
 - **THEN** the confirmation discloses the corrected equipment package's saved dial values
-- **AND** those explicitly corrected fields are saved with the bag and recipe changes
+- **AND** those explicitly corrected fields are saved to the equipment and any applicable recipe, never to the bag
 - **AND** reselecting that equipment preserves the accepted dial
 - **AND** a bean-only correction does not write equipment dial values
 

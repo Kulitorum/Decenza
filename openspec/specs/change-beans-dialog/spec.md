@@ -29,7 +29,7 @@ Results SHALL be ranked by data quality and recency in six tiers: 0, bags in inv
 
 #### Scenario: Another bag of the same coffee (Add New Bag)
 - **WHEN** the dialog is opened from the Beans window's Add New Bag action and the user picks a Tier 0 inventory bag
-- **THEN** the creation form SHALL open pre-filled from that bag (identity, canonical link, grinder/dose, notes) with the roast date blank and identity editable
+- **THEN** the creation form SHALL open pre-filled from that bag (identity, canonical link, dose, notes) with the roast date blank and identity editable
 - **AND** confirming SHALL create a SEPARATE new bag — two bags of the same coffee, each with its own roast date / freeze state, is supported
 
 #### Scenario: Inventory bag absorbs its own history/canonical match
@@ -94,17 +94,17 @@ After selecting any result, the dialog SHALL show a Bag Details form pre-filled 
 
 #### Scenario: Picking a canonical + history result
 - **WHEN** the user picks a Tier 1 result (both sources)
-- **THEN** the form SHALL show: roast date (blank — optional), and collapse all fields already known (canonical attributes, grinder from history, dose from history)
-- **AND** notes, grinder hardware, and the freeze toggle SHALL be visible inline (no expander — it only added a click)
+- **THEN** the form SHALL show: roast date (blank — optional), and collapse all fields already known (canonical attributes, dose from history)
+- **AND** notes and the freeze toggle SHALL be visible inline (no expander — it only added a click)
 
 #### Scenario: Picking a canonical-only result
 - **WHEN** the user picks a Tier 2 Bean Base result with no history
-- **THEN** the form SHALL show: roast date (blank — optional), grinder setting (blank)
+- **THEN** the form SHALL show: roast date (blank — optional)
 - **AND** canonical attributes SHALL prefill the collapsed Bean details section as editable fields (per `bag-detail-editing`), not read-only confirmation
 
 #### Scenario: Manual entry
 - **WHEN** the user selects "Enter manually"
-- **THEN** all fields SHALL be shown as editable: roaster, coffee name, roast date, roast level, grinder setting, dose
+- **THEN** all fields SHALL be shown as editable: roaster, coffee name, roast date, roast level, dose
 - **AND** the text typed into the search before choosing it SHALL prefill the coffee name, not be discarded
 - **AND** the collapsed Bean details section SHALL be available for optional detail entry
 
@@ -190,27 +190,6 @@ When no tea bags exist, tea mode SHALL open directly on the form. The search fie
 
 - **WHEN** the user types in the search field in tea mode
 - **THEN** the label naming past tea bags remains visible
-
-### Requirement: A new bag SHALL NOT start with an empty equipment package
-The bag creation form SHALL default its equipment package so the grinder context is never empty. A re-buy prefill SHALL keep the source bag's package, since past beans keep the equipment they were ground on, and every other create path SHALL default to the currently active package. The user MAY still switch before saving. This applies to the in-app dialog and the `/beans` web form; editing an existing bag keeps its own link, including "none".
-
-#### Scenario: Manual new coffee defaults to the active package
-
-- **GIVEN** an active equipment package and a manual "add a new coffee" entry
-- **WHEN** the creation form opens (app or `/beans`)
-- **THEN** the equipment row SHALL show the active package
-- **AND** the grind picker SHALL resolve RPM capability against it, not the unknown-grinder fallback
-
-#### Scenario: Re-buy keeps the source bag's package
-
-- **GIVEN** a past bag linked to package A while package B is active
-- **WHEN** the user re-buys that bag
-- **THEN** the creation form SHALL open with package A
-
-#### Scenario: Empty package trips the unknown-grinder fallback
-
-- **WHEN** a new bag is created with an empty equipment package
-- **THEN** the grind control assumes an RPM-capable grinder and offers the wrong picker, which is why the package is never left empty
 
 ### Requirement: Link state is visible on each result row
 

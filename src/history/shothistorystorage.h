@@ -46,6 +46,9 @@ public:
     // Database lifecycle
     bool initialize(const QString& dbPath = QString());
     bool isReady() const { return m_ready; }
+    // Migration 52's one-time notice for users who relied on per-bag grind recall.
+    Q_INVOKABLE bool bagGrindNoticePending() const { return m_bagGrindNoticePending; }
+    Q_INVOKABLE void acknowledgeBagGrindNotice();
     int totalShots() const { return m_totalShots; }
     bool loadingFiltered() const { return m_loadingFiltered; }
 
@@ -86,7 +89,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 51;
+    static constexpr int kCurrentSchemaVersion = 52;
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -285,6 +288,8 @@ public:
                                          const QString& beanType,
                                          const QString& roastLevel,
                                          qint64 equipmentId = 0);
+    void requestRecipeGrindDefault(const QString& requestId, const QString& beanBaseId,
+                                   const QString& beanBrand, const QString& beanType);
     // Correlated filter choices for shared recipe/bean forms. These use the
     // same canonical DISTINCT queries as the synchronous native getters.
     void requestDistinctBeanBrandsForRequest(const QString& requestId);
@@ -303,6 +308,12 @@ public:
                                                     const QString& beanType,
                                                     const QString& roastLevel,
                                                     qint64 equipmentId = 0);
+    // A shot matches by exact Bean Base id, or by brand+type when either side lacks an id
+    // (off when those names map to more than one canonical id). Newest match wins, ties by
+    // higher shot id; any profile or equipment. Scans shots: call on a DB thread.
+    static QVariantMap loadRecipeGrindDefaultStatic(QSqlDatabase& db, const QString& beanBaseId,
+                                                     const QString& beanBrand, const QString& beanType,
+                                                     QString* error = nullptr);
 
     // Static version for background-thread use — caller provides their own connection.
     // Always recomputes the four quality badges from the loaded curve data and, when
@@ -778,6 +789,8 @@ signals:
                                               const QVariantMap& shot, const QString& reason);
     void latestGrindForBeanRequestReady(const QString& requestId,
                                         const QVariantMap& grind, const QString& reason);
+    void recipeGrindDefaultReady(const QString& requestId, const QVariantMap& grind,
+                                 const QString& reason);
     void distinctBeanBrandsRequestReady(const QString& requestId,
                                         const QStringList& values, const QString& reason);
     void distinctBeanTypesForBrandRequestReady(const QString& requestId,
@@ -967,6 +980,7 @@ private:
     bool m_ready = false;
     int m_totalShots = 0;
     int m_schemaVersion = 1;
+    bool m_bagGrindNoticePending = false;
     int m_schemaVersionAtStart = 1;  // schema version on open, before this run's migrations (crossedSchemaVersion)
     bool m_schemaVersionAtStartKnown = false;  // false until read successfully; suppresses phantom crossings
     qint64 m_lastSavedShotId = 0;

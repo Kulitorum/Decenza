@@ -1996,11 +1996,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         if (!bag.openedDate.isEmpty()) obj["openedDate"] = bag.openedDate;
         if (!bag.notes.isEmpty()) obj["notes"] = bag.notes;
         obj["inInventory"] = bag.inInventory;
-        if (!bag.grinderBrand.isEmpty()) obj["grinderBrand"] = bag.grinderBrand;
-        if (!bag.grinderModel.isEmpty()) obj["grinderModel"] = bag.grinderModel;
-        if (!bag.grinderBurrs.isEmpty()) obj["grinderBurrs"] = bag.grinderBurrs;
-        if (!bag.grinderSetting.isEmpty()) obj["grinderSetting"] = bag.grinderSetting;
-        if (bag.rpm > 0) obj["rpm"] = bag.rpm;  // RPM half of the bean-scoped dial-in (sparse)
         if (bag.doseWeightG > 0) obj["doseWeightG"] = bag.doseWeightG;
         // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive
         // keys — grams for an absolute anchor, a dose multiplier for a
@@ -2119,9 +2114,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             for (const QString& key : {QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
                                        QStringLiteral("frozenDate"), QStringLiteral("storageHint"),
-                                       QStringLiteral("grinderSetting"), QStringLiteral("notes")})
+                                       QStringLiteral("notes")})
                 if (args.contains(key)) bag.insert(key, args[key].toString());
-            if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
+            for (const QString& key : CoffeeBagFields::legacyDialKeys())
+                if (args.contains(key)) bag.insert(key, args[key].toVariant());
             if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
             bag.insert("inInventory", true);
             if (const QString err = CoffeeBag::writeError({}, bag, QDate::currentDate()); !err.isEmpty()) {
@@ -2186,8 +2182,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
             if (args.contains("grinderBrand") || args.contains("grinderModel") || args.contains("grinderBurrs")) {
-                respond(QJsonObject{{"error", "A bag's grinder comes from its equipment package: set it with "
-                                              "the equipment tool, not on the bag"}});
+                respond(QJsonObject{{"error", "Grinder identity belongs to equipment, not a bag"}});
                 return;
             }
             // yieldOverrideG was a real bag-update key until this change, so
@@ -2206,11 +2201,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
             QVariantMap fields;
-            static const QStringList kEditable = {
+            static const QStringList kEditable = QStringList{
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
                 "frozenDate", "defrostDate", "storageHint", "openedDate", "notes",
-                "grinderSetting", "rpm",
-                "doseWeightG", "inInventory"};
+                "doseWeightG", "inInventory"} + CoffeeBagFields::legacyDialKeys();
             for (const QString& key : kEditable) {
                 if (args.contains(key))
                     fields.insert(key, args[key].toVariant());
@@ -2544,9 +2538,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     registry->registerActionTool(
         "bag",
         "Coffee bags: list, create, update, select. A bag carries the beans, roast date, the "
-        "dose/grind the last shot used, and the equipment package it was dialled on; select makes "
+        "last-used dose; select makes "
         "one active so new shots record against it. Ids come from action=list. Which fields exist, "
-        "what a frozen bag is, and how grind/rpm memory works: get_agent_file topic \"bag\".",
+        "and what a frozen bag is: get_agent_file topic \"bag\".",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -2562,8 +2556,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"defrostDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD this portion left the freezer, '' to clear"}}},
                 {"storageHint", QJsonObject{{"type", "string"}, {"description", "counter/airtight/vacuum-sealed/fridge, '' to clear. Valid in any freeze state"}}},
                 {"openedDate", QJsonObject{{"type", "string"}, {"description", "update only: YYYY-MM-DD this portion was first used; a shot sets it"}}},
-                {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Coffee bags only: bean-scoped dial"}}},
-                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder RPM, paired with grinderSetting"}}},
+                {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Legacy field; non-empty values are rejected"}}},
+                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Legacy field; non-zero values are rejected"}}},
+                {"equipmentId", QJsonObject{{"type", "integer"}, {"description", "Legacy field; only 0 or -1 is accepted"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}, {"description", "Dose in grams"}}},
                 {"yieldG", QJsonObject{{"type", "number"}, {"description", "update only: absolute yield target in grams. Excludes yieldRatio; 0 clears"}}},
                 {"yieldRatio", QJsonObject{{"type", "number"}, {"description", "update only: yield as a multiple of dose (0.5-100). Excludes yieldG; 0 clears"}}},
@@ -2951,9 +2946,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     }
                     // Tell the app its inventory changed. This tool writes on its own
                     // connection, so nothing else emits — and an Equipment page left open
-                    // would keep offering the package this merge just deleted. Tapping it
-                    // writes the dead id onto the active bag through setActiveEquipmentId,
-                    // which is the same orphaning the merge was called to repair.
+                    // would keep offering the package this merge just deleted.
                     if (settings && settings->dye()->equipmentStorage())
                         settings->dye()->equipmentStorage()->notifyPackagesChangedExternally();
                     // The active package cannot be one that no longer exists: when the
@@ -2964,7 +2957,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     respond(QJsonObject{{"success", true},
                         {"package", packageToJson(view, activeId == sourceId ? targetId : activeId)},
                         {"shotsMoved", merge.shotsMoved},
-                        {"bagsMoved", merge.bagsMoved},
                         {"recipesMoved", merge.recipesMoved}});
                 }, Qt::QueuedConnection);
             });
@@ -2975,10 +2967,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
 
     registry->registerActionTool(
         "equipment",
-        "Equipment packages — a grinder identity plus an optional basket, shared by every bag and "
-        "shot that references it. list returns the inventory with each package's last grind/rpm; "
+        "Equipment packages — a grinder identity plus an optional basket, referenced by recipes and "
+        "shots. list returns the inventory with each package's last grind/rpm; "
         "create adds one (an identical package is returned, not duplicated); select sets the active "
-        "bag's package and applies its last dial; update edits one (forking a new identity when a "
+        "equipment and applies its last dial; update edits one (forking a new identity when a "
         "component changes); merge folds a wrongly forked package into another and deletes it. "
         "Details: get_agent_file topic \"equipment\".",
         QJsonObject{

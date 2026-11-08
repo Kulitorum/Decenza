@@ -3046,14 +3046,13 @@ void ShotServer::handleGrindCandidatesApi(QTcpSocket* socket, const QString& pat
         //
         // An empty model is not skipped, but nor is it passed straight through:
         // it falls back to the ACTIVE grinder first. Empty here means the record
-        // names no grinder — a new bag with no equipment picked, a recipe with
-        // no package, a shot saved before it had one — and it reaches all three
-        // forms this endpoint feeds (shots, recipes, bags), not just /beans.
+        // names no grinder — a recipe with no package, a shot saved before it
+        // had one — and it reaches both forms this endpoint feeds (shots, recipes).
         //
         // Passing it through pools EVERY grinder's history, which reads as
         // correct only to a one-grinder user, because the pool is their grinder.
         // GrindRowSource.grindStep() resolves the same way for the in-app forms
-        // these three mirror; the surfaces must not disagree about a step the
+        // these mirror; the surfaces must not disagree about a step the
         // user sees on both. Only a user with no grinder anywhere still pools,
         // and for them every grinder is the only pool there is.
         // `dye` is non-null here — the guard above 503s otherwise.

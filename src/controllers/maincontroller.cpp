@@ -611,8 +611,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_settings->dye()->setBagStorage(m_bagStorage);
 
     // Equipment storage shares the same database (equipment_packages +
-    // equipment_items tables, created by migration 22). Switchable grinder
-    // packages the active bag points at via equipment_id.
+    // equipment_items tables, created by migration 22). The active package is
+    // dye/activeEquipmentId.
     m_equipmentStorage = new EquipmentStorage(this);
     m_equipmentStorage->initialize(m_shotHistory->databasePath());
     // Adopt the package that migration 35 merged the active selection into, if it
@@ -2112,9 +2112,7 @@ void MainController::setupRecipeConnections() {
     // only through explicit recipe edits — Brew Settings' "Update Recipe"
     // button, the composer, MCP/web recipe_update — mirroring how a profile's
     // target/temperature never follow the dial either.
-    // Grind/rpm edits always stamp the active recipe's own grind (grind lives
-    // on the recipe, fix-recipe-grind-integrity) — in parallel with SettingsDye's
-    // unconditional bag write-through off the same edit. Grind-less drink
+    // Grind/rpm edits stamp the active recipe's own grind. Grind-less drink
     // types skip the stamp (DrinkTypes::hasGrind, incl. its legacy-row caveat).
     connect(m_settings->dye(), &SettingsDye::dyeGrinderSettingChanged, this, [this]() {
         if (DrinkTypes::hasGrind(m_recipeWiring.activeRecipe().value("drinkType").toString()))
@@ -2524,21 +2522,12 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
             dye->setActiveBagId(-1);
         }
 
-        // Equipment: the recipe's own package, else the bag's.
-        const qint64 equipmentId = recipe.value("equipmentId").toLongLong() > 0
-            ? recipe.value("equipmentId").toLongLong()
-            : linkedBag.value("equipmentId").toLongLong();
+        // A recipe without an equipment choice keeps the current package.
+        const qint64 equipmentId = recipe.value("equipmentId").toLongLong();
         if (equipmentId > 0)
             dye->setActiveEquipmentId(equipmentId);
 
-        // Grind: always the recipe's own dial — grind lives on the recipe
-        // (fix-recipe-grind-integrity; the bag-inherit branch and the
-        // write-through suspension are retired). The setters' unconditional
-        // bag write-through mirrors the value onto the linked bag: selecting
-        // a recipe that selects a bag counts as dialing it (a bean-less
-        // recipe's write-through hits no bag — cleared above). An empty
-        // grind (grind-less tea, a never-dialed import) leaves the current
-        // dial untouched rather than wiping it.
+        // An empty recipe grind leaves the current dial untouched.
         const QString grind = recipe.value("grindPinned").toString();
         if (!grind.isEmpty()) {
             dye->setDyeGrinderSetting(grind);

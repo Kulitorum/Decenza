@@ -1427,6 +1427,17 @@ private slots:
         QVERIFY(!historySpy.last().at(2).toBool());
         QCOMPARE(historySpy.last().at(4).toString(), QStringLiteral("invalidFields"));
 
+        const QString defaultId = service->newRequestId();
+        service->requestHistory(defaultId, QStringLiteral("recipeGrindDefault"),
+                                {{QStringLiteral("beanBaseId"), QString()},
+                                 {QStringLiteral("beanBrand"), QStringLiteral("Roaster")},
+                                 {QStringLiteral("beanType"), QStringLiteral("Coffee B")}});
+        QTRY_COMPARE(historySpy.count(), 4);
+        QCOMPARE(historySpy.last().at(0).toString(), defaultId);
+        QVERIFY(historySpy.last().at(2).toBool());
+        QCOMPARE(historySpy.last().at(3).toMap().value(QStringLiteral("grinderSetting")).toString(),
+                 QStringLiteral("12"));
+
         // Restore the one preference changed by this integration test.
         settings.brew()->setRatioPreset1(originalRatio);
         RecipeContextService::setPublishedNode(nullptr);

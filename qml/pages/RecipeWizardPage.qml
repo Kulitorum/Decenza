@@ -280,11 +280,6 @@ T.Page {
     // fix-recipe-grind-integrity). 0 rpm = unset, uniform across surfaces.
     property string fGrind: ""
     property int fRpmPinned: 0
-    // The linked bag's current dial, read once when the bag is selected and
-    // offered as the grind/rpm fields' editable DEFAULT — grind always lives
-    // on the recipe (fix-recipe-grind-integrity); there is no live follow.
-    property string fBagGrindDefault: ""
-    property real fBagRpmDefault: 0
     property bool fHasMilk: false
     property real fMilkWeightG: 0
     property string fPitcherName: ""
@@ -349,6 +344,10 @@ T.Page {
     property string _latestGrindRequestId: ""
     property var _latestGrindQuery: ({})
     property bool _latestGrindWaitingForHistory: false
+    property string _grindDefaultRequestId: ""
+    property bool _grindDefaultWaiting: false
+    property bool _grindUserEdited: false
+    property string _grindDefaultContext: ""
 
     function requestPromotedShotWhenReady() {
         if (!_promoteShotWaitingForHistory || promoteShotId <= 0
@@ -367,6 +366,8 @@ T.Page {
             requestLatestShotForSelection()
         if (_latestGrindWaitingForHistory)
             requestLatestGrindForSelection()
+        if (_grindDefaultWaiting)
+            requestRecipeGrindDefault()
     }
 
     readonly property bool _equipmentServiceReady: EquipmentService.ready
@@ -662,6 +663,7 @@ T.Page {
                      && fProfileTempC > 0) ? fProfileTempC + (r.tempOffsetC || 0) : 0
         fGrind = r.grindPinned || ""
         fRpmPinned = r.rpmPinned || 0
+        _grindUserEdited = true
         applySteamJson(r.steamJson || "")
         applyHotWaterJson(r.hotWaterJson || "")
         // Drink type: stored value, else derive from the loaded blocks — a
@@ -938,11 +940,10 @@ T.Page {
         fProfileStepTemps = temps.length > 0 ? temps : (fProfileTempC > 0 ? [fProfileTempC] : [])
     }
 
-    // Re-resolve the linked bag's details (grind default, roast level, tea
-    // blob) from inventory — used when a recipe is loaded for edit/clone,
-    // where the bag map isn't in hand.
+    // Re-resolve the linked bag's roast level and tea blob from inventory —
+    // used when a recipe is loaded for edit/clone, where the bag map isn't in
+    // hand.
     function refreshBagDetails() {
-        fBagGrindDefault = ""
         if (hasBean)
             BagService.requestInventory()
     }
@@ -1130,7 +1131,10 @@ T.Page {
             // Crossing the coffee/tea boundary invalidates the bag choice.
             if (was !== "" && (templates[was] || {}).bagKind !== t.bagKind) {
                 fBagId = 0; fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
-                fBagGrindDefault = ""; fBagRpmDefault = 0
+                _grindDefaultRequestId = ""
+                _grindDefaultWaiting = false
+                _grindDefaultContext = ""
+                if (!_grindUserEdited) { fGrind = ""; fRpmPinned = 0 }
             }
             // Tea → hot-water tea keeps no profile; other switches keep it
             // only when it still fits the new filter set (checked lazily by
@@ -1146,14 +1150,16 @@ T.Page {
     }
 
     function selectBean(bag) {
-        // The previous bag's untouched default may still sit on the field —
-        // remember it so a bag swap can re-default, while a user-typed value
-        // survives (never overwrite an edit in this wizard session).
-        var prevDefault = fBagGrindDefault
+        _grindDefaultRequestId = ""
+        _grindDefaultWaiting = false
+        _grindDefaultContext = ""
+        if (!_grindUserEdited) {
+            fGrind = ""
+            fRpmPinned = 0
+        }
         if (!bag) {
             fBagId = 0
             fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
-            fBagGrindDefault = ""; fBagRpmDefault = 0
             _selectedBagRoastLevel = ""; _selectedBagRoastDate = ""
         } else {
             // The tile IS the bag: link exactly this one (two open bags of
@@ -1163,23 +1169,11 @@ T.Page {
             fRoaster = bag.roasterName || ""
             fCoffee = bag.coffeeName || ""
             fBagBlob = bag.beanBaseData || ""
-            fBagGrindDefault = bag.grinderSetting || ""
-            fBagRpmDefault = bag.rpm || 0
             _selectedBagRoastLevel = bag.roastLevel || ""
             _selectedBagRoastDate = bag.roastDate || ""
-            // One-time editable default (recipe-model): a NEW recipe's grind
-            // fields start from the bag's current dial. Only on create —
-            // editing an existing recipe never re-offers the default — and
-            // only over an empty field or the previous bag's untouched
-            // default (a swap re-defaults; a typed value stays).
-            if (mode !== "edit" && activeTemplate.grind && fBagGrindDefault !== ""
-                && (fGrind.trim() === "" || fGrind.trim() === prevDefault)) {
-                fGrind = fBagGrindDefault
-                fRpmPinned = (fEquipmentRpmCapable && fBagRpmDefault > 0)
-                    ? fBagRpmDefault : 0
-            }
             suggestName()
         }
+        requestRecipeGrindDefault()
         stepDone(isHotWaterTea ? "details" : "profile")
         if (currentStep === "details")
             applyDetailsPrefill()
@@ -1767,6 +1761,21 @@ T.Page {
                                      _latestShotQuery)
     }
 
+    function requestRecipeGrindDefault() {
+        _grindDefaultRequestId = ""
+        _grindDefaultWaiting = false
+        if (mode !== "create" || promoteShotId > 0 || _grindUserEdited
+                || !hasBean || !activeTemplate.grind)
+            return
+        if (!visible || !RecipeContext.historyReady) {
+            _grindDefaultWaiting = true
+            return
+        }
+        _grindDefaultRequestId = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(_grindDefaultRequestId, "recipeGrindDefault",
+            { beanBaseId: fBeanBaseId, beanBrand: fRoaster, beanType: fCoffee })
+    }
+
     function requestLatestGrindForSelection() {
         _latestGrindRequestId = ""
         _latestGrindWaitingForHistory = false
@@ -1805,11 +1814,6 @@ T.Page {
                 fTeaTempC = shot.temperatureOverrideC
             else if (fProfileTempC > 0)
                 fTempDeltaC = shot.temperatureOverrideC - fProfileTempC
-        }
-        if (activeTemplate.grind && shot.grinderSetting) {
-            fGrind = shot.grinderSetting
-            if (fEquipmentRpmCapable && shot.rpm > 0)
-                fRpmPinned = shot.rpm
         }
         suggestName()
     }
@@ -1958,6 +1962,18 @@ T.Page {
             wizardPage.retryDeferredHistoryReads()
         }
         function onHistoryCompleted(requestId, operation, success, result, reason) {
+            if (operation === "recipeGrindDefault" && requestId === wizardPage._grindDefaultRequestId) {
+                wizardPage._grindDefaultRequestId = ""
+                if (success && !wizardPage._grindUserEdited && result && result.grinderSetting) {
+                    wizardPage.fGrind = String(result.grinderSetting)
+                    wizardPage.fRpmPinned = Number(result.rpm) || 0
+                    wizardPage._grindDefaultContext = [result.profileName, result.equipmentName]
+                        .filter(function(value) { return value && String(value).length > 0 }).join(" · ")
+                } else if (!success && !RecipeContext.historyReady) {
+                    wizardPage._grindDefaultWaiting = true
+                }
+                return
+            }
             if (operation === "shot" && requestId === wizardPage._promoteShotRequestId) {
                 wizardPage._promoteShotRequestId = ""
                 if (success && result && Object.keys(result).length > 0)
@@ -2135,8 +2151,6 @@ T.Page {
                             : (String(b.roasterName).toLowerCase() === wizardPage.fRoaster.toLowerCase()
                                && String(b.coffeeName).toLowerCase() === wizardPage.fCoffee.toLowerCase()))
                     if (match) {
-                        wizardPage.fBagGrindDefault = b.grinderSetting || ""
-                        wizardPage.fBagRpmDefault = b.rpm || 0
                         wizardPage._selectedBagRoastLevel = b.roastLevel || ""
                         wizardPage._selectedBagRoastDate = b.roastDate || ""
                         if (wizardPage.fBagBlob === "")
@@ -2144,8 +2158,6 @@ T.Page {
                         return
                     }
                 }
-                wizardPage.fBagGrindDefault = ""
-                wizardPage.fBagRpmDefault = 0
             }
         }
     }
@@ -3368,10 +3380,19 @@ T.Page {
                             Label {
                                 visible: wizardPage.hasBean
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.wizard.grindOwnHelp",
-                                      "This recipe's own grind. It starts from the bag's current dial; "
-                                      + "adjusting the grind while this recipe is selected keeps it up "
+                                text: TranslationManager.translate("recipes.wizard.grindHistoryHelp",
+                                      "This recipe's own grind. "
+                                      + "Adjusting the grind while this recipe is selected keeps it up "
                                       + "to date.")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
+                            Label {
+                                visible: wizardPage._grindDefaultContext !== ""
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.wizard.grindHistoryContext",
+                                      "Last used with: %1").arg(wizardPage._grindDefaultContext)
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -3423,6 +3444,8 @@ T.Page {
                                         accessibleName: text
                                         onClicked: {
                                             wizardPage.fGrind = wizardPage.grindSuggestion.setting
+                                            wizardPage._grindUserEdited = true
+                                            wizardPage._grindDefaultContext = ""
                                             wizardPage._detailsUserEdited = true
                                         }
                                     }
@@ -3431,10 +3454,7 @@ T.Page {
                             // One tap-to-open control for both dial-in halves
                             // ("grind · rpm"); typing lives in the picker's
                             // text mode. Context is the RECIPE's selected
-                            // package, never the active grinder. Clearing the
-                            // grind RE-ARMS blank-adopts-bag rather than
-                            // refilling immediately: the next bag (re)selection
-                            // on create fills the bag's default back in.
+                            // package, never the active grinder.
                             GrindField {
                                 Layout.fillWidth: true
                                 presentation: "field"
@@ -3445,10 +3465,14 @@ T.Page {
                                 accessibleName: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
                                 onGrindCommitted: function(v) {
                                     wizardPage.fGrind = v
+                                    wizardPage._grindUserEdited = true
+                                    wizardPage._grindDefaultContext = ""
                                     wizardPage._detailsUserEdited = true
                                 }
                                 onRpmCommitted: function(rpm) {
                                     wizardPage.fRpmPinned = rpm
+                                    wizardPage._grindUserEdited = true
+                                    wizardPage._grindDefaultContext = ""
                                     wizardPage._detailsUserEdited = true
                                 }
                             }
@@ -3456,7 +3480,12 @@ T.Page {
                                 visible: wizardPage.fRpmPinned > 0 && !wizardPage.fEquipmentRpmCapable
                                 text: TranslationManager.translate("recipes.wizard.clearSavedRpm", "Remove saved RPM (%1)").arg(wizardPage.fRpmPinned)
                                 accessibleName: text
-                                onClicked: { wizardPage.fRpmPinned = 0; wizardPage._detailsUserEdited = true }
+                                onClicked: {
+                                    wizardPage.fRpmPinned = 0
+                                    wizardPage._grindUserEdited = true
+                                    wizardPage._grindDefaultContext = ""
+                                    wizardPage._detailsUserEdited = true
+                                }
                             }
                         }
 

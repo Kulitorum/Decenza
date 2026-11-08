@@ -62,6 +62,14 @@ const QStringList kPackageEditableKeys = {
     "puckPrep_wdt", "puckPrep_shaker", "puckPrep_puckScreen",
     "puckPrep_paperFilter", "puckPrep_rdt"};
 
+// The body key that asks to make a package active. "applyToActiveBag", its
+// earlier name, is still accepted from API callers written against it.
+QString makeActiveKey(const QJsonObject& body)
+{
+    return body.contains(QLatin1String("makeActive")) || !body.contains(QLatin1String("applyToActiveBag"))
+        ? QStringLiteral("makeActive") : QStringLiteral("applyToActiveBag");
+}
+
 QVariantMap packageFieldsFromBody(const QJsonObject& body)
 {
     QVariantMap fields;
@@ -177,14 +185,14 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
 
     // POST /api/equipment — create package
     if (path == "/api/equipment" && method == "POST") {
-        if (bodyJson.contains("applyToActiveBag")
-            && !bodyJson.value("applyToActiveBag").isBool()) {
-            respondJson(QJsonObject{{"error", "applyToActiveBag must be a boolean"}}, 400);
+        const QString activeKey = makeActiveKey(bodyJson);
+        if (bodyJson.contains(activeKey) && !bodyJson.value(activeKey).isBool()) {
+            respondJson(QJsonObject{{"error", "makeActive must be a boolean"}}, 400);
             return;
         }
-        const bool applyToActiveBag = bodyJson.value("applyToActiveBag").toBool();
+        const bool makeActive = bodyJson.value(activeKey).toBool();
         SettingsDye* dye = m_settings ? m_settings->dye() : nullptr;
-        if (applyToActiveBag && !dye) {
+        if (makeActive && !dye) {
             respondJson(QJsonObject{{"error", "Settings not available"}}, 500);
             return;
         }
@@ -198,9 +206,9 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
             return;
         }
         equipmentStorage->requestCreatePackageWithCompletion(fields, this,
-            [respondJson, applyToActiveBag, dye](qint64 packageId, const QVariantMap& package) {
+            [respondJson, makeActive, dye](qint64 packageId, const QVariantMap& package) {
                 if (packageId > 0) {
-                    if (applyToActiveBag)
+                    if (makeActive)
                         dye->switchToEquipment(package);
                     respondJson(QJsonObject::fromVariantMap(package));
                 } else if (package.value("error").toString() == "nameInUse")
@@ -429,7 +437,7 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
         }
 
         // POST /api/equipment/<id>/delete — mistaken creations only
-        // (storage refuses when shots/bags reference the package).
+        // (storage refuses when shots, recipes or a superseded_by reference the package).
         if (action == "delete") {
             equipmentStorage->requestDeletePackageWithCompletion(packageId, this,
                 [respondJson](qint64, bool success) {
@@ -448,17 +456,17 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                 respondJson(QJsonObject{{"error", "Settings not available"}}, 500);
                 return;
             }
-            if (bodyJson.contains("applyToActiveBag")
-                && !bodyJson.value("applyToActiveBag").isBool()) {
-                respondJson(QJsonObject{{"error", "applyToActiveBag must be a boolean"}}, 400);
+            const QString activeKey = makeActiveKey(bodyJson);
+            if (bodyJson.contains(activeKey) && !bodyJson.value(activeKey).isBool()) {
+                respondJson(QJsonObject{{"error", "makeActive must be a boolean"}}, 400);
                 return;
             }
-            if (!bodyJson.contains("applyToActiveBag")) {
+            if (!bodyJson.contains(activeKey)) {
                 m_settings->dye()->setActiveEquipmentId(packageId);
                 respondJson(QJsonObject{{"activated", true}, {"packageId", packageId}});
                 return;
             }
-            if (!bodyJson.value("applyToActiveBag").toBool()) {
+            if (!bodyJson.value(activeKey).toBool()) {
                 respondJson(QJsonObject{{"selected", true}, {"packageId", packageId}});
                 return;
             }
@@ -621,7 +629,7 @@ QString ShotServer::generateEquipmentPage() const
             let html = list.length
                 ? '<div class="grid">' + list.map(p => cardHtml(p, false)).join('') + '</div>'
                 : '<div class="empty"><h2>No equipment yet</h2>'
-                  + '<div>Add your grinder to track its model, burrs and dial-in per bag.</div></div>';
+                  + '<div>Add your grinder to track its model, burrs and last-used grind.</div></div>';
             if (archived.length) {
                 html += '<div class="toolbar"><button onclick="toggleArchived()">'
                     + (showArchived ? 'Hide archived' : 'Show archived') + ' (' + archived.length + ')</button></div>';

@@ -30,7 +30,7 @@ QtObject {
     function basketBrandSuggestions() { return [] }
     function basketModelSuggestions(brand) { return [] }
     function basketModelDescriptions(brand) { return ({}) }
-    function createPackage(fields, applyToActiveBag, requestId) {}
+    function createPackage(fields, makeActive, requestId) {}
     function updatePackage(packageId, fields, expectedEditable, requestId) {}
-    function activatePackage(packageId, applyToActiveBag, requestId) {}
+    function activatePackage(packageId, makeActive, requestId) {}
 }

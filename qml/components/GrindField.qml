@@ -17,9 +17,9 @@ import Decenza
 //
 // The host supplies the VALUE (grindSetting / rpmValue) and the GRINDER
 // IDENTITY that owns it (grinderBrand / grinderModel — the shot's grinder in
-// post-shot review, the recipe's package in the wizard, the bag's equipment in
-// the beans dialog, the active grinder only where the live dial-in is what is
-// being edited). The control writes no Settings itself: commits surface as
+// post-shot review, the recipe's package in the wizard, the active grinder
+// only where the live dial-in is what is being edited). The control writes no
+// Settings itself: commits surface as
 // grindCommitted / rpmCommitted and the host applies them. An empty
 // grindCommitted("") / rpmCommitted(0) is an EXPLICIT clear, and EVERY host
 // applies it — emptying the field and pressing Done is as deliberate as typing

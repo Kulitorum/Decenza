@@ -4,6 +4,7 @@
 Specifies the ShotServer recipe REST API (list, detail, create, update, clone, archive, activate and promote-from-shot), the bag kind rule on the web bag routes, and the `/recipes` web management page with its visual and feature parity with the app.
 
 ## Requirements
+
 ### Requirement: Recipes REST API
 The ShotServer SHALL expose, behind the existing auth gate in `shotserver_recipes.cpp`, `GET /api/recipes`, `GET /api/recipe/<id>`, `POST /api/recipes`, `POST /api/recipe/<id>`, `POST /api/recipe/<id>/clone`, `POST /api/recipe/<id>/archive`, `POST /api/recipe/<id>/activate` and `POST /api/recipes/from-shot/<shotId>`. Handlers SHALL route through `RecipeStorage` and the shared activation path. Database reads SHALL run off the request thread.
 
@@ -131,3 +132,13 @@ The ShotServer recipe API and `/recipes` management page SHALL accept, persist, 
 - **WHEN** the user promotes a shot that recorded a hot-water snapshot from the web shot browser
 - **THEN** the created recipe's hot-water block matches that snapshot
 
+### Requirement: Web recipe creation does not copy bag grind
+Web recipe creation SHALL preserve explicitly supplied grind, including an explicit empty value, and SHALL NOT silently adopt grind or RPM from a bag.
+
+#### Scenario: Create without a grind
+- **WHEN** a client creates a bag-linked recipe without a grind
+- **THEN** the bag does not provide a grind default
+
+#### Scenario: Activate without equipment
+- **WHEN** a web client activates a recipe with no equipment selection
+- **THEN** the current equipment remains active and the recipe's own grind applies

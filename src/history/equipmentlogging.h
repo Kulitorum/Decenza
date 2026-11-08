@@ -12,7 +12,7 @@
 // a tag naming its own source:
 //
 //     [Equipment][Identity] package 4 edit applied in place (enrichment - filled in a component that was empty)
-//     [Equipment][Merge] package 7 folded into 4 and deleted - 213 shots, 2 bags, 1 recipes moved
+//     [Equipment][Merge] package 7 folded into 4 and deleted - 213 shots, 1 recipes moved
 //     [Equipment][Migration] 35 complete - merged 1 package(s) that a burr edit had split off
 //     [Equipment][Census] 1124 shot(s), 1102 attributed to a grinder package, 22 not
 //     [Equipment][Census] "Niche Zero" - 1102 shot(s), 34 distinct numeric setting(s), 2 non-numeric

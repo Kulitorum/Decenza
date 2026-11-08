@@ -228,7 +228,7 @@ void NativeEquipmentServiceSource::startInventoryRead()
 void NativeEquipmentServiceSource::execute(QString requestId, QString operation,
                                            qint64 packageId, QVariantMap fields,
                                            QVariantMap expectedEditable,
-                                           bool applyToActiveBag)
+                                           bool makeActive)
 {
     const RequestStart start = m_requests.begin(requestId);
     if (start == RequestStart::DuplicateId)
@@ -264,14 +264,14 @@ void NativeEquipmentServiceSource::execute(QString requestId, QString operation,
         }
     } else if (operation == QLatin1String("update")) {
         if (packageId <= 0 || !validEditableFields(fields)
-            || !isExpectedEditable(expectedEditable) || applyToActiveBag) {
+            || !isExpectedEditable(expectedEditable) || makeActive) {
             reject(packageId, QStringLiteral("invalidRequest"));
             return;
         }
     } else if (operation == QLatin1String("select")
                || operation == QLatin1String("activate")) {
         if (packageId <= 0 || !fields.isEmpty() || !noExpected
-            || (operation == QLatin1String("select") && applyToActiveBag)) {
+            || (operation == QLatin1String("select") && makeActive)) {
             reject(packageId, QStringLiteral("invalidRequest"));
             return;
         }
@@ -282,7 +282,7 @@ void NativeEquipmentServiceSource::execute(QString requestId, QString operation,
         qint64 expectedPackageId = 0;
         const bool validId = clear
             || positiveSafeId(fields.value(QStringLiteral("expectedPackageId")), &expectedPackageId);
-        if (packageId <= 0 || !noExpected || applyToActiveBag
+        if (packageId <= 0 || !noExpected || makeActive
             || fields.value(QStringLiteral("side")).metaType().id() != QMetaType::QString
             || (side != QLatin1String("fine") && side != QLatin1String("coarse"))
             || fields.size() != (clear ? 1 : 2)
@@ -295,7 +295,7 @@ void NativeEquipmentServiceSource::execute(QString requestId, QString operation,
     } else if (operation == QLatin1String("remove")
                || operation == QLatin1String("restore")
                || operation == QLatin1String("delete")) {
-        if (packageId <= 0 || !fields.isEmpty() || !noExpected || applyToActiveBag) {
+        if (packageId <= 0 || !fields.isEmpty() || !noExpected || makeActive) {
             reject(packageId, QStringLiteral("invalidRequest"));
             return;
         }
@@ -305,12 +305,12 @@ void NativeEquipmentServiceSource::execute(QString requestId, QString operation,
     }
 
     if (operation == QLatin1String("create"))
-        m_operations->createPackage(fields, applyToActiveBag, requestId);
+        m_operations->createPackage(fields, makeActive, requestId);
     else if (operation == QLatin1String("update"))
         m_operations->updatePackage(packageId, fields, expectedEditable, requestId);
     else if (operation == QLatin1String("select")
              || operation == QLatin1String("activate"))
-        m_operations->activatePackage(packageId, applyToActiveBag, requestId);
+        m_operations->activatePackage(packageId, makeActive, requestId);
     else if (operation == QLatin1String("remove"))
         m_operations->removePackage(packageId, requestId);
     else if (operation == QLatin1String("restore"))

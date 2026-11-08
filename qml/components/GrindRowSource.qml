@@ -4,12 +4,12 @@ import Decenza
 // Non-visual candidate/step source for grind + RPM dial-in editing
 // (replace-grind-inputs-with-picker). Extracted from GrindQuickSelectItem so
 // every surface that edits a grind value — brew bar, Brew Settings, post-shot
-// review, bag form, recipe wizard — generates candidates the same way.
+// review, recipe wizard — generates candidates the same way.
 //
 // CONTEXT INJECTION: the grinder is a property of the VALUE being edited, not
 // of the application. The host supplies the grinder that owns the value (the
 // shot's grinder in post-shot review, the recipe's package in the wizard, the
-// bag's equipment in the beans dialog, the active grinder on the brew bar) and
+// active grinder on the brew bar) and
 // every derived behaviour — notation, click-indexing, observed-history
 // fallback, RPM capability — resolves against it.
 // (The pre-split _observedFallback read Settings.dye.dyeGrinderModel — the

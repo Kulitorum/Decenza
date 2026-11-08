@@ -50,10 +50,10 @@ public:
     Q_INVOKABLE void requestSetGrindAnchor(qint64 shotId, const QString& side,
                                           qint64 expectedPackageId);
     Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
-    Q_INVOKABLE void createPackage(const QVariantMap& fields, bool applyToActiveBag, const QString& requestId);
+    Q_INVOKABLE void createPackage(const QVariantMap& fields, bool makeActive, const QString& requestId);
     Q_INVOKABLE void updatePackage(qint64 id, const QVariantMap& fields,
                                    const QVariantMap& expectedEditable, const QString& requestId);
-    Q_INVOKABLE void activatePackage(qint64 id, bool applyToActiveBag, const QString& requestId = {});
+    Q_INVOKABLE void activatePackage(qint64 id, bool makeActive, const QString& requestId = {});
     Q_INVOKABLE void requestMarkRemoved(qint64 id);
     Q_INVOKABLE void requestDeletePackage(qint64 id);
     Q_INVOKABLE void requestRestorePackage(qint64 id);

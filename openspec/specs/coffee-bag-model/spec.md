@@ -53,13 +53,6 @@ The bag SHALL carry `notes` (nullable), `startWeightG` (double, nullable, retain
 - **WHEN** a bag with a stored start weight is shown in the UI
 - **THEN** the start weight is not displayed
 
-### Requirement: CoffeeBag last-used grinder and dose fields
-The bag SHALL carry `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting` and `doseWeightG`, all nullable, recording the last-used grinder and dose.
-
-#### Scenario: Last-used fields are optional
-- **WHEN** a bag is created without grinder or dose details
-- **THEN** those fields are stored as empty
-
 ### Requirement: CoffeeBag yield spec
 The bag SHALL carry `yieldValue` (double) and `yieldMode` (`none`, `absolute` or `ratio`). The yield spec is the bean's own yield, a first-class anchor rather than a deviation from the profile's target weight (`yield-anchor`). `mode = none` means the bag designs no yield, so the ladder falls through to the profile. The legacy `yieldOverrideG` column SHALL be converted by migration and left dead in place.
 
@@ -96,11 +89,11 @@ A linked `beanBaseData` blob SHALL additionally carry a `canonical` sub-object, 
 - **THEN** the working keys are restored from the `canonical` sub-object
 
 ### Requirement: coffee_bags database table
-The system SHALL store bags in a `coffee_bags` SQLite table created by migration 19 in `src/history/shothistorystorage.cpp` (current schema version is 18). The table SHALL include all CoffeeBag fields. All lifecycle and grinder fields SHALL be nullable. DB access SHALL follow the `withTempDb()` background-thread pattern.
+The system SHALL store bags in a `coffee_bags` SQLite table created by migration 19 in `src/history/shothistorystorage.cpp` (current schema version is 18). The table SHALL include all CoffeeBag fields. All lifecycle fields SHALL be nullable. DB access SHALL follow the `withTempDb()` background-thread pattern.
 
 #### Scenario: Migration from presets
 - **WHEN** the app launches after upgrade and the `bean/presets` QSettings key is present
-- **THEN** each preset SHALL be converted to a bag row with `inInventory = true` and lifecycle fields null, mapping `brand` → `roasterName`, `type` → `coffeeName`, and `roastDate`/`roastLevel`/`beanBaseId`/`beanBaseData`/grinder fields directly
+- **THEN** each preset SHALL be converted to a bag row with `inInventory = true` and lifecycle fields null, mapping `brand` → `roasterName`, `type` → `coffeeName`, and `roastDate`/`roastLevel`/`beanBaseId`/`beanBaseData` directly; legacy grind and equipment are not stored on bags
 - **AND** the preset's `name` SHALL be stored in the bag's `notes` when it differs from "{brand} {type}"; `barista` and `showOnIdle` are intentionally dropped (barista is per-shot and already snapshot on every shot; idle visibility is now "in inventory")
 - **AND** `bean/selectedPreset` (index) SHALL map to `activeBagId` (the DB id of the corresponding converted row)
 - **AND** the `bean/presets` and `bean/selectedPreset` QSettings keys SHALL be removed only after the DB transaction commits successfully
@@ -141,58 +134,6 @@ The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `c
 - **THEN** each such shot's `beanbase_id` column SHALL contain the canonical UUID extracted from the blob
 - **AND** shots without a blob SHALL have a null `beanbase_id`
 
-### Requirement: Active bag selection
-The system SHALL maintain a single global `activeBagId` in `SettingsDye`, replacing the `bean/selectedPreset` index. The active bag's fields SHALL drive the next shot's bean snapshot.
-
-#### Scenario: Bag selection applies all fields
-- **WHEN** the user selects a bag (from inventory or Change Beans dialog)
-- **THEN** all bag fields SHALL become the active state for the next shot
-
-#### Scenario: Bag selection applies dose and yield spec to the machine
-- **WHEN** a bag with a stored `doseWeightG` and a yield spec whose mode is not `none` is selected, and no recipe is active
-- **THEN** the dose SHALL drive the next shot's dose (`dyeBeanWeight`)
-- **AND** switching the bean SHALL first reset the brew overrides to the active profile's defaults, then re-apply the bag's yield spec to the session anchor — so the next shot's target is the bean's own, and a bag without an anchor stays at the profile default
-- **AND** the bag's yield spec is NOT routed through `dyeDrinkWeight` (which remains plain DYE drink-weight metadata)
-
-#### Scenario: Recipe-driven bag selection does not overwrite the recipe's dose
-- **WHEN** a bag with a stored `doseWeightG` is selected while a recipe supplying a dose is active
-- **THEN** the next shot's dose SHALL remain the recipe's
-- **AND** the bag's dose SHALL NOT be written to `dyeBeanWeight`
-
-#### Scenario: A bag's own anchor is a baseline, not an override
-- **WHEN** a bag holding `{42.0, absolute}` is active, no recipe is active, and the profile's `target_weight` is 36 g
-- **THEN** every surface SHALL render 42 g as the BASELINE — un-highlighted, with no `36.0 → 42.0g` arrow on the Shot Plan — because the bean's yield is its design, not a deviation from the profile (the `yield-anchor` ladder resolves the baseline; a bag's anchor is button-protected and therefore always deliberate)
-- **AND** only a per-brew deviation FROM 42 g SHALL highlight, arrowing against the bean's 42 g rather than the profile's 36 g
-- **AND** pressing "Update Bag" on a deviation SHALL make the shown value the bean's stored spec, clearing the highlight on every surface
-
-#### Scenario: Recipe-driven bag selection does not overwrite the recipe's anchor
-- **WHEN** a recipe holding `{2.0, ratio}` is activated and activation selects the recipe's own linked bag, which holds `{40.0, absolute}`
-- **THEN** the session anchor is `{2.0, ratio}`
-- **AND** the bag's yield spec is not applied
-
-#### Scenario: A manual bean switch still hands the brew to the bag
-- **WHEN** a recipe is active and the user manually changes the active bean
-- **THEN** the recipe deactivates (`recipe-activation`), so no recipe is active and the newly selected bag's yield spec applies normally
-
-#### Scenario: New bag with no dose or yield spec yet
-- **WHEN** a bag with a null/0 `doseWeightG` and a yield mode of `none` is selected
-- **THEN** the current global dose SHALL remain in effect and the brew yield SHALL follow the profile default
-- **AND** the bag SHALL adopt the dose on the first edit or shot save, and its yield spec only when the user presses "Update Bag" in brew settings
-
-#### Scenario: A bag's dose is not known until its row arrives
-- **WHEN** a bag is selected and a profile carrying a recommended dose is loaded before that bag's row has been read
-- **THEN** the profile's dose SHALL NOT be applied
-- **AND** the bag's stored `doseWeightG` SHALL be unchanged
-
-The row load is asynchronous, so between the selection and its arrival the bag is indistinguishable
-from one holding no dose. Reading it as empty would let the profile's dose through — and because
-that write travels back to the bag, it would replace the dose the bean actually remembered
-(`dose-source-precedence`).
-
-#### Scenario: No active bag
-- **WHEN** no bag is selected (`activeBagId` is null or references a deleted bag)
-- **THEN** the bean summary SHALL display "No beans selected" and prompt the user to select a bag
-
 ### Requirement: Bag yield spec and dose follow the recipe ladder
 Applying a bag's **yield spec** SHALL be gated on no recipe being active, and the `yield-anchor` ladder (recipe, then bag, then profile) SHALL be enforced explicitly, never left to the arrival order of signals. Applying a bag's dose SHALL be gated the same way, per `dose-source-precedence`.
 
@@ -200,71 +141,12 @@ Applying a bag's **yield spec** SHALL be gated on no recipe being active, and th
 - **WHEN** a bag is selected while a recipe is active
 - **THEN** the recipe's dose and yield are kept
 
-### Requirement: Bean/grinder edits write through to the active bag
-Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write directly to the active bag, unconditionally, including while a recipe with its own owned grind (recipe-model) is active. No intermediate live-DYE copy of bean or grinder state SHALL exist, and there SHALL be no modified-state computation or save prompt. Shot-review corrections SHALL follow the explicit confirmation in `shot-review-carry-forward`.
-
-#### Scenario: Grinder edit before a shot
-- **WHEN** the user changes the grinder setting in the brew dialog while a bag is active
-- **THEN** the active bag's `grinderSetting` SHALL be updated immediately (background DB write)
-- **AND** no save prompt or modified indicator SHALL appear
-
-#### Scenario: Grinder edit with an active recipe updates both the bag and the recipe
-- **WHEN** the user changes the grinder setting while a recipe is active
-- **THEN** the active bag's `grinderSetting` SHALL be updated immediately, exactly as when no recipe is active
-- **AND** the active recipe's own `grindPinned` SHALL also be updated immediately
-- **AND** neither write waits on or is gated by the other
-
-#### Scenario: Grinder/dose correction on post-shot review
-- **WHEN** the user corrects the grinder setting or dose on the post-shot review page
-- **THEN** the shot is updated and the active bag is not changed automatically
-- **AND** any eligible carry-forward and persistent write is explicitly summarized and accepted before it occurs
-
-#### Scenario: Activating a recipe updates its linked bag's grind
-- **WHEN** a recipe whose own grind is "17" is activated and its linked bag's stored grind was "18"
-- **THEN** the live grind becomes "17" and the bag's stored `grinderSetting` updates to "17" — the bag mirrors the most recently dialed grind, and activating a recipe that selects this bag counts as dialing
-
-#### Scenario: Bean-less recipe activation touches no bag
-- **WHEN** a bean-less recipe with its own grind is activated
-- **THEN** the active bag is cleared as part of activation (recipe-activation), so the recipe's grind — and any subsequent grind edits — write through to no bag at all (the write-through is a no-op with no active bag)
-
-### Requirement: Grinder edits also write to the active recipe
-When a recipe is active, a pre-shot grinder edit SHALL also write to that recipe's own `grindPinned` and `rpmPinned` (recipe-model). The bag and the recipe's grind SHALL each update immediately from the same edit, independently of each other.
-
-#### Scenario: Grinder edit updates bag and recipe together
-- **WHEN** a grinder field is edited while a recipe is active
-- **THEN** both the active bag and the recipe's pinned grind update immediately
-
 ### Requirement: Dose stamped on shot save
 The system SHALL update the active bag's `doseWeightG` to the shot's actual dose whenever a shot is saved (dose may originate from SAW/profile settings rather than a manual edit).
 
 #### Scenario: Auto-stamp after dial-in adjustment
 - **WHEN** a shot is saved with a different dose than the active bag stored
 - **THEN** the active bag's `doseWeightG` SHALL be updated to the shot's value with no user prompt
-
-### Requirement: The bag's yield spec is button-protected
-The bag's dial memory SHALL split along the measurement/intent line of `yield-anchor`. `grinderSetting`, `rpm` and `doseWeightG` are dial-in and SHALL keep their unconditional write-through. The yield spec is design intent and SHALL reach the bag only via the explicit "Update Bag" action in Brew Settings (`recipe-aware-brew-settings`).
-
-#### Scenario: Yield is not stamped on shot save
-- **WHEN** a shot is saved at a target that differs from the active bag's stored yield spec
-- **THEN** the active bag's yield spec SHALL be unchanged
-
-#### Scenario: Yield is not stamped on Brew Settings OK
-- **WHEN** the user dials a yield or ratio in Brew Settings and taps OK without pressing "Update Bag"
-- **THEN** the value applies to the session anchor only
-- **AND** the active bag's yield spec SHALL be unchanged
-
-#### Scenario: Yield reaches the bag only via Update Bag
-- **WHEN** no recipe is active, the user dials a ratio of 1:3 in Brew Settings and taps "Update Bag"
-- **THEN** the active bag holds `{3.0, ratio}`
-
-#### Scenario: A dose capture cannot drift the bag's stored pair
-- **WHEN** a bag holds `{36.0, absolute}` with a `doseWeightG` of 18 and a dose capture reads 17.5 g
-- **THEN** the bag's `doseWeightG` becomes 17.5 and its yield spec stays `{36.0, absolute}`
-- **AND** no implicit ratio is derived from or written to the pair
-
-#### Scenario: Grind and rpm write-through are untouched
-- **WHEN** the user changes the grinder setting or RPM while a bag is active
-- **THEN** the active bag's `grinderSetting`/`rpm` SHALL be updated immediately, exactly as before this change
 
 ### Requirement: No other action writes the bag's yield spec
 No other action SHALL write the bag's yield spec: not a shot save, not Brew Settings OK, not a dose capture, and not a bag selection.
@@ -443,3 +325,155 @@ Creating a bag that is stored frozen SHALL NOT make it the active bag while anot
 - **GIVEN** an active bag in use
 - **WHEN** the user adds a new bag with freezing on
 - **THEN** the active bag SHALL stay the one in use
+
+### Requirement: CoffeeBag last-used dose field
+The bag SHALL carry `doseWeightG`, nullable, recording the last-used dose; equipment, grind and RPM are not bag fields.
+
+#### Scenario: Last-used fields are optional
+- **WHEN** a bag is created without dose details
+- **THEN** those fields are stored as empty
+
+### Requirement: Selecting an active bag
+The system SHALL maintain a single global `activeBagId` in `SettingsDye`, replacing the `bean/selectedPreset` index. The active bag's fields SHALL drive the next shot's bean snapshot.
+
+#### Scenario: Bag selection applies bean fields and keeps equipment and grind
+- **WHEN** the user selects a bag
+- **THEN** the bag supplies its bean fields and the current equipment, grind and RPM remain unchanged
+
+#### Scenario: Bag selection applies dose and yield spec to the machine
+- **WHEN** a bag with a stored `doseWeightG` and a yield spec whose mode is not `none` is selected, and no recipe is active
+- **THEN** the dose SHALL drive the next shot's dose (`dyeBeanWeight`)
+- **AND** switching the bean SHALL first reset the brew overrides to the active profile's defaults, then re-apply the bag's yield spec to the session anchor — so the next shot's target is the bean's own, and a bag without an anchor stays at the profile default
+- **AND** the bag's yield spec is NOT routed through `dyeDrinkWeight` (which remains plain DYE drink-weight metadata)
+
+#### Scenario: Recipe-driven bag selection does not overwrite the recipe's dose
+- **WHEN** a bag with a stored `doseWeightG` is selected while a recipe supplying a dose is active
+- **THEN** the next shot's dose SHALL remain the recipe's
+- **AND** the bag's dose SHALL NOT be written to `dyeBeanWeight`
+
+#### Scenario: A bag's own anchor is a baseline, not an override
+- **WHEN** a bag holding `{42.0, absolute}` is active, no recipe is active, and the profile's `target_weight` is 36 g
+- **THEN** every surface SHALL render 42 g as the BASELINE — un-highlighted, with no `36.0 → 42.0g` arrow on the Shot Plan — because the bean's yield is its design, not a deviation from the profile (the `yield-anchor` ladder resolves the baseline; a bag's anchor is button-protected and therefore always deliberate)
+- **AND** only a per-brew deviation FROM 42 g SHALL highlight, arrowing against the bean's 42 g rather than the profile's 36 g
+- **AND** pressing "Update Bag" on a deviation SHALL make the shown value the bean's stored spec, clearing the highlight on every surface
+
+#### Scenario: Recipe-driven bag selection does not overwrite the recipe's anchor
+- **WHEN** a recipe holding `{2.0, ratio}` is activated and activation selects the recipe's own linked bag, which holds `{40.0, absolute}`
+- **THEN** the session anchor is `{2.0, ratio}`
+- **AND** the bag's yield spec is not applied
+
+#### Scenario: A manual bean switch still hands the brew to the bag
+- **WHEN** a recipe is active and the user manually changes the active bean
+- **THEN** the recipe deactivates (`recipe-activation`), so no recipe is active and the newly selected bag's yield spec applies normally
+
+#### Scenario: New bag with no dose or yield spec yet
+- **WHEN** a bag with a null/0 `doseWeightG` and a yield mode of `none` is selected
+- **THEN** the current global dose SHALL remain in effect and the brew yield SHALL follow the profile default
+- **AND** the bag SHALL adopt the dose on the first edit or shot save, and its yield spec only when the user presses "Update Bag" in brew settings
+
+#### Scenario: A bag's dose is not known until its row arrives
+- **WHEN** a bag is selected and a profile carrying a recommended dose is loaded before that bag's row has been read
+- **THEN** the profile's dose SHALL NOT be applied
+- **AND** the bag's stored `doseWeightG` SHALL be unchanged
+
+The row load is asynchronous, so between the selection and its arrival the bag is indistinguishable
+from one holding no dose. Reading it as empty would let the profile's dose through — and because
+that write travels back to the bag, it would replace the dose the bean actually remembered
+(`dose-source-precedence`).
+
+#### Scenario: No active bag
+- **WHEN** no bag is selected (`activeBagId` is null or references a deleted bag)
+- **THEN** the bean summary SHALL display "No beans selected" and prompt the user to select a bag
+
+### Requirement: Bean edits write through without storing equipment or grind
+Bean edits SHALL update the active bag. Grind, RPM and equipment changes SHALL NOT write to a bag. Shot-review corrections SHALL follow `shot-review-carry-forward`.
+
+#### Scenario: Grinder edit before a shot
+- **WHEN** the user changes grind while a bag is active
+- **THEN** the live grind changes without writing to the bag
+
+#### Scenario: Grinder edit updates the active recipe without writing to the bag
+- **WHEN** the user changes grind while a recipe is active
+- **THEN** the recipe is updated and the bag is not
+
+#### Scenario: Grinder/dose correction on post-shot review
+- **WHEN** the user corrects grind or dose on shot review
+- **THEN** the shot is updated and eligible carry-forward requires explicit acceptance
+
+#### Scenario: Activating a recipe applies grind without writing to the bag
+- **WHEN** a recipe with grind 17 is activated
+- **THEN** the live grind becomes 17 without writing grind to its bag
+
+#### Scenario: Bean-less recipe activation touches no bag
+- **WHEN** a bean-less recipe is activated
+- **THEN** the active bag is cleared and its grind applies without a bag write
+
+### Requirement: Grinder edits update the active recipe
+When a recipe is active, a pre-shot grinder edit SHALL also write to that recipe's own `grindPinned` and `rpmPinned` (recipe-model). No grind or RPM SHALL be written to the bag.
+
+#### Scenario: Grinder edit updates the recipe without writing to the bag
+- **WHEN** a grinder field is edited while a recipe is active
+- **THEN** the recipe's pinned grind updates immediately and the bag is unchanged
+
+### Requirement: The bag yield spec is protected by explicit update
+The bag's `doseWeightG` SHALL keep its existing write-through; grind and RPM are not bag fields. The yield spec is design intent and SHALL reach the bag only via the explicit "Update Bag" action in Brew Settings (`recipe-aware-brew-settings`).
+
+#### Scenario: Yield is not stamped on shot save
+- **WHEN** a shot is saved at a target that differs from the active bag's stored yield spec
+- **THEN** the active bag's yield spec SHALL be unchanged
+
+#### Scenario: Yield is not stamped on Brew Settings OK
+- **WHEN** the user dials a yield or ratio in Brew Settings and taps OK without pressing "Update Bag"
+- **THEN** the value applies to the session anchor only
+- **AND** the active bag's yield spec SHALL be unchanged
+
+#### Scenario: Yield reaches the bag only via Update Bag
+- **WHEN** no recipe is active, the user dials a ratio of 1:3 in Brew Settings and taps "Update Bag"
+- **THEN** the active bag holds `{3.0, ratio}`
+
+#### Scenario: A dose capture cannot drift the bag's stored pair
+- **WHEN** a bag holds `{36.0, absolute}` with a `doseWeightG` of 18 and a dose capture reads 17.5 g
+- **THEN** the bag's `doseWeightG` becomes 17.5 and its yield spec stays `{36.0, absolute}`
+- **AND** no implicit ratio is derived from or written to the pair
+
+#### Scenario: Grind and RPM do not write to the bag
+- **WHEN** the user changes grind or RPM while a bag is active
+- **THEN** no grind or RPM is written to the bag
+
+### Requirement: Bag equipment and grind are removed on upgrade
+The system SHALL remove equipment, grind and RPM from existing bag records in one database migration, preserving other bag data, all existing shot records and the active setup. The migration SHALL NOT write settings or create equipment.
+
+#### Scenario: Upgrade existing bags
+- **WHEN** a user upgrades with bags and shots containing grind and equipment
+- **THEN** the bag fields are removed and the shot records and other bag data remain unchanged
+
+#### Scenario: Active setup unchanged
+- **WHEN** a user upgrades with any active recipe, equipment, bag, live grind and RPM
+- **THEN** those selections and the live grind and RPM are unchanged and no equipment package is created
+
+#### Scenario: Upgrade fails
+- **WHEN** any step of the removal fails
+- **THEN** the whole migration rolls back, the bag fields and their data remain, the app starts normally, and the next launch retries
+
+### Requirement: Notice for users relying on multiple bag grinds
+The upgrade SHALL show a one-time startup notice only when the pre-upgrade state has no active recipe or equipment, no in-inventory equipment package, and at least two in-inventory coffee bags with saved grinds and no non-archived linked recipe, including the active bag.
+
+#### Scenario: Affected multi-bag user
+- **WHEN** all eligibility conditions hold in the database being upgraded
+- **THEN** a pending notice explains that bag grind recall has been removed and describes equipment and recipes
+
+#### Scenario: Equipment exists
+- **WHEN** an equipment package exists in inventory at upgrade
+- **THEN** no notice is shown
+
+#### Scenario: Bags used by recipes
+- **WHEN** fewer than two qualifying bags lack linked recipes
+- **THEN** no notice is shown
+
+#### Scenario: Dismissal and restart
+- **WHEN** an eligible notice is interrupted before acknowledgment
+- **THEN** it remains pending until acknowledged and is not repeated once an acknowledgment is recorded
+
+#### Scenario: Fresh install
+- **WHEN** the app creates a new database
+- **THEN** no notice is pending, whatever settings survived from an earlier install

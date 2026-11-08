@@ -245,7 +245,7 @@ private:
     // GET /api/grind-candidates?brand=&model=&current=&rpm= — server-computed
     // stepped grind/RPM candidate lists for the web <datalist> helper
     // (replace-grind-inputs-with-picker). The PAGE passes the grinder identity
-    // of the record being edited (the shot's / bag's / recipe-package's), so
+    // of the record being edited (the shot's / recipe-package's), so
     // candidates resolve against the value's own grinder, never the active one.
     // Mirrors GrindRowSource.qml: catalog stepping via
     // SettingsDye::stepGrinderSetting (notation-aware, click-indexed floor),

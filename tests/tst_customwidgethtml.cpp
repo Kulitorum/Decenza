@@ -117,6 +117,7 @@ private slots:
     void sharedPresetDraftUsesCapturedRevisionAndExplicitReload();
     void vesselEditorKeepsSubmittedValuesAndFixedOnlyContexts();
     void recipeWaterEditorPreservesLegacyValuesAndConvertsTea();
+    void recipeGrindHistoryRespectsEditsAndResponseOrder();
     void recipeDraftKeepsOptionalBlocksAndClonesSavedSettings();
     void recipeWaterPreviewPassesSelectedProfileRecommendation();
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
@@ -1492,6 +1493,8 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         var fHasWater = true, fVesselName = "Cup", fWaterAmountMode = "fixed", fWaterRatio = 2.5;
         var fVesselMode = "weight", fVesselVolume = 0, fVesselFlowRate = 40, fVesselTemperatureC = 0;
         var fWaterOrder = "after", fDrinkType = "americano", waterEspressoTargetG = 40;
+        var _grindUserEdited = false, _grindDefaultRequestId = "old-request";
+        var _grindDefaultWaiting = true, _grindDefaultContext = "old context", fGrind = "7", fRpmPinned = 900;
         var fHasMilk = false, _fromSavedRecipe = false, _waterRemoved = false, legacyWaterSettings = false;
         var _steamChoiceEdited = false, _steamRemoved = false;
         var templates = {americano: {bagKind: "coffee", water: true}, tea_hotwater: {bagKind: "tea", water: true}};
@@ -1517,9 +1520,58 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         fVesselTemperatureC = 85;
         selectDrinkType("tea_hotwater");
         var tea = JSON.parse(buildHotWaterJson());
-        legacy && tea.amountMode === "fixed" && tea.volume === 100 && tea.mode === "weight"
+        legacy && _grindDefaultRequestId === "" && !_grindDefaultWaiting
+            && _grindDefaultContext === "" && fGrind === "" && fRpmPinned === 0
+            && tea.amountMode === "fixed" && tea.volume === 100 && tea.mode === "weight"
             && tea.waterToEspressoRatio === undefined;
     )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.toBool());
+}
+
+void TestCustomWidgetHtml::recipeGrindHistoryRespectsEditsAndResponseOrder()
+{
+    const auto source = readSource(SrcPath::kRecipeWizard);
+    const auto callback = liftFunction(source, QStringLiteral("function onHistoryCompleted("));
+    const auto applyShot = liftFunction(source, QStringLiteral("function applyLatestShot("));
+    QVERIFY(!callback.isEmpty());
+    QVERIFY(!applyShot.isEmpty());
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var fProfileTitle = "P", fRoaster = "R", fCoffee = "C", _detailsUserEdited = false;
+        var _numbersSource = "", doseField = {text:""}, ratioField = {text:""}, yieldField = {text:""};
+        var fYieldMode = "none", isTeaDrink = false, fProfileTempC = 90, fTempDeltaC = 0;
+        function syncDerivedYieldFields() {} function suggestName() {}
+        var RecipeContext = {historyReady:true};
+        var wizardPage = {_grindDefaultRequestId:"grind", _latestShotRequestId:"shot",
+            _grindUserEdited:false, fGrind:"", fRpmPinned:0, _grindDefaultContext:""};
+        %1
+        wizardPage.applyLatestShot = applyLatestShot;
+        %2
+        var shot = {profileName:"P", beanBrand:"R", beanType:"C", grinderSetting:"wrong", doseWeightG:18};
+        var grind = {grinderSetting:"7", rpm:900, profileName:"Old", equipmentName:"Mill"};
+        onHistoryCompleted("shot", "latestShotForBeanProfile", true, shot, "");
+        onHistoryCompleted("grind", "recipeGrindDefault", true, grind, "");
+        var shotFirst = wizardPage.fGrind === "7" && wizardPage.fRpmPinned === 900;
+        wizardPage._latestShotRequestId = "shot2"; wizardPage._grindDefaultRequestId = "grind2";
+        onHistoryCompleted("grind2", "recipeGrindDefault", true, grind, "");
+        onHistoryCompleted("shot2", "latestShotForBeanProfile", true, shot, "");
+        var grindFirst = wizardPage.fGrind === "7" && wizardPage.fRpmPinned === 900;
+        wizardPage._grindDefaultRequestId = "new-bean"; wizardPage.fGrind = "";
+        onHistoryCompleted("old-bean", "recipeGrindDefault", true, grind, "");
+        var staleIgnored = wizardPage.fGrind === "";
+        wizardPage._grindUserEdited = true;
+        onHistoryCompleted("new-bean", "recipeGrindDefault", true, grind, "");
+        var clearPreserved = wizardPage.fGrind === "";
+        wizardPage._grindDefaultRequestId = "typed"; wizardPage.fGrind = "manual";
+        onHistoryCompleted("typed", "recipeGrindDefault", true, grind, "");
+        var editPreserved = wizardPage.fGrind === "manual";
+        wizardPage._grindUserEdited = false; wizardPage.fGrind = "";
+        wizardPage._grindDefaultRequestId = "no-history";
+        onHistoryCompleted("no-history", "recipeGrindDefault", true, {}, "");
+        shotFirst && grindFirst && staleIgnored && clearPreserved && editPreserved
+            && wizardPage.fGrind === "";
+    )JS").arg(applyShot, callback));
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     QVERIFY(result.toBool());
 }

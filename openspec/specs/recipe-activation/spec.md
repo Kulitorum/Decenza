@@ -10,7 +10,7 @@ Recipe activation SHALL be implemented once in the main controller, reusing the 
 
 #### Scenario: Activation applies the full bundle
 - **WHEN** a recipe is activated from any surface
-- **THEN** the profile is loaded, the linked bag becomes active, equipment package is selected, dose/yield/temperature apply, grind/rpm apply from the recipe's own owned values (recipe-model), and steam settings are written
+- **THEN** the profile is loaded, the linked bag becomes active, the recipe equipment package is selected when present, dose/yield/temperature apply, grind/rpm apply from the recipe's own owned values (recipe-model), and steam settings are written
 
 #### Scenario: Identical semantics across surfaces
 - **WHEN** the same recipe is activated via QML, MCP, or the web API
@@ -21,11 +21,11 @@ Recipe activation SHALL be implemented once in the main controller, reusing the 
 - **THEN** the profile is loaded by title with a stored-JSON fallback, the bag is selected before DYE field writes, and the dose is written through the queued dose write
 
 ### Requirement: Optionality ladder is never violated
-No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe active, all settings (including steam) SHALL behave exactly as before this change. A missing equipment rung SHALL leave the current equipment untouched. A missing bean rung SHALL clear the active bag. The system SHALL NOT prompt users to create recipes.
+No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe active, recipe-free brewing and equipment selection SHALL remain available. A missing equipment rung SHALL leave the current equipment untouched. A missing bean rung SHALL clear the active bag. The system SHALL NOT prompt users to create recipes.
 
 #### Scenario: Recipe-less user
 - **WHEN** a user never creates a recipe
-- **THEN** every existing flow (profile selection, bag write-through, global steam settings) is byte-for-byte unchanged
+- **THEN** profile selection, manual equipment selection and global steam settings remain available
 
 #### Scenario: Bean-less recipe activation clears the bag
 - **WHEN** a recipe with no linked bean is activated while some bag is active
@@ -37,7 +37,7 @@ No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe 
 - **THEN** the recipe remains the active recipe — the ingredient-swap deactivation watcher treats "no bag" as matching a recipe that has no bag
 
 ### Requirement: Tweaks write through; ingredient swaps deactivate
-While a recipe is active, a dose change SHALL write through to the active recipe, with no dirty state. Grind and RPM changes SHALL write through to the active bag and SHALL stamp the recipe's own `grindPinned`/`rpmPinned`. Dose and grind/RPM are the only live dial values that reach the recipe; there is no other write-through.
+While a recipe is active, a dose change SHALL write through to the active recipe, with no dirty state. Grind and RPM changes SHALL stamp the recipe's own `grindPinned`/`rpmPinned`. Dose and grind/RPM are the only live dial values that reach the recipe; there is no other write-through.
 
 #### Scenario: Dose tweak while active
 - **WHEN** the user changes dose while a recipe is active
@@ -94,7 +94,7 @@ While a recipe is active, a dose change SHALL write through to the active recipe
 
 #### Scenario: Grind tweak while active
 - **WHEN** the user adjusts grind (or RPM) while a non-tea recipe is active
-- **THEN** the recipe's own `grindPinned`/`rpmPinned` updates and the setter mirrors the value onto the linked bag (no inherit/pin routing)
+- **THEN** the recipe's own `grindPinned`/`rpmPinned` updates without writing to the bag
 
 #### Scenario: Profile swap deactivates
 - **WHEN** the user manually selects a different profile while a recipe is active
@@ -247,11 +247,11 @@ When an activated recipe has no profile, activation SHALL skip the profile-load,
 - **THEN** the recipe accumulates no shots and remains hard-deletable
 
 ### Requirement: Stale recipes activate with the finished bag's data
-Activating a recipe whose linked bag is finished SHALL apply the full bundle: profile, dose/yield/temperature, equipment, steam, and hot water apply normally, and grind resolves per inherit-or-pin against the finished bag (its last dial is a better starting point than nothing). The finished bag SHALL NOT be returned to inventory by activation. Activation SHALL succeed with no error or dialog; the stale indication remains a display concern of the listing surfaces.
+Activating a recipe whose linked bag is finished SHALL apply the full bundle: profile, dose/yield/temperature, equipment, steam, and hot water apply normally, and the recipe's own grind applies. The finished bag SHALL NOT be returned to inventory by activation. Activation SHALL succeed with no error or dialog; the stale indication remains a display concern of the listing surfaces.
 
 #### Scenario: Pulling a shot from a stale recipe
 - **WHEN** the user activates a stale recipe and starts espresso
-- **THEN** the shot runs with the recipe's profile, numbers, and the finished bag's grind — identical to activation before the bag was finished
+- **THEN** the shot runs with the recipe's profile, numbers, and the recipe's own grind — identical to activation before the bag was finished
 
 ### Requirement: Same-recipe re-activation does not race in-flight edits
 Re-activating a recipe that is already the active recipe SHALL NOT overwrite a field whose edit is still being persisted (a write-through to that same recipe row that has not yet been acknowledged). Re-activation of any *other* recipe, or first activation of the currently-active recipe id from a fresh app session, is unaffected and always applies the full bundle from the current stored state.
@@ -534,3 +534,10 @@ Automatic ratio updates SHALL affect only the active recipe's effective water se
 - **THEN** the next setup records that selection with the existing deactivation semantics
 - **AND** that drink retains its specification and pending plan or captured target until completion or abort
 - **AND** the next setup's water settings apply only after the current drink releases them
+
+### Requirement: Equipment-less recipe keeps current equipment
+Activation SHALL apply the recipe's own grind and SHALL leave the current equipment selected when the recipe specifies none, without falling back to its bag.
+
+#### Scenario: No equipment in recipe
+- **WHEN** a recipe with grind but no equipment is activated
+- **THEN** its grind applies and the previously selected equipment remains active

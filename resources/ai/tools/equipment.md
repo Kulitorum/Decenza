@@ -1,7 +1,7 @@
 # equipment
 
-An equipment package is a grinder identity plus an optional basket identity, shared by every bag
-and shot that references it. `action` is `list`, `create`, `select`, `update` or `merge`.
+An equipment package is a grinder identity plus an optional basket identity, referenced by recipes
+and shots. `action` is `list`, `create`, `select`, `update` or `merge`.
 
 `create` adds a package from a grinder and/or basket identity, with optional `name` and
 `puckPrep`. The same gear already in inventory is returned rather than duplicated, and a name
@@ -10,13 +10,12 @@ another package holds is refused. It does not select the package; use `select`.
 `list` returns each package with `id`, display `name`, grinder `brand`/`model`/`burrs`,
 `rpmAdjustable`, `inInventory`, and the last-used grind setting and `rpm`.
 
-`select` sets the ACTIVE BAG's package and applies that package's last grind/rpm to the bag,
-per the dual-memory rule. It requires a real package id — unlike `bag` action=select, there is no
-clear-with-zero.
+`select` changes the active equipment and applies that package's last grind/rpm to the live setup.
+It requires a real package id — unlike `bag` action=select, there is no clear-with-zero.
 
 ## update has reference semantics
 
-An edit applies to every bag and recipe referencing the package, and to its shots unless it forks
+An edit applies to every recipe referencing the package, and to its shots unless it forks
 (below) — it is not a copy. Changing
 `grinderBrand`/`grinderModel` re-derives `rpmAdjustable` from the registry.
 
@@ -33,7 +32,7 @@ dedup/fork rules as grinder edits.
 
 ## merge
 
-Folds `sourcePackageId` into `targetPackageId`: the source's history moves across and the source
-package is deleted. This is the repair for a package that was wrongly forked into two — the
+Folds `sourcePackageId` into `targetPackageId`: the source's shots and recipes move across
+(`shotsMoved`, `recipesMoved`) and the source package is deleted. This is the repair for a package that was wrongly forked into two — the
 `#1713` symptom, where an edit that only ADDED information created a second grinder identity.
 Irreversible, so it confirms first.

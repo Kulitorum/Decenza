@@ -2,6 +2,7 @@
 
 #include <QDate>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -28,6 +29,9 @@ inline QVariantList storageHintOptions()
                                {QStringLiteral("label"), QString::fromLatin1(option.label)}};
     return options;
 }
+
+// Keys bags no longer store (migration 52). Writes may only clear them.
+const QStringList& legacyDialKeys();
 
 int daysSince(const QString& iso, const QDate& today);
 QVariantList lifecycleParts(const QVariantMap& bag, const QDate& today);
