@@ -4,12 +4,12 @@
 // path every destination is reached through.
 
 #include <QtTest>
-#include <QtNetwork/private/qdecompresshelper_p.h>
 #include <QFile>
 #include <QJsonArray>
 #include <QSet>
 #include <QLoggingCategory>
 #include <QStandardPaths>
+#include <zlib.h>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -159,20 +159,24 @@ protected:
     }
 };
 
-// Decodes a gzip upload body with Qt's own decoder, which checks the CRC and
-// length trailer; empty if it is not valid gzip.
+// Decodes a gzip upload body; zlib checks the CRC and length trailer
+// (windowBits 15 + 16, zlib.h inflateInit2). Empty if it is not valid gzip.
 QByteArray gunzip(const QByteArray& gzipped) {
-    QDecompressHelper helper;
-    if (!helper.setEncoding("gzip")) return {};
-    helper.feed(gzipped);
+    z_stream zs{};
+    if (inflateInit2(&zs, 15 + 16) != Z_OK) return {};
+    zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(gzipped.constData()));
+    zs.avail_in = uInt(gzipped.size());
     QByteArray out;
     char buffer[4096];
-    while (helper.hasData()) {
-        const qsizetype n = helper.read(buffer, sizeof(buffer));
-        if (n <= 0) break;
-        out.append(buffer, n);
-    }
-    return helper.isValid() ? out : QByteArray();
+    int rc;
+    do {
+        zs.next_out = reinterpret_cast<Bytef*>(buffer);
+        zs.avail_out = sizeof(buffer);
+        rc = inflate(&zs, Z_NO_FLUSH);
+        out.append(buffer, qsizetype(sizeof(buffer) - zs.avail_out));
+    } while (rc == Z_OK);
+    inflateEnd(&zs);
+    return rc == Z_STREAM_END && zs.avail_in == 0 ? out : QByteArray();
 }
 
 QVariantList series(std::initializer_list<QPointF> points) {
@@ -420,7 +424,7 @@ private slots:
         QCOMPARE(rig.nam.requests.at(0).url().query(), QString());
         QCOMPARE(rig.nam.requests.at(0).rawHeader("Authorization"), basic("owner@example.com", "token"));
         QCOMPARE(rig.nam.requests.at(0).header(QNetworkRequest::ContentTypeHeader).toString(), QStringLiteral("application/json"));
-        // Gzip, as Decent asked: the gzip magic, and a body Qt's own decoder accepts.
+        // Gzip, as Decent asked: the gzip magic, and a body zlib decodes.
         QCOMPARE(rig.nam.requests.at(0).rawHeader("Content-Encoding"), QByteArray("gzip"));
         QVERIFY(rig.nam.bodies.at(0).startsWith("\x1f\x8b"));
         QCOMPARE(rig.sentDocument(0)["machine"].toObject()["model"].toString(), QStringLiteral("DE1PRO"));

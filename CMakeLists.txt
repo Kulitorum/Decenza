@@ -1446,6 +1446,7 @@ qt_add_resources(Decenza zip_licenses PREFIX "/licenses" FILES ${DECENZA_ZIP_LIC
 target_link_libraries(Decenza PRIVATE
     decenza_package_identity
     decenza_zip
+    ZLIB::ZLIB
     Qt6::Core
     Qt6::CorePrivate
     Qt6::Gui

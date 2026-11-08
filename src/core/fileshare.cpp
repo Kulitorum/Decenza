@@ -13,7 +13,6 @@
 #include <QJniObject>
 #include <QJniEnvironment>
 #include <QCoreApplication>
-#include <QtCore/private/qandroidextras_p.h>
 #endif
 
 #ifdef Q_OS_IOS
