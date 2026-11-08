@@ -1850,7 +1850,7 @@ target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 # Without it ProfileManager cannot open ":/profiles/default.json" and falls
 # back to whatever a PREVIOUS test left on disk — so this passed on a developer
 # machine and on CI retry, and failed on the first attempt of every clean run.
-# See the note on the ctest retry in linux-release.yml.
+# See the note on the ctest retry in release.yml.
 target_sources(tst_mcptools_profiles PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
