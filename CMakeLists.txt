@@ -163,7 +163,6 @@ find_package(Qt6 6.12.0 REQUIRED COMPONENTS
     Positioning
     WebSockets
     RemoteObjects
-    WebSocketsPrivate
 )
 
 # SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
@@ -440,23 +439,12 @@ if(ENABLE_UBSAN)
     if(MSVC)
         message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
     else()
-        # -fno-sanitize=vptr is required, not preference. The vptr check
-        # instruments downcasts through a polymorphic hierarchy and needs the
-        # target type's typeinfo at link time. decentscalewifi.cpp downcasts
-        # QObjectPrivate* to QWebSocketPrivate* (to reach the inner QTcpSocket
-        # and set DSCP/TCP_NODELAY), and Qt does not export typeinfo for its
-        # private classes on Linux, so the link fails with "undefined reference
-        # to `typeinfo for QWebSocketPrivate'".
-        #
-        # Found by this very gate: it links on macOS, where Apple's toolchain
-        # emits that typeinfo, and fails on Linux/GCC — the same shape as the
-        # iOS break that motivated the six-platform rule, caught this time
-        # before merge rather than at a release tag.
-        #
-        # What this costs, stated rather than buried: bad-downcast detection is
-        # off everywhere, including for that Qt-private downcast, whose validity
-        # rests on a convention the code's own comment says to re-verify on every
-        # Qt upgrade. That check is exactly what vptr would have enforced.
+        # vptr (bad-downcast detection) needs the target type's typeinfo at
+        # link time, and Qt does not export typeinfo for its private classes on
+        # Linux. It was disabled while decentscalewifi.cpp downcast to
+        # QWebSocketPrivate ("undefined reference to `typeinfo for
+        # QWebSocketPrivate'"); a new downcast to a Qt private class breaks the
+        # Linux link the same way, and macOS links regardless.
         # The optional checks are PROBED, not assumed. `local-bounds` is
         # clang-only — GCC fails the whole compile with "unrecognized argument
         # to '-fsanitize=' option", which is how this was found: verified on
@@ -485,8 +473,8 @@ if(ENABLE_UBSAN)
             set(_ubsan_halt " -fno-sanitize-recover=all")
             set(_ubsan_mode "aborts on finding")
         endif()
-        message(STATUS ">>> UBSan ENABLED (undefined${_ubsan_extra}, no vptr, ${_ubsan_mode}) <<<")
-        set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra} -fno-sanitize=vptr${_ubsan_halt} -fno-omit-frame-pointer")
+        message(STATUS ">>> UBSan ENABLED (undefined${_ubsan_extra}, ${_ubsan_mode}) <<<")
+        set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra}${_ubsan_halt} -fno-omit-frame-pointer")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
@@ -1464,7 +1452,6 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Positioning
     Qt6::WebSockets
     Qt6::RemoteObjects
-    Qt6::WebSocketsPrivate
 )
 
 # Embedded Tailscale (Remote MCP Mode A). mcptunnel_tsnet.cpp is always compiled
