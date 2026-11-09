@@ -118,7 +118,9 @@ jobs:
       - name: Build
         run: |
           cd build
-          ninja -j"$(nproc)" build_tests
+          # -k 0: report every target that fails, not just the first. A GCC-only
+          # link failure has no local repro, so one run must name them all.
+          ninja -k 0 -j"$(nproc)" build_tests
 
       # The QML diagnostics gate — the ratchet over qml-diagnostics-baseline.json,
       # whose per-file ceilings may fall and never rise. It lives here rather than
