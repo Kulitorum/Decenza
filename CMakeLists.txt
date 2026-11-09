@@ -473,9 +473,9 @@ if(ENABLE_UBSAN)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
         # GCC's vptr check links against `typeinfo for T` at every member call
         # through a T*, and the narrow test libraries omit the TUs that define
-        # it (MainController, ProfileManager, ShotHistoryStorage): 24 test
-        # targets fail to link. Clang resolves the type at runtime, so it keeps
-        # the check.
+        # it, so test targets fail to link (nightly run 42580343443). Clang
+        # resolves the type at runtime and keeps the check. Branch on compiler
+        # id, not a probe: GCC accepts the flag, so a probe would pass.
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             string(APPEND CMAKE_CXX_FLAGS " -fno-sanitize=vptr")
             message(STATUS "UBSan: vptr disabled for GCC (link-time typeinfo references)")
