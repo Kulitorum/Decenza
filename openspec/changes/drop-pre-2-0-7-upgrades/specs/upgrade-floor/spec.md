@@ -73,7 +73,7 @@ When no shot database exists, the app SHALL create the schema-41 tables directly
 - **THEN** no refusal notice is shown and the app starts normally
 
 ### Requirement: Restores and transfers refuse sources older than the floor
-Restoring a backup and receiving a device-to-device transfer SHALL refuse a source whose shot database is below the floor, or has no schema version, with a message naming Decenza 2.1.0 as the release to restore it in. Nothing from that source SHALL be applied, including settings, profiles and media. A backup's shot database SHALL be checked even when shots are not being restored.
+Restoring a backup and receiving a device-to-device transfer SHALL refuse a source whose shot database is below the floor, has no schema version, or cannot be read, with a message naming Decenza 2.1.0 as the release to restore it in. Nothing from that source SHALL be applied, including settings, profiles and media. A backup's shot database SHALL be checked even when shots are not being restored.
 
 #### Scenario: A backup from 1.8 is refused
 - **WHEN** the user restores a backup whose shot database is at schema 23
@@ -88,6 +88,11 @@ Restoring a backup and receiving a device-to-device transfer SHALL refuse a sour
 #### Scenario: A backup restored without its shots is still checked
 - **WHEN** the user restores only the settings from a backup whose shot database is at schema 40
 - **THEN** the restore fails with a message naming Decenza 2.1.0
+- **AND** the device's settings are unchanged
+
+#### Scenario: A backup whose shot database cannot be read is refused
+- **WHEN** the user restores only the settings from a backup whose shot database has no `shots` table
+- **THEN** the restore fails
 - **AND** the device's settings are unchanged
 
 #### Scenario: A schema-41 backup restores

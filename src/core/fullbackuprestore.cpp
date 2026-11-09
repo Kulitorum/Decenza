@@ -273,12 +273,15 @@ std::shared_ptr<FullBackupRestore::PreparedArchive> parseArchive(
     QString payloadError;
     if (!validateStagedPayloads(prepared, &payloadError))
         return fail(payloadError, 400);
-    // Before anything is applied: an archive whose shot database predates the
-    // upgrade floor carries settings and profiles from before it too.
-    if (!prepared->shots.path.isEmpty()
-        && ShotHistoryStorage::probeUpgradeFloor(prepared->shots.path)
-               == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor)
-        return fail(UpgradeFloor::sourceTooOldMessage(), 400);
+    // Before anything is applied, shots chosen or not: settings and profiles beside a shot
+    // database that is below the floor, or cannot be confirmed above it, are refused too.
+    if (!prepared->shots.path.isEmpty()) {
+        const auto probe = ShotHistoryStorage::probeUpgradeFloor(prepared->shots.path);
+        if (probe == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor)
+            return fail(UpgradeFloor::sourceTooOldMessage(), 400);
+        if (probe != ShotHistoryStorage::UpgradeFloorProbe::Supported)
+            return fail(QStringLiteral("The backup's shot database could not be read"), 400);
+    }
     return prepared;
 }
 

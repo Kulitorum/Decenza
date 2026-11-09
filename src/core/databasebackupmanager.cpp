@@ -884,12 +884,18 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                 DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup";
             }
         }
-        // Whatever categories were chosen: settings and profiles beside a
-        // below-floor shot database predate the floor too.
-        if (!tempDbPath.isEmpty()
-            && ShotHistoryStorage::probeUpgradeFloor(tempDbPath) == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor) {
-            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "restore: source is below the upgrade floor; nothing restored";
-            errors << qMakePair(QString::fromLatin1(UpgradeFloor::kSourceTooOldKey), UpgradeFloor::sourceTooOldMessage());
+        // Whatever categories were chosen: settings and profiles beside a shot database that
+        // is below the floor, or cannot be confirmed above it, are refused too.
+        if (!tempDbPath.isEmpty()) {
+            const auto probe = ShotHistoryStorage::probeUpgradeFloor(tempDbPath);
+            if (probe == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor) {
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "restore: source is below the upgrade floor; nothing restored";
+                errors << qMakePair(QString::fromLatin1(UpgradeFloor::kSourceTooOldKey), UpgradeFloor::sourceTooOldMessage());
+            } else if (probe != ShotHistoryStorage::UpgradeFloorProbe::Supported) {
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "restore: backup shot database could not be read; nothing restored";
+                errors << qMakePair(QStringLiteral("backup.error.unreadableShotDatabase"),
+                                    QStringLiteral("The backup's shot database could not be read"));
+            }
         }
         if (!errors.isEmpty()) {
             QDir(tempDir).removeRecursively();

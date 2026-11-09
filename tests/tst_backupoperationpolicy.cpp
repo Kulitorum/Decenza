@@ -163,14 +163,38 @@ private slots:
 
     // A backup whose shot database predates the upgrade floor is refused before
     // anything in it is applied, on both restore paths.
+    void restoresRefuseADatabaseBelowTheFloor_data()
+    {
+        QTest::addColumn<bool>("readable");
+        QTest::addColumn<QString>("shown");
+        QTest::addColumn<QString>("logged");
+        QTest::newRow("below floor") << true << QString::fromLatin1(UpgradeFloor::kSteppingStoneRelease)
+                                     << QStringLiteral("source is below the upgrade floor");
+        QTest::newRow("unconfirmed") << false << QStringLiteral("could not be read")
+                                     << QStringLiteral("shot database could not be read");
+    }
+
     void restoresRefuseADatabaseBelowTheFloor()
     {
+        QFETCH(bool, readable);
+        QFETCH(QString, shown);
+        QFETCH(QString, logged);
         QStandardPaths::setTestModeEnabled(true);
         QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
              + QStringLiteral("/translations")).removeRecursively();
         QTemporaryDir directory;
-        const QByteArray oldBytes = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
+        QByteArray oldBytes = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
         QVERIFY(!oldBytes.isEmpty());
+        if (!readable) {
+            // A real SQLite file with no shots table: the probe cannot place it above the floor.
+            const QString other = directory.filePath(QStringLiteral("other.db"));
+            ShotRowFixtures::withRawDb(other, QStringLiteral("unconfirmed_db"), [](QSqlDatabase& db) {
+                QVERIFY(QSqlQuery(db).exec(QStringLiteral("CREATE TABLE notes (id INTEGER)")));
+            });
+            QFile file(other);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            oldBytes = file.readAll();
+        }
 
         Settings settings;
         settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
@@ -190,11 +214,12 @@ private slots:
             {QByteArrayLiteral("shots.db"), oldBytes}});
         FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, &translations);
         QSignalSpy finished(&restore, &FullBackupRestore::finished);
-        QVERIFY(restore.restoreFile(QStringLiteral("old-db"), archive, FullBackupRestore::Options{}));
+        FullBackupRestore::Options withoutShots;
+        withoutShots.shots = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("old-db"), archive, withoutShots));
         QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
         QVERIFY(!finished.first().at(1).toBool());
-        QVERIFY2(finished.first().at(3).toString().contains(QLatin1String(UpgradeFloor::kSteppingStoneRelease)),
-                 qPrintable(finished.first().at(3).toString()));
+        QVERIFY2(finished.first().at(3).toString().contains(shown), qPrintable(finished.first().at(3).toString()));
         QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
                  QStringLiteral("Pitcher"));
 
@@ -214,12 +239,11 @@ private slots:
         manager.setTranslationManager(&translations);
         QSignalSpy completed(&manager, &DatabaseBackupManager::restoreCompleted);
         QSignalSpy failed(&manager, &DatabaseBackupManager::restoreFailed);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("source is below the upgrade floor"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(logged));
         QVERIFY(manager.restoreBackupFile(zipPath, true, false, true, false, false));
         QTRY_VERIFY_WITH_TIMEOUT(completed.count() + failed.count() == 1, 10000);
         QCOMPARE(failed.count(), 1);
-        QVERIFY2(failed.first().first().toString().contains(QLatin1String(UpgradeFloor::kSteppingStoneRelease)),
-                 qPrintable(failed.first().first().toString()));
+        QVERIFY2(failed.first().first().toString().contains(shown), qPrintable(failed.first().first().toString()));
         QCOMPARE(storage.totalShots(), 0);
         QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
                  QStringLiteral("Pitcher"));
