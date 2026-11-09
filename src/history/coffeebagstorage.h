@@ -384,17 +384,6 @@ public:
     // renamed. Returns the number of shots queued, -1 on failure.
     static int markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagId);
 
-    // Clean every stored bag that already carries a conflicted link (migration
-    // 38's data pass), queueing their shots for repair. Returns the number of
-    // bags unlinked, -1 on failure.
-    //
-    // `queueShots` false skips only the queueing, and exists for one caller: the
-    // migration whose ALTER for shots.bean_repair_pending failed. There the
-    // UPDATE would fail on the missing column and fail the whole unlink with it,
-    // which is the opposite of the migration's stated policy that the unlink
-    // lands regardless.
-    static int cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool queueShots = true);
-
     // True when `fields` (camelCase CoffeeBag keys) contains at least one field
     // that Visualizer stores on its coffee bag — the identity/lifecycle/canonical
     // fields, NOT the local-only dose/yield/lifecycle-id columns. Drives

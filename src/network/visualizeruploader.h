@@ -132,9 +132,6 @@ public:
     // English fallback.
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
-    // PATCH `fields` (VisualizerSync::Field bits) of an already-uploaded shot;
-    // false if nothing was sent.
-    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData, quint32 fields);
     // The {"shot": ...} object of that PATCH. Pure, so the field-subset rule is
     // unit-tested.
     static QJsonObject buildShotUpdateBody(const ShotProjection& shotData, quint32 fields);
@@ -279,6 +276,9 @@ private slots:
     void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId);
 
 private:
+    // PATCH `fields` (VisualizerSync::Field bits) of an already-uploaded shot;
+    // false if nothing was sent.
+    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData, quint32 fields);
     // False if nothing was sent (unreadable or ineligible shot, no account).
     bool uploadShotFromHistory(const ShotProjection& shotData);
     // Ends this attempt of the job's send with `outcome` (ShotUploads may retry it).

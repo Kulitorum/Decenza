@@ -307,23 +307,9 @@ After each per-profile calibration update, the global multiplier is updated to t
 
 The calibration multiplier is written to the DE1 via the existing `DE1Device::setFlowCalibrationMultiplier()` method, which writes to the appropriate MMR address.
 
-## v2 Migration (Ratio Guard Reset)
+## Past One-Time Resets (Removed)
 
-A one-time migration resets all per-profile flow calibrations and the global multiplier to 1.0. This is necessary because the pre-v2 algorithm had no ratio guards, allowing shots with poor scale data to drag calibrations down to ~0.6. The corrupted values then spread via the global median to new profiles (bootstrap problem). After the reset, the improved algorithm re-converges to correct values (~0.9-1.0) within a few shots per profile.
-
-## v3 Migration (Flow Profile Feedback Loop Fix)
-
-A one-time migration resets all per-profile flow calibrations and the global multiplier to 1.0, and switches flow-controlled windows to a target-anchored formula.
-
-**v3's stated premise was wrong, and v6 reverses the formula half of it.** v3 held that `ideal = factor * weightFlow / (reportedFlow * density)` is "proportional to the current factor" and so can only decrease. That is true only if the multiplier scales *reporting alone*. It does not — the DE1 servos its calibrated flow, so a higher multiplier delivers less water and `weightFlow` falls to match, leaving the expression unchanged. Measured on three machines the multiplier moved 15-38% while the expression moved 4-15%.
-
-The observed drift (1.0 → 0.59 over 30 shots) was real; the diagnosis was not. It was bad scale data reaching a formula with no ratio guards, and the per-sample and window ratio guards added alongside v2/v3 are what actually stopped it. Changing the formula fixed a data problem by replacing a correct expression with one whose fixed point is √e — which is why flow-profile machines have sat a few percent off ever since. Recorded here because the premise reads as settled fact in `settings.cpp` and would otherwise be re-derived from the comment rather than the data.
-
-The reset itself was still warranted: the global median may have been contaminated by drifted flow-profile values.
-
-## v4 Migration (Pressure-Capped Flow Window Fix)
-
-A one-time migration clears every profile's *pending* flow-cal batch only (`calibration/flowCalBatch` → `{}`) — unlike v2 and v3, it does **not** reset stored per-profile or global multipliers. The v3 formula assumed a flow-controlled frame always achieves its target flow; on a pressure-capped flow frame it often doesn't (see "Off-target windows are skipped (v5)" above), producing a bad ideal for that specific window. That's a per-window defect the batch median's outlier rejection already partially absorbs, not evidence the *stored* multiplier is wrong the way v2/v3's corrupted values were — so a full reset would cost every user several shots' worth of reconvergence to fix a defect that's workload-dependent and often dormant (profiles that reliably hit target flow were never affected). Clearing only the pending accumulator is enough to stop a batch from mixing ideals computed under the old and new window rules in one median.
+Releases before the schema-41 upgrade floor ran one-time calibration migrations (`calibration/v2`–`v6` flags). v2 and v3 reset every multiplier to 1.0 after bad scale data had dragged values down to ~0.6; the ratio guards added alongside them are what fixed that, and v3's target-anchored formula change was wrong (its fixed point is √e) and v6 reversed it. v4–v6 cleared only pending batches, so no median mixed ideals from two window rules. The steps are gone and their flags are no longer read.
 
 ## Flow Calibration Recorded Per Shot
 
@@ -334,18 +320,6 @@ The value is latched at shot START (`ProfileManager::latchForShot()`), not read 
 The latch is **consumed** by the save, so a value belongs to exactly the shot that latched it: a shot whose `espressoCycleStarted` transition was missed reads 0 and records NULL rather than inheriting its predecessor's multiplier.
 
 NULL means **not recorded** — a shot saved before the column existed, an imported shot whose source lacked it, the dev fake-shot path, or a shot that never latched. It is never read as 1.0, which is a legitimate multiplier; the projection omits the field entirely rather than emitting a sentinel.
-
-## v5 Migration (Off-Target Windows Skipped)
-
-Same shape as v4 and for the same reason: which windows produce an ideal changed, so a batch must not mix the two rules in one median. A one-time migration (`calibration/v5SkipOffTargetReset`) clears every profile's *pending* batch only. Stored per-profile and global multipliers are deliberately left alone — the defect is per-window, and auto-calibration walks the value back within a few batches once capped windows stop contributing. Resetting would cost every well-dialled user several batches of reconvergence for a defect their data does not show: replayed over 30 D-Flow shots from a well-dialled machine, contribution drops 30/30 → 27/30 and the median ideal does not move at all (0.968 → 0.968).
-
-## v6 Migration (One Formula for Both Control Modes)
-
-Same shape as v4 and v5: a one-time migration (`calibration/v6UnifiedIdealFormula`) clears every profile's *pending* batch only, so a median cannot mix ideals from the old target-anchored expression with ideals from the pump-model expression — under the old one a flow window produced roughly `e / C` where the new one produces `e`.
-
-Stored multipliers are again left alone. Flow-profile machines sat on √e rather than e — roughly a **16-19% error** (0.858 against e = 0.737; 1.200 against e = 1.44), not the small one an earlier draft of this section claimed. It is left to self-correct rather than reset because every batch now produces an ideal on the target's side of `C`, so the existing EMA closes the gap geometrically (on a flow profile, into the ~±10% band described in "Convergence on flow profiles" above). Note the window ratio guard bounds one batch's ideal to `C × [0.741, 1.333]`, so an error near the top of that range takes an extra batch or two rather than the two or three a 20% error needs.
-
-Both the classifier and the off-target skip stay exactly as they were. The pump-model error itself varies with flow **rate** (the 48% table above), so a window must still be measured at an operating point the profile actually pours at — the skip and the formula are independent fixes that compose.
 
 ## Diagnosing It From a Log
 

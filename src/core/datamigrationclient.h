@@ -268,6 +268,8 @@ private:
     void doImportExtraSettings();
     void doImportProfiles();
     void doImportShots();
+    void doCheckSourceSchema();
+    void refuseUncheckedSource(bool belowFloor);
     void doImportMedia();
     void doImportAIConversations();
 
@@ -357,5 +359,8 @@ private:
     // application-thread completion drains. A later run cannot overlap it.
     bool m_shotImportInFlight = false;
     std::shared_ptr<std::atomic_bool> m_shotImportCancelled;
+    // False for a source from before the manifest carried shotSchemaVersion:
+    // its database has to be checked before anything else is applied.
+    bool m_sourceSchemaReported = false;
     quint64 m_importGeneration = 0;
 };

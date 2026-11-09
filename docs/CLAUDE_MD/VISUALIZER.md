@@ -23,8 +23,7 @@ barista, taste taps (as CVA scores), and the canonical bean link.
   `VisualizerUploader` is a `ShotUploadDestination`: `sendSavedShot()` PATCHes a shot that has a
   `visualizer_id` and uploads it otherwise, so a shot is never uploaded twice; a PATCH answered 404
   (deleted on visualizer.coffee) clears the link and uploads afresh. Requests are one at a time; do
-  not call the upload or PATCH paths around it. The one exception is the migration-16 back-sync,
-  which PATCHes the rating directly; a job never mistakes that PATCH for its own.
+  not call the upload or PATCH paths around it.
 - **Which fields a PATCH sends** (`buildShotUpdateBody(shot, fields)`): an automatic update sends
   only the fields edited here since the last send (`shots.visualizer_dirty`, below); the Upload
   button sends all of them. A sent field the user cleared goes as JSON `null`.

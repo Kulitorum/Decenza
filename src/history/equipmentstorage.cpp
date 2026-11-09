@@ -1807,26 +1807,6 @@ bool EquipmentStorage::isEnrichmentOf(const PackageIdentity& before, const Packa
         && (before.puckPrep.isEmpty() || before.puckPrep == after.puckPrep);  // both canonical
 }
 
-PackageIdentity EquipmentStorage::identityOfStatic(QSqlDatabase& db, qint64 packageId)
-{
-    const EquipmentItem grinder = loadGrinderItemStatic(db, packageId);
-    const EquipmentItem basket  = loadBasketItemStatic(db, packageId);
-    const EquipmentItem puck    = loadPuckPrepItemStatic(db, packageId);
-
-    PackageIdentity id;
-    // isValid(), not "are the fields blank": the loaders return a
-    // default-constructed item when there is no row, and no-row is the case that
-    // means "deliberately grinder-less" rather than "nobody typed it in".
-    id.hasGrinder   = grinder.isValid();
-    id.grinderBrand = grinder.brand;
-    id.grinderModel = grinder.model;
-    id.burrs        = grinder.burrs;
-    id.basketBrand  = basket.brand;
-    id.basketModel  = basket.model;
-    id.puckPrep     = puck.model;   // stored canonical
-    return id;
-}
-
 qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
                                                       const QString& brand, const QString& model,
                                                       const QString& burrs)
@@ -1895,8 +1875,6 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // physical rather than tidy: there is no espresso pulled without a basket, so
     // an absent basket is a basket nobody wrote down, exactly like absent burrs.
     // Tea genuinely has no grinder.
-    // The test itself lives in isEnrichmentOf, shared with the one-time heal —
-    // see its declaration for why that sharing is load-bearing.
     PackageIdentity before;
     before.hasGrinder   = cur.isValid();
     before.grinderBrand = cur.brand;
@@ -2133,30 +2111,12 @@ bool EquipmentStorage::deriveRpmCapable(const QString& brand, const QString& mod
     return entry ? entry->variableRpm : true;
 }
 
-void EquipmentStorage::splitGrindAndRpm(const QString& combined, QString& outGrind, qint64& outRpm)
-{
-    outGrind = combined.trimmed();
-    outRpm = 0;
-    // Only split on an explicit trailing rpm marker, so compound ("1+4") and
-    // other annotated ("24 clicks") settings are left verbatim.
-    static const QRegularExpression rx(QStringLiteral(R"(\s*(\d+)\s*rpm\s*$)"),
-                                       QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch m = rx.match(outGrind);
-    if (m.hasMatch()) {
-        outRpm = m.captured(1).toLongLong();
-        outGrind = outGrind.left(m.capturedStart(0)).trimmed();
-    }
-}
-
 bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                              QHash<qint64, qint64>& outIdMap)
 {
     if (!merge) {
         // Replace mode: clear dest equipment first (items before packages — no
-        // FK cascade on these tables). Done BEFORE the source probe below so a
-        // replace from an older source that predates equipment tables still wipes
-        // the dest's inventory (otherwise the early return would leave it orphaned
-        // after importDatabaseStatic has already cleared the dest shots/bags).
+        // FK cascade on these tables).
         QSqlQuery clr(destDb);
         if (!clr.exec("DELETE FROM equipment_items") || !clr.exec("DELETE FROM equipment_packages")) {
             EQUIP_WARN_STDERR("Import",
@@ -2164,14 +2124,6 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
                                   .arg(clr.lastError().text()));
             return false;
         }
-    }
-
-    // Older source DB without equipment tables: nothing to import (in replace mode
-    // the dest was already cleared above).
-    {
-        QSqlQuery srcCheck(srcDb);
-        if (!srcCheck.exec("SELECT COUNT(*) FROM equipment_packages"))
-            return true;
     }
 
     QSqlQuery srcPkgs(srcDb);

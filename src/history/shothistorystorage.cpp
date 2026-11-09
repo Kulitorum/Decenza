@@ -218,6 +218,15 @@ void ShotHistoryStorage::close()
     }
 }
 
+// NULL (an empty table) reads as 1, the version createTables() once seeded.
+static std::optional<int> readSchemaVersion(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !q.next())
+        return std::nullopt;
+    return q.value(0).isNull() ? 1 : q.value(0).toInt();
+}
+
 QString ShotHistoryStorage::defaultDatabasePath()
 {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/shots.db");
@@ -246,15 +255,10 @@ ShotHistoryStorage::UpgradeFloorProbe ShotHistoryStorage::probeUpgradeFloor(cons
             result = UpgradeFloorProbe::NoDatabase;
             return;
         }
-        int version = 1;
-        if (hasVersion) {
-            QSqlQuery q(db);
-            if (!q.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !q.next())
-                return;
-            if (!q.value(0).isNull())
-                version = q.value(0).toInt();
-        }
-        result = version >= UpgradeFloor::kSchemaVersion ? UpgradeFloorProbe::Supported
+        const std::optional<int> version = hasVersion ? readSchemaVersion(db) : 1;
+        if (!version)
+            return;
+        result = *version >= UpgradeFloor::kSchemaVersion ? UpgradeFloorProbe::Supported
                                                        : UpgradeFloorProbe::BelowFloor;
     });
     return result;
@@ -575,13 +579,13 @@ bool ShotHistoryStorage::runMigrations()
     // Read the version before anything writes. A database below the upgrade
     // floor is left exactly as it is: it has to pass through
     // UpgradeFloor::kSteppingStoneRelease, which still carries the older steps.
-    if (!query.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !query.next()) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "schema_version read failed -" << query.lastError().text()
+    const std::optional<int> storedVersion = readSchemaVersion(m_db);
+    if (!storedVersion) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "schema_version read failed -" << m_db.lastError().text()
                                                  << "- database left unchanged, will retry next launch";
         return false;
     }
-    int currentVersion = query.value(0).isNull() ? 1 : query.value(0).toInt();
-    query.finish();
+    int currentVersion = *storedVersion;
     if (currentVersion < UpgradeFloor::kSchemaVersion) {
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "database is at schema" << currentVersion
                                                  << "- below the upgrade floor" << UpgradeFloor::kSchemaVersion
@@ -666,7 +670,7 @@ bool ShotHistoryStorage::runMigrations()
     // Migration 42: per-shot Decent account upload state (add-decent-shot-upload).
     // Unfilled (NULL, or 0 for decent_replace_pending): every existing shot starts
     // "never uploaded".
-    if (currentVersion >= 41 && currentVersion < 42) {
+    if (currentVersion < 42) {
         addColumns(42, "migration 42 decent upload columns", {
             {QStringLiteral("shots"), QStringLiteral("decent_uploaded_at"), QStringLiteral("INTEGER")},
             {QStringLiteral("shots"), QStringLiteral("decent_shot_id"), QStringLiteral("TEXT")},
@@ -3707,8 +3711,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
         {
             // Import equipment packages first so shots and recipes can remap
-            // their equipment_id to the new package ids. Pre-equipment sources
-            // have no tables and yield an empty map — the ids then go NULL.
+            // their equipment_id to the new package ids.
             QHash<qint64, qint64> packageIdMap;
             if (!EquipmentStorage::importEquipmentStatic(srcDb, destDb, merge, packageIdMap)) {
                 EQUIP_WARN_STDERR("Import", QStringLiteral("database import failed - equipment packages not imported"));
@@ -3723,8 +3726,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
             // Import coffee bags next so shots.bag_id can be remapped
             // (bean-bag-inventory): bag row ids change on insert, exactly
-            // like shot ids. Pre-migration-19 sources have no coffee_bags
-            // table and yield an empty map.
+            // like shot ids.
             QHash<qint64, qint64> bagIdMap;
             if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap)) {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Bag import failed";
@@ -3734,8 +3736,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
             // Import recipes after bags so shots.recipe_id can be remapped
             // (finish-recipes-first-class): recipe row ids change on insert,
-            // exactly like bag ids. Pre-migration-25 sources have no recipes
-            // table and yield an empty map. packageIdMap remaps each recipe's
+            // exactly like bag ids. packageIdMap remaps each recipe's
             // equipment_id; bagIdMap remaps its bag_id (an unmatched source
             // bag becomes NULL → stale); the bean identity fields carry
             // verbatim as the relink matching key.
@@ -3939,6 +3940,15 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 goto cleanup;
             }
 
+            QSqlQuery srcSamples(srcDb);
+            srcSamples.prepare("SELECT sample_count, data_blob FROM shot_samples WHERE shot_id = ?");
+            QSqlQuery insertSample(destDb);
+            insertSample.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (?, ?, ?)");
+            QSqlQuery srcPhases(srcDb);
+            srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason FROM shot_phases WHERE shot_id = ?");
+            QSqlQuery insertPhase(destDb);
+            insertPhase.prepare("INSERT INTO shot_phases (shot_id, time_offset, label, frame_number, is_flow_mode, transition_reason) VALUES (?, ?, ?, ?, ?, ?)");
+
             while (srcShots.next()) {
                 QString uuid = srcShots.value("uuid").toString();
                 if (merge) {
@@ -4023,9 +4033,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 tally.shotIdMap.insert(oldId, newId);
 
                 // Import samples
-                QSqlQuery srcSamples(srcDb);
-                srcSamples.prepare("SELECT sample_count, data_blob FROM shot_samples WHERE shot_id = ?");
-                srcSamples.addBindValue(oldId);
+                srcSamples.bindValue(0, oldId);
                 if (!srcSamples.exec()) {
                     // Distinct from "this shot has no samples": collapsing the
                     // two imports a graphless shot and counts it a success,
@@ -4033,33 +4041,25 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to read samples for shot"
                                << uuid << ":" << srcSamples.lastError().text();
                 } else if (srcSamples.next()) {
-                    QSqlQuery insertSample(destDb);
-                    insertSample.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (?, ?, ?)");
-                    insertSample.addBindValue(newId);
-                    insertSample.addBindValue(srcSamples.value(0));
-                    insertSample.addBindValue(srcSamples.value(1));
+                    insertSample.bindValue(0, newId);
+                    insertSample.bindValue(1, srcSamples.value(0));
+                    insertSample.bindValue(2, srcSamples.value(1));
                     if (!insertSample.exec()) {
                         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import sample for shot"
                                    << uuid << ":" << insertSample.lastError().text();
                     }
                 }
 
-                QSqlQuery srcPhases(srcDb);
-                srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason FROM shot_phases WHERE shot_id = ?");
-                srcPhases.addBindValue(oldId);
+                srcPhases.bindValue(0, oldId);
                 if (!srcPhases.exec()) {
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to query phases for shot"
                                << uuid << ":" << srcPhases.lastError().text();
                 }
                 while (srcPhases.next()) {
-                    QSqlQuery insertPhase(destDb);
-                    insertPhase.prepare("INSERT INTO shot_phases (shot_id, time_offset, label, frame_number, is_flow_mode, transition_reason) VALUES (?, ?, ?, ?, ?, ?)");
-                    insertPhase.addBindValue(newId);
-                    insertPhase.addBindValue(srcPhases.value(0));
-                    insertPhase.addBindValue(srcPhases.value(1));
-                    insertPhase.addBindValue(srcPhases.value(2));
-                    insertPhase.addBindValue(srcPhases.value(3));
-                    insertPhase.addBindValue(srcPhases.value(4).toString());
+                    insertPhase.bindValue(0, newId);
+                    for (int i = 0; i < 4; ++i)
+                        insertPhase.bindValue(i + 1, srcPhases.value(i));
+                    insertPhase.bindValue(5, srcPhases.value(4).toString());
                     if (!insertPhase.exec()) {
                         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import phase for shot"
                                    << uuid << ":" << insertPhase.lastError().text();
@@ -4076,65 +4076,21 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 goto cleanup;
             }
 
+            // Replace mode restores the DATABASE, so the id sequence should
+            // match the backup as well as the rows: DELETE does not reset
+            // sqlite_sequence. Merge mode keeps the destination's own sequence.
+            if (!merge) {
+                QSqlQuery seqFix(destDb);
+                if (!seqFix.exec("UPDATE sqlite_sequence SET seq = "
+                                 "(SELECT IFNULL(MAX(id), 0) FROM shots) WHERE name = 'shots'"))
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: could not realign"
+                               << "sqlite_sequence after replace:" << seqFix.lastError().text();
+            }
+
             if (!destDb.commit()) {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to commit:" << destDb.lastError().text();
                 destDb.rollback();
                 goto cleanup;
-            }
-
-            // Backfill beverage_type from profile_json for imported shots from old DBs.
-            // Wrapped in a transaction to avoid per-UPDATE write lock contention with
-            // the main thread's connection (this runs on a background thread).
-            {
-                // destDb is the LIVE shots.db (importDatabaseStatic's destDbPath),
-                // not the imported file — srcDb is the separate one. So this reads
-                // the shot list and then UPDATEs inside the loop, on a background
-                // thread, while the other storages' workers write: the same
-                // read-then-write upgrade that cost a recipe save. Take the write
-                // lock up front. See DbWriteTxn.
-                // No error detail here: begin() already logged the real failure, and
-                // destDb.lastError() would be stale — begin runs on its own QSqlQuery.
-                DbWriteTxn backfillTxn = DbWriteTxn::begin(destDb, "import beverage-type backfill");
-                if (!backfillTxn.ok()) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Backfill transaction failed - skipping backfill";
-                } else {
-                QSqlQuery query(destDb);
-                query.prepare("SELECT id, profile_json FROM shots WHERE (beverage_type = 'espresso' OR beverage_type IS NULL) AND profile_json IS NOT NULL AND profile_json != ''");
-                query.exec();
-                while (query.next()) {
-                    qint64 id = query.value(0).toLongLong();
-                    QString profileJson = query.value(1).toString();
-                    QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8());
-                    if (doc.isNull()) continue;
-                    QString type = doc.object().value("beverage_type").toString();
-                    if (!type.isEmpty() && type != "espresso") {
-                        QSqlQuery update(destDb);
-                        update.prepare("UPDATE shots SET beverage_type = ?, "
-                                       "updated_at = strftime('%s', 'now') WHERE id = ?");
-                        update.addBindValue(type);
-                        update.addBindValue(id);
-                        update.exec();
-                    }
-                }
-                // Replace mode restores the DATABASE, so the id sequence should
-                // match the backup as well as the rows. DELETE does not reset
-                // sqlite_sequence (verified: three inserts then DELETE leaves
-                // the next id at 4; only DROP returns it to 1), so without this
-                // the next new shot after a restore skips past the old
-                // high-water mark instead of continuing the restored history.
-                // Merge mode must NOT do this — the destination's own sequence
-                // is still authoritative there.
-                if (!merge) {
-                    QSqlQuery seqFix(destDb);
-                    if (!seqFix.exec("UPDATE sqlite_sequence SET seq = "
-                                     "(SELECT IFNULL(MAX(id), 0) FROM shots) WHERE name = 'shots'"))
-                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: could not realign"
-                                   << "sqlite_sequence after replace:" << seqFix.lastError().text();
-                }
-
-                if (!backfillTxn.commit())
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Backfill commit failed:" << backfillTxn.commitError();
-                }
             }
 
             // destShotsBefore is what makes this line answer a question the old

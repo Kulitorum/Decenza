@@ -47,33 +47,6 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
-    // --- splitGrindAndRpm ---
-    void splitGrindRpm_data() {
-        QTest::addColumn<QString>("input");
-        QTest::addColumn<QString>("grind");
-        QTest::addColumn<qint64>("rpm");
-        QTest::newRow("annotated")     << "24 1400rpm" << "24"        << (qint64)1400;
-        QTest::newRow("spaced")        << "2.4 1400 rpm" << "2.4"     << (qint64)1400;
-        QTest::newRow("caps")          << "24 1400RPM" << "24"        << (qint64)1400;
-        QTest::newRow("compound")      << "1+4"       << "1+4"        << (qint64)0;
-        QTest::newRow("clicks")        << "24 clicks" << "24 clicks"  << (qint64)0;
-        QTest::newRow("plain")         << "24"        << "24"         << (qint64)0;
-        QTest::newRow("empty")         << ""          << ""           << (qint64)0;
-        QTest::newRow("rpm_only")      << "1400rpm"   << ""           << (qint64)1400;
-        QTest::newRow("rpm_word_no_digits") << "rpm"  << "rpm"        << (qint64)0;
-        QTest::newRow("rpm_not_trailing")   << "1400 rpm extra" << "1400 rpm extra" << (qint64)0;
-        QTest::newRow("trailing_ws")   << "24 1400 rpm " << "24"      << (qint64)1400;
-    }
-    void splitGrindRpm() {
-        QFETCH(QString, input);
-        QFETCH(QString, grind);
-        QFETCH(qint64, rpm);
-        QString outGrind; qint64 outRpm = -1;
-        EquipmentStorage::splitGrindAndRpm(input, outGrind, outRpm);
-        QCOMPARE(outGrind, grind);
-        QCOMPARE(outRpm, rpm);
-    }
-
     // --- rpmCapable derivation ---
     void rpmCapable() {
         // Registry variableRpm grinder.
@@ -1389,34 +1362,6 @@ private slots:
         QCOMPARE(idMap.value(srcSame), dstSame);
     }
 
-    // A source DB with no equipment tables (transfer from a pre-equipment app
-    // version) yields an empty map and succeeds — bags/shots then null their
-    // equipment_id rather than mislinking.
-    void importEquipmentFromPreEquipmentSource() {
-        const QString srcPath = freshDbPath();
-        const QString dstPath = freshDbPath();
-        withRawDb(srcPath, "imp_old_src", [&](QSqlDatabase& db) {
-            QSqlQuery(db).exec("CREATE TABLE shots (id INTEGER PRIMARY KEY)");  // no equipment tables
-        });
-        withRawDb(dstPath, "imp_old_dst", [&](QSqlDatabase& db) {
-            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
-        });
-        QHash<qint64, qint64> idMap;
-        {
-            QSqlDatabase src = QSqlDatabase::addDatabase("QSQLITE", "imp_old_s");
-            src.setDatabaseName(srcPath);
-            QVERIFY(src.open());
-            QSqlDatabase dst = QSqlDatabase::addDatabase("QSQLITE", "imp_old_d");
-            dst.setDatabaseName(dstPath);
-            QVERIFY(dst.open());
-            QVERIFY(EquipmentStorage::importEquipmentStatic(src, dst, /*merge*/ true, idMap));
-            src = QSqlDatabase();
-            dst = QSqlDatabase();
-        }
-        QSqlDatabase::removeDatabase("imp_old_s");
-        QSqlDatabase::removeDatabase("imp_old_d");
-        QVERIFY(idMap.isEmpty());
-    }
 };
 
 QTEST_MAIN(tst_Equipment)

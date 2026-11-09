@@ -470,46 +470,6 @@ private slots:
         }
     }
 
-    // --- clearAllFlowCalPendingIdeals(): the v4 migration's primitive ---------
-    //
-    // The v4 migration (Settings constructor, calibration/v4AchievedFlowFormulaReset)
-    // clears every profile's pending batch so none straddles the old and new
-    // formula-selection logic in one median, but must leave stored multipliers
-    // alone — unlike the v2/v3 migrations it sits beside, which reset everything
-    // because the STORED value itself was shown corrupted. This covers the
-    // primitive the migration calls; the migration's own gating (a persisted,
-    // on-disk one-time flag, checked in the Settings constructor) has no
-    // existing test coverage for v2/v3 either, so this doesn't introduce a
-    // new gap.
-    void clearAllFlowCalPendingIdeals_clearsBatchesButNotMultipliers() {
-        Settings settings;
-        SettingsCalibration* cal = settings.calibration();
-        const QString profileA = QStringLiteral("tst_autoflowcal_v4_a");
-        const QString profileB = QStringLiteral("tst_autoflowcal_v4_b");
-        cal->clearProfileFlowCalibration(profileA);
-        cal->clearProfileFlowCalibration(profileB);
-
-        QVERIFY(cal->setProfileFlowCalibration(profileA, 1.23));
-        QVERIFY(cal->setProfileFlowCalibration(profileB, 0.87));
-        cal->appendFlowCalPendingIdeal(profileA, 0.80);
-        cal->appendFlowCalPendingIdeal(profileA, 0.79);
-        cal->appendFlowCalPendingIdeal(profileB, 1.10);
-        QCOMPARE(cal->flowCalPendingIdeals(profileA).size(), 2);
-        QCOMPARE(cal->flowCalPendingIdeals(profileB).size(), 1);
-
-        double globalBefore = cal->flowCalibrationMultiplier();
-        cal->clearAllFlowCalPendingIdeals();
-
-        QVERIFY(cal->flowCalPendingIdeals(profileA).isEmpty());
-        QVERIFY(cal->flowCalPendingIdeals(profileB).isEmpty());
-        QCOMPARE(cal->profileFlowCalibration(profileA), 1.23);
-        QCOMPARE(cal->profileFlowCalibration(profileB), 0.87);
-        QCOMPARE(cal->flowCalibrationMultiplier(), globalBefore);
-
-        cal->clearProfileFlowCalibration(profileA);
-        cal->clearProfileFlowCalibration(profileB);
-    }
-
     // With auto calibration off, a stored per-profile value is deliberately
     // ignored — the machine uses the global multiplier. This is what
     // set_flow_calibration reports as its `warning` case, and the reason the tool

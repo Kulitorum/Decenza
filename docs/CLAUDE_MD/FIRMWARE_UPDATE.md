@@ -78,7 +78,7 @@ Decenza ships the firmware images in the app bundle, described by `resources/fir
 | Stable (default) | 1358 (`de1-1358.bin`, de1app `7e94ef3c`) | Everyone, unless you have a reason to opt into pre-release firmware. |
 | Early access (opt-in) | 1359 (`de1-1359.bin`, a Decenza-specific build from Decent, not in de1app/decaid) | Testers. Adds a 5 s window after Espresso → Idle in which a BLE HotWater request starts without a GHC tap. |
 
-The Firmware tab shows release notes from the selected Decaid manifest entry, tied to the displayed channel and version. Early access is persisted as `firmware/EA`; the one-time upgrade removes the obsolete `firmware/nightlyChannel` key and resets every install to Stable before a user opts into Early access again.
+The Firmware tab shows release notes from the selected Decaid manifest entry, tied to the displayed channel and version. Early access is persisted as `firmware/EA`.
 
 **There is no version gate at all**, matching de1app — every version check in its `start_firmware_update` (`de1_comms.tcl:884-895`) is commented out, so its button flashes whatever is in `bootfwupdate.dat` regardless of what the machine reports. Decenza does the same and labels the action instead of blocking it:
 

@@ -13,7 +13,6 @@
 #include <QJsonDocument>
 #include <QDesktopServices>
 #include <QHash>
-#include <QSet>
 #include <QUrl>
 #include <QVector>
 

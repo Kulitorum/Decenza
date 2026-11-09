@@ -10,6 +10,7 @@
 #include "ai/conversationkey.h"
 #include "history/shothistorystorage.h"
 #include "screensaver/screensavervideomanager.h"
+#include "shotrowfixtures.h"
 
 #include <QtTest>
 #include <QNetworkAccessManager>
@@ -168,21 +169,8 @@ private slots:
         QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
              + QStringLiteral("/translations")).removeRecursively();
         QTemporaryDir directory;
-        const QString oldDb = directory.filePath(QStringLiteral("old.db"));
-        QVERIFY(QFile::copy(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"), oldDb));
-        QVERIFY(QFile::setPermissions(oldDb, QFile::ReadOwner | QFile::WriteOwner));
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("floor_rewind"));
-            db.setDatabaseName(oldDb);
-            QVERIFY(db.open());
-            QVERIFY(QSqlQuery(db).exec(QStringLiteral("UPDATE schema_version SET version = 40")));
-            db.close();
-        }
-        QSqlDatabase::removeDatabase(QStringLiteral("floor_rewind"));
-        QFile oldFile(oldDb);
-        QVERIFY(oldFile.open(QIODevice::ReadOnly));
-        const QByteArray oldBytes = oldFile.readAll();
-        oldFile.close();
+        const QByteArray oldBytes = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
+        QVERIFY(!oldBytes.isEmpty());
 
         Settings settings;
         settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
@@ -210,7 +198,7 @@ private slots:
         QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
                  QStringLiteral("Pitcher"));
 
-        // Zip, merge mode: refused at the shot import, before settings.
+        // Zip with shots unchecked: the settings beside the old database are refused too.
         const QString zipPath = directory.filePath(QStringLiteral("old.zip"));
         QuaZip writer(zipPath);
         QVERIFY(writer.open(QuaZip::mdCreate));
@@ -227,7 +215,7 @@ private slots:
         QSignalSpy completed(&manager, &DatabaseBackupManager::restoreCompleted);
         QSignalSpy failed(&manager, &DatabaseBackupManager::restoreFailed);
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("source is below the upgrade floor"));
-        QVERIFY(manager.restoreBackupFile(zipPath, true, true, true, false, false));
+        QVERIFY(manager.restoreBackupFile(zipPath, true, false, true, false, false));
         QTRY_VERIFY_WITH_TIMEOUT(completed.count() + failed.count() == 1, 10000);
         QCOMPARE(failed.count(), 1);
         QVERIFY2(failed.first().first().toString().contains(QLatin1String(UpgradeFloor::kSteppingStoneRelease)),

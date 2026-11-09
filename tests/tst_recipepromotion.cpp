@@ -6,9 +6,8 @@
 #include "history/recipepromotion.h"
 #include "history/shothistory_types.h"
 
-// RecipePromotion::fieldsFromShotRecord (recipes-idle-layout-upgrade): the
-// shared promotion field-builder used by both the recipe_create_from_shot
-// MCP tool and the upgrade dialog's starter-recipe hook.
+// RecipePromotion::fieldsFromShotRecord: the shared promotion field-builder
+// behind the recipe_create_from_shot MCP tool and the web promote endpoint.
 
 static ShotRecord sampleShotRecord() {
     ShotRecord record;

@@ -1421,8 +1421,8 @@ target_link_libraries(tst_recipestorage PRIVATE decenza_shotlib)
 target_include_directories(tst_recipestorage PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_recipepromotion: RecipePromotion::fieldsFromShotRecord — the shared
-# promotion field-builder behind recipe_create_from_shot (MCP) and the
-# recipes-idle-layout-upgrade starter-recipe hook. Header-only dependency
+# promotion field-builder behind recipe_create_from_shot (MCP) and the web
+# promote endpoint. Header-only dependency
 # (beanbase_blob.h's canonicalId is inline), no DB needed. ---
 add_decenza_test(tst_recipepromotion
     tst_recipepromotion.cpp

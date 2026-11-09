@@ -260,7 +260,7 @@ QJsonObject VisualizerUploader::buildShotUpdateBody(const ShotProjection& shotDa
     // A PATCH leaves an omitted field alone, so only `fields` are written, and a
     // written field the user has unset locally goes as JSON null: the API marks
     // every editable field nullable, and a literal 0/"" would SET it ("Rated
-    // 0/100" rather than Unrated — issue #1150, migration 16's back-sync).
+    // 0/100" rather than Unrated — issue #1150).
     namespace VS = VisualizerSync;
     QJsonObject shotObj;
     auto setStr = [&](quint32 field, const char* apiField, const QString& s) {
@@ -1004,8 +1004,7 @@ void VisualizerUploader::abandonBeanRepairPass(int status)
 void VisualizerUploader::scheduleNextBeanRepair()
 {
     // Pace the queue. This is a THROTTLE, not a guard: visualizer.coffee rate
-    // limits — fetchShotListPage above walks its pages back to back, which is
-    // why a library-wide pass had to stop being built on it.
+    // limits back-to-back requests.
     scheduleBeanRepairRequest([this]() { sendNextBeanRepair(); });
 }
 

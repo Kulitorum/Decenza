@@ -48,7 +48,6 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../history/shotdebuglogger.h"
-#include "../history/recipepromotion.h"
 #include "../network/shotserver.h"
 #include "../network/locationprovider.h"
 #include "../core/crashhandler.h"
@@ -3833,7 +3832,7 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     // It does NOT mean what a comment here used to say: that anchoring a flow
     // window to reported flow "creates a feedback loop, factor drifts down over
     // time". That was v3's premise, and v6 exists because it is wrong — see
-    // docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "v3 Migration". Hybrid profiles (e.g. ASL9-3 — pressure declines + a
+    // docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "Why the pre-v6 formula converged on √e". Hybrid profiles (e.g. ASL9-3 — pressure declines + a
     // flow-controlled tail) need window-level classification: the steady
     // window almost always lands in the pressure declines, so anchoring to
     // the tail's flow target produces false rejections and spurious

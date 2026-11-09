@@ -175,7 +175,6 @@ extern "C" const char* __ubsan_default_options()
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QScreen>
-#include <QSettings>
 #include <QIcon>
 #include <QTimer>
 #include <QEventLoop>
@@ -189,10 +188,8 @@ extern "C" const char* __ubsan_default_options()
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QSet>
 #include <QStandardPaths>
 #include <QPixmapCache>
 #ifdef Q_OS_MACOS
@@ -397,8 +394,7 @@ bool hasPreRenameShotDatabase()
 {
     const QString currentName = QCoreApplication::applicationName();
     QCoreApplication::setApplicationName(QStringLiteral("Decenza DE1"));
-    const QString oldDatabase = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                                + QStringLiteral("/shots.db");
+    const QString oldDatabase = ShotHistoryStorage::defaultDatabasePath();
     QCoreApplication::setApplicationName(currentName);
     return QFileInfo::exists(oldDatabase);
 }

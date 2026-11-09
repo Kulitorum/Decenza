@@ -2139,33 +2139,8 @@ private slots:
     }
 
     // ==========================================
-    // Recipes-first default layout + upgrade transform
-    // (recipes-idle-layout-upgrade)
+    // Recipes-first default layout
     // ==========================================
-
-    // The frozen composition of the old (pre-upgrade) default, used as the
-    // pristine-detection baseline and as a stand-in for "an untouched
-    // migrated-old-default layout" in the pristine-upgrade test below.
-    static QString oldDefaultLayoutJson() {
-        return QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
-            "{\"type\":\"flush\",\"id\":\"flush1\"}],"
-            "\"centerMiddle\":[{\"type\":\"shotPlan\",\"id\":\"plan1\"}],"
-            "\"bottomLeft\":[{\"type\":\"sleep\",\"id\":\"sleep1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"spacer\",\"id\":\"spacer2\"},"
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}");
-    }
 
     void defaultLayoutIsRecipesFirst() {
         SettingsNetwork* net = m_settings.network();

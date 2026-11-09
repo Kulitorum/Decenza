@@ -105,8 +105,7 @@ struct EquipmentPackageView {
     QVariantMap toVariantMap() const;
 };
 
-// The six identity components an edit can enrich, flattened so the live edit rule
-// and the one-time heal can ask the SAME question of them. See
+// The six identity components an edit can enrich. See
 // EquipmentStorage::isEnrichmentOf.
 //
 // `hasGrinder` is the presence of a grinder ROW, not whether its fields are set:
@@ -359,26 +358,10 @@ public:
     // Did `after` only ADD information to `before`? True when every component
     // whose value differs was EMPTY on `before` and carries a value on `after`.
     //
-    // ONE definition, called by both the live edit rule (supersedeOrEditStatic —
-    // NOT its thin wrapper supersedeOrEditGrinderStatic, which is where an earlier
-    // draft of this comment pointed) and the one-time heal, because they are the
-    // same question asked at
-    // two moments — an edit deciding whether to fork, and a migration deciding
-    // whether a past fork should not have happened. They were written separately
-    // and drifted: the heal tested BURRS only and required all five other
-    // components — grinder brand, grinder model, basket brand, basket model and the
-    // puck-prep string — to be EQUAL, which is the inverse of enrichment for a
-    // component that was absent. So a user who forked by recording a basket
-    // was never healed, and the log said "merged 0 package(s)" — which reads as
-    // nothing to fix. Keep this shared; a second copy is how that recurs.
-    //
     // Deliberately asymmetric: empty -> value is enrichment, value -> different
     // value and value -> empty are real identity changes. Puck prep compares whole
     // canonical strings, so adding a technique to an existing routine is a change.
     static bool isEnrichmentOf(const PackageIdentity& before, const PackageIdentity& after);
-
-    // Load a package's six identity components, for isEnrichmentOf.
-    static PackageIdentity identityOfStatic(QSqlDatabase& db, qint64 packageId);
 
     // Find an existing in-inventory package whose full identity matches
     // (case-insensitive grinder brand+model+burrs AND basket brand+model AND
@@ -404,12 +387,6 @@ public:
     // brand/model matches an alias, else true (a custom grinder shows the rpm
     // field). Applied on every grinder-item read so the rule lives in one place.
     static bool deriveRpmCapable(const QString& brand, const QString& model);
-
-    // Best-effort, marker-gated split of a combined grind+rpm string. A trailing
-    // `(\d+)\s*rpm` token (case-insensitive) moves the number into outRpm and the
-    // remainder (trimmed) into outGrind; anything without an explicit `rpm`
-    // marker leaves outGrind == combined and outRpm == 0 (e.g. "1+4", "24 clicks").
-    static void splitGrindAndRpm(const QString& combined, QString& outGrind, qint64& outRpm);
 
     // Device-transfer import (add-equipment-packages task 2.8). Imports
     // equipment_packages + equipment_items from srcDb into destDb with new ids,

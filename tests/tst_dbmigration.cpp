@@ -565,11 +565,7 @@ private slots:
         });
 
         const QString oldSource = freshDbPath();
-        QVERIFY(QFile::copy(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"), oldSource));
-        QVERIFY(QFile::setPermissions(oldSource, QFile::ReadOwner | QFile::WriteOwner));
-        withRawDb(oldSource, "floor_rewind", [](QSqlDatabase& db) {
-            QVERIFY(QSqlQuery(db).exec("UPDATE schema_version SET version = 40"));
-        });
+        QVERIFY(!ShotRowFixtures::writeBelowFloorDatabase(oldSource).isEmpty());
 
         ShotHistoryStorage::ImportResult result;
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("source is below the upgrade floor"));

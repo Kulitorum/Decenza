@@ -1873,13 +1873,6 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                                         const QHash<qint64, qint64>& packageIdMap,
                                         const QHash<qint64, qint64>& bagIdMap)
 {
-    // Pre-migration-25 source: no recipes table, nothing to import.
-    {
-        QSqlQuery srcCheck(srcDb);
-        if (!srcCheck.exec("SELECT COUNT(*) FROM recipes"))
-            return true;
-    }
-
     if (!merge) {
         QSqlQuery clearQuery(destDb);
         if (!clearQuery.exec("DELETE FROM recipes")) {
@@ -1890,8 +1883,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     }
 
     // Build the source SELECT tolerantly: a backup from an older version lacks
-    // newer columns (rpm_pinned pre-26, hot_water_json pre-27), and naming a
-    // missing column fails the whole SELECT — so missing ones are substituted
+    // columns added since, and naming a missing column fails the whole SELECT — so missing ones are substituted
     // with NULL, keeping recipeFromQueryRow's positional read aligned with
     // kCols while absent fields land on the struct defaults. Mirrors
     // CoffeeBagStorage::importBagsStatic.
@@ -1920,29 +1912,21 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                            : QStringLiteral("NULL AS %1").arg(col));
 
     // Unconverted temperature rows (recipe-relative-temp-offset): a source
-    // row still holding an ABSOLUTE temp_override_c with no converted offset
-    // must arrive as "unconverted" — the absolute staged into the
+    // whose own deferred conversion pass hadn't completed when the backup was
+    // taken holds an ABSOLUTE temp_override_c where temp_offset_c IS NULL.
+    // Those rows arrive "unconverted" — the absolute staged into the
     // destination's dead temp_override_c and temp_offset_c = NULL, so the
-    // deferred conversion pass finishes the job. Two shapes qualify:
-    //   • a pre-31 source (no temp_offset_c column at all) — every row;
-    //   • a ≥31 source whose OWN deferred pass hadn't completed when the
-    //     backup was taken — exactly the rows where temp_offset_c IS NULL
-    //     (readDbl would otherwise flatten the marker to an explicit 0 and
-    //     silently destroy the still-recoverable pin).
+    // deferred pass finishes the job (readDbl would otherwise flatten the
+    // marker to an explicit 0 and silently destroy the still-recoverable pin).
     // The per-row NULL check is load-bearing in the other direction too: a
     // CONVERTED row carries a correct temp_offset_c AND a stale absolute in
     // its dead column — reconverting from that would resurrect an offset the
     // user has since changed or cleared, so converted rows import their
     // offset verbatim and their dead column is ignored.
-    const bool srcHasOverrideCol = srcColumns.contains(QStringLiteral("temp_override_c"));
-    const bool srcHasOffsetCol = srcColumns.contains(QStringLiteral("temp_offset_c"));
-    QString trailingCols;
-    if (srcHasOverrideCol) {
-        trailingCols += QStringLiteral(", COALESCE(temp_override_c, 0)");
-    }
-    if (srcHasOverrideCol && srcHasOffsetCol) {
-        trailingCols += QStringLiteral(", temp_offset_c IS NULL");
-    }
+    const bool srcHasLegacyTemp = srcColumns.contains(QStringLiteral("temp_override_c"))
+        && srcColumns.contains(QStringLiteral("temp_offset_c"));
+    const QString trailingCols = srcHasLegacyTemp
+        ? QStringLiteral(", COALESCE(temp_override_c, 0), temp_offset_c IS NULL") : QString();
     QString selectSql = QString("SELECT %1%2 FROM recipes")
         .arg(selectCols.join(QStringLiteral(", ")), trailingCols);
 
@@ -1955,14 +1939,11 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     int imported = 0, matched = 0;
     while (srcRecipes.next()) {
         Recipe recipe = recipeFromQueryRow(srcRecipes);
-        const double legacyAbsTemp = srcHasOverrideCol
-            ? srcRecipes.value(kColCount).toDouble() : 0.0;
-        const bool rowUnconverted = srcHasOverrideCol
-            && (!srcHasOffsetCol || srcRecipes.value(kColCount + 1).toBool());
+        const double legacyAbsTemp = srcHasLegacyTemp ? srcRecipes.value(kColCount).toDouble() : 0.0;
+        const bool rowUnconverted = srcHasLegacyTemp && srcRecipes.value(kColCount + 1).toBool();
         // Remap the source equipment_id to the imported package's new dest id
         // (EquipmentStorage::importEquipmentStatic ran first). A source id
-        // absent from the map (older source with no equipment tables, or an
-        // unmatched package) becomes 0 -> NULL, as on shots. The bag link is
+        // absent from the map (an unmatched package) becomes 0 -> NULL, as on shots. The bag link is
         // remapped through the bag id-map the same way (importBagsStatic ran
         // first); an absent source bag becomes NULL → the stale display
         // state. The bean identity fields carry verbatim — they are the

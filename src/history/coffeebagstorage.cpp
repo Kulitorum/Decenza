@@ -1635,51 +1635,6 @@ int CoffeeBagStorage::markShotsForBeanRepairStatic(QSqlDatabase& db, qint64 bagI
     return marked;
 }
 
-// static
-int CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(QSqlDatabase& db, bool queueShots)
-{
-    QSqlQuery read(db);
-    if (!read.exec("SELECT id, roaster_name, coffee_name, beanbase_id, beanbase_json "
-                   "FROM coffee_bags "
-                   "WHERE COALESCE(beanbase_id,'') <> '' OR COALESCE(beanbase_json,'') <> ''")) {
-        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "conflicted-link scan failed:" << read.lastError().text();
-        return -1;
-    }
-    struct Fix { qint64 id; QString blob; };
-    QVector<Fix> fixes;
-    while (read.next()) {
-        BeanBaseBlob::CanonicalLink link{read.value(3).toString(), read.value(4).toString()};
-        if (dropConflictedCanonicalLink({read.value(1).toString(), read.value(2).toString()}, &link))
-            fixes.append({read.value(0).toLongLong(), link.blob});
-    }
-    for (const Fix& fix : fixes) {
-        QSqlQuery write(db);
-        write.prepare("UPDATE coffee_bags SET beanbase_id = NULL, beanbase_json = :blob, "
-                      "updated_at = strftime('%s', 'now') WHERE id = :id");
-        write.bindValue(":blob", fix.blob.isEmpty() ? QVariant() : fix.blob);
-        write.bindValue(":id", fix.id);
-        if (!write.exec()) {
-            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "unlink of bag" << fix.id
-                       << "failed:" << write.lastError().text();
-            return -1;
-        }
-        // The shots carry their own copy of the blob, so the unlink has to
-        // reach them too — otherwise every upload keeps re-asserting the id
-        // from the shot snapshot and the bag fix changes nothing.
-        // queueShots false means the caller could not add bean_repair_pending,
-        // so the UPDATE would fail on a missing column and take the whole
-        // unlink down with it. The unlink is the correctness fix and must land
-        // regardless; only the Visualizer repair is lost.
-        if (propagateBeanBaseStatic(db, fix.id) < 0
-            || (queueShots && markShotsForBeanRepairStatic(db, fix.id) < 0)) {
-            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << fix.id
-                       << "unlinked but its shots were not updated - failing the pass";
-            return -1;
-        }
-    }
-    return static_cast<int>(fixes.size());
-}
-
 bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
 {
     // The camelCase keys whose values Visualizer stores on its coffee bag
@@ -1751,13 +1706,6 @@ qint64 CoffeeBagStorage::findBagForShotStatic(QSqlDatabase& db, qint64 shotId,
 bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                         QHash<qint64, qint64>& outIdMap)
 {
-    // Pre-migration-19 source: no coffee_bags table, nothing to import.
-    {
-        QSqlQuery srcCheck(srcDb);
-        if (!srcCheck.exec("SELECT COUNT(*) FROM coffee_bags"))
-            return true;
-    }
-
     if (!merge) {
         QSqlQuery clearQuery(destDb);
         if (!clearQuery.exec("DELETE FROM coffee_bags")) {
@@ -1768,8 +1716,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     }
 
     // Build the source SELECT tolerantly: a backup from an older version lacks
-    // newer columns (visualizer_sync_pending pre-24, yield_value pre-34),
-    // and naming a missing column fails the whole SELECT — so missing ones are
+    // columns added since, and naming a missing column fails the whole SELECT — so missing ones are
     // substituted with NULL, keeping bagFromQueryRow's positional read aligned
     // with kCols while absent fields land on the struct defaults.
     QSet<QString> srcColumns;

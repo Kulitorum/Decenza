@@ -2064,44 +2064,6 @@ private slots:
         });
     }
 
-    // A legacy-version source (no temp_offset_c column) stages its absolute
-    // into the dest's dead column and marks the row unconverted; the deferred
-    // pass then produces the same offset the local migration would have.
-    void importLegacyTempSourceStagesAndConverts() {
-        const QString srcPath = freshDbPath();
-        const QString destPath = freshDbPath();
-        withRawDb(srcPath, "lts_src", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN temp_offset_c"));  // pre-31 schema
-            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, temp_override_c) "
-                           "VALUES ('Legacy', 'Known', 87.0)"));
-        });
-        withRawDb(destPath, "lts_dest", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-        });
-        withRawDb(srcPath, "lts_src2", [&](QSqlDatabase& srcDb) {
-            withRawDb(destPath, "lts_dest2", [&](QSqlDatabase& destDb) {
-                QHash<qint64, qint64> idMap;
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
-                                                           idMap, {}, {}));
-                // Staged: unconverted marker + the absolute in the dead column.
-                QSqlQuery r(destDb);
-                QVERIFY(r.exec("SELECT temp_offset_c, temp_override_c FROM recipes"));
-                QVERIFY(r.next());
-                QVERIFY(r.value(0).isNull());
-                QCOMPARE(r.value(1).toDouble(), 87.0);
-
-                const QHash<QString, double> temps{{QStringLiteral("Known"), 90.0}};
-                QVERIFY(RecipeStorage::convertLegacyTempOffsetsStatic(destDb, temps));
-                QSqlQuery r2(destDb);
-                QVERIFY(r2.exec("SELECT temp_offset_c FROM recipes"));
-                QVERIFY(r2.next());
-                QCOMPARE(r2.value(0).toDouble(), -3.0);
-            });
-        });
-    }
-
     // Clearing an offset through the normal update path must write an
     // EXPLICIT 0, never NULL — NULL is the migration's "unconverted" marker,
     // and a NULL here would let the conversion pass resurrect the dead
@@ -2134,7 +2096,7 @@ private slots:
         });
     }
 
-    // Merge-mode import: a legacy-source row that dedup-matches an existing
+    // Merge-mode import: an unconverted source row that dedup-matches an existing
     // dest recipe maps to the existing row WITHOUT staging — the local
     // recipe's (possibly deliberately cleared) offset must survive. Staging
     // belongs to inserted rows only.
@@ -2144,7 +2106,7 @@ private slots:
         withRawDb(srcPath, "mrg_src", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
             QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN temp_offset_c"));  // pre-31 schema
+            // temp_offset_c left NULL: unconverted.
             QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, roaster_name, coffee_name, "
                            "temp_override_c) VALUES ('Twin', 'P', 'R', 'C', 87.0)"));
         });

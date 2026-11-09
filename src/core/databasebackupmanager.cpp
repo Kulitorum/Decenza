@@ -870,6 +870,27 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                 errors << qMakePair(QStringLiteral("backup.error.invalidConversations"),
                                     QStringLiteral("Backup contains invalid AI conversations"));
         }
+        QString tempDbPath;
+        if (isRawDb) {
+            tempDbPath = zipPath;
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using raw .db backup:" << tempDbPath;
+        } else {
+            QDir tempDirObj(tempDir);
+            QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+            if (!dbFiles.isEmpty()) {
+                tempDbPath = tempDir + "/" + dbFiles.first();
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
+            } else {
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup";
+            }
+        }
+        // Whatever categories were chosen: settings and profiles beside a
+        // below-floor shot database predate the floor too.
+        if (!tempDbPath.isEmpty()
+            && ShotHistoryStorage::probeUpgradeFloor(tempDbPath) == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor) {
+            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "restore: source is below the upgrade floor; nothing restored";
+            errors << qMakePair(QString::fromLatin1(UpgradeFloor::kSourceTooOldKey), UpgradeFloor::sourceTooOldMessage());
+        }
         if (!errors.isEmpty()) {
             QDir(tempDir).removeRecursively();
             QMetaObject::invokeMethod(callbackContext, [managerGuard, errors, destroyed]() {
@@ -881,20 +902,6 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
         }
 
         if (restoreShots) {
-            QString tempDbPath;
-            if (isRawDb) {
-                tempDbPath = zipPath;
-                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using raw .db backup:" << tempDbPath;
-            } else {
-                QDir tempDirObj(tempDir);
-                QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
-                if (!dbFiles.isEmpty()) {
-                    tempDbPath = tempDir + "/" + dbFiles.first();
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
-                } else {
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup, skipping shot restore";
-                }
-            }
             if (!tempDbPath.isEmpty()) {
                 bool dbValid = true;
                 QFileInfo extractedFileInfo(tempDbPath);
@@ -928,10 +935,7 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                     const bool importSuccess = ShotHistoryStorage::importDatabaseStatic(
                         dbPath, tempDbPath, merge, &shotImport);
                     if (!importSuccess) {
-                        if (shotImport.sourceTooOld) {
-                            errors << qMakePair(QString::fromLatin1(UpgradeFloor::kSourceTooOldKey),
-                                                UpgradeFloor::sourceTooOldMessage());
-                        } else if (!shotImport.integrityFailure.isEmpty()) {
+                        if (!shotImport.integrityFailure.isEmpty()) {
                             errors << qMakePair(QStringLiteral("backup.error.importShotsRefused"),
                                                 QStringLiteral("Shot history was not restored"));
                             errors << qMakePair(QString(), shotImport.integrityFailure);
@@ -946,9 +950,7 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
             }
         }
 
-        // A source below the upgrade floor stops the whole restore, merge
-        // included: its settings and profiles predate the floor too.
-        if (restoreShots && (!merge || shotImport.sourceTooOld) && !shotsImported) {
+        if (restoreShots && !merge && !shotsImported) {
             if (errors.isEmpty())
                 errors << qMakePair(QStringLiteral("backup.error.missingShotDatabase"),
                                     QStringLiteral("Backup has no shot database to replace the current history"));

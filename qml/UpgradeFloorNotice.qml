@@ -37,7 +37,6 @@ ApplicationWindow {
         }
 
         Button {
-            id: confirmButton
             anchors.horizontalCenter: parent.horizontalCenter
             text: "Close Decenza"
             focus: true

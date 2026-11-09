@@ -6,7 +6,7 @@
 // Guards RoastDate::toIso() — the roast-date normalizer applied at the
 // Visualizer payload boundary. New bean-bag shots are already ISO; legacy
 // pre-bag shots carry the user's display format (e.g. US "12.15.2025"), which
-// the migration-16 re-sync would otherwise ship verbatim. The tricky parts are
+// an upload would otherwise ship verbatim. The tricky parts are
 // year-position detection and the locale tie-break on genuinely ambiguous
 // numeric dates, so those get explicit coverage.
 class TstRoastDate : public QObject

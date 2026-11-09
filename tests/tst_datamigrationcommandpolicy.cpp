@@ -606,23 +606,32 @@ private slots:
         QVERIFY(fixture.client.manifest().isEmpty());
     }
 
-    // A source too old to report its schema is decided when its database
-    // arrives. Shots import first, so a database below the floor stops the
-    // transfer before settings are fetched.
-    void belowFloorDatabaseStopsTheTransferBeforeOtherData()
+    // A source too old to report its schema is checked by its database before
+    // anything is applied, whichever categories are imported; a database that
+    // cannot be checked refuses the transfer too.
+    void uncheckedSourceStopsBeforeOtherData_data()
     {
+        QTest::addColumn<QString>("operation");
+        QTest::addColumn<bool>("databaseServed");
+        QTest::addColumn<QString>("logged");
+        QTest::addColumn<QString>("shown");
+        const QString tooOld = QLatin1String(UpgradeFloor::kSteppingStoneRelease);
+        QTest::newRow("import all") << "importAll" << true << "source is below the upgrade floor" << tooOld;
+        QTest::newRow("settings only") << "importOnlySettings" << true << "source is below the upgrade floor" << tooOld;
+        QTest::newRow("database unavailable") << "importOnlySettings" << false
+                                              << "source database check download failed" << "could not be checked";
+    }
+
+    void uncheckedSourceStopsBeforeOtherData()
+    {
+        QFETCH(QString, operation);
+        QFETCH(bool, databaseServed);
+        QFETCH(QString, logged);
+        QFETCH(QString, shown);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        const QString oldPath = directory.filePath(QStringLiteral("old.db"));
-        QVERIFY(QFile::copy(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"), oldPath));
-        QVERIFY(QFile::setPermissions(oldPath, QFile::ReadOwner | QFile::WriteOwner));
-        ShotRowFixtures::withRawDb(oldPath, QStringLiteral("transfer_rewind"), [](QSqlDatabase& db) {
-            QVERIFY(QSqlQuery(db).exec(QStringLiteral("UPDATE schema_version SET version = 40")));
-        });
-        QFile input(oldPath);
-        QVERIFY(input.open(QIODevice::ReadOnly));
-        const QByteArray database = input.readAll();
-        input.close();
+        const QByteArray database = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
+        QVERIFY(!database.isEmpty());
 
         ShotHistoryStorage destination;
         QVERIFY(destination.initialize(directory.filePath(QStringLiteral("destination.db"))));
@@ -633,7 +642,8 @@ private slots:
             {QStringLiteral("deviceName"), QStringLiteral("Unreported peer")},
             {QStringLiteral("hasSettings"), true}, {QStringLiteral("shotCount"), 2},
             {QStringLiteral("shotsSize"), database.size()}}).toJson(QJsonDocument::Compact), 200, false};
-        peer.responses["/api/backup/shots"] = {database, 200, false};
+        peer.responses["/api/backup/shots"] = databaseServed ? MigrationHttpFixture::Response{database, 200, false}
+                                                             : MigrationHttpFixture::Response{{}, 500, false};
         peer.responses["/api/backup/settings"] = {"{}", 200, false};
         MigrationServiceFixture fixture;
         fixture.client.setShotHistoryStorage(&destination);
@@ -645,12 +655,12 @@ private slots:
         QTRY_COMPARE(completed.count(), 1);
         QVERIFY(completed.first().at(2).toBool());
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("source is below the upgrade floor"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("older release of Decenza"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(logged));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(shown));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("import finished with errors"));
-        fixture.service->execute(QStringLiteral("importAll"));
+        fixture.service->execute(operation);
         QTRY_COMPARE(failed.count(), 1);
-        QVERIFY(failed.first().first().toString().contains(QLatin1String(UpgradeFloor::kSteppingStoneRelease)));
+        QVERIFY2(failed.first().first().toString().contains(shown), qPrintable(failed.first().first().toString()));
         QCOMPARE(peer.count("/api/backup/settings"), 0);
         QCOMPARE(destination.totalShots(), 0);
         destination.close();
