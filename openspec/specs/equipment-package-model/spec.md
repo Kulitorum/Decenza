@@ -97,38 +97,6 @@ Switching the active equipment package SHALL apply that package's `lastGrindSett
 - **WHEN** `dyeGrinderModel` is read
 - **THEN** it SHALL return the model of the active package grinder item, or empty when no package is active
 
-### Requirement: Migration 22 splits combined grind+rpm settings
-Migration 22 SHALL perform a best-effort, marker-gated split of every existing `grinder_setting` on `coffee_bags` and `shots`: a trailing token matching `(\d+)\s*rpm` (case-insensitive) SHALL move the number into `rpm` and leave the remainder (trimmed) in `grinder_setting`. A setting with no explicit `rpm` marker SHALL be left exactly as-is with `rpm` null.
-
-#### Scenario: Annotated setting is split
-- **WHEN** a row's `grinder_setting` is `"24 1400rpm"`
-- **THEN** after migration `grinder_setting` SHALL be `"24"` and `rpm` SHALL be `1400`
-
-#### Scenario: Compound or non-rpm setting is preserved
-- **WHEN** a row's `grinder_setting` is `"1+4"` or `"24 clicks"`
-- **THEN** `grinder_setting` SHALL be unchanged and `rpm` SHALL be null
-
-### Requirement: Migration 22 creates packages and links rows
-Migration 22 SHALL create equipment packages keyed on grinder identity `(brand, model, burrs)` only — grind setting and rpm SHALL NOT affect package creation. It SHALL create one default package from the user's current grinder settings, plus one package per remaining distinct grinder identity found across `coffee_bags` and `shots`, and SHALL set each row's `equipment_id` to its matching package.
-
-#### Scenario: One grinder, many grind settings
-- **WHEN** a user has a single grinder identity across all bags/shots but many different grind settings
-- **THEN** migration SHALL create exactly one package
-- **AND** every bag and shot SHALL link to it, retaining its own (split) grind setting and rpm
-
-#### Scenario: Distinct historical grinder
-- **WHEN** some historical bag or shot has a grinder identity different from the current settings
-- **THEN** a separate package SHALL be created for that identity and those rows linked to it
-
-#### Scenario: Empty grinder identity
-- **WHEN** a bag or shot has empty grinder brand/model/burrs
-- **THEN** its `equipment_id` SHALL be NULL and no package SHALL be created for it
-
-#### Scenario: Package last-dial seeding
-- **WHEN** a package is created during migration
-- **THEN** the default package's `lastGrindSetting`/`lastRpm` SHALL seed from the current settings' (split) values
-- **AND** a per-grinder package's `lastGrindSetting`/`lastRpm` SHALL seed from that grinder's most-recent shot
-
 ### Requirement: Equipment survives backup restore and device-to-device transfer
 The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `equipment_packages` and `equipment_items` rows and remap `shots.equipment_id` to the new package ids (alongside the existing bag-id remap). `SettingsSerializer` SHALL exclude `dye/activeEquipmentId` from export.
 
@@ -361,55 +329,12 @@ Merge is destructive and not undoable: the source identity is gone afterwards an
 - **WHEN** two packages share a grinder and no merge has been requested
 - **THEN** neither package SHALL be merged or deleted
 
-### Requirement: Packages split by a pre-enrichment fork SHALL be healed once on upgrade
-On upgrade the system SHALL fold each pair where one package is superseded by the other AND every differing component was EMPTY on the superseded package and carries a value on its successor. The successor SHALL survive. The components tested SHALL be the same set the live enrichment rule tests: grinder brand, grinder model, grinder burrs, basket brand, basket model, and the canonical puck-prep string.
-
-#### Scenario: A grinder split by recording burrs is reunited
-- **WHEN** a database is upgraded that holds a retired package with no burrs superseded by an otherwise identical package with burrs
-- **THEN** the two SHALL become one package carrying all of the history, and the older row SHALL no longer exist
-
-#### Scenario: A grinder split by recording a BASKET is reunited
-- **WHEN** a retired package with no basket and no puck prep is superseded by a package with the same grinder that names both
-- **THEN** the two SHALL become one package carrying all of the history, because a package that recorded no basket was still pulling shots through one
-
-#### Scenario: Several components filled in at once
-- **WHEN** the superseded package lacks both a basket and a puck prep and its successor names both
-- **THEN** the pair SHALL still be folded — enrichment is not limited to one component per fork
-
-#### Scenario: A burr swap survives the heal
-- **WHEN** the superseded package and its successor both name burrs, and the two differ
-- **THEN** both packages SHALL remain, because the shots on each were pulled on different burrs
-
-#### Scenario: A changed basket survives the heal
-- **WHEN** the superseded package names one basket and its successor names a different one
-- **THEN** both packages SHALL remain — that is a swap, not a component being written down for the first time
-
-#### Scenario: Lookalike packages with no lineage survive the heal
-- **WHEN** two packages share a grinder, one more completely specified than the other, and neither supersedes the other
-- **THEN** both SHALL remain — with no supersession there is no fork to undo
-
-#### Scenario: A grinder-less package is not folded into one with a grinder
-- **WHEN** the superseded package has no grinder component at all and its successor has one
-- **THEN** both SHALL remain, because those shots were pulled with nothing ground
-
-#### Scenario: Re-running the heal changes nothing
-- **WHEN** the heal runs a second time on an already-healed database
-- **THEN** it SHALL fold nothing and report zero
-
 ### Requirement: Heal leaves changed or cleared components untouched
 A pair SHALL be left untouched when a component changed between two non-empty values, when a component was cleared, or when no supersession links the two packages. A superseded package with NO grinder component SHALL NOT be folded into a successor that has one, because its shots were pulled with nothing ground.
 
 #### Scenario: Heal leaves a pair alone when a component was cleared
 - **WHEN** the superseded package had a component that the successor no longer carries
 - **THEN** both packages SHALL remain
-
-### Requirement: Heal runs in the migration transaction
-The heal SHALL run inside the migration's transaction, and the schema version SHALL NOT advance if it fails, so a failed heal retries on the next launch. Each fold SHALL be logged with both package ids, the components filled in, and the number of shots, bags and recipes moved. When the active equipment selection names a folded-away package, it SHALL move to the surviving package.
-
-#### Scenario: Failed heal retries on next launch
-- **WHEN** the heal fails during an upgrade
-- **THEN** the schema version SHALL remain at its previous value
-- **AND** the heal SHALL run again on the next launch
 
 ### Requirement: Hard delete SHALL count every reference to a package
 The pre-check that decides whether a package may be hard-deleted SHALL count references from `shots`, `coffee_bags` and `recipes`, plus packages superseded by it. A package with any reference SHALL be soft-deleted instead, so no row is left pointing at an id that no longer exists.

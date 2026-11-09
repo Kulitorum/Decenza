@@ -164,7 +164,8 @@ The system SHALL execute a three-phase erase, upload and verify procedure agains
 - **AND** the value is strictly non-decreasing across the update
 
 #### Scenario: Wire details of each phase
-- **WHEN** phase 1 runs, the request is written to characteristic `0000A009-…`, with a post-erase delay of 10 s on Android and 1 s on other platforms
+- **WHEN** a firmware flash runs
+- **THEN** phase 1 writes the request to characteristic `0000A009-…`, with a post-erase delay of 10 s on Android and 1 s on other platforms
 - **AND** phase 2 writes to characteristic `0000A006-…` with opcode `0x10` and a 24-bit little-endian address field
 
 ### Requirement: Failure recovery
@@ -249,9 +250,13 @@ The system SHALL bundle two channels: Stable (the default, DE1 build 1352 from `
 - **WHEN** the user has never opted into Early access
 - **THEN** availability is computed against the bundled Stable build 1352
 
-### Requirement: The Early access opt-in is a fresh preference
-The Early access opt-in SHALL be persisted as `firmware/EA`, and the selected channel SHALL be Stable when that key is absent or false. A one-time upgrade SHALL remove the historical `firmware/nightlyChannel` preference, set `firmware/EA` to false, and record completion, so a prior nightly selection does not opt the user into Early access.
+### Requirement: The Early access opt-in defaults to Stable
+The Early access opt-in SHALL be persisted as `firmware/EA`, and the selected channel SHALL be Stable when that key is absent or false.
 
-#### Scenario: The upgrade runs once
-- **WHEN** the one-time upgrade has recorded completion and the user later enables Early access
-- **THEN** a later launch does not reset `firmware/EA`
+#### Scenario: Absent opt-in selects Stable
+- **WHEN** `firmware/EA` is absent or false
+- **THEN** the selected firmware channel is Stable
+
+#### Scenario: The opt-in persists across launches
+- **WHEN** the user enables Early access and the app is relaunched
+- **THEN** `firmware/EA` is still true and the Early access channel is still selected

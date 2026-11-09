@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the decomposition of the monolithic `Settings` class into domain sub-objects (`SettingsMqtt`, `SettingsCalibration`, `SettingsBrew`, etc.), each owning its own `QSettings` instance and property set, with `Settings` reduced to a thin façade exposing sub-object accessors and cross-domain wiring. Specifies the required QML access pattern (`Settings.<domain>.<prop>`), the narrow-header-inclusion rule that bounds recompilation blast radius for domain-specific consumers, and the extraction of shot-history data structures into their own header.
+
 ## Requirements
+
 ### Requirement: Settings Domain Decomposition
 
 The `Settings` class SHALL be decomposed into domain sub-objects, each a `QObject` subclass owning its own `QSettings` instance and only its domain's properties, signals and methods. `Settings` SHALL construct them as children and expose each through a typed accessor `Settings<Domain>* <domain>() const`, used as the `CONSTANT` `Q_PROPERTY` READ. The final `settings.h` SHALL contain only sub-object accessors and cross-domain methods.
@@ -120,30 +122,6 @@ The data structures in `shothistorystorage.h` (`ShotRecord`, `HistoryShotSummary
 - **THEN** it includes `shothistory_types.h` (or `shothistorystorage.h` which re-exports it)
 - **AND** its compile behaviour is unchanged from before the extraction
 
-### Requirement: Storage Key Stability
-
-Each domain sub-object's `QSettings` operations SHALL use the same key strings the property used before migration. Key strings SHALL remain byte-identical across the settings-store consolidation.
-
-#### Scenario: Existing user settings persist across the migration
-- **WHEN** a user upgrades from a build with `Settings::sawLearnedLag` to a build with `SettingsCalibration::sawLearnedLag`
-- **THEN** the previously-saved SAW learning history (`saw/learningHistory`, `saw/perProfileHistory`, `saw/perProfileBatch`, `saw/globalBootstrapLag/<scale>`) is read correctly on first launch
-- **AND** the previously-saved flow calibration values (`calibration/flowMultiplier`, `calibration/autoFlowCalibration`, `calibration/perProfileFlow`, `calibration/flowCalBatch`) are read correctly on first launch
-- **AND** no user-visible settings reset occurs
-
-#### Scenario: Key strings match pre-split values
-- **WHEN** a property's setter or getter is reviewed in `SettingsCalibration`
-- **THEN** the string passed to `m_settings.value(...)` / `m_settings.setValue(...)` is byte-identical to the pre-migration string in `settings.cpp`
-
-#### Scenario: Sub-objects share one store handle source
-- **WHEN** any `Settings<Domain>` constructor is reviewed
-- **THEN** its `m_settings` member is declared `mutable AppSettings` and default-constructed, rather than initialised from a literal organization/application pair
-- **AND** the strings `"DecentEspresso"` and `"DE1Qt"` do not appear in any `settings_<domain>.cpp`
-
-#### Scenario: Migration precedes settings construction
-- **WHEN** the application starts on an installation that has not yet migrated
-- **THEN** the legacy-store migration completes before the `Settings` façade is constructed
-- **AND** every domain sub-object's first read observes the migrated values rather than defaults
-
 ### Requirement: Domain sub-objects share one store handle
 
 Domain sub-objects SHALL NOT construct their own store handle. Each SHALL obtain it from the shared `AppSettings` type, which names the canonical store identity in exactly one place (see the `settings-store-identity` capability).
@@ -151,14 +129,6 @@ Domain sub-objects SHALL NOT construct their own store handle. Each SHALL obtain
 #### Scenario: Store identity is named once
 - **WHEN** a domain sub-object needs its `QSettings` handle
 - **THEN** it obtains the handle from `AppSettings` and does not open `QSettings("DecentEspresso", "DE1Qt")` itself
-
-### Requirement: Legacy store migrates before sub-objects read it
-
-Existing user settings SHALL survive the consolidation by migration. The one-time legacy-store migration SHALL copy every key from `("DecentEspresso", "DE1Qt")` into the canonical store before any sub-object reads it, and domain sub-objects SHALL NOT assume the canonical store is pre-populated at construction.
-
-#### Scenario: Upgrading install reads migrated values
-- **WHEN** an upgrading installation constructs the `Settings` façade
-- **THEN** each sub-object reads values that the legacy-store migration has already copied
 
 ### Requirement: Calibration Domain Surface
 
@@ -209,3 +179,21 @@ Removing a setting SHALL evict every key the removed feature wrote from the sett
 - **THEN** the store SHALL contain no key that the removed feature wrote
 - **AND** a subsequent launch SHALL perform no further eviction work
 
+### Requirement: Storage keys stay byte-identical across the domain split
+
+Each domain sub-object's `QSettings` operations SHALL use the same key strings the property used before migration. Key strings SHALL remain byte-identical across the settings-store consolidation.
+
+#### Scenario: Existing user settings persist across the migration
+- **WHEN** a user upgrades from a build with `Settings::sawLearnedLag` to a build with `SettingsCalibration::sawLearnedLag`
+- **THEN** the previously-saved SAW learning history (`saw/learningHistory`, `saw/perProfileHistory`, `saw/perProfileBatch`, `saw/globalBootstrapLag/<scale>`) is read correctly on first launch
+- **AND** the previously-saved flow calibration values (`calibration/flowMultiplier`, `calibration/autoFlowCalibration`, `calibration/perProfileFlow`, `calibration/flowCalBatch`) are read correctly on first launch
+- **AND** no user-visible settings reset occurs
+
+#### Scenario: Key strings match pre-split values
+- **WHEN** a property's setter or getter is reviewed in `SettingsCalibration`
+- **THEN** the string passed to `m_settings.value(...)` / `m_settings.setValue(...)` is byte-identical to the pre-migration string in `settings.cpp`
+
+#### Scenario: Sub-objects share one store handle source
+- **WHEN** any `Settings<Domain>` constructor is reviewed
+- **THEN** its `m_settings` member is declared `mutable AppSettings` and default-constructed, rather than initialised from a literal organization/application pair
+- **AND** the strings `"DecentEspresso"` and `"DE1Qt"` do not appear in any `settings_<domain>.cpp`

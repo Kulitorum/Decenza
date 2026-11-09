@@ -2,8 +2,10 @@
 
 ## Purpose
 Merges the legacy `connectionStatus` widget into `machineStatus` so the layout system offers a single widget for machine phase and offline state, with existing `connectionStatus` items in saved layouts and default layouts migrated to render as `machineStatus` transparently.
+
 ## Requirements
-### Requirement: Machine status and connection status are one widget
+
+### Requirement: Machine status is the single status widget
 
 The `connectionStatus` widget SHALL be merged into `machineStatus`: they render the same `MachineStatusItem`, which shows the machine's phase and "Disconnected" when offline (subsuming the old Online/Offline display). The palette SHALL offer a single widget. Existing layouts referencing `connectionStatus` SHALL continue to work.
 
@@ -11,11 +13,6 @@ The `connectionStatus` widget SHALL be merged into `machineStatus`: they render 
 
 - **WHEN** a layout contains a `connectionStatus` item (old config) or it is selected as a palette widget
 - **THEN** it SHALL render the machine-status widget (phase + offline state), not a separate Online/Offline widget
-
-#### Scenario: Saved configs are migrated
-
-- **WHEN** a layout config containing `connectionStatus` items is loaded
-- **THEN** those items SHALL be migrated to `machineStatus` (type unified), idempotently and persisted once
 
 #### Scenario: Single palette entry
 
@@ -26,4 +23,3 @@ The `connectionStatus` widget SHALL be merged into `machineStatus`: they render 
 
 - **WHEN** a fresh install uses the default layout
 - **THEN** the status bar and center-status zones SHALL use `machineStatus`
-

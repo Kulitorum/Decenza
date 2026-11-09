@@ -4,6 +4,7 @@
 Requires that every persisted scale identity — the `scale/type` setting, `knownScales` entries, and all SAW learning keys — be keyed on the stable canonical type-id returned by `ScaleDevice::type()` (e.g. `decent`, `decent-wifi`) rather than the human-readable display name, so renaming a scale's label never breaks its learned calibration data. `ScaleFactory` owns the single id/display-name mapping and a `normalizeScaleTypeId()` helper, and a one-time idempotent migration rekeys any legacy display-name-keyed data without loss.
 
 ## Requirements
+
 ### Requirement: scaleType is a canonical type-id
 
 The system SHALL persist and key on the stable canonical scale type-id (the value returned by `ScaleDevice::type()`, e.g. `decent`, `acaia`, `decent-wifi`, `decent-usb`) for every per-scale storage location, including the `scale/type` setting, `knownScales` entries, and all SAW learning keys. The human-readable display name SHALL be stored only in the `name` field and SHALL NOT be used as a key.
@@ -53,31 +54,6 @@ The system SHALL persist and key on the stable canonical scale type-id (the valu
 - **WHEN** `sensorLag()` is called with an id that has no table entry
 - **THEN** it SHALL return the documented default lag (0.38 s)
 
-### Requirement: One-time migration preserves existing learning
-
-On startup, exactly once (guarded by a persisted migration flag, following the existing `knownScales/migrated` pattern), the system SHALL rewrite every persisted display-name `scaleType` value to its canonical id across `scale/type`, `knownScales` and all SAW storage. No learning data SHALL be lost or duplicated.
-
-#### Scenario: Legacy display-name SAW history is rekeyed and remains readable
-- **WHEN** the migration runs over a `perProfileHistory` key `"<profile>::Decent Scale"` with committed medians
-- **THEN** the data SHALL be readable afterward under `"<profile>::decent"` with the same medians
-- **AND** the post-migration `sawModelSource`/`sawLearnedLagFor` for that pair SHALL return the same model as before the rename
-
-#### Scenario: Migration is idempotent
-- **WHEN** the migration flag is already set
-- **THEN** the migration SHALL be a no-op on subsequent launches
-
-#### Scenario: Already-id values are left unchanged
-- **WHEN** the migration encounters a value that is already a canonical id (e.g. `decent-wifi`, `decent-usb`)
-- **THEN** that value and its keyed data SHALL be left unchanged
-
-#### Scenario: Colliding legacy and id buckets merge without loss
-- **WHEN** both a display-name-keyed bucket (`"<profile>::Decent Scale"`) and an id-keyed bucket (`"<profile>::decent"`) exist for the same profile
-- **THEN** the migration SHALL merge the legacy entries into the id bucket (newest-first) and apply the normal trim, losing no entries beyond the existing trim limit
-
-#### Scenario: Legacy SAW keys are rewritten
-- **WHEN** the migration runs over legacy SAW data keyed by display name
-- **THEN** `profile::scaleType` map keys and their per-entry `scale` fields, `learningHistory` entries, and `globalBootstrapLag` keys are rewritten to the canonical id
-
 ### Requirement: Normalization is internal-only
 
 Normalizing `scaleType` to ids SHALL NOT change any user-visible label. The discovered-scales list, the known-devices picker, and all scale labels SHALL continue to display the human-readable name from the `name` field.
@@ -85,4 +61,3 @@ Normalizing `scaleType` to ids SHALL NOT change any user-visible label. The disc
 #### Scenario: UI label is unchanged after normalization
 - **WHEN** a known scale whose `type` was migrated from a display name to an id is shown in the UI
 - **THEN** the displayed label SHALL be the unchanged human-readable `name` (e.g. `Decent Scale`), not the id
-
