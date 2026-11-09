@@ -356,28 +356,6 @@ public:
     // whose `error` is empty when the pair is mergeable.
     static EquipmentMergeResult validateMergeStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
 
-    // One-time repair of packages split by a pre-enrichment fork: for each pair
-    // where a package is superseded by one that only ADDED information — every
-    // component whose value differs was empty on the older and named on the newer,
-    // whichever component that is — fold the older into the newer. The test is
-    // isEnrichmentOf, shared with the live edit rule; see its definition for why
-    // sharing rather than restating is load-bearing. Fills `remap` (old id ->
-    // surviving id) so the caller can repoint anything holding an id outside this
-    // database — the active-equipment selection lives in QSettings, not here — and
-    // `healedOut` with the number of pairs merged.
-    //
-    // Returns false on a SQL failure, with its writes STAGED, not undone: it runs
-    // inside the CALLER's transaction (see mergePackagesUnlockedStatic) and the
-    // caller's rollback is what cleans up. A run that finds nothing to heal
-    // returns true with a count of 0.
-    //
-    // Left untouched: a component CHANGED between two named values (a burr swap, a
-    // different basket), a component cleared, a grinder-less package gaining a
-    // grinder, two lookalike packages with no lineage, and a pair that differs in
-    // nothing at all (a duplicate, not a fork).
-    static bool healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap = nullptr,
-                                          qsizetype* healedOut = nullptr);
-
     // Did `after` only ADD information to `before`? True when every component
     // whose value differs was EMPTY on `before` and carries a value on `after`.
     //
@@ -432,21 +410,6 @@ public:
     // remainder (trimmed) into outGrind; anything without an explicit `rpm`
     // marker leaves outGrind == combined and outRpm == 0 (e.g. "1+4", "24 clicks").
     static void splitGrindAndRpm(const QString& combined, QString& outGrind, qint64& outRpm);
-
-    // Migration 22 data step (shared with tests): create equipment packages from
-    // the distinct grinder identities on coffee_bags + shots (deduped on
-    // brand/model/burrs only — NOT grind/rpm), link each row via equipment_id,
-    // and split each row's grinder_setting into grinder_setting + rpm. The
-    // current* args are the user's live grinder settings (read from QSettings by
-    // the caller) — they seed the default package so the active grinder always
-    // has one even when no row carries that identity. Assumes the equipment
-    // tables exist and coffee_bags/shots already have equipment_id + rpm columns.
-    // Does NOT drop the legacy grinder identity columns (the schema owner does).
-    static bool migrateFromGrinderColumnsStatic(QSqlDatabase& db,
-                                                const QString& currentBrand,
-                                                const QString& currentModel,
-                                                const QString& currentBurrs,
-                                                const QString& currentSetting);
 
     // Device-transfer import (add-equipment-packages task 2.8). Imports
     // equipment_packages + equipment_items from srcDb into destDb with new ids,

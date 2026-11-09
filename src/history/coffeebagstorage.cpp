@@ -1292,18 +1292,8 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             notes TEXT,
             start_weight_g REAL,
             in_inventory INTEGER NOT NULL DEFAULT 1,
-            -- Grinder and dial columns exist only for the migration chain:
-            -- migration 22 reads grinder_* to seed equipment packages, 23 drops
-            -- the identity columns, and 52 drops grinder_setting, equipment_id
-            -- and rpm. Runtime reads/writes go through kCols, which lists none.
-            grinder_brand TEXT,
-            grinder_model TEXT,
-            grinder_burrs TEXT,
-            grinder_setting TEXT,
-            equipment_id INTEGER,
-            rpm INTEGER,
             dose_weight_g REAL,
-            yield_override_g REAL, -- dead: pre-34 absolute yields; carrier for legacy-source imports only
+            yield_override_g REAL, -- dead: pre-34 absolute yields
             yield_value REAL,
             yield_mode TEXT,
             visualizer_bag_id TEXT,
@@ -1707,29 +1697,6 @@ bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
     return false;
 }
 
-CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)
-{
-    CoffeeBag bag;
-    bag.roasterName = preset.value("brand").toString();
-    bag.coffeeName = preset.value("type").toString();
-    bag.roastDate = preset.value("roastDate").toString();
-    bag.roastLevel = preset.value("roastLevel").toString();
-    bag.beanBaseId = preset.value("beanBaseId").toString();
-    bag.beanBaseData = preset.value("beanBaseData").toString();
-    bag.inInventory = true;
-
-    // The user-chosen preset label survives in notes when it carried more
-    // information than "{brand} {type}". barista (per-shot, snapshot on every
-    // shot already) and showOnIdle (superseded by inInventory) are dropped.
-    const QString name = preset.value("name").toString().trimmed();
-    const QString brandType = QString("%1 %2").arg(bag.roasterName, bag.coffeeName).trimmed();
-    if (!name.isEmpty() && name.compare(brandType, Qt::CaseInsensitive) != 0
-        && name.compare(bag.coffeeName, Qt::CaseInsensitive) != 0)
-        bag.notes = name;
-
-    return bag;
-}
-
 int CoffeeBagStorage::propagateBeanBaseStatic(QSqlDatabase& db, qint64 bagId)
 {
     const CoffeeBag bag = loadBagStatic(db, bagId);
@@ -1751,49 +1718,6 @@ int CoffeeBagStorage::propagateBeanBaseStatic(QSqlDatabase& db, qint64 bagId)
     DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "propagated bean base link of bag" << bagId
              << "to" << updated << "shots";
     return updated;
-}
-
-int CoffeeBagStorage::linkOrphanShotsStatic(QSqlDatabase& db)
-{
-    int linked = 0;
-
-    // Pass 1: exact identity — roaster + coffee + roast date. The correlated
-    // subquery returns NULL when nothing matches, which re-writes NULL over
-    // NULL (a no-op), so no WHERE-EXISTS guard is needed.
-    QSqlQuery exactPass(db);
-    if (!exactPass.exec(
-            "UPDATE shots SET bag_id = ("
-            "  SELECT b.id FROM coffee_bags b"
-            "  WHERE LOWER(COALESCE(b.roaster_name,'')) = LOWER(COALESCE(shots.bean_brand,''))"
-            "    AND LOWER(COALESCE(b.coffee_name,''))  = LOWER(COALESCE(shots.bean_type,''))"
-            "    AND COALESCE(b.roast_date,'') = COALESCE(shots.roast_date,'')"
-            "  ORDER BY b.last_used DESC, b.id DESC LIMIT 1) "
-            "WHERE bag_id IS NULL"
-            "  AND (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '')")) {
-        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "orphan-shot link pass 1 failed:" << exactPass.lastError().text();
-        return -1;
-    }
-
-    // Pass 2: identity only (roaster + coffee) for leftovers — pre-bag shots
-    // whose snapshot roast date doesn't match any bag (stale preset dates,
-    // format drift). Most recently used bag of that coffee wins.
-    QSqlQuery identityPass(db);
-    if (!identityPass.exec(
-            "UPDATE shots SET bag_id = ("
-            "  SELECT b.id FROM coffee_bags b"
-            "  WHERE LOWER(COALESCE(b.roaster_name,'')) = LOWER(COALESCE(shots.bean_brand,''))"
-            "    AND LOWER(COALESCE(b.coffee_name,''))  = LOWER(COALESCE(shots.bean_type,''))"
-            "  ORDER BY b.last_used DESC, b.id DESC LIMIT 1) "
-            "WHERE bag_id IS NULL"
-            "  AND (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '')")) {
-        DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "orphan-shot link pass 2 failed:" << identityPass.lastError().text();
-        return -1;
-    }
-
-    QSqlQuery countQuery(db);
-    if (countQuery.exec("SELECT COUNT(*) FROM shots WHERE bag_id IS NOT NULL") && countQuery.next())
-        linked = countQuery.value(0).toInt();
-    return linked;
 }
 
 qint64 CoffeeBagStorage::findBagForShotStatic(QSqlDatabase& db, qint64 shotId,
@@ -1822,82 +1746,6 @@ qint64 CoffeeBagStorage::findBagForShotStatic(QSqlDatabase& db, qint64 shotId,
     if (identityQuery.exec() && identityQuery.next())
         return identityQuery.value(0).toLongLong();
     return -1;
-}
-
-qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
-{
-    AppSettings appSettings;
-    const QByteArray presetsJson = appSettings.value(QStringLiteral("bean/presets")).toByteArray();
-    if (presetsJson.isEmpty())
-        return -1;
-
-    const QJsonArray presets = QJsonDocument::fromJson(presetsJson).array();
-    if (presets.isEmpty()) {
-        // SettingsDye historically seeded an empty array on construction —
-        // nothing to import, just retire the legacy keys.
-        appSettings.remove(QStringLiteral("bean/presets"));
-        appSettings.remove(QStringLiteral("bean/selectedPreset"));
-        return -1;
-    }
-
-    const int selectedIndex = appSettings.value(QStringLiteral("bean/selectedPreset"), -1).toInt();
-    qint64 selectedBagId = -1;
-    bool committed = false;
-    int imported = -1;
-
-    withTempDb(dbPath, "bags_legacy", [&](QSqlDatabase& db) {
-        // Pre-migration-19 database (e.g. main DB init not yet run): leave
-        // the keys for a later retry.
-        QSqlQuery probe(db);
-        if (!probe.exec("SELECT COUNT(*) FROM coffee_bags"))
-            return;
-        // Release the probe's statement before the BEGIN below. A COUNT(*) always
-        // returns a row, so Qt leaves it un-reset, and an active statement holds a
-        // read transaction open — which makes BEGIN IMMEDIATE fail immediately and
-        // unrecoverably. See DbWriteTxn's precondition.
-        probe.finish();
-
-        // importLegacyPresetsStatic probes for duplicates before inserting, so
-        // this reads before it writes and must take the write lock up front —
-        // see DbWriteTxn. One-time legacy path, but the shape is
-        // the same one that cost a recipe save.
-        // attempts = 1: this runs on the GUI thread from ShotHistoryStorage::
-        // initialize(), and a single attempt already waits out busy_timeout. The
-        // keys survive a failure, so the next launch retries anyway.
-        DbWriteTxn txn = DbWriteTxn::begin(db, "legacy preset import", 1);
-        if (!txn.ok()) {
-            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "legacy preset transaction begin failed - "
-                          "leaving the keys for a later retry";
-            return;
-        }
-        imported = importLegacyPresetsStatic(db, presets, selectedIndex, &selectedBagId);
-        if (imported < 0) {
-            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "legacy preset import failed - rolling back";
-            return;  // txn rolls back on the way out
-        }
-        if (!txn.commit()) {
-            DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "legacy preset import commit failed:"
-                       << txn.commitError();
-            return;
-        }
-        committed = true;
-    });
-
-    if (!committed)
-        return -1;
-
-    appSettings.remove(QStringLiteral("bean/presets"));
-    appSettings.remove(QStringLiteral("bean/selectedPreset"));
-    DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "imported" << imported << "of" << presets.size()
-             << "legacy bean presets as bags; selected bag id" << selectedBagId;
-
-    // Adopt the pre-bag shot history: link orphan shots to the bags the
-    // presets just became, so a migrated favorite carries its shots (and the
-    // card shows "Bag finished", not delete).
-    withTempDb(dbPath, "bags_link", [&](QSqlDatabase& db) {
-        linkOrphanShotsStatic(db);
-    });
-    return selectedBagId;
 }
 
 bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
@@ -1949,21 +1797,8 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                            ? col
                            : QStringLiteral("NULL AS %1").arg(col));
 
-    // Yield-spec conversion for pre-34 sources (add-yield-ratio-anchor): a
-    // source with yield_override_g but no yield_mode column converts on
-    // import — >0 becomes {value, absolute}, else the struct default "none" —
-    // matching what the local migration did. A ≥34 source imports its spec
-    // verbatim through kCols and its dead yield_override_g is ignored
-    // (reconverting would resurrect a yield the user has since changed).
-    const bool srcNeedsYieldConversion = !srcColumns.contains(QStringLiteral("yield_mode"))
-        && srcColumns.contains(QStringLiteral("yield_override_g"));
-    QString trailingCols;
-    if (srcNeedsYieldConversion)
-        trailingCols = QStringLiteral(", COALESCE(yield_override_g, 0)");
-
     QSqlQuery srcBags(srcDb);
-    if (!srcBags.exec(QString("SELECT %1%2 FROM coffee_bags")
-                          .arg(selectCols.join(QStringLiteral(", ")), trailingCols))) {
+    if (!srcBags.exec(QString("SELECT %1 FROM coffee_bags").arg(selectCols.join(QStringLiteral(", "))))) {
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "failed to query source bags:" << srcBags.lastError().text();
         return false;
     }
@@ -1971,13 +1806,6 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     int imported = 0, matched = 0;
     while (srcBags.next()) {
         CoffeeBag bag = bagFromQueryRow(srcBags);
-        if (srcNeedsYieldConversion) {
-            const double legacyYieldG = srcBags.value(kColCount).toDouble();
-            if (legacyYieldG > 0) {
-                bag.yieldValue = legacyYieldG;
-                bag.yieldMode = YieldSpec::modeAbsolute();
-            }
-        }
         qint64 destId = -1;
         if (merge) {
             QSqlQuery dupQuery(destDb);
@@ -2006,47 +1834,4 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
 
     DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "bag import -" << imported << "imported," << matched << "matched existing";
     return true;
-}
-
-int CoffeeBagStorage::importLegacyPresetsStatic(QSqlDatabase& db, const QJsonArray& presets,
-                                                int selectedIndex, qint64* outSelectedBagId)
-{
-    int inserted = 0;
-    for (qsizetype i = 0; i < presets.size(); i++) {
-        const CoffeeBag bag = bagFromLegacyPreset(presets[i].toObject());
-        if (bag.roasterName.isEmpty() && bag.coffeeName.isEmpty())
-            continue;
-
-        // Dedup on identity (case-insensitive roaster+name+roastDate).
-        // Conservative on purpose: presets carry no lifecycle data, so a
-        // skipped duplicate loses nothing.
-        qint64 bagId = -1;
-        {
-            QSqlQuery dupQuery(db);
-            dupQuery.prepare(
-                "SELECT id FROM coffee_bags WHERE "
-                "LOWER(COALESCE(roaster_name,'')) = LOWER(:roaster) AND "
-                "LOWER(COALESCE(coffee_name,'')) = LOWER(:coffee) AND "
-                "COALESCE(roast_date,'') = :roast_date LIMIT 1");
-            dupQuery.bindValue(":roaster", bag.roasterName);
-            dupQuery.bindValue(":coffee", bag.coffeeName);
-            dupQuery.bindValue(":roast_date", bag.roastDate);
-            if (dupQuery.exec() && dupQuery.next()) {
-                bagId = dupQuery.value(0).toLongLong();
-                DIAG_DEBUG(BEANBASE, "CoffeeBagStorage") << "preset import skipping duplicate"
-                         << bag.roasterName << bag.coffeeName;
-            }
-        }
-
-        if (bagId < 0) {
-            bagId = insertBagStatic(db, bag);
-            if (bagId < 0)
-                return -1;  // caller rolls back
-            inserted++;
-        }
-
-        if (outSelectedBagId && i == selectedIndex)
-            *outSelectedBagId = bagId;
-    }
-    return inserted;
 }

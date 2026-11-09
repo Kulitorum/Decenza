@@ -436,18 +436,6 @@ public:
     Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE QString pasteFromClipboard() const;
 
-    // --- Recipes-first layout upgrade offer (recipes-idle-layout-upgrade) ---
-    // Background check for the one-time upgrade dialog: whether accepting
-    // will create a starter recipe (user has zero recipes and at least one
-    // saved shot), plus the drink-type heuristic pre-selection from that
-    // shot's steam snapshot. Emits recipesUpgradeOfferReady() when done.
-    Q_INVOKABLE void checkRecipesUpgradeEligibility();
-    // Accept path: applies the layout transform and, when eligible, creates
-    // and activates a starter recipe from the last shot using `name` (already
-    // translated by the caller) and the user's Espresso/Milk choice. Emits
-    // recipesUpgradeApplied() when finished — see its doc for the three
-    // possible outcomes.
-    Q_INVOKABLE void acceptRecipesFirstUpgrade(const QString& name, bool hasMilk);
 
     // Wait until every storage's background DB WRITE worker has finished, or the
     // budget runs out. Logs both outcomes itself, so there is no result to check.
@@ -713,17 +701,6 @@ signals:
     // cleared to -1 by the time this fires; QML uses it to show a toast.
     void autoLoadRecipeStaleCleared();
 
-    // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
-    // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility().
-    // recipesUpgradeApplied() answers acceptRecipesFirstUpgrade() — the layout
-    // transform has always already applied by the time it fires. Three
-    // outcomes: (recipeName, false) = starter recipe created; ("", false) =
-    // no starter recipe was requested (not eligible); ("", true) = a starter
-    // recipe WAS requested but creation failed — starterRecipeFailed
-    // distinguishes this from the "not requested" case so the UI can surface
-    // the failure instead of showing a silent success toast.
-    void recipesUpgradeOfferReady(bool willCreateStarterRecipe, bool milkPreselected);
-    void recipesUpgradeApplied(const QString& recipeName, bool starterRecipeFailed);
 
     // Auto-wake: emitted when scheduled wake time is reached
     void autoWakeTriggered();
@@ -798,41 +775,12 @@ private:
     // `reason` is a caller tag that flows into the [ShotSettings] BLE log.
     void sendMachineSettings(const QString& reason = QString());
 
-    // Drain the migration16 pending list, re-PATCHing each affected
-    // shot's rating to Visualizer so the cloud copy matches the local
-    // corrected value. Serial: pops one entry, dispatches the PATCH,
-    // resumes from VisualizerUploader::updateSuccess — or from a
-    // permanent updateFailed after evicting the entry. On transient
-    // failure (anything but 404) the entry remains in the list and the
-    // drain pauses until the next app boot; on permanent failure (404 —
-    // shot gone from Visualizer) the entry is evicted, the local row's
-    // dead visualizer_id cleared (guarded on still holding that id), and
-    // draining continues (#1431).
-    void processPendingVisualizerRatingSync();
-    void dispatchNextPendingVisualizerSync();
-
-    // One-time Visualizer reconciliation backfill (OpenSpec
-    // persist-visualizer-id-in-controller). Run-once via QSettings
-    // visualizerBackfill/doneV1. Lists the user's Visualizer shots,
-    // relinks orphaned local rows by timestamp, then pushes the
-    // now-authoritative local rating to each linked cloud shot by
-    // appending to the same serial drain queue used above. Skips
-    // without setting the flag when credentials are absent.
-    void processVisualizerReconciliation();
-
     // Drain the Visualizer bean-repair queue: the uploaded shots whose bag was
     // unlinked from a borrowed canonical record, flagged at the unlink. No run-once flag and no library
     // scan — the flags are the state, and each is cleared once the server says
     // that shot needs nothing. Called at startup and whenever the bag inventory
     // changes; a no-op without Visualizer credentials.
     void processVisualizerBeanRepair();
-    // Tracks the visualizerId of the migration16 PATCH currently in
-    // flight. Empty string when no migration16 sync is active. Compared
-    // against the visualizerId argument on updateSuccess / updateFailed
-    // so other concurrent PATCHes (e.g., from PostShotReviewPage's
-    // metadata save) don't pop migration16 entries off the queue or
-    // stall the drain. See PR Kulitorum/Decenza#1155 review note 2.
-    QString m_migration16InFlightVisualizerId;
 
     ProfileManager* m_profileManager = nullptr;
 
@@ -1071,11 +1019,6 @@ private:
     void deactivateForIngredientDivergence(qint64 recipeId, bool pitcherGone) override;
     void applyRecipeBrewOverridesAndUpload(const QVariantMap& recipe) override;
 
-    // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
-    // cached result of the last checkRecipesUpgradeEligibility() background
-    // pass, consumed by acceptRecipesFirstUpgrade().
-    bool m_recipesUpgradeWillCreate = false;
-    ShotRecord m_recipesUpgradeShotRecord;
     // THE single ShotSettings write for every steam entry point. The four
     // non-steam fields are read live from Settings here, so no caller can push
     // a half-stale payload — four call sites used to hand-roll this identical

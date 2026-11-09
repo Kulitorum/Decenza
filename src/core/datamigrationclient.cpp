@@ -402,6 +402,19 @@ void DataMigrationClient::onManifestReply()
         return;
     }
 
+    // Before anything is offered for import: a source below the upgrade floor
+    // has to transfer through the stepping-stone release instead.
+    const QString sourceVersion = doc.object().value(QStringLiteral("appVersion")).toString();
+    if (!UpgradeFloor::releaseSupported(sourceVersion)) {
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "source reports release"
+                 << (sourceVersion.isEmpty() ? QStringLiteral("(none)") : sourceVersion)
+                 << "- below the upgrade floor" << UpgradeFloor::kRelease << "; transfer refused";
+        setError(translateOrFallback(m_translationManager, QString::fromLatin1(UpgradeFloor::kSourceTooOldKey),
+                                     UpgradeFloor::sourceTooOldMessage()));
+        emit connectionFailed(m_errorMessage);
+        return;
+    }
+
     m_manifest = doc.object().toVariantMap();
     emit manifestChanged();
 
@@ -1367,7 +1380,10 @@ void DataMigrationClient::onShotsReply()
             if (!saved) {
                 self->setErrorIfFirst(self->tr("The shot history download could not be saved."));
             } else if (!success) {
-                if (!shotImport.integrityFailure.isEmpty())
+                if (shotImport.sourceTooOld)
+                    self->setErrorIfFirst(translateOrFallback(self->m_translationManager,
+                        QString::fromLatin1(UpgradeFloor::kSourceTooOldKey), UpgradeFloor::sourceTooOldMessage()));
+                else if (!shotImport.integrityFailure.isEmpty())
                     self->setErrorIfFirst(self->tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
                 else
                     self->setErrorIfFirst(self->tr("Shots could not be imported. Your existing shots were not changed."));

@@ -660,51 +660,6 @@ private slots:
         QVERIFY(qAbs(c2 - pumpError) < 1e-6);
     }
 
-    // The flow-cal settings migrations are one-shot: each clears the pending
-    // accumulator once, stamps a flag, and must never fire again. Nothing
-    // asserted that until now, and the failure mode is silent and permanent —
-    // settings.cpp:227-240 records a previous near-miss where treating
-    // QSettings::status() as a per-write verdict would have made v2/v3/v4 re-run
-    // their resets on EVERY launch, wiping calibration data. For v4-v6 the
-    // symptom is quieter and worse: the pending batch is wiped at every app
-    // start, so a user who pulls fewer than five shots per session never
-    // converges again, with no error anywhere.
-    //
-    // Constructing Settings twice is what a second app launch does — no fault
-    // injection, and it covers all five blocks rather than the two this change
-    // added.
-    void flowCalMigrationsRunOnceAndLeaveLaterBatchesAlone() {
-        const QString profile = QStringLiteral("tst_flowcal_migration_profile");
-        {
-            Settings first;                       // runs (or has already run) every migration
-            first.calibration()->clearProfileFlowCalibration(profile);
-        }
-        {
-            Settings seed;
-            seed.calibration()->appendFlowCalPendingIdeal(profile, 0.91);
-            QCOMPARE(seed.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
-        }
-        // A later launch must not touch the accumulator: every migration flag is
-        // already stamped, so every clear is a no-op.
-        Settings later;
-        QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
-        QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).first(), 0.91);
-
-        // ...and the other half of the name: with a flag cleared, it DOES fire.
-        // Without this the slot would stay green if clearPendingBatchesOnce()
-        // were dead code, which is TESTING.md's trap #7 exactly.
-        {
-            AppSettings raw;
-            raw.remove(QStringLiteral("calibration/v6UnifiedIdealFormula"));
-            raw.sync();
-        }
-        Settings rerun;
-        QCOMPARE(rerun.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(0));
-
-        later.calibration()->clearProfileFlowCalibration(profile);
-        later.calibration()->clearFlowCalPendingIdeals(profile);
-    }
-
     // The rejection counter the MCP surface reads. Untested, and one of its
     // failure modes is a wrong answer delivered in confident prose: if the
     // clear-on-success call is ever lost, a CONVERGING user is told "pulling

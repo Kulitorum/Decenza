@@ -273,6 +273,12 @@ std::shared_ptr<FullBackupRestore::PreparedArchive> parseArchive(
     QString payloadError;
     if (!validateStagedPayloads(prepared, &payloadError))
         return fail(payloadError, 400);
+    // Before anything is applied: an archive whose shot database predates the
+    // upgrade floor carries settings and profiles from before it too.
+    if (!prepared->shots.path.isEmpty()
+        && ShotHistoryStorage::probeUpgradeFloor(prepared->shots.path)
+               == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor)
+        return fail(UpgradeFloor::sourceTooOldMessage(), 400);
     return prepared;
 }
 
@@ -469,7 +475,6 @@ void FullBackupRestore::applySettingsData(const std::shared_ptr<PreparedArchive>
             if (extra.contains(QStringLiteral("language")))
                 settings.setValue(QStringLiteral("localization/language"),
                                   extra.value(QStringLiteral("language")).toString());
-            settings.setValue(QStringLiteral("accessibility/_migratedFromLegacyV1"), true);
             settings.sync();
         }
     }

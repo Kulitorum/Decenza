@@ -553,10 +553,6 @@ private:
     void saveConversationIndex();
     void touchConversationEntry(const QString& key);
     void evictOldestConversation();
-    void migrateFromLegacyConversation();
-    // One-shot conversation wipe keyed by a migration id. Fires once per
-    // device; subsequent launches are no-ops. Call before loadConversationIndex.
-    static void clearAllConversationsOnce(const QString& migrationId);
 
     // Cache the resolved context blocks and emit `recentShotContextReady`
     // (empty when stale). `requestRecentShotContext`'s main-thread lambda calls

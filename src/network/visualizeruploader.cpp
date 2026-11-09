@@ -32,7 +32,6 @@
 #include "tastecvamap.h"
 #include "visualizernotes.h"
 #include "visualizersync.h"
-#include "visualizershotlist.h"
 #include "../core/translationmanager.h"
 #include "../history/coffeebagstorage.h"
 #include "../core/dbutils.h"
@@ -338,7 +337,6 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed(tr_("visualizer.error.noVizId", "No visualizer ID for update"));
-        emit updateFailed(visualizerId, false, "No visualizer ID for update");
         return false;
     }
 
@@ -351,7 +349,6 @@ bool VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         emit lastUploadStatusChanged();
         noteJobFailure(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"), visualizerId);
         emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
-        emit updateFailed(visualizerId, false, "Visualizer credentials not configured");
         return false;
     }
 
@@ -401,7 +398,6 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     if (reply->error() == QNetworkReply::NoError) {
         m_lastUploadStatus = tr_("visualizer.status.updateSuccess", "Update successful");
         emit lastUploadStatusChanged();
-        emit updateSuccess(visualizerId);
         DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Update successful for shot" << visualizerId;
         if (visualizerId == m_jobVisualizerId)
             clearJobDirty();
@@ -422,9 +418,6 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
             DIAG_WARN(VISUALIZER, "VisualizerUploader") << QStringLiteral("Update failed: remoteShotId=%1 httpStatus=%2 networkError=%3")
                 .arg(DecenzaLog::field(visualizerId)).arg(statusCode).arg(int(reply->error()));
         }
-        // The migration-16 back-sync, which PATCHes outside ShotUploads, retries
-        // on a later boot unless the shot is gone.
-        emit updateFailed(visualizerId, statusCode == 404, errorMsg);
     }
 
     reply->deleteLater();
@@ -571,107 +564,6 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
     m_uploadingDbShotId = 0;
     reply->deleteLater();
     endAttempt(diagnosticShotId, outcome, statusCode);
-}
-
-void VisualizerUploader::fetchShotListSince(qint64 windowStartEpoch)
-{
-    const QString username = m_settings->value("visualizer/username", "").toString();
-    const QString password = m_settings->value("visualizer/password", "").toString();
-    if (username.isEmpty() || password.isEmpty()) {
-        emit shotListFailed("Visualizer credentials not configured");
-        return;
-    }
-    fetchShotListPage(1, windowStartEpoch, QVariantList());
-}
-
-void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
-                                           QVariantList accumulated)
-{
-    // GET /api/shots?page=N&items=100 — authenticated => own shots.
-    // Response shape { data: [{id, clock, updated_at}], paging:
-    // {count,page,limit,pages} } is confirmed against OpenAPI 1.8.2, and the
-    // default newest-first-by-start-time sort the wholePageOlder early-stop
-    // relies on is confirmed against the visualizer.coffee source (see the note
-    // in visualizershotlist.h). The kMaxPages ceiling still bounds the loop and
-    // turns a ceiling hit into a fail-safe retry (below) regardless.
-    constexpr int kMaxPages = 50;          // 50 * 100 = 5000 shots hard cap
-    constexpr int kItemsPerPage = 100;
-
-    QUrl url(QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/api/shots"));
-    QString q = QString("page=%1&items=%2").arg(page).arg(kItemsPerPage);
-    url.setQuery(q);
-
-    QNetworkRequest request(url);
-    request.setRawHeader("Authorization", authHeader().toUtf8());
-    request.setRawHeader("Accept", "application/json");
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-
-    QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, page, windowStartEpoch, accumulated]() mutable {
-        // Capture everything off `reply` BEFORE deleteLater() — reading
-        // it afterwards is fragile and would make the one diagnostic on
-        // the only failure surface unreliable.
-        if (reply->error() != QNetworkReply::NoError) {
-            const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            const QString errStr = reply->errorString();
-            reply->deleteLater();
-            emit shotListFailed(QString("Shot list fetch failed (HTTP %1): %2")
-                                .arg(sc).arg(errStr));
-            return;
-        }
-        const QByteArray body = reply->readAll();
-        reply->deleteLater();
-
-        // Parse + window-filter + terminate via the shared page processor (see
-        // visualizershotlist.h). The recovery importer runs the identical policy;
-        // keeping it in one place stops the two copies from drifting.
-        using namespace VisualizerShotList;
-        const PageResult pr = processPage(body, page, kMaxPages,
-                                          windowStartEpoch,
-                                          std::numeric_limits<qint64>::max());
-        switch (pr.reason) {
-        case FailReason::ParseError:
-            emit shotListFailed(QStringLiteral("Shot list response parse error: %1")
-                                .arg(pr.parseError));
-            return;
-        case FailReason::MissingPaging:
-            // A 200 without paging metadata is almost certainly an auth/error
-            // envelope (e.g. expired session returning {}), NOT a legitimately
-            // empty library — treating it as success would permanently burn the
-            // run-once flag. Fail safe instead.
-            emit shotListFailed(QStringLiteral(
-                "Shot list response missing paging metadata (likely auth/error envelope)"));
-            return;
-        case FailReason::PageCeiling:
-            // Hitting the defensive page ceiling without reaching the real end is
-            // an ABNORMAL exit (oversized library, or the assumed newest-first
-            // sort was violated). Emitting a truncated list as "success" would
-            // permanently mark the backfill done with missing shots. Fail safe.
-            emit shotListFailed(QStringLiteral(
-                "Shot list exceeded page ceiling (%1) before end (%2 pages) — "
-                "backfill incomplete, will retry next boot")
-                .arg(kMaxPages).arg(pr.totalPages));
-            return;
-        case FailReason::None:
-            break;
-        }
-
-        for (const Entry& e : pr.inWindow) {
-            QVariantMap m;
-            m["visualizerId"] = e.visualizerId;
-            m["url"] = QString::fromLatin1(VISUALIZER_BASE_URL) + QStringLiteral("/shots/") + e.visualizerId;
-            m["clockEpoch"] = e.clockEpoch;
-            accumulated.append(m);
-        }
-
-        if (pr.verdict == Verdict::Done) {
-            emit shotListFetched(accumulated);
-            return;
-        }
-        fetchShotListPage(page + 1, windowStartEpoch, accumulated);
-    });
 }
 
 void VisualizerUploader::repairShotBeans(const QVector<BeanRepair>& repairs)

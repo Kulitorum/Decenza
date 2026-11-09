@@ -109,8 +109,7 @@ public:
     // re-typed as a ternary chain in each of them.
     Q_INVOKABLE QString cycleRightAxisMode();
 
-    // Static and pure so the rules are testable without a settings store on disk, matching
-    // Settings::looksLikeFreshInstall().
+    // Static and pure so the rules are testable without a settings store on disk.
 
     // Anything that is not 1, 2 or 3 — unset, zero, negative, non-numeric, 7 — is the default.
     static int resolveFlowMultiplier(const QVariant& stored);

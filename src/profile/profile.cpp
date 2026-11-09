@@ -715,8 +715,8 @@ const QSet<QString>& nonZeroDefaultKeys() {
 // Without this excusal it reads as a loss on every profile that still carries one —
 // isInertValue() rightly refuses to call a structured value inert — and every caller
 // of jsonParityErrors acts on that verdict: ProfileManager's stored-encoding
-// upgrade and espresso_temperature repair both refuse to persist, migrateProfileFormat
-// counts the profile failed, and `profile_sync --rewrite-format` skips it. The
+// upgrade and espresso_temperature repair both refuse to persist, and
+// `profile_sync --rewrite-format` skips it. The
 // strip-on-load write-back is gated on the same check, so without this the block it
 // exists to remove is exactly what stops it running.
 //

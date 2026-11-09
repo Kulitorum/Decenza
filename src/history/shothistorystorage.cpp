@@ -6,7 +6,6 @@
 #include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
 #include "ai/profileshapeindex.h"
-#include "machine/sawlogging.h"   // SAW_WARN_STDERR: the basket-seed query is a [SAW] line
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
 #include "equipmentlogging.h"
@@ -29,6 +28,7 @@
 #include <QSqlRecord>
 #include <QStandardPaths>
 #include <QDir>
+#include <QFileInfo>
 #include <QUuid>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -112,10 +112,6 @@ bool changesPortalEligibility(const QVariantMap& fields)
 } // namespace
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
-
-#ifdef DECENZA_TESTING
-int ShotHistoryStorage::s_faultInjectMigration = 0;
-#endif
 
 ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
     : QObject(parent)
@@ -222,14 +218,55 @@ void ShotHistoryStorage::close()
     }
 }
 
+QString ShotHistoryStorage::defaultDatabasePath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/shots.db");
+}
+
+ShotHistoryStorage::UpgradeFloorProbe ShotHistoryStorage::probeUpgradeFloor(const QString& path)
+{
+    // Opening a missing file would create it.
+    if (!QFileInfo::exists(path))
+        return UpgradeFloorProbe::NoDatabase;
+
+    UpgradeFloorProbe result = UpgradeFloorProbe::Unknown;
+    withTempDb(path, QStringLiteral("upgrade_floor_probe"), [&](QSqlDatabase& db) {
+        QSqlQuery tables(db);
+        if (!tables.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                        "AND name IN ('shots', 'schema_version')")))
+            return;
+        bool hasShots = false;
+        bool hasVersion = false;
+        while (tables.next()) {
+            const QString name = tables.value(0).toString();
+            hasShots = hasShots || name == QLatin1String("shots");
+            hasVersion = hasVersion || name == QLatin1String("schema_version");
+        }
+        if (!hasShots) {
+            result = UpgradeFloorProbe::NoDatabase;
+            return;
+        }
+        int version = 1;
+        if (hasVersion) {
+            QSqlQuery q(db);
+            if (!q.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !q.next())
+                return;
+            if (!q.value(0).isNull())
+                version = q.value(0).toInt();
+        }
+        result = version >= UpgradeFloor::kSchemaVersion ? UpgradeFloorProbe::Supported
+                                                       : UpgradeFloorProbe::BelowFloor;
+    });
+    return result;
+}
+
 bool ShotHistoryStorage::initialize(const QString& dbPath)
 {
     m_bagGrindNoticePending = false;
     m_dbPath = dbPath;
     if (m_dbPath.isEmpty()) {
-        QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-        QDir().mkpath(dataDir);
-        m_dbPath = dataDir + "/shots.db";
+        QDir().mkpath(QFileInfo(defaultDatabasePath()).absolutePath());
+        m_dbPath = defaultDatabasePath();
     }
 
     DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Initializing database at" << m_dbPath;
@@ -270,15 +307,6 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to run migrations";
         return false;
     }
-
-#ifndef DECENZA_TESTING
-    // Test builds skip the automatic legacy-preset import: it reads AND
-    // CLEARS the real bean/presets QSettings store, so a unit test calling
-    // initialize() on a temp DB would silently consume the developer's own
-    // presets. Tests drive CoffeeBagStorage::convertLegacyPresetSettings
-    // directly with save/restore guards.
-    importLegacyBeanPresets();
-#endif
 
     // Checkpoint any existing WAL data from previous sessions
     // This ensures all data is in the main .db file
@@ -330,8 +358,7 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     // on the worker, and queueing it earlier would only widen the window in
     // which a reader could see a half-initialised object.
     //
-    // Skipped in test builds, like importLegacyBeanPresets() above, and for a
-    // sharper reason than "tests don't need it". Posting here CREATES the FIFO
+    // Skipped in test builds, for a sharper reason than "tests don't need it". Posting here CREATES the FIFO
     // worker and increments its outstanding count, and ~SerialDbWorker warns
     // "those writes are being discarded" for anything still queued
     // (core/dbutils.h). A read-only storage never created that worker before,
@@ -352,28 +379,41 @@ bool ShotHistoryStorage::createTables()
 {
     QSqlQuery query(m_db);
 
-    // Main shots table
-    QString createShots = R"(
-        CREATE TABLE IF NOT EXISTS shots (
+    // An existing database is not touched here: runMigrations() reads its
+    // version first and refuses one below the upgrade floor before anything
+    // writes to it.
+    if (!query.exec(QStringLiteral("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'shots'"))) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to inspect the database:" << query.lastError().text();
+        return false;
+    }
+    if (query.next())
+        return true;
+    query.finish();
+
+    // A fresh database starts at the schema 2.0.7 had (UpgradeFloor::kSchemaVersion)
+    // and runMigrations() takes it from there. One transaction, because a shots
+    // table without its version row reads as a pre-floor database and would be
+    // refused on every later launch. tst_dbmigration's equivalence test holds
+    // this DDL to tests/data/db/schema41.db.
+    DbWriteTxn txn = DbWriteTxn::begin(m_db, "create schema 41 baseline", 1);
+    if (!txn.ok())
+        return false;
+
+    const char* const statements[] = {
+        R"(CREATE TABLE shots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             uuid TEXT UNIQUE NOT NULL,
             timestamp INTEGER NOT NULL,
-
             profile_name TEXT NOT NULL,
             profile_json TEXT,
             beverage_type TEXT DEFAULT 'espresso',
-
             duration_seconds REAL NOT NULL,
             final_weight REAL,
             dose_weight REAL,
-
             bean_brand TEXT,
             bean_type TEXT,
             roast_date TEXT,
             roast_level TEXT,
-            grinder_brand TEXT,
-            grinder_model TEXT,
-            grinder_burrs TEXT,
             grinder_setting TEXT,
             drink_tds REAL,
             drink_ey REAL,
@@ -382,122 +422,99 @@ bool ShotHistoryStorage::createTables()
             bean_notes TEXT,
             barista TEXT,
             profile_notes TEXT,
-
             visualizer_id TEXT,
             visualizer_url TEXT,
-
             debug_log TEXT,
-            hot_water_result_json TEXT,
-
             temperature_override REAL,
             yield_override REAL,
-
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
-            updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )
-    )";
-
-    if (!query.exec(createShots)) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create shots table:" << query.lastError().text();
-        return false;
-    }
-
-    // Shot samples (compressed BLOB)
-    QString createSamples = R"(
-        CREATE TABLE IF NOT EXISTS shot_samples (
+            updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+            profile_kb_id TEXT,
+            channeling_detected INTEGER DEFAULT 0,
+            grind_issue_detected INTEGER DEFAULT 0,
+            skip_first_frame_detected INTEGER DEFAULT 0,
+            pour_truncated_detected INTEGER DEFAULT 0,
+            stopped_by TEXT DEFAULT '',
+            beanbase_json TEXT,
+            bag_id INTEGER,
+            frozen_date TEXT,
+            defrost_date TEXT,
+            beanbase_id TEXT,
+            equipment_id INTEGER,
+            rpm INTEGER,
+            recipe_id INTEGER,
+            steam_json TEXT,
+            hot_water_json TEXT,
+            storage_hint TEXT,
+            opened_date TEXT,
+            taste_balance TEXT,
+            taste_body TEXT,
+            yield_mode TEXT,
+            yield_anchor_value REAL,
+            bean_repair_pending INTEGER NOT NULL DEFAULT 0,
+            flow_calibration REAL
+        ))",
+        R"(CREATE TABLE shot_samples (
             shot_id INTEGER PRIMARY KEY REFERENCES shots(id) ON DELETE CASCADE,
             sample_count INTEGER NOT NULL,
             data_blob BLOB NOT NULL
-        )
-    )";
-
-    if (!query.exec(createSamples)) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create shot_samples table:" << query.lastError().text();
-        return false;
-    }
-
-    // Phase markers
-    QString createPhases = R"(
-        CREATE TABLE IF NOT EXISTS shot_phases (
+        ))",
+        R"(CREATE TABLE shot_phases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             shot_id INTEGER NOT NULL REFERENCES shots(id) ON DELETE CASCADE,
             time_offset REAL NOT NULL,
             label TEXT NOT NULL,
             frame_number INTEGER,
-            is_flow_mode INTEGER DEFAULT 0
-        )
-    )";
-
-    if (!query.exec(createPhases)) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create shot_phases table:" << query.lastError().text();
+            is_flow_mode INTEGER DEFAULT 0,
+            transition_reason TEXT DEFAULT ''
+        ))",
+        R"(CREATE VIRTUAL TABLE shots_fts USING fts5(
+            espresso_notes, bean_brand, bean_type, profile_name,
+            content='shots', content_rowid='id'
+        ))",
+        R"(CREATE TRIGGER shots_ai AFTER INSERT ON shots BEGIN
+            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
+            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name);
+        END)",
+        R"(CREATE TRIGGER shots_ad AFTER DELETE ON shots BEGIN
+            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name)
+            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name);
+        END)",
+        R"(CREATE TRIGGER shots_au AFTER UPDATE ON shots BEGIN
+            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name)
+            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name);
+            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
+            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name);
+        END)",
+        "CREATE INDEX idx_shots_timestamp ON shots(timestamp DESC)",
+        "CREATE INDEX idx_shots_profile ON shots(profile_name)",
+        "CREATE INDEX idx_shots_bean ON shots(bean_brand, bean_type)",
+        "CREATE INDEX idx_shots_enjoyment ON shots(enjoyment)",
+        "CREATE INDEX idx_shots_profile_kb_id ON shots(profile_kb_id)",
+        "CREATE INDEX idx_shots_beanbase_id ON shots(beanbase_id)",
+        "CREATE INDEX idx_shots_recipe_id ON shots(recipe_id)",
+        "CREATE INDEX idx_shots_equip_grind ON shots(equipment_id, grinder_setting)",
+        "CREATE INDEX idx_shots_equip_rpm ON shots(equipment_id, rpm)",
+        "CREATE INDEX idx_shot_phases_shot ON shot_phases(shot_id)",
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY)",
+    };
+    for (const char* sql : statements) {
+        if (!query.exec(QString::fromLatin1(sql))) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create the schema baseline:" << query.lastError().text();
+            return false;
+        }
+    }
+    if (!CoffeeBagStorage::ensureTableStatic(m_db) || !EquipmentStorage::ensureTablesStatic(m_db)
+        || !RecipeStorage::ensureTableStatic(m_db))
+        return false;
+    if (!query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (%1)").arg(UpgradeFloor::kSchemaVersion))) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to stamp the schema baseline:" << query.lastError().text();
         return false;
     }
-
-    // Full-text search (includes notes, beans, profile, and grinder)
-    QString createFts = R"(
-        CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
-            espresso_notes,
-            bean_brand,
-            bean_type,
-            profile_name,
-            grinder_brand,
-            grinder_model,
-            grinder_burrs,
-            content='shots',
-            content_rowid='id'
-        )
-    )";
-
-    if (!query.exec(createFts)) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create FTS table:" << query.lastError().text();
-        // FTS failure is not fatal
+    if (!txn.commit()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to commit the schema baseline:" << txn.commitError();
+        return false;
     }
-
-    // Triggers for FTS sync
-    query.exec(R"(
-        CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
-            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
-        END
-    )");
-
-    query.exec(R"(
-        CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
-            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
-        END
-    )");
-
-    query.exec(R"(
-        CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
-            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
-            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
-        END
-    )");
-
-    // Indexes
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_timestamp ON shots(timestamp DESC)");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile ON shots(profile_name)");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_bean ON shots(bean_brand, bean_type)");
-    // No idx_shots_grinder: grinder_brand/model are dropped by migration 23 and
-    // grinder identity resolves via equipment_id. Re-creating it here would error
-    // ("no such column") on every post-migration-23 launch. Pre-23 DBs that still
-    // have the index get it dropped by migration 23.
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_enjoyment ON shots(enjoyment)");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shot_phases_shot ON shot_phases(shot_id)");
-
-    // Holds one row while migration 52's upgrade notice awaits acknowledgement.
-    if (!query.exec("CREATE TABLE IF NOT EXISTS bag_grind_notice (id INTEGER PRIMARY KEY CHECK(id = 1))"))
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create bag_grind_notice:" << query.lastError().text();
-
-    // Schema version table
-    query.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)");
-    // Only insert initial version if table is empty (avoid creating duplicate rows
-    // when a higher version already exists from a previous run)
-    query.exec("INSERT INTO schema_version (version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version)");
-
     return true;
 }
 
@@ -555,31 +572,30 @@ bool ShotHistoryStorage::runMigrations()
 {
     QSqlQuery query(m_db);
 
-    // Fix duplicate rows created by the old INSERT OR IGNORE bug:
-    // If multiple rows exist, keep only the highest version.
+    // Read the version before anything writes. A database below the upgrade
+    // floor is left exactly as it is: it has to pass through
+    // UpgradeFloor::kSteppingStoneRelease, which still carries the older steps.
+    if (!query.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !query.next()) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "schema_version read failed -" << query.lastError().text()
+                                                 << "- database left unchanged, will retry next launch";
+        return false;
+    }
+    int currentVersion = query.value(0).isNull() ? 1 : query.value(0).toInt();
+    query.finish();
+    if (currentVersion < UpgradeFloor::kSchemaVersion) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "database is at schema" << currentVersion
+                                                 << "- below the upgrade floor" << UpgradeFloor::kSchemaVersion
+                                                 << "; install Decenza" << UpgradeFloor::kSteppingStoneRelease
+                                                 << "first. Database left unchanged";
+        return false;
+    }
+
+    // Duplicate rows from an old INSERT OR IGNORE bug: keep only the highest.
     query.exec("DELETE FROM schema_version WHERE version != (SELECT MAX(version) FROM schema_version)");
 
-    // The exec() result matters here, where it did not before. A FAILED query
-    // and an empty table both leave next() false, and collapsing the two to
-    // version 1 would tell crossedSchemaVersion() that a fully-migrated DB had
-    // just crossed every version — re-injecting idle buttons the user
-    // deliberately removed, i.e. issue #1586 through the very door that fix
-    // closed. The migrations themselves still tolerate a false-low read (every
-    // step is guarded by hasColumn / IF NOT EXISTS and simply re-runs as a
-    // no-op), so only the crossing signal is suppressed on a read failure.
-    const bool versionReadOk =
-        query.exec("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1");
-    if (!versionReadOk)
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "schema_version read failed -"
-                   << query.lastError().text()
-                   << "- migrations re-run idempotently, but no schema crossing will be reported";
-    int currentVersion = (versionReadOk && query.next()) ? query.value(0).toInt() : 1;
-
-    // Remember where we started so crossedSchemaVersion() can tell a genuine
-    // one-time upgrade (DB was below N, now at/above it) from a machine already
-    // past N. Drives the one-time equipment/recipes idle-button injection.
-    m_schemaVersionAtStart = currentVersion;
-    m_schemaVersionAtStartKnown = versionReadOk;
+    // Holds one row while migration 52's upgrade notice awaits acknowledgement.
+    if (!query.exec("CREATE TABLE IF NOT EXISTS bag_grind_notice (id INTEGER PRIMARY KEY CHECK(id = 1))"))
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create bag_grind_notice:" << query.lastError().text();
 
     // Helper: check if a column exists in a table
     // Returns nullopt when the PRAGMA itself failed — "I could not find out" is
@@ -599,1807 +615,6 @@ bool ShotHistoryStorage::runMigrations()
         }
         return false;
     };
-    auto hasColumn = [&](const QString& table, const QString& column) -> bool {
-        return columnPresent(table, column).value_or(false);
-    };
-
-    // Migration 3: Replace brew_overrides_json with dedicated columns
-    if (currentVersion < 3) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 3 (dedicated override columns)";
-
-        if (!hasColumn("shots", "temperature_override"))
-            query.exec("ALTER TABLE shots ADD COLUMN temperature_override REAL");
-        if (!hasColumn("shots", "yield_override"))
-            query.exec("ALTER TABLE shots ADD COLUMN yield_override REAL");
-
-        query.exec("UPDATE schema_version SET version = 3");
-        currentVersion = 3;
-    }
-
-    // Migration 4: Add transition_reason to shot_phases
-    if (currentVersion < 4) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 4 (transition_reason)";
-
-        if (!hasColumn("shot_phases", "transition_reason"))
-            query.exec("ALTER TABLE shot_phases ADD COLUMN transition_reason TEXT DEFAULT ''");
-
-        query.exec("UPDATE schema_version SET version = 4");
-        currentVersion = 4;
-    }
-
-    // Migration 5: Add profile_name and grinder_model to FTS search
-    if (currentVersion < 5) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 5 (FTS profile_name + grinder_model)";
-
-        // Drop old FTS table and triggers
-        query.exec("DROP TRIGGER IF EXISTS shots_ai");
-        query.exec("DROP TRIGGER IF EXISTS shots_ad");
-        query.exec("DROP TRIGGER IF EXISTS shots_au");
-        query.exec("DROP TABLE IF EXISTS shots_fts");
-
-        // Create the FTS table (must do it here, not rely on createTables())
-        if (!query.exec(R"(
-            CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
-                espresso_notes, bean_brand, bean_type, profile_name, grinder_model,
-                content='shots', content_rowid='id'
-            )
-        )")) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 5: Failed to create FTS table:" << query.lastError().text();
-        }
-
-        // Create triggers
-        query.exec(R"(
-            CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
-                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-                VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_model);
-            END
-        )");
-        query.exec(R"(
-            CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
-                INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-                VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_model);
-            END
-        )");
-        query.exec(R"(
-            CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
-                INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-                VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_model);
-                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-                VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_model);
-            END
-        )");
-
-        // Rebuild FTS index from existing shots
-        query.exec(R"(
-            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-            SELECT id, espresso_notes, bean_brand, bean_type, profile_name, grinder_model FROM shots
-        )");
-
-        query.exec("UPDATE schema_version SET version = 5");
-        currentVersion = 5;
-    }
-
-    // Migration 6: Add beverage_type column and backfill from profile_json
-    if (currentVersion < 6) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 6 (beverage_type)";
-
-        if (!hasColumn("shots", "beverage_type"))
-            query.exec("ALTER TABLE shots ADD COLUMN beverage_type TEXT DEFAULT 'espresso'");
-        if (!hasColumn("shots", "bean_notes"))
-            query.exec("ALTER TABLE shots ADD COLUMN bean_notes TEXT");
-        if (!hasColumn("shots", "profile_notes"))
-            query.exec("ALTER TABLE shots ADD COLUMN profile_notes TEXT");
-
-        backfillBeverageType();
-
-        query.exec("UPDATE schema_version SET version = 6");
-        currentVersion = 6;
-    }
-
-    // Migration 7: Smooth weight flow rate data in all existing shots
-    // The raw LSLR data has staircase artifacts from 0.1g scale quantization.
-    // Apply the same centered moving average (window=5, 11-point) used for new shots.
-    // This is a cosmetic improvement — if it fails, bump version anyway so the app starts.
-    if (currentVersion < 7) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 7 (smooth weight flow rate)";
-
-        bool smoothingOk = false;
-        if (!m_db.transaction()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to begin transaction:"
-                       << m_db.lastError().text();
-        } else {
-            // Read all blobs first to avoid read cursor + write on same table
-            QSqlQuery readQuery(m_db);
-            readQuery.prepare("SELECT shot_id, data_blob FROM shot_samples");
-
-            QVector<QPair<qint64, QByteArray>> rows;
-            if (!readQuery.exec()) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to read shots:"
-                           << readQuery.lastError().text();
-            } else {
-                while (readQuery.next()) {
-                    rows.append({readQuery.value(0).toLongLong(),
-                                 readQuery.value(1).toByteArray()});
-                }
-            }
-            readQuery.finish();
-
-            QSqlQuery updateQuery(m_db);
-            updateQuery.prepare("UPDATE shot_samples SET data_blob = ? WHERE shot_id = ?");
-
-            int smoothedCount = 0;
-            bool migrationFailed = false;
-            for (const auto& row : rows) {
-                qint64 id = row.first;
-                const QByteArray& blob = row.second;
-
-                QByteArray json = qUncompress(blob);
-                if (json.isEmpty()) {
-                    if (!blob.isEmpty())
-                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 - shot" << id
-                                   << "has non-empty blob (" << blob.size()
-                                   << "bytes) that failed to decompress";
-                    continue;
-                }
-
-                QJsonParseError parseError;
-                QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
-                if (parseError.error != QJsonParseError::NoError) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 - shot" << id
-                               << "has invalid JSON at offset" << parseError.offset
-                               << ":" << parseError.errorString();
-                    continue;
-                }
-                QJsonObject root = doc.object();
-
-                if (!root.contains("weightFlowRate")) continue;
-
-                QJsonObject wfrObj = root["weightFlowRate"].toObject();
-                QJsonArray timeArr = wfrObj["t"].toArray();
-                QJsonArray valueArr = wfrObj["v"].toArray();
-                qsizetype n = qMin(timeArr.size(), valueArr.size());
-                if (n < 3) continue;
-
-                // Centered moving average with window=5 (11-point, ~2.2s at 5Hz)
-                constexpr int window = 5;
-                QJsonArray smoothedArr;
-                for (qsizetype i = 0; i < n; i++) {
-                    qsizetype lo = qMax(qsizetype(0), i - window);
-                    qsizetype hi = qMin(n - 1, i + window);
-                    double sum = 0;
-                    for (qsizetype j = lo; j <= hi; j++) {
-                        sum += valueArr[j].toDouble();
-                    }
-                    smoothedArr.append(sum / (hi - lo + 1));
-                }
-
-                wfrObj["v"] = smoothedArr;
-                root["weightFlowRate"] = wfrObj;
-                QByteArray newJson = QJsonDocument(root).toJson(QJsonDocument::Compact);
-                QByteArray newBlob = qCompress(newJson, 9);
-
-                updateQuery.bindValue(0, newBlob);
-                updateQuery.bindValue(1, id);
-                if (!updateQuery.exec()) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to update shot" << id
-                               << ":" << updateQuery.lastError().text();
-                    migrationFailed = true;
-                    break;
-                }
-                smoothedCount++;
-            }
-
-            if (migrationFailed) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 rolling back smoothing after" << smoothedCount << "shots";
-                m_db.rollback();
-            } else {
-                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Smoothed weight flow rate for" << smoothedCount << "shots";
-                // Use DELETE+INSERT instead of UPDATE to avoid UNIQUE constraint issues
-                // when updating the PRIMARY KEY column
-                if (!query.exec("DELETE FROM schema_version") ||
-                    !query.exec("INSERT INTO schema_version (version) VALUES (7)")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 failed to bump schema version inside transaction:"
-                               << query.lastError().text();
-                    m_db.rollback();
-                } else if (!m_db.commit()) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 commit failed:"
-                               << m_db.lastError().text();
-                    m_db.rollback();
-                } else {
-                    smoothingOk = true;
-                }
-            }
-        }
-
-        // Smoothing is cosmetic — always bump to version 7 so the app can start.
-        // If the transaction succeeded, version is already 7 in the DB.
-        // If it failed, bump it outside the transaction so we don't retry on every launch.
-        if (!smoothingOk) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 7 smoothing failed, bumping version anyway";
-            query.exec("DELETE FROM schema_version");
-            query.exec("INSERT INTO schema_version (version) VALUES (7)");
-        }
-        currentVersion = 7;
-    }
-
-    // Migration 8: Add grinder_brand and grinder_burrs columns, backfill from alias lookup, rebuild FTS
-    if (currentVersion < 8) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 8 (structured grinder fields)";
-
-        bool migrationOk = false;
-        if (!m_db.transaction()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to begin transaction:"
-                       << m_db.lastError().text();
-        } else {
-            bool schemaOk = true;
-            if (!hasColumn("shots", "grinder_brand")) {
-                if (!query.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to add grinder_brand column:"
-                               << query.lastError().text();
-                    schemaOk = false;
-                }
-            }
-            if (schemaOk && !hasColumn("shots", "grinder_burrs")) {
-                if (!query.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to add grinder_burrs column:"
-                               << query.lastError().text();
-                    schemaOk = false;
-                }
-            }
-
-            bool migrationFailed = !schemaOk;
-            if (schemaOk) {
-                // Backfill: parse existing grinder_model through alias lookup
-                QSqlQuery readQuery(m_db);
-                readQuery.prepare("SELECT id, grinder_model FROM shots WHERE grinder_model IS NOT NULL AND grinder_model != ''");
-                if (readQuery.exec()) {
-                    QSqlQuery updateQuery(m_db);
-                    updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ?, "
-                                        "updated_at = strftime('%s', 'now') WHERE id = ?");
-                    int backfillCount = 0;
-
-                    while (readQuery.next()) {
-                        qint64 id = readQuery.value(0).toLongLong();
-                        QString rawModel = readQuery.value(1).toString();
-                        auto result = GrinderAliases::lookup(rawModel);
-                        if (result.found) {
-                            updateQuery.bindValue(0, result.brand);
-                            updateQuery.bindValue(1, result.model);
-                            updateQuery.bindValue(2, result.stockBurrs);
-                            updateQuery.bindValue(3, id);
-                            if (!updateQuery.exec()) {
-                                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to update shot" << id
-                                           << ":" << updateQuery.lastError().text();
-                                migrationFailed = true;
-                                break;
-                            }
-                            backfillCount++;
-                        }
-                    }
-                    if (!migrationFailed)
-                        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Migration 8 backfilled" << backfillCount << "shots with structured grinder data";
-                }
-            }
-
-            if (!migrationFailed) {
-                // Rebuild FTS to include grinder_brand and grinder_burrs
-                query.exec("DROP TRIGGER IF EXISTS shots_ai");
-                query.exec("DROP TRIGGER IF EXISTS shots_ad");
-                query.exec("DROP TRIGGER IF EXISTS shots_au");
-                query.exec("DROP TABLE IF EXISTS shots_fts");
-
-                if (!query.exec(R"(
-                    CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
-                        espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs,
-                        content='shots', content_rowid='id'
-                    )
-                )")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to create FTS table:"
-                               << query.lastError().text();
-                    migrationFailed = true;
-                }
-            }
-
-            if (!migrationFailed) {
-                query.exec(R"(
-                    CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
-                        INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                        VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
-                    END
-                )");
-                query.exec(R"(
-                    CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
-                        INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                        VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
-                    END
-                )");
-                query.exec(R"(
-                    CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
-                        INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                        VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
-                        INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                        VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
-                    END
-                )");
-
-                // Rebuild FTS index
-                if (!query.exec(R"(
-                    INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                    SELECT id, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs FROM shots
-                )")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to populate FTS index:"
-                               << query.lastError().text();
-                    migrationFailed = true;
-                }
-            }
-
-            if (migrationFailed) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 rolling back";
-                m_db.rollback();
-            } else {
-                if (!query.exec("DELETE FROM schema_version") ||
-                    !query.exec("INSERT INTO schema_version (version) VALUES (8)")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed to bump schema version:"
-                               << query.lastError().text();
-                    m_db.rollback();
-                } else if (!m_db.commit()) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 commit failed:"
-                               << m_db.lastError().text();
-                    m_db.rollback();
-                } else {
-                    migrationOk = true;
-                }
-            }
-        }
-
-        // Schema changes are structural — always bump to version 8 so the app can start.
-        // If the transaction succeeded, version is already 8 in the DB.
-        // If it failed, bump outside the transaction so we don't retry on every launch.
-        if (!migrationOk) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 8 failed, bumping version anyway";
-            query.exec("DELETE FROM schema_version");
-            query.exec("INSERT INTO schema_version (version) VALUES (8)");
-        }
-        currentVersion = 8;
-    }
-
-    // Migration 9: Add profile_kb_id column for AI knowledge base matching.
-    // New shots get this computed at save time. Old shots won't appear in
-    // dial-in history queries (loadRecentShotsByKbIdStatic), but system prompt
-    // profile matching falls back to fuzzy title/editorType matching.
-    if (currentVersion < 9) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 9 (profile_kb_id)";
-
-        bool ok = true;
-        if (!hasColumn("shots", "profile_kb_id")) {
-            ok = query.exec("ALTER TABLE shots ADD COLUMN profile_kb_id TEXT");
-            if (!ok)
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 9 ALTER TABLE failed:" << query.lastError().text();
-        }
-        if (ok) {
-            query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile_kb_id ON shots(profile_kb_id)");
-        }
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (9)");
-        currentVersion = 9;
-    }
-
-    // Migration 10: Add quality flags for shot review badges.
-    // Computed at save time by saveShot() using ShotAnalysis helpers directly
-    // (avoids a ShotSummarizer dependency); recomputed on-the-fly inside
-    // loadShotRecordStatic() for shots that predate this migration.
-    if (currentVersion < 10) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 10 (quality flags)";
-
-        if (!hasColumn("shots", "channeling_detected"))
-            query.exec("ALTER TABLE shots ADD COLUMN channeling_detected INTEGER DEFAULT 0");
-        if (!hasColumn("shots", "temperature_unstable"))
-            query.exec("ALTER TABLE shots ADD COLUMN temperature_unstable INTEGER DEFAULT 0");
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (10)");
-        currentVersion = 10;
-    }
-
-    // Migration 11: Add grind_issue_detected flag.
-    // Recomputed on-the-fly in loadShotRecordStatic() for shots predating this migration.
-    if (currentVersion < 11) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 11 (grind_issue_detected)";
-
-        if (!hasColumn("shots", "grind_issue_detected"))
-            query.exec("ALTER TABLE shots ADD COLUMN grind_issue_detected INTEGER DEFAULT 0");
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (11)");
-        currentVersion = 11;
-    }
-
-    // Migration 12: Add skip_first_frame_detected flag.
-    // Detects DE1 firmware bug where the machine skips profile frame 0.
-    if (currentVersion < 12) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 12 (skip_first_frame_detected)";
-
-        if (!hasColumn("shots", "skip_first_frame_detected"))
-            query.exec("ALTER TABLE shots ADD COLUMN skip_first_frame_detected INTEGER DEFAULT 0");
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (12)");
-        currentVersion = 12;
-    }
-
-    // Migration 13: Add pour_truncated_detected flag.
-    // Catches puck failures where peak pressure stayed below PRESSURE_FLOOR_BAR
-    // (puck offered no resistance — channeling/grind detectors stay silent
-    // or fire wrong because the curves they read off never built). When this
-    // flag is true the other quality flags stay false because
-    // ShotAnalysis::analyzeShot's suppression cascade skips the
-    // channeling/grind blocks, leaving those DetectorResults fields at
-    // their defaults; the badge projection (decenza::deriveBadgesFromAnalysis)
-    // then reads those defaults. The cascade lives in exactly one place —
-    // ShotAnalysis::analyzeShot — and the UI shows a single red "Puck failed"
-    // chip rather than a contradictory mix.
-    if (currentVersion < 13) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 13 (pour_truncated_detected)";
-
-        if (!hasColumn("shots", "pour_truncated_detected"))
-            query.exec("ALTER TABLE shots ADD COLUMN pour_truncated_detected INTEGER DEFAULT 0");
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (13)");
-        currentVersion = 13;
-    }
-
-    // Migration 14: enjoyment_source column was introduced here. Layer 3
-    // (the inferred auto-rating experiment that owned this column) was
-    // rolled back in migration 16 below, which drops it. This step is
-    // kept rather than fast-forwarded so legacy v13 DBs still pass
-    // through the same back-fill (`enjoyment_source = 'user'` for rated
-    // rows) that migration 16 later reads to build the back-sync list.
-    // Migration 16 is independently safe via its hasColumn() guard.
-    if (currentVersion < 14) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 14 (enjoyment_source)";
-
-        if (!hasColumn("shots", "enjoyment_source")) {
-            query.exec("ALTER TABLE shots ADD COLUMN enjoyment_source TEXT NOT NULL DEFAULT 'none'");
-            // Back-fill: existing rated rows are user-rated by definition
-            // (the column is new; only the manual editor / the rating slider
-            // ever wrote those values).
-            query.exec("UPDATE shots SET enjoyment_source = 'user' WHERE enjoyment > 0");
-        }
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (14)");
-        currentVersion = 14;
-    }
-
-    // Migration 15: Drop temperature_unstable column. The temp-stability badge
-    // was retired because the underlying detector measured average deviation
-    // from goal but was labeled "Temp unstable" - and the deviation it caught
-    // was, in practice, profile-design intent (D-Flow / Extractamundo /
-    // TurboBloom and 9+ other profiles deliberately ask the head to do things
-    // it can't physically follow). Removed end-to-end; this migration drops
-    // the now-unused column. SQLite >= 3.35 is required for ALTER TABLE
-    // DROP COLUMN; every Qt 6.10 platform we ship satisfies this.
-    if (currentVersion < 15) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 15 (drop temperature_unstable)";
-
-        if (hasColumn("shots", "temperature_unstable")) {
-            // Bail out without bumping schema_version if DROP COLUMN fails.
-            // Otherwise we'd advance to v15 with the column stranded — and
-            // since post-v15 SELECTs no longer reference the column, the
-            // load path would silently see stale data instead of erroring.
-            // Better to retry the migration on next launch than to leave
-            // the schema in a half-migrated state.
-            if (!query.exec("ALTER TABLE shots DROP COLUMN temperature_unstable")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 15 DROP COLUMN failed:"
-                           << query.lastError().text();
-                return false;
-            }
-        }
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (15)");
-        currentVersion = 15;
-    }
-
-    // Migration 16: drop enjoyment_source column. Layer 3 of the
-    // shot-rating-capture change auto-stamped clean unrated shots with
-    // enjoyment=75 and enjoymentSource="inferred", but the inferred
-    // signal added no value over the LLM's existing detector observations
-    // and silently overwrote the user's configured "Default Shot Rating"
-    // (issue #1150). The column is dropped here. Before dropping:
-    //   1) Stash the (shotId, visualizerId) pairs of inferred rows that
-    //      were uploaded to Visualizer in a QSettings pending list so
-    //      MainController can re-PATCH them with the corrected rating.
-    //   2) Reset every inferred row's enjoyment to 0 (unrated).
-    //
-    // That reset originally wrote the user's configured "Default Shot Rating"
-    // (QSettings shot/defaultRating), to land each row on the value it would
-    // have had if the inferred stamping had never run. There is no such value
-    // any more: the default-rating setting was removed, so reading the key
-    // would write a number sourced from a deleted feature. 0 is what an
-    // untasted shot carries now, so that is what these rows get.
-    //
-    // The back-sync clears them to Unrated rather than "Rated 0/100" because
-    // VisualizerUploader::buildShotUpdateBody() sends JSON null for enjoyment
-    // <= 0. Note this has been true since PR Kulitorum/Decenza#1155 — it is not a behaviour that
-    // changed to make the reset safe, and the create-path builder in the same
-    // file omits the field instead, so check buildShotUpdateBody() specifically
-    // before concluding otherwise.
-    //
-    // Resetting these rows is not rewriting user data: the whole point of
-    // enjoyment_source='inferred' is that the app computed the value and
-    // nobody chose it. Rows carrying a rating a person set — including one
-    // produced by their configured default while that feature existed — are
-    // left alone.
-    if (currentVersion < 16) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 16 (drop enjoyment_source)";
-
-        if (hasColumn("shots", "enjoyment_source")) {
-            if (!m_db.transaction()) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 transaction begin failed:"
-                           << m_db.lastError().text();
-                return false;
-            }
-
-            // MainController reads the pending list from the same store, which
-            // AppSettings guarantees (see appsettings.h). This hand-off is what
-            // the two-store split used to break: the list was written to a scope
-            // nothing looked in.
-            AppSettings appSettings;
-
-            // 1) Collect inferred rows that were uploaded to Visualizer so
-            //    the cloud copy can be corrected after boot. Append to any
-            //    existing pending list (preserves entries from a prior
-            //    failed sync run).
-            {
-                QSqlQuery pendingQ(m_db);
-                if (!pendingQ.exec("SELECT id, visualizer_id FROM shots "
-                                   "WHERE enjoyment_source = 'inferred' "
-                                   "AND visualizer_id IS NOT NULL "
-                                   "AND visualizer_id != ''")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 SELECT failed:"
-                               << pendingQ.lastError().text();
-                    m_db.rollback();
-                    return false;
-                }
-                QJsonArray pending;
-                {
-                    const QByteArray existingJson = appSettings.value(
-                        QStringLiteral("migration16/pendingVisualizerSync")).toByteArray();
-                    if (!existingJson.isEmpty())
-                        pending = QJsonDocument::fromJson(existingJson).array();
-                }
-                while (pendingQ.next()) {
-                    QJsonObject entry;
-                    entry["shotId"] = pendingQ.value(0).toLongLong();
-                    entry["visualizerId"] = pendingQ.value(1).toString();
-                    pending.append(entry);
-                }
-                if (!pending.isEmpty()) {
-                    appSettings.setValue(
-                        QStringLiteral("migration16/pendingVisualizerSync"),
-                        QJsonDocument(pending).toJson(QJsonDocument::Compact));
-                }
-            }
-
-            // 2) Reset enjoyment on inferred rows to 0 (unrated).
-            {
-                QSqlQuery resetQ(m_db);
-                if (!resetQ.exec("UPDATE shots SET enjoyment = 0 "
-                                 "WHERE enjoyment_source = 'inferred'")) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 UPDATE failed:"
-                               << resetQ.lastError().text();
-                    m_db.rollback();
-                    return false;
-                }
-            }
-
-            // 3) Drop the column. SQLite >= 3.35 (required since v15).
-            if (!query.exec("ALTER TABLE shots DROP COLUMN enjoyment_source")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 DROP COLUMN failed:"
-                           << query.lastError().text();
-                m_db.rollback();
-                return false;
-            }
-
-            // Checked, unlike the bare exec() pair this replaced: a silent
-            // failure here commits the dropped column while leaving the
-            // version at 15, so the next boot re-enters this block, finds no
-            // column, and falls to the else branch — and migrations 17+ never
-            // run because the version never advances. The app then operates
-            // against a schema it believes is older than it is.
-            if (!query.exec("DELETE FROM schema_version")
-                || !query.exec("INSERT INTO schema_version (version) VALUES (16)")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 version bump failed:"
-                           << query.lastError().text();
-                m_db.rollback();
-                return false;
-            }
-
-            if (!m_db.commit()) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 commit failed:"
-                           << m_db.lastError().text();
-                m_db.rollback();
-                return false;
-            }
-        } else {
-            // Column already absent (fresh DB or a previously-completed
-            // migration 16). Just record the schema version — checked for the
-            // same reason as the transactional path above: this is the branch
-            // a half-completed migration 16 lands in, so swallowing a failure
-            // here is what would strand the version at 15 permanently.
-            if (!query.exec("DELETE FROM schema_version")
-                || !query.exec("INSERT INTO schema_version (version) VALUES (16)")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 16 version bump failed:"
-                           << query.lastError().text();
-                return false;
-            }
-        }
-        currentVersion = 16;
-    }
-
-    // Migration 17: stopped_by column (#1161). Records why the shot ended
-    // ("weight"/"volume"/"manual"/"profileEnd"/""). Additive TEXT column,
-    // default '' — pre-migration rows read back as "" (unknown), which the
-    // dial-in consumer treats conservatively. Backward-safe: old code that
-    // never SELECTs the column is unaffected. Whitespace before the
-    // open-paren dodges the QSqlQuery permission-hook false-positive, as
-    // elsewhere in the codebase. Do not auto-format.
-    if (currentVersion < 17) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 17 (stopped_by)";
-
-        // No NOT NULL: callers (incl. the dev/fake-shot path and any shot
-        // whose reason is unknown) bind a null QString, which SQLite stores
-        // as NULL. Reads use value().toString() → "" for NULL, so unknown
-        // collapses to "" everywhere. SQLite does NOT rewrite existing rows
-        // on ADD COLUMN — pre-migration rows keep no stored value and a
-        // SELECT returns the DEFAULT '' for them virtually (so reads are
-        // "" without any physical back-fill).
-        if (!hasColumn("shots", "stopped_by"))
-            query.exec ("ALTER TABLE shots ADD COLUMN stopped_by TEXT DEFAULT ''");
-
-        query.exec ("DELETE FROM schema_version");
-        query.exec ("INSERT INTO schema_version (version) VALUES (17)");
-        currentVersion = 17;
-    }
-
-    // Migration 18: beanbase_json column (add-bean-base-integration).
-    // Compact-JSON snapshot of the linked bean entry (Visualizer canonical
-    // or Bean Base sourced — see docs/CLAUDE_MD/BEAN_BASE.md) the shot was
-    // pulled with: id, roaster, origin, variety, process, etc. Snapshotted
-    // at save time so history stays accurate after the preset is edited or
-    // deleted. NULL = unlinked bean (the common free-text case). Additive
-    // TEXT column, NULL default; old code that never SELECTs it is
-    // unaffected. Whitespace before the open-paren dodges the QSqlQuery
-    // permission-hook false-positive, as elsewhere.
-    if (currentVersion < 18) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 18 (beanbase_json)";
-
-        if (!hasColumn("shots", "beanbase_json"))
-            query.exec ("ALTER TABLE shots ADD COLUMN beanbase_json TEXT");
-
-        // Check-before-bump (migration-15 precedent): saveShotStatic's INSERT
-        // names this column unconditionally, so recording version 18 without
-        // the column would permanently break shot saving. On failure the
-        // version stays < 18 and the ALTER retries next launch.
-        if (hasColumn("shots", "beanbase_json")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (18)");
-            currentVersion = 18;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 18 failed to add beanbase_json:"
-                       << query.lastError().text() << "- will retry next launch";
-        }
-    }
-
-    // Migration 19: coffee bags (bean-bag-inventory). Creates the coffee_bags
-    // table and adds nullable bag_id / frozen_date / defrost_date /
-    // beanbase_id columns to shots, backfilling beanbase_id from the
-    // beanbase_json blob so the Change Beans history lane can GROUP BY an
-    // indexed column instead of json_extract'ing every row at query time.
-    // The legacy preset import is deliberately NOT version-gated — see
-    // importLegacyBeanPresets(), which runs every launch and also covers
-    // keys reintroduced by old-version device transfer. Check-before-bump
-    // (migration-18 precedent): saveShotStatic names the new columns
-    // unconditionally, so version 19 is only recorded when they all exist.
-    // Whitespace before the open-paren dodges the QSqlQuery permission-hook
-    // false-positive, as elsewhere. Do not auto-format.
-    if (currentVersion < 19) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 19 (coffee bags)";
-
-        const bool tableOk = CoffeeBagStorage::ensureTableStatic(m_db);
-
-        if (!hasColumn("shots", "bag_id"))
-            query.exec ("ALTER TABLE shots ADD COLUMN bag_id INTEGER");
-        if (!hasColumn("shots", "frozen_date"))
-            query.exec ("ALTER TABLE shots ADD COLUMN frozen_date TEXT");
-        if (!hasColumn("shots", "defrost_date"))
-            query.exec ("ALTER TABLE shots ADD COLUMN defrost_date TEXT");
-        if (!hasColumn("shots", "beanbase_id")) {
-            if (query.exec ("ALTER TABLE shots ADD COLUMN beanbase_id TEXT")) {
-                // One-time backfill from the blob. json_extract returns NULL
-                // for NULL/invalid JSON, so unlinked shots stay NULL. Failure
-                // is non-fatal: the history lane falls back to brand|type
-                // grouping for pre-migration rows.
-                if (!query.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
-                                "WHERE beanbase_json IS NOT NULL"))
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 19 beanbase_id backfill failed:"
-                               << query.lastError().text();
-            }
-        }
-        query.exec("CREATE INDEX IF NOT EXISTS idx_shots_beanbase_id ON shots(beanbase_id)");
-
-        if (tableOk && hasColumn("shots", "bag_id") && hasColumn("shots", "frozen_date")
-            && hasColumn("shots", "defrost_date") && hasColumn("shots", "beanbase_id")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (19)");
-            currentVersion = 19;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 19 incomplete:"
-                       << query.lastError().text() << "- will retry next launch";
-        }
-    }
-
-    // Migration 20: link pre-bag shots to their bags by identity
-    // (bean-bag-inventory follow-up). Migration 19 created bags from presets
-    // but shots saved before the upgrade carry bag_id NULL, so migrated
-    // favorites looked shot-less (the card offered delete instead of "Bag
-    // finished"). Idempotent identity backfill; on a FRESH upgrade the bags
-    // don't exist yet at this point (the preset import runs after
-    // migrations) — that path is covered by the same link call inside
-    // convertLegacyPresetSettings. This migration repairs devices that
-    // upgraded before the link existed.
-    if (currentVersion < 20) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 20 (link pre-bag shots to bags)";
-        // Gate the bump on success: linkOrphanShotsStatic returns -1 on a SQL
-        // failure (e.g. a locked DB at migration time). The op is idempotent,
-        // so if we DON'T bump on failure it simply retries next launch; bumping
-        // unconditionally would strand the shots orphaned forever (the < 20
-        // block never runs again). Mirrors migration 19's check-before-bump.
-        bool linkFaulted = false;
-#ifdef DECENZA_TESTING
-        linkFaulted = (s_faultInjectMigration == 20);
-        if (linkFaulted)
-            s_faultInjectMigration = 0;  // one-shot: clears so the retry succeeds
-#endif
-        const int linked = linkFaulted ? -1 : CoffeeBagStorage::linkOrphanShotsStatic(m_db);
-        if (linked >= 0) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (20)");
-            currentVersion = 20;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 20 orphan-link failed - will retry next launch";
-#ifdef DECENZA_TESTING
-            // Model the locked DB faithfully: the same lock that failed the
-            // orphan-link also fails every later migration's writes this pass,
-            // so nothing persists past version 19 and every later migration
-            // retries next launch. Without this abort, the independently-gated
-            // later migrations would advance the version via their own ">= N"
-            // gates and the < 20 block would never run again, stranding the
-            // orphan bag_id links.
-            if (linkFaulted) {
-                m_schemaVersion = currentVersion;
-                return true;
-            }
-#endif
-        }
-    }
-
-    // Migration 21: rename coffee_bags.yield_target_g -> yield_override_g
-    // (bean-bag-inventory yield-override model). The bag's yield is the
-    // bean's override of the profile's target weight, not a separate target —
-    // the column name now says so. Unreleased feature, so this only repairs
-    // dev databases already migrated to 19/20; fresh DBs get the new name
-    // straight from ensureTableStatic. RENAME COLUMN needs SQLite >= 3.25
-    // (we require >= 3.35). Whitespace before the open-paren dodges the
-    // QSqlQuery permission-hook false-positive, as elsewhere.
-    if (currentVersion < 21) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 21 (yield_target_g -> yield_override_g)";
-        bool renameFaulted = false;
-#ifdef DECENZA_TESTING
-        renameFaulted = (s_faultInjectMigration == 21);
-        if (renameFaulted)
-            s_faultInjectMigration = 0;  // one-shot: clears so the retry succeeds
-#endif
-        if (!renameFaulted
-            && hasColumn("coffee_bags", "yield_target_g") && !hasColumn("coffee_bags", "yield_override_g"))
-            query.exec ("ALTER TABLE coffee_bags RENAME COLUMN yield_target_g TO yield_override_g");
-        // Gate the bump on the post-condition (the new column exists): bumping
-        // after a failed RENAME would leave code reading a missing column with
-        // no retry. Fresh DBs already satisfy it via ensureTableStatic.
-        if (hasColumn("coffee_bags", "yield_override_g")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (21)");
-            currentVersion = 21;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 21 column rename failed - will retry next launch";
-        }
-    }
-
-    // Migration 22: extract the grinder into first-class Equipment packages
-    // (add-equipment-packages). Create equipment tables; add equipment_id + rpm
-    // to coffee_bags and shots; create one package per distinct grinder identity
-    // (brand/model/burrs — NOT grind/rpm) plus a default from the current
-    // settings; link every row; split combined "24 1400rpm" settings into
-    // grinder_setting + rpm. This is the ADDITIVE half — the legacy grinder
-    // identity columns are KEPT for now so existing readers (CoffeeBagStorage,
-    // shot projection) keep working; they are dropped in migration 23 once every
-    // reader resolves identity via equipment_id. The data step is NOT idempotent
-    // (it would re-create packages), so the version bumps on the additive part;
-    // the block then never re-runs. Whitespace before the open-paren dodges
-    // the QSqlQuery permission-hook false-positive, as elsewhere.
-    //
-    // Gate on ">= 21 && < 22" (advance only from a completed 21), NOT "< 22":
-    // migration 21's RENAME is gated on its post-condition and holds the version
-    // at 20 on failure so it retries next launch. A "< 22" gate would let
-    // migration 22 run and bump straight to 22 after a faulted 21, stranding the
-    // yield rename. The whole step is wrapped in a transaction (like migrations
-    // 7/8/16) so a failure rolls back the partial package inserts — the data step
-    // is NOT idempotent, so a half-applied retry would duplicate packages.
-    if (currentVersion >= 21 && currentVersion < 22) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 22 (equipment packages)";
-
-        const bool txn = m_db.transaction();
-        const bool tablesOk = EquipmentStorage::ensureTablesStatic(m_db);
-
-        if (!hasColumn("coffee_bags", "equipment_id"))
-            query.exec ("ALTER TABLE coffee_bags ADD COLUMN equipment_id INTEGER");
-        if (!hasColumn("coffee_bags", "rpm"))
-            query.exec ("ALTER TABLE coffee_bags ADD COLUMN rpm INTEGER");
-        if (!hasColumn("shots", "equipment_id"))
-            query.exec ("ALTER TABLE shots ADD COLUMN equipment_id INTEGER");
-        if (!hasColumn("shots", "rpm"))
-            query.exec ("ALTER TABLE shots ADD COLUMN rpm INTEGER");
-
-        const bool colsOk = hasColumn("coffee_bags", "equipment_id") && hasColumn("coffee_bags", "rpm")
-            && hasColumn("shots", "equipment_id") && hasColumn("shots", "rpm");
-
-        // The default package seeds from the user's live grinder settings (the
-        // active bag mirrors these via write-through, but reading QSettings here
-        // also covers a user who set a grinder but never saved a shot/bag).
-        bool dataOk = false;
-        if (tablesOk && colsOk) {
-            // Read the SAME QSettings scope SettingsDye writes to — a bare
-            AppSettings settings;
-            const QString curBrand = settings.value("dye/grinderBrand").toString();
-            const QString curModel = settings.value("dye/grinderModel").toString();
-            const QString curBurrs = settings.value("dye/grinderBurrs").toString();
-            const QString curSetting = settings.value("dye/grinderSetting").toString();
-            dataOk = EquipmentStorage::migrateFromGrinderColumnsStatic(
-                m_db, curBrand, curModel, curBurrs, curSetting);
-        }
-
-        if (tablesOk && colsOk && dataOk) {
-            // Bump the version INSIDE the transaction so the data + version commit
-            // atomically — a crash between them would otherwise leave migrated
-            // data at version 21 and re-run the non-idempotent step next launch.
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (22)");
-            if (!txn || m_db.commit()) {
-                currentVersion = 22;
-            } else {
-                if (txn) m_db.rollback();
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 22 commit failed - will retry next launch";
-            }
-        } else {
-            if (txn)
-                m_db.rollback();  // undo partial package inserts so the retry is clean
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 22 incomplete (tables" << tablesOk
-                       << "cols" << colsOk << "data" << dataOk
-                       << ") - will retry next launch";
-        }
-    }
-
-    // Migration 23: drop the legacy grinder identity columns now that every
-    // reader resolves brand/model/burrs through equipment_id (add-equipment-
-    // packages). Migration 22 deliberately KEPT grinder_brand/model/burrs on
-    // shots + coffee_bags so the upgrade could seed packages from them and
-    // existing readers kept working; with the reader sweep complete, the
-    // pointer-to-immutable-package is the only identity path and the snapshot
-    // columns are dead weight, so they go.
-    //
-    // Ordering inside the step matters: shots_fts is an external-content FTS5
-    // index over the grinder columns and its triggers reference new./old.grinder_*,
-    // and idx_shots_grinder is built on them. SQLite refuses DROP COLUMN on a
-    // column referenced by a trigger or index, so the FTS index/triggers are
-    // rebuilt WITHOUT the grinder columns and the index is dropped BEFORE the
-    // columns. DROP COLUMN needs SQLite >= 3.35 (we require it). The whole step
-    // is wrapped in a transaction and gated on the post-condition (columns gone)
-    // so a failure rolls back and retries next launch — it is idempotent
-    // (hasColumn guards each drop). Gate ">= 22 && < 23" so it only advances
-    // from a committed migration 22 (mirrors migration 22's gate on 21).
-    if (currentVersion >= 22 && currentVersion < 23) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 23 (drop legacy grinder columns)";
-
-        const bool txn = m_db.transaction();
-        bool ok = true;
-
-        // 1. Rebuild shots_fts without the grinder columns (mirror migration 8's
-        //    rebuild). Drop the triggers + FTS table, recreate over the
-        //    non-grinder text columns, then repopulate from shots.
-        query.exec("DROP TRIGGER IF EXISTS shots_ai");
-        query.exec("DROP TRIGGER IF EXISTS shots_ad");
-        query.exec("DROP TRIGGER IF EXISTS shots_au");
-        query.exec("DROP TABLE IF EXISTS shots_fts");
-
-        if (!query.exec(R"(
-            CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
-                espresso_notes, bean_brand, bean_type, profile_name,
-                content='shots', content_rowid='id'
-            )
-        )")) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 failed to recreate FTS table:"
-                       << query.lastError().text();
-            ok = false;
-        }
-
-        if (ok) {
-            query.exec(R"(
-                CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
-                    INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
-                    VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name);
-                END
-            )");
-            query.exec(R"(
-                CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
-                    INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name)
-                    VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name);
-                END
-            )");
-            query.exec(R"(
-                CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
-                    INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name)
-                    VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name);
-                    INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
-                    VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name);
-                END
-            )");
-            if (!query.exec(R"(
-                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
-                SELECT id, espresso_notes, bean_brand, bean_type, profile_name FROM shots
-            )")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 failed to repopulate FTS index:"
-                           << query.lastError().text();
-                ok = false;
-            }
-        }
-
-        // 2. Drop the grinder index (DROP COLUMN refuses an indexed column).
-        if (ok)
-            query.exec ("DROP INDEX IF EXISTS idx_shots_grinder");
-
-        // 3. Drop grinder_brand/model/burrs from both shots and coffee_bags.
-        //    Idempotent: hasColumn skips a column already gone (e.g. a retried
-        //    run after a mid-step crash). coffee_bags is guaranteed to exist
-        //    here (created by migration 19, earlier in the chain).
-        if (ok) {
-            for (const char* col : {"grinder_brand", "grinder_model", "grinder_burrs"}) {
-                for (const char* table : {"shots", "coffee_bags"}) {
-                    if (hasColumn(table, col)) {
-                        QSqlQuery drop(m_db);
-                        if (!drop.exec (QStringLiteral("ALTER TABLE %1 DROP COLUMN %2")
-                                            .arg(QLatin1String(table), QLatin1String(col)))) {
-                            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 failed to drop" << table << col << ":"
-                                       << drop.lastError().text();
-                            ok = false;
-                        }
-                    }
-                }
-            }
-        }
-
-        const bool dropped =
-            !hasColumn("shots", "grinder_brand") && !hasColumn("shots", "grinder_model")
-            && !hasColumn("shots", "grinder_burrs")
-            && !hasColumn("coffee_bags", "grinder_brand") && !hasColumn("coffee_bags", "grinder_model")
-            && !hasColumn("coffee_bags", "grinder_burrs");
-
-        if (ok && dropped) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (23)");
-            if (!txn || m_db.commit()) {
-                currentVersion = 23;
-                DIAG_INFO(STORAGE, "ShotHistoryStorage") << "migration 23 complete - dropped grinder identity"
-                           " columns from shots + coffee_bags, rebuilt shots_fts without them";
-            } else {
-                if (txn) m_db.rollback();
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 commit failed - will retry next launch";
-            }
-        } else {
-            if (txn)
-                m_db.rollback();
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 23 incomplete (ok" << ok
-                       << "dropped" << dropped << ") - will retry next launch";
-        }
-    }
-
-    // Migration 24: visualizer_sync_pending on coffee_bags (add-bag-detail-
-    // editing) — set when a bag edit's Visualizer PATCH fails retryably, so
-    // the next upload cycle re-pushes it. One idempotent additive column;
-    // hasColumn guards the retry after a mid-step crash. Gate ">= 23 && < 24"
-    // so it only advances from a committed migration 23 (mirrors the chain).
-    if (currentVersion >= 23 && currentVersion < 24) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 24 (bag visualizer_sync_pending)";
-
-        if (!hasColumn("coffee_bags", "visualizer_sync_pending"))
-            query.exec ("ALTER TABLE coffee_bags ADD COLUMN visualizer_sync_pending INTEGER NOT NULL DEFAULT 0");
-
-        if (hasColumn("coffee_bags", "visualizer_sync_pending")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (24)");
-            currentVersion = 24;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 24 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 25: recipes (add-recipes). Create the recipes table and add
-    // shot provenance: recipe_id names the recipe active at shot start, and
-    // steam_json snapshots the steam spec in effect so promote-from-shot
-    // round-trips the whole drink. Both nullable — legacy rows unaffected.
-    // Idempotent (CREATE IF NOT EXISTS + hasColumn guards); the bump gates on
-    // the post-conditions like migrations 19/24. Whitespace before the
-    // open-paren dodges the QSqlQuery permission-hook false-positive, as
-    // elsewhere. Do not auto-format.
-    if (currentVersion >= 24 && currentVersion < 25) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 25 (recipes)";
-
-        const bool tableOk = RecipeStorage::ensureTableStatic(m_db);
-
-        if (!hasColumn("shots", "recipe_id"))
-            query.exec ("ALTER TABLE shots ADD COLUMN recipe_id INTEGER");
-        if (!hasColumn("shots", "steam_json"))
-            query.exec ("ALTER TABLE shots ADD COLUMN steam_json TEXT");
-        query.exec("CREATE INDEX IF NOT EXISTS idx_shots_recipe_id ON shots(recipe_id)");
-
-        if (tableOk && hasColumn("shots", "recipe_id") && hasColumn("shots", "steam_json")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (25)");
-            currentVersion = 25;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 25 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 26: recipes.rpm_pinned (add-recipes follow-up) — the grind
-    // override pins grind AND rpm together. Fresh DBs get the column from
-    // ensureTableStatic (the hasColumn guard makes both paths converge);
-    // this repairs branch-dev DBs that already ran migration 25 with the
-    // old table. One idempotent additive column, gated ">= 25 && < 26".
-    if (currentVersion >= 25 && currentVersion < 26) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 26 (recipes rpm_pinned)";
-
-        if (!hasColumn("recipes", "rpm_pinned"))
-            query.exec ("ALTER TABLE recipes ADD COLUMN rpm_pinned INTEGER");
-
-        if (hasColumn("recipes", "rpm_pinned")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (26)");
-            currentVersion = 26;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 26 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 27: hot_water_json (finish-recipes-first-class) — the opt-in
-    // added-hot-water block (water-vessel snapshot) that lets a recipe describe
-    // an Americano. Added on BOTH recipes (the recipe's own block) and shots
-    // (the snapshot in effect at shot start, so promote-from-shot round-trips
-    // the whole drink, exactly like shots.steam_json from migration 25). Fresh
-    // DBs get recipes.hot_water_json from ensureTableStatic (the hasColumn guard
-    // makes both paths converge); this repairs DBs that already ran migration
-    // 25/26 with the old table. Idempotent additive columns, gated
-    // ">= 26 && < 27", mirroring migration 26.
-    if (currentVersion >= 26 && currentVersion < 27) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 27 (hot_water_json)";
-
-        if (!hasColumn("recipes", "hot_water_json"))
-            query.exec ("ALTER TABLE recipes ADD COLUMN hot_water_json TEXT");
-        if (!hasColumn("shots", "hot_water_json"))
-            query.exec ("ALTER TABLE shots ADD COLUMN hot_water_json TEXT");
-
-        if (hasColumn("recipes", "hot_water_json") && hasColumn("shots", "hot_water_json")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (27)");
-            currentVersion = 27;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 27 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 28: recipes.drink_type + coffee_bags.kind (add-recipe-wizard-tea).
-    // drink_type records the wizard's drink intent (empty on legacy rows =
-    // derive from blocks at read time); kind marks a bag as coffee or tea and
-    // is stamped at creation only. Both are additive with safe defaults —
-    // existing bags become 'coffee' via the column default; existing recipes
-    // keep an empty drink_type. Fresh DBs get both columns from the
-    // ensureTableStatic CREATE TABLEs (the hasColumn guards make both paths
-    // converge). Idempotent, gated ">= 27 && < 28", mirroring migration 27.
-    if (currentVersion >= 27 && currentVersion < 28) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 28 (drink_type + bag kind)";
-
-        if (!hasColumn("recipes", "drink_type")
-            && !query.exec ("ALTER TABLE recipes ADD COLUMN drink_type TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 28 add recipes.drink_type failed -"
-                       << query.lastError().text();
-        if (!hasColumn("coffee_bags", "kind")
-            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN kind TEXT NOT NULL DEFAULT 'coffee'"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 28 add coffee_bags.kind failed -"
-                       << query.lastError().text();
-
-        if (hasColumn("recipes", "drink_type") && hasColumn("coffee_bags", "kind")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (28)");
-            currentVersion = 28;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 28 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 29: recipes.bag_id (recipes-bag-links-ui-polish). Recipes now
-    // link a SPECIFIC bag instead of resolving their bean identity to the
-    // most-recently-used open bag at every activation (which silently picked
-    // the wrong bag for users running two bags of one bean at different
-    // ages). Additive column plus a one-time data pass that resolves each
-    // existing recipe's bean identity to its current open bag — the retired
-    // resolver's logic, run once; recipes whose bean has no open bag stay
-    // NULL and present as stale. Fresh DBs get the column from
-    // ensureTableStatic (the hasColumn guard makes both paths converge).
-    // Idempotent (the data pass only touches NULL bag_id rows), gated
-    // ">= 28 && < 29", mirroring migration 28.
-    if (currentVersion >= 28 && currentVersion < 29) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 29 (recipes bag_id)";
-
-        if (!hasColumn("recipes", "bag_id")
-            && !query.exec ("ALTER TABLE recipes ADD COLUMN bag_id INTEGER"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 29 add recipes.bag_id failed -"
-                       << query.lastError().text();
-
-        // The version bump gates on the DATA pass too: the pass is
-        // idempotent (NULL bag_id rows only), so a transient failure —
-        // locked DB at upgrade time — simply retries next launch instead
-        // of permanently stranding every recipe stale.
-        if (hasColumn("recipes", "bag_id") && RecipeStorage::migrateBagLinksStatic(m_db)) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (29)");
-            currentVersion = 29;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 29 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 30: recipe-owned grind (fix-recipe-grind-integrity). The
-    // "empty grind_pinned = inherit from the bag" mode is retired — grind
-    // always lives on the recipe. Pure data pass, no schema change: each
-    // inherit-mode row adopts its linked bag's current grinder_setting/rpm
-    // once. Rows whose bag has no dial (tea bags, never-dialed) are skipped,
-    // bag-less rows untouched. Idempotent and gated ">= 29 && < 30", mirroring 29:
-    // a transient failure retries next launch instead of stranding rows.
-    if (currentVersion >= 29 && currentVersion < 30) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 30 (recipe-owned grind)";
-
-        if (RecipeStorage::migrateGrindOwnershipStatic(m_db)) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (30)");
-            currentVersion = 30;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 30 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 31: recipes.temp_offset_c (recipe-relative-temp-offset). A
-    // recipe's temperature becomes a SIGNED DELTA against its profile instead
-    // of the absolute temp_override_c, so a profile temperature edit moves the
-    // recipe with the profile and can never manufacture a phantom offset.
-    // Schema-only here: the new column's NULL default IS the "unconverted"
-    // marker, and the data pass (RecipeStorage::convertLegacyTempOffsetsStatic)
-    // runs deferred from MainController once the profile catalog — the
-    // conversion anchor — is available. temp_override_c stays in place, dead:
-    // it is the conversion input and the staging column for legacy-source
-    // imports. Fresh DBs get temp_offset_c from ensureTableStatic's CREATE
-    // TABLE (the hasColumn guard makes both paths converge). Idempotent,
-    // gated ">= 30 && < 31", mirroring migration 30.
-    if (currentVersion >= 30 && currentVersion < 31) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 31 (recipe temp offset)";
-
-        if (!hasColumn("recipes", "temp_offset_c")
-            && !query.exec ("ALTER TABLE recipes ADD COLUMN temp_offset_c REAL"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 31 add recipes.temp_offset_c failed -"
-                       << query.lastError().text();
-
-        if (hasColumn("recipes", "temp_offset_c")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (31)");
-            currentVersion = 31;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 31 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 32: non-frozen storage lifecycle (bean-freshness-followup).
-    // storage_hint (a non-frozen storage category) and opened_date (the
-    // non-frozen analogue of defrost_date) join the existing freeze-lifecycle
-    // fields on BOTH tables: coffee_bags (the current-portion state) AND shots
-    // (the per-shot snapshot, so historical shots record which storage regime
-    // they were pulled under). The shots columns mirror frozen_date/defrost_date
-    // added by migration 19 — the shot-save INSERT, shot-read SELECT, and
-    // device-transfer INSERT all name them. Additive with NULL defaults, no
-    // backfill (existing bags/shots simply have both unset). Fresh DBs get the
-    // coffee_bags columns from ensureTableStatic and the shots columns here (the
-    // shots CREATE TABLE omits the lifecycle columns, same as frozen_date). The
-    // hasColumn guards make both paths converge. Idempotent, gated
-    // ">= 31 && < 32", mirroring migration 31. Whitespace before the open-paren
-    // dodges the QSqlQuery permission-hook false-positive; do not auto-format.
-    if (currentVersion >= 31 && currentVersion < 32) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 32 (storage hint + opened date)";
-
-        if (!hasColumn("coffee_bags", "storage_hint")
-            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN storage_hint TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add coffee_bags.storage_hint failed -"
-                       << query.lastError().text();
-        if (!hasColumn("coffee_bags", "opened_date")
-            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN opened_date TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add coffee_bags.opened_date failed -"
-                       << query.lastError().text();
-        if (!hasColumn("shots", "storage_hint")
-            && !query.exec ("ALTER TABLE shots ADD COLUMN storage_hint TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add shots.storage_hint failed -"
-                       << query.lastError().text();
-        if (!hasColumn("shots", "opened_date")
-            && !query.exec ("ALTER TABLE shots ADD COLUMN opened_date TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 add shots.opened_date failed -"
-                       << query.lastError().text();
-
-        if (hasColumn("coffee_bags", "storage_hint") && hasColumn("coffee_bags", "opened_date")
-            && hasColumn("shots", "storage_hint") && hasColumn("shots", "opened_date")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (32)");
-            currentVersion = 32;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 32 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 33: structured taste axes (add-ai-taste-intake). taste_balance
-    // (sour|balanced|bitter) and taste_body (thin|medium|heavy) capture the two
-    // dial-in taste axes the shot curve can't reveal, tapped in the AI taste
-    // intake picker or on the review page. Shots-only — taste is a per-shot
-    // observation, not a coffee_bags attribute. Empty-string = unset (matching
-    // enjoyment0to100 == 0); an ADD COLUMN with no default leaves existing rows
-    // NULL, which surfaces as "" on read (QSqlQuery::value().toString()) — the
-    // same "unset" sentinel new writes use. Written only via
-    // requestUpdateShotMetadata (a post-hoc edit),
-    // so no shot-save INSERT binding is needed — but the shot-read SELECT and the
-    // device-transfer INSERT name them. Idempotent, gated ">= 32 && < 33".
-    // Whitespace before the open-paren dodges the QSqlQuery permission-hook
-    // false-positive; do not auto-format.
-    if (currentVersion >= 32 && currentVersion < 33) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 33 (taste axes)";
-
-        if (!hasColumn("shots", "taste_balance")
-            && !query.exec ("ALTER TABLE shots ADD COLUMN taste_balance TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 33 add shots.taste_balance failed -"
-                       << query.lastError().text();
-        if (!hasColumn("shots", "taste_body")
-            && !query.exec ("ALTER TABLE shots ADD COLUMN taste_body TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 33 add shots.taste_body failed -"
-                       << query.lastError().text();
-
-        if (hasColumn("shots", "taste_balance") && hasColumn("shots", "taste_body")) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (33)");
-            currentVersion = 33;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 33 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 34: yield specs (add-yield-ratio-anchor). Yield stops being a
-    // bare gram number and becomes {value, mode} with mode none|absolute|ratio,
-    // on three tables:
-    //   recipes      yield_value + yield_mode  (from the legacy yield_g)
-    //   coffee_bags  yield_value + yield_mode  (from the legacy yield_override_g)
-    //   shots        yield_mode + yield_anchor_value — the anchor that PRODUCED
-    //                the target (intent), alongside the untouched yield_override
-    //                (outcome, resolved grams — what every detector reads).
-    // Backfills are a relabel, not a recomputation: an existing absolute yield
-    // is already absolute (>0 -> 'absolute', else 'none'), so every migrated
-    // row behaves exactly as before. The legacy columns stay dead in place as
-    // conversion input / legacy-source import carriers (the temp_override_c
-    // precedent). The shots backfill labels every >0 yield_override 'absolute'
-    // — a deliberate simplification (that column is three-way overloaded at
-    // save time and the cases are indistinguishable here; see design.md).
-    // Fresh DBs get the recipes/coffee_bags columns from ensureTableStatic and
-    // the shots columns here. Backfill is gated on yield_mode IS NULL so the
-    // whole block is idempotent. Whitespace before the open-paren dodges the
-    // QSqlQuery permission-hook false-positive; do not auto-format.
-    if (currentVersion >= 33 && currentVersion < 34) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 34 (yield specs)";
-
-        if (!hasColumn("recipes", "yield_value")
-            && !query.exec ("ALTER TABLE recipes ADD COLUMN yield_value REAL"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add recipes.yield_value failed -"
-                       << query.lastError().text();
-        if (!hasColumn("recipes", "yield_mode")
-            && !query.exec ("ALTER TABLE recipes ADD COLUMN yield_mode TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add recipes.yield_mode failed -"
-                       << query.lastError().text();
-        if (!hasColumn("coffee_bags", "yield_value")
-            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN yield_value REAL"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add coffee_bags.yield_value failed -"
-                       << query.lastError().text();
-        if (!hasColumn("coffee_bags", "yield_mode")
-            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN yield_mode TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add coffee_bags.yield_mode failed -"
-                       << query.lastError().text();
-        if (!hasColumn("shots", "yield_mode")
-            && !query.exec ("ALTER TABLE shots ADD COLUMN yield_mode TEXT"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add shots.yield_mode failed -"
-                       << query.lastError().text();
-        if (!hasColumn("shots", "yield_anchor_value")
-            && !query.exec ("ALTER TABLE shots ADD COLUMN yield_anchor_value REAL"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 add shots.yield_anchor_value failed -"
-                       << query.lastError().text();
-
-        bool backfilled = hasColumn("recipes", "yield_value") && hasColumn("recipes", "yield_mode")
-            && hasColumn("coffee_bags", "yield_value") && hasColumn("coffee_bags", "yield_mode")
-            && hasColumn("shots", "yield_mode") && hasColumn("shots", "yield_anchor_value");
-        if (backfilled) {
-            backfilled = query.exec (
-                    "UPDATE recipes SET "
-                    "yield_value = CASE WHEN COALESCE(yield_g, 0) > 0 THEN yield_g ELSE NULL END, "
-                    "yield_mode = CASE WHEN COALESCE(yield_g, 0) > 0 THEN 'absolute' ELSE 'none' END "
-                    "WHERE yield_mode IS NULL")
-                && query.exec (
-                    "UPDATE coffee_bags SET "
-                    "yield_value = CASE WHEN COALESCE(yield_override_g, 0) > 0 THEN yield_override_g ELSE NULL END, "
-                    "yield_mode = CASE WHEN COALESCE(yield_override_g, 0) > 0 THEN 'absolute' ELSE 'none' END "
-                    "WHERE yield_mode IS NULL")
-                && query.exec (
-                    "UPDATE shots SET "
-                    "yield_anchor_value = CASE WHEN COALESCE(yield_override, 0) > 0 THEN yield_override ELSE NULL END, "
-                    "yield_mode = CASE WHEN COALESCE(yield_override, 0) > 0 THEN 'absolute' ELSE 'none' END "
-                    "WHERE yield_mode IS NULL");
-            if (!backfilled)
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 backfill failed -"
-                           << query.lastError().text();
-        }
-
-        if (backfilled) {
-            query.exec ("DELETE FROM schema_version");
-            query.exec ("INSERT INTO schema_version (version) VALUES (34)");
-            currentVersion = 34;
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 34 incomplete - will retry next launch";
-        }
-    }
-
-    // Migration 35: heal packages split by a pre-enrichment identity fork
-    // (fix-equipment-enrichment-fork). Until this change, recording burrs on a
-    // grinder that already had shots forked a new package and retired the old
-    // one — and because grinder calibration matches on model AND burrs while
-    // dial-in grouping keys on equipment_id, the grinder read as brand new with
-    // no history (#1713). The fork rule is fixed going forward; this repairs the
-    // users it already happened to, which is most of them. See
-    // EquipmentStorage::healEnrichmentForksStatic.
-    //
-    // NOTE: this block's TEXT is unchanged since it shipped, but its BEHAVIOUR is
-    // not. It calls the shared heal, and widen-enrichment-heal widened that from
-    // "burrs only" to the whole enrichment rule. So on any database below 35 —
-    // nearly all of them, since stable v2.0.0 predates this migration — 35 now
-    // performs the full widened fold and 36 finds nothing. 36 exists solely for
-    // databases a PRE-widening binary already stamped 35, which cannot re-run it.
-    //
-    // Data-only and NOT idempotent in effect (a second run simply finds nothing),
-    // so the heal commits together with the version bump.
-    //
-    // DbWriteTxn, not the raw m_db.transaction() the migrations around this one
-    // use: the heal SELECTs its lineage pairs before it writes, and that is
-    // exactly the read-then-write shape a DEFERRED BEGIN cannot upgrade under
-    // contention (dbutils.h). It also removes the failure mode a plain
-    // transaction() has here — a false return there would have let the merges run
-    // and autocommit one by one, with the `if (txn) rollback()` guard doing
-    // nothing, so a mid-heal failure left a half-applied merge behind. A guard
-    // that failed to begin now aborts before anything is written.
-    //
-    // The heal itself uses the UNLOCKED merge, because DbWriteTxn refuses to nest
-    // (adopting an outer transaction would let an inner rejection leave partial
-    // writes staged in it).
-    if (currentVersion >= 34 && currentVersion < 35) {
-        EQUIP_LOG_STDERR("Migration", "35: healing enrichment forks");
-
-        // Release the schema_version read at the top of this function before taking
-        // the write lock. That SELECT ends in LIMIT 1 and is stepped exactly once,
-        // so it never reaches SQLITE_DONE and Qt never resets it
-        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332 resets only
-        // on SQLITE_DONE or error) — the connection is therefore still inside an
-        // implicit read transaction. DbWriteTxn says so in its PRECONDITION: a
-        // SELECT that returned rows and was not stepped to exhaustion blocks
-        // BEGIN IMMEDIATE, and SQLite skips the busy handler entirely while the
-        // connection sits in one, so the failure is instant and a retry cannot fix
-        // it. The migrations in between only re-exec `query` when they RUN, and on
-        // the common upgrade path (a database already at 34) not one of them does.
-        // The older migrations get away with it because QSqlDatabase::transaction()
-        // is a DEFERRED BEGIN that takes no write lock; this is the first one that
-        // takes the lock up front.
-        query.finish();
-        // attempts = 1: this runs on the GUI thread during startup, before any
-        // other storage has opened the file, so there is no writer to wait out.
-        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 35 enrichment-fork heal", 1);
-        if (!txn.ok()) {
-            EQUIP_WARN_STDERR("Migration",
-                              "35 could not start a transaction - will retry next launch");
-        } else {
-            QHash<qint64, qint64> remap;
-            qsizetype healed = 0;
-            // A failed heal leaves its writes staged for this transaction to roll
-            // back, and the version must NOT advance — otherwise the split packages
-            // are never looked at again and the user is left repairing them by hand
-            // over MCP.
-            bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
-            if (ok) {
-                query.exec ("DELETE FROM schema_version");
-                ok = query.exec ("INSERT INTO schema_version (version) VALUES (35)");
-            }
-            if (ok && txn.commit()) {
-                currentVersion = 35;
-                // Logged even at zero: "ran, found nothing" and "never ran" are the
-                // same silence otherwise, and this migration is the first thing to
-                // check when a user reports the grinder still looks split.
-                EQUIP_INFO_STDERR("Migration",
-                                  QString("35 complete - merged %1 package(s) that an edit recording gear had split off")
-                                      .arg(healed));
-                if (healed > 0) {
-                    // The active selection lives in QSettings, not this database, so a
-                    // merged-away id would leave the app pointing at a deleted package.
-                    // Resolved here and adopted through SettingsDye's setter by
-                    // MainController (a raw write would bypass the cache and NOTIFY).
-                    AppSettings settings;
-                    const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
-                    if (activeId > 0 && remap.contains(activeId)) {
-                        m_healedActiveEquipmentId = remap.value(activeId);
-                        EQUIP_INFO_STDERR("Migration",
-                                          QString("35 moved the active equipment from package %1 to %2")
-                                              .arg(activeId).arg(m_healedActiveEquipmentId));
-                    }
-                }
-            } else {
-                EQUIP_WARN_STDERR("Migration", "35 incomplete - will retry next launch");
-            }
-        }
-    }
-
-    // Migration 36: re-run the heal for databases a PRE-widening binary already
-    // stamped 35 (widen-enrichment-heal).
-    //
-    // That older binary's heal restated the enrichment rule instead of sharing it:
-    // it tested the burrs alone and required the other five components to be EQUAL
-    // — the inverse of enrichment for a component that was absent. So a fork caused
-    // by recording a BASKET, which is the common one because baskets arrived after
-    // grinders did, was skipped while 35 logged "merged 0" and read as nothing to
-    // fix. Confirmed on two real databases.
-    //
-    // A database that has NOT yet reached 35 does not need this: 35 above now calls
-    // the shared widened heal and folds everything in one pass, leaving 36 with
-    // nothing to do. Running both in one launch is therefore normal and harmless.
-    //
-    // 35 is left in place and unchanged rather than edited, because its version is
-    // already stamped wherever it ran and a stamped migration never runs again.
-    // Most devices are below it (stable v2.0.0 predates it) and will run both in
-    // one launch: harmless, since the widened predicate is a superset and the
-    // second pass finds the first one's work already done.
-    //
-    // Same shape as 35 deliberately — DbWriteTxn with attempts=1, query.finish()
-    // before taking the write lock, heal and version bump committing together.
-    // The read-then-write hazard documented above applies identically here, and
-    // the SELECT at the top of this function may have been re-executed by any
-    // migration in between.
-    if (currentVersion >= 35 && currentVersion < 36) {
-        EQUIP_LOG_STDERR("Migration", "36: re-healing enrichment forks against the full rule");
-        query.finish();
-        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 36 enrichment-fork re-heal", 1);
-        if (!txn.ok()) {
-            EQUIP_WARN_STDERR("Migration",
-                              "36 could not start a transaction - will retry next launch");
-        } else {
-            QHash<qint64, qint64> remap;
-            qsizetype healed = 0;
-            bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
-            if (ok) {
-                query.exec("DELETE FROM schema_version");
-                ok = query.exec("INSERT INTO schema_version (version) VALUES (36)");
-            }
-            if (ok && txn.commit()) {
-                currentVersion = 36;
-                EQUIP_INFO_STDERR("Migration",
-                                  QString("36 complete - merged %1 package(s) that an edit "
-                                          "recording gear had split off")
-                                      .arg(healed));
-                if (healed > 0) {
-                    // Same reason as 35: the active selection lives in QSettings,
-                    // so a merged-away id would leave the app pointing at a
-                    // deleted package.
-                    //
-                    // Reads QSettings directly, with no "prefer 35's result"
-                    // fallback. An earlier draft had one, reasoning about a chain
-                    // where 35 folds 1->2 and 36 folds 2->3 — but that cannot
-                    // happen now that both call the SAME widened heal: on a
-                    // database below 35, migration 35 folds everything foldable and
-                    // 36 finds nothing, so this block does not run at all. On a
-                    // database already stamped 35 by a pre-widening binary, 35 is
-                    // skipped and there is no earlier result to prefer. The
-                    // fallback was unreachable, and a branch that needs fault
-                    // injection to reach is one to delete, not to test.
-                    AppSettings settings;
-                    const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
-                    if (activeId > 0 && remap.contains(activeId)) {
-                        m_healedActiveEquipmentId = remap.value(activeId);
-                        EQUIP_INFO_STDERR("Migration",
-                                          QString("36 moved the active equipment from package %1 to %2")
-                                              .arg(activeId).arg(m_healedActiveEquipmentId));
-                    }
-                }
-            } else {
-                EQUIP_WARN_STDERR("Migration", "36 incomplete - will retry next launch");
-            }
-        }
-    }
-
-    // Migration 38: unlink bags that point at another roaster's canonical
-    // record. A canonical_coffee_bags row is a ROASTER'S PRODUCT, and
-    // visualizer.coffee rewrites a shot's bean_brand and
-    // bean_type from it whenever the link changes — so a bag that borrowed the
-    // near-match record for a coffee its own roaster does not sell republished
-    // every shot under that other roaster, and kept doing it for each new shot.
-    // The descriptive fields the user was actually after are kept; only the id,
-    // the roaster id and the pristine snapshot go, and the unlink propagates to
-    // the shots' own snapshots (the uploader reads those, not the bag).
-    //
-    // Adds one column and does a data pass. Detection is offline and
-    // deliberately conservative: it can only prove a conflict while the blob
-    // still carries the record's own names.
-    //
-    // ONE migration, entered from either 36 or 37. It used to be two, 38
-    // re-running the same pass for "databases an early build of 37 stamped
-    // before the queue column was part of the pass" — but 37 was added on this
-    // same branch and no released build ever stamped it, so that cohort is
-    // empty and every user's database would have paid for a second full coffee_bags
-    // scan, JSON-parsed per row, inside a write transaction. The `>= 36` lower
-    // bound still catches a development database left at 37.
-    if (currentVersion >= 36 && currentVersion < 38) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 38 "
-                    "(unlink borrowed canonical records)";
-        query.finish();
-        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration canonical unlink", 1);
-        if (!txn.ok()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 could not start a transaction"
-                          " - will retry next launch";
-        } else {
-        // The repair queue's column. A failure to add it does NOT abort the
-        // migration: the unlink is the correctness fix and still has to happen;
-        // only the Visualizer repair goes unqueued. Rolling back instead would
-        // leave the version unstamped and re-run this pass on every launch
-        // forever, which is the worse failure.
-        //
-        // Honouring that needs the `queueShots` argument below, and it is not
-        // optional. Without it the pass DID roll back, defeating its own stated
-        // policy: the unlink calls markShotsForBeanRepairStatic, whose UPDATE
-        // fails on the missing column, which returns -1, which fails the whole
-        // pass — for exactly the users who have a conflicted bag, i.e. the ones
-        // this migration exists for.
-        const std::optional<bool> before = columnPresent("shots", "bean_repair_pending");
-        if (before.has_value() && !*before
-            && !query.exec("ALTER TABLE shots ADD COLUMN bean_repair_pending "
-                           "INTEGER NOT NULL DEFAULT 0"))
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 could not add "
-                          "shots.bean_repair_pending -" << query.lastError().text()
-                       << "- bags will still be unlinked, but no shot repair will be queued";
-        const std::optional<bool> after = columnPresent("shots", "bean_repair_pending");
-        if (!after.has_value()) {
-            // Unknown column state. Unlinking without queueing would be
-            // PERMANENT — the version stamps, this block never runs again, and
-            // no shot is ever repaired — so stop and retry on the next launch,
-            // when the database is likely no longer busy.
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 could not determine whether "
-                          "shots.bean_repair_pending exists - deferring to next launch";
-            return true;
-        }
-        const bool queueShots = *after;
-
-        const int unlinked = CoffeeBagStorage::cleanConflictedCanonicalLinksStatic(m_db, queueShots);
-        bool ok = unlinked >= 0;
-        if (ok) {
-            // Both halves checked, like every other migration in this file: a
-            // DELETE that commits without its INSERT leaves the table empty,
-            // which is not recoverable.
-            ok = query.exec("DELETE FROM schema_version")
-                 && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (38)"));
-        }
-        if (ok && txn.commit()) {
-            currentVersion = 38;
-            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 38 complete - unlinked"
-                     << unlinked << "bag(s) from a record naming another coffee";
-        } else {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 38 incomplete - will retry next launch";
-        }
-        }
-    }
-
-    // Migration 39: shots.flow_calibration — the effective flow calibration
-    // multiplier the shot was pulled at. A shot's `flow` curve is a CALIBRATED
-    // quantity, so without the multiplier that produced it the curve cannot be
-    // compared against another shot's or converted back to a raw sensor
-    // reading. Diagnosing Kulitorum/Decenza#1872 needed a debug log beside the
-    // shot data for exactly this reason.
-    //
-    // Additive, nullable, no backfill: the multiplier a past shot ran at is not
-    // recoverable from any stored field, and stamping today's per-profile value
-    // onto history would assert that every past shot ran at today's number —
-    // false for anyone whose calibration has moved. NULL means "not recorded"
-    // and must never be read as 1.0, which is a legitimate multiplier.
-    if (currentVersion >= 38 && currentVersion < 39) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 39 "
-                    "(shots.flow_calibration)";
-        query.finish();
-        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 39 flow calibration column", 1);
-        if (!txn.ok()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 could not start a transaction"
-                          " - will retry next launch (shot history cannot load or save"
-                          " until it completes: every query names shots.flow_calibration)";
-        } else {
-            // columnPresent(), not hasColumn(): the latter collapses "the PRAGMA
-            // failed" onto "the column is absent", and here that conflation is
-            // not survivable. On a failed PRAGMA the ALTER would run (and might
-            // succeed), the verdict below would still read false, the version
-            // would never stamp — so migration 40 and every later one would
-            // never run either — and each launch would log a self-contradicting
-            // pair: "duplicate column name" beside "incomplete, will retry".
-            // Not knowing is its own outcome: change nothing and try again.
-            const std::optional<bool> before = columnPresent("shots", "flow_calibration");
-            if (!before.has_value()) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 could not determine whether"
-                              " shots.flow_calibration exists - leaving the schema untouched"
-                              " and retrying next launch (shot history cannot load or save"
-                              " until it completes: every query names shots.flow_calibration)";
-            } else {
-                if (!*before
-                    && !query.exec("ALTER TABLE shots ADD COLUMN flow_calibration REAL"))
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 add shots.flow_calibration failed -"
-                               << query.lastError().text();
-
-                // Gated on the column being present: it is a schema fact, and
-                // every reader below selects it by name — loadShotRecordStatic
-                // and saveShotStatic both name it unconditionally, so an absent
-                // column does not merely lose this field, it fails every shot
-                // load and every shot save. Both halves of the stamp are checked
-                // — a DELETE that commits without its INSERT leaves
-                // schema_version empty, which is not recoverable.
-                // Not .value_or(false) — that is the conflation this block just
-                // argued against, and re-introducing it here would make a failed
-                // verification indistinguishable from a failed ALTER in the log.
-                const std::optional<bool> after = columnPresent("shots", "flow_calibration");
-                bool ok = false;
-                if (!after.has_value()) {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 could not verify the column"
-                                  " after adding it - not stamping, will retry next launch";
-                } else {
-                    ok = *after;
-                }
-                if (ok)
-                    ok = query.exec("DELETE FROM schema_version")
-                         && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (39)"));
-                if (ok && txn.commit()) {
-                    currentVersion = 39;
-                    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 39 complete";
-                } else {
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 39 incomplete - will retry"
-                                  " next launch (shot history cannot load or save until it"
-                                  " completes: every query names shots.flow_calibration)";
-                }
-            }
-        }
-    }
-
-    // The grind picker's two reads (grinderWideNumericSettings, grinderWideRpms)
-    // filter on equipment_id with nothing indexed on it, so SQLite scans every
-    // row — and cost tracks table BYTES, because profile_json and debug_log are
-    // TEXT on `shots` and a page read drags them along. Both run synchronously
-    // from GrindPickerDialog.onAboutToShow, in front of the dialog painting.
-    //
-    // Measured: 435 ms and 483 ms on a 5,788-shot field database (Android
-    // tablet, user log 2026-09-01) — a ~0.9 s hang on open. Desktop SQLite on
-    // synthetic copies: 3.6/5.1/10.5 ms at 13.6/24.2/61.1 MB before, 0.17 ms
-    // after, the plan moving from `SCAN shots` to `SEARCH shots USING COVERING
-    // INDEX`. Both indexes together cost 0.15 MB.
-    //
-    // Covering is the point, not the constant factor: the indexed plan never
-    // opens the table, so what is eliminated is exactly the cold random I/O a
-    // slow device is worst at. The win grows on weaker storage.
-    //
-    // getDistinctGrinderSettingsForGrinder() is the same shape and is covered by
-    // the first index too.
-    //
-    // NOT in createTables(): equipment_id and rpm arrive in migration 23, so a
-    // fresh database has no such column when createTables() runs — the trap the
-    // idx_shots_grinder comment there records.
-    if (currentVersion >= 39 && currentVersion < 40) {
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Running migration to version 40 "
-                    "(grind-step covering indexes)";
-        query.finish();
-        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 40 grind step indexes", 1);
-        if (!txn.ok()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 could not start a transaction"
-                          " - will retry next launch (the grind picker stays slow until"
-                          " it completes; nothing else is affected)";
-        } else {
-            // The bump is NOT gated on the CREATE INDEXes. An index is not a
-            // schema fact — both queries return identical results without it —
-            // so gating would buy a database that fails once and re-runs this
-            // block on every launch forever. Log and move on.
-            //
-            // The schema_version stamp IS a correctness fact and stays in the
-            // transaction: a DELETE committing without its INSERT empties the
-            // table, createTables() re-seeds it to 1, and the whole chain re-runs.
-            if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equip_grind "
-                            "ON shots(equipment_id, grinder_setting)")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 could not create"
-                              " idx_shots_equip_grind -" << query.lastError().text()
-                           << "- the grind picker falls back to a full scan";
-            }
-            if (!query.exec("CREATE INDEX IF NOT EXISTS idx_shots_equip_rpm "
-                            "ON shots(equipment_id, rpm)")) {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 could not create"
-                              " idx_shots_equip_rpm -" << query.lastError().text()
-                           << "- the grind picker falls back to a full scan";
-            }
-            const bool stamped =
-                query.exec("DELETE FROM schema_version")
-                && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (40)"));
-            if (stamped && txn.commit()) {
-                currentVersion = 40;
-                DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "migration 40 complete";
-            } else {
-                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration 40 incomplete - will retry"
-                              " next launch (the grind picker stays slow until it"
-                              " completes; nothing else is affected)";
-            }
-        }
-    }
-
-    // Migration 41: a grinder edit that forked or merged a package moved bags
-    // onto the result but left recipes on the retired package, so activating one
-    // selected a package no longer in inventory. Edits now move recipes too; this
-    // repairs the rows they missed. Not reachable: a merged-away package with no
-    // shots was hard-deleted, and a recipe left on it has no successor to follow.
-    // A data fix, so the bump is gated on it.
-    if (currentVersion >= 40 && currentVersion < 41) {
-        query.finish();
-        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 41 recipe equipment heal", 1);
-        if (!txn.ok()) {
-            EQUIP_WARN_STDERR("Migration", "41 could not start a transaction - will retry next launch");
-        } else {
-            qsizetype healed = 0;
-            bool ok = RecipeStorage::healRetiredEquipmentLinksStatic(m_db, &healed);
-            if (ok) {
-                ok = query.exec("DELETE FROM schema_version")
-                    && query.exec(QStringLiteral("INSERT INTO schema_version (version) VALUES (41)"));
-                if (!ok)
-                    EQUIP_WARN_STDERR("Migration", QString("41 could not stamp the schema version: %1")
-                                                       .arg(query.lastError().text()));
-            }
-            if (ok && txn.commit()) {
-                currentVersion = 41;
-                EQUIP_INFO_STDERR("Migration", QString("41 complete - %1 recipe(s) moved off a retired "
-                                                       "equipment package").arg(healed));
-            } else {
-                EQUIP_WARN_STDERR("Migration", QString("41 incomplete - will retry next launch%1")
-                                                   .arg(ok ? QStringLiteral(" (commit failed: %1)").arg(txn.commitError())
-                                                           : QString()));
-            }
-        }
-    }
 
     // Columns and required schema statements share the version-stamp transaction.
     struct NewColumn { QString table, name, type; };
@@ -2560,7 +775,7 @@ bool ShotHistoryStorage::runMigrations()
     // Migration 52 (remove-bag-equipment-and-grind): bags stop carrying a grind
     // or equipment. It reads the active ids from dye/* settings and never writes
     // settings, so a failure rolls back and retries next launch.
-    if (versionReadOk && currentVersion == 51) {
+    if (currentVersion == 51) {
         query.finish();
 #ifdef DECENZA_TESTING
         // An isolated DB must never read the developer's live settings.
@@ -2568,9 +783,7 @@ bool ShotHistoryStorage::runMigrations()
 #else
         AppSettings settings;
 #endif
-        // A heal earlier in this run may have merged the selected package away.
-        const qint64 equipmentId = m_healedActiveEquipmentId > 0 ? m_healedActiveEquipmentId
-            : settings.value("dye/activeEquipmentId", -1).toLongLong();
+        const qint64 equipmentId = settings.value("dye/activeEquipmentId", -1).toLongLong();
         const qint64 recipeId = settings.value("dye/activeRecipeId", -1).toLongLong();
         const qint64 bagId = settings.value("dye/activeBagId", -1).toLongLong();
         // Unreadable settings would read as "nothing active" and drop the notice.
@@ -2585,7 +798,14 @@ bool ShotHistoryStorage::runMigrations()
             txn.emplace(DbWriteTxn::begin(m_db, "migration 52 bag dial removal", 1));
             ok = txn->ok();
         }
+        // A fresh install's bags never had a grind, so there is nothing to explain.
+        std::optional<bool> bagsHadGrind;
         if (ok) {
+            step = {"inspect coffee_bags", QStringLiteral("could not inspect coffee_bags (see above)")};
+            bagsHadGrind = columnPresent(QStringLiteral("coffee_bags"), QStringLiteral("grinder_setting"));
+            ok = bagsHadGrind.has_value();
+        }
+        if (ok && *bagsHadGrind) {
             const std::optional<bool> eligible = bagDialNoticeEligible(m_db, recipeId, equipmentId, bagId, &step);
             ok = eligible.has_value();
             notice = eligible.value_or(false);
@@ -2637,23 +857,6 @@ bool ShotHistoryStorage::runMigrations()
 
     m_schemaVersion = currentVersion;
     return true;
-}
-
-void ShotHistoryStorage::importLegacyBeanPresets()
-{
-    // Version-independent merge-import of legacy bean presets (bean-bag-
-    // inventory). Runs every launch: converts any non-empty bean/presets
-    // QSettings array — the initial upgrade, a previously failed import, or
-    // a key reintroduced by old-version device transfer — into coffee_bags
-    // rows. The shared static clears the keys only after a successful
-    // commit, so a failure retries next launch with the preset data intact.
-    if (m_schemaVersion < 19)
-        return;  // coffee_bags table not ready; presets stay put for next launch
-
-    // SettingsDye adopts the returned id through setActiveBagId() after
-    // storage init — a raw QSettings write here would bypass the settings
-    // cache and NOTIFY.
-    m_migratedActiveBagId = CoffeeBagStorage::convertLegacyPresetSettings(m_dbPath);
 }
 
 QJsonObject ShotHistoryStorage::pointsToJsonObject(const QVector<QPointF>& points)
@@ -3519,124 +1722,6 @@ void ShotHistoryStorage::requestClearStaleVisualizerLink(qint64 shotId, const QS
     });
 }
 
-bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
-    QSqlDatabase& db, const QVariantList& cloudShots, qint64 windowStartEpoch,
-    QVariantList& outLinked)
-{
-    // Match local shots.timestamp to a Visualizer shot's clock within
-    // this tolerance (rounding only — Decenza uploads the shot epoch
-    // verbatim as `clock`).
-    constexpr qint64 kReconcileToleranceSec = 2;
-
-    // Visualizer ids already attached to any local row must never be
-    // reused. Seed the consumed-set from them. A failure here is NOT
-    // ignorable: proceeding with an empty set would disable the
-    // duplicate-link guard, so treat it as a hard failure (caller
-    // retries next boot rather than burning the run-once flag).
-    QSet<QString> usedIds;
-    {
-        QSqlQuery q(db);
-        if (!q.exec("SELECT visualizer_id FROM shots "
-                    "WHERE visualizer_id IS NOT NULL AND visualizer_id != ''")) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile usedIds seed SELECT failed:"
-                       << q.lastError().text();
-            return false;
-        }
-        while (q.next()) usedIds.insert(q.value(0).toString());
-    }
-
-    QSqlQuery sel(db);
-    sel.prepare("SELECT id, timestamp FROM shots "
-                "WHERE (visualizer_id IS NULL OR visualizer_id = '') "
-                "AND timestamp >= :winStart ORDER BY timestamp");
-    sel.bindValue(":winStart", windowStartEpoch);
-    if (!sel.exec()) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile SELECT failed:"
-                   << sel.lastError().text();
-        return false;
-    }
-
-    struct LocalRow { qint64 id; qint64 ts; };
-    QVector<LocalRow> rows;
-    while (sel.next())
-        rows.append({sel.value(0).toLongLong(), sel.value(1).toLongLong()});
-
-    for (const LocalRow& r : rows) {
-        // Strict 1:1: exactly one not-yet-consumed cloud shot within
-        // tolerance. 0 → no match; >=2 → ambiguous, skip (never guess).
-        QString matchId, matchUrl;
-        int matchCount = 0;
-        for (const QVariant& cv : cloudShots) {
-            const QVariantMap c = cv.toMap();
-            const QString cid = c.value("visualizerId").toString();
-            if (cid.isEmpty() || usedIds.contains(cid)) continue;
-            const qint64 clk = c.value("clockEpoch").toLongLong();
-            if (qAbs(clk - r.ts) <= kReconcileToleranceSec) {
-                if (++matchCount == 1) {
-                    matchId = cid;
-                    matchUrl = c.value("url").toString();
-                } else {
-                    break;  // ambiguous
-                }
-            }
-        }
-        if (matchCount != 1) continue;
-
-        QSqlQuery upd(db);
-        upd.prepare("UPDATE shots SET visualizer_id = :vid, "
-                    "visualizer_url = :vurl, "
-                    "updated_at = strftime('%s', 'now') WHERE id = :id");
-        upd.bindValue(":vid", matchId);
-        upd.bindValue(":vurl", matchUrl);
-        upd.bindValue(":id", r.id);
-        if (!upd.exec()) {
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile UPDATE failed for shot"
-                       << r.id << ":" << upd.lastError().text();
-            continue;
-        }
-        usedIds.insert(matchId);  // consumed — no reuse this pass
-        QVariantMap m;
-        m["shotId"] = r.id;
-        m["visualizerId"] = matchId;
-        outLinked.append(m);
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "reconcile linked shot" << r.id
-                 << "->" << matchId;
-    }
-    return true;
-}
-
-void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& cloudShots,
-                                                         qint64 windowStartEpoch)
-{
-    if (!m_ready) {
-        emit visualizerLinksReconciled(false, QVariantList());
-        return;
-    }
-
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, cloudShots, windowStartEpoch, destroyed]() {
-        QVariantList linked;
-        bool staticOk = false;
-        const bool opened = withTempDb(dbPath, "shs_vizrecon", [&](QSqlDatabase& db) {
-            staticOk = reconcileVisualizerLinksStatic(db, cloudShots, windowStartEpoch, linked);
-        });
-        // ok only when the DB opened AND every SQL step succeeded.
-        // Otherwise the caller must NOT advance the run-once flag.
-        const bool ok = opened && staticOk;
-        if (!opened)
-            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "reconcile could not open DB — will retry next boot";
-
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, ok, linked, destroyed]() {
-            if (*destroyed) return;
-            DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "reconcile" << (ok ? "completed" : "FAILED")
-                     << "— linked" << linked.size() << "shot(s)";
-            emit visualizerLinksReconciled(ok, linked);
-        }, Qt::QueuedConnection);
-    });
-}
-
 void ShotHistoryStorage::requestPendingBeanRepairs()
 {
     if (!m_ready) {
@@ -3812,88 +1897,6 @@ void ShotHistoryStorage::requestMostRecentShotIdImpl(const QString& requestId)
     });
 }
 
-void ShotHistoryStorage::requestRecentProfileBasketPairs(int limit)
-{
-    if (!m_ready) {
-        // Deliberately NO emit. This pattern came from requestMostRecentShotId, whose -1
-        // sentinel a consumer can tell apart from a real answer — an empty LIST cannot be
-        // told apart from "nothing pulled recently", and the one consumer closes a one-time
-        // migration on that answer. A store whose initialize() failed is exactly the store
-        // that must retry next launch, not the one to foreclose.
-        SAW_WARN_STDERR("Learning",
-            QStringLiteral("Basket-seed query skipped: shot history not ready (DB init "
-                           "failed?) — seed deferred to next launch"));
-        return;
-    }
-
-    const QString dbPath = m_dbPath;
-    const int rowLimit = qBound(1, limit, 5000);
-    auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, rowLimit, destroyed]() {
-        QVariantList pairs;
-        // Separate from `opened`: withTempDb reports whether the CONNECTION opened and the
-        // body RAN, not whether the body succeeded (dbutils.h:332-333, via the SerialDbWorker contract at :358). Gating the emit on
-        // `opened` alone let a failed query deliver an empty list, which closed the seed's
-        // flag and orphaned every pre-basket bucket permanently.
-        bool queryOk = false;
-        bool opened = withTempDb(dbPath, "shs_pbpairs", [&](QSqlDatabase& db) {
-            QSqlQuery query(db);
-            // Inner LIMIT first so the join runs over `rowLimit` rows, not the whole table.
-            // ORDER BY id LIMIT 1 per package matches equipmentstorage.cpp:817 and :1134:
-            // there is no unique key on (package_id, kind), so a plain join fans out over a
-            // duplicate basket row and would seed a bucket currentBasketKey() never produces.
-            query.prepare(
-                "SELECT DISTINCT s.profile_name, "
-                "  COALESCE((SELECT b.brand FROM equipment_items b "
-                "            WHERE b.package_id = s.equipment_id AND b.kind = 'basket' "
-                "            ORDER BY b.id LIMIT 1), ''), "
-                "  COALESCE((SELECT b.model FROM equipment_items b "
-                "            WHERE b.package_id = s.equipment_id AND b.kind = 'basket' "
-                "            ORDER BY b.id LIMIT 1), '') "
-                "FROM (SELECT profile_name, equipment_id FROM shots "
-                "      ORDER BY timestamp DESC LIMIT :limit) s");
-            query.bindValue(":limit", rowLimit);
-            if (!query.exec()) {
-                SAW_WARN_STDERR("Learning",
-                    QStringLiteral("Basket-seed query failed, seed deferred to next launch: %1")
-                        .arg(query.lastError().text()));
-                return;
-            }
-            while (query.next()) {
-                QVariantMap m;
-                m.insert(QStringLiteral("profileTitle"), query.value(0).toString());
-                m.insert(QStringLiteral("brand"), query.value(1).toString());
-                m.insert(QStringLiteral("model"), query.value(2).toString());
-                pairs.append(m);
-            }
-            // QSqlQuery::next() returns false BOTH at end-of-result and on an error
-            // (qsql_sqlite.cpp: SQLITE_DONE sets no error, SQLITE_BUSY/ERROR/MISUSE do), so
-            // loop exit alone is not proof of a completed read — a lock outlasting
-            // busy_timeout mid-scan would deliver a TRUNCATED pair list and the seed would
-            // close over it, orphaning every profile it had not reached yet.
-            if (query.lastError().isValid()) {
-                SAW_WARN_STDERR("Learning",
-                    QStringLiteral("Basket-seed query truncated mid-read (%1) — seed deferred "
-                                   "to next launch").arg(query.lastError().text()));
-                return;
-            }
-            queryOk = true;   // only a read that ran to completion may be delivered
-        });
-        if (!opened) {
-            SAW_WARN_STDERR("Learning",
-                QStringLiteral("Basket-seed query could not open the shot DB — seed deferred "
-                               "to next launch"));
-        }
-        // Deliver ONLY a completed read: an empty list is indistinguishable from "nothing
-        // pulled recently", and the consumer closes its one-time migration on it.
-        if (*destroyed || !opened || !queryOk) return;
-        QMetaObject::invokeMethod(this, [this, pairs, destroyed]() {
-            if (*destroyed) return;
-            emit recentProfileBasketPairsReady(pairs);
-        }, Qt::QueuedConnection);
-    });
-}
-
 qint64 ShotHistoryStorage::previousShotIdStatic(QSqlDatabase& db, qint64 shotId)
 {
     QSqlQuery q(db);
@@ -4039,10 +2042,8 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
             record = loadShotRecordStatic(db, shotId, &badgesPersisted, Q_FUNC_INFO);
         });
         // On a DB-open failure `record` is default/invalid; do NOT deliver it as a
-        // shotReady. MainController's migration16 visualizer-sync reads an invalid
-        // projection as "shot no longer exists" and permanently pops a pending sync
-        // — a transient open failure must not trigger that drop. A genuine
-        // not-found (db opened, row absent) still emits, preserving that path.
+        // shotReady, which a reader would take as "shot no longer exists". A
+        // genuine not-found (db opened, row absent) still emits.
         if (!opened)
             DIAG_WARN(STORAGE, "ShotHistoryStorage") << "requestShot — DB open failed for shot"
                        << shotId << "(no shotReady emitted)";
@@ -5624,6 +3625,16 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
 bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge,
                                               ImportResult* outResult)
 {
+    if (probeUpgradeFloor(srcFilePath) == UpgradeFloorProbe::BelowFloor) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: source is below the upgrade floor"
+                                                 << UpgradeFloor::kSchemaVersion << "- nothing imported";
+        if (outResult) {
+            *outResult = ImportResult();
+            outResult->sourceTooOld = true;
+        }
+        return false;
+    }
+
     const QString connPrefix = QString("import_%1")
         .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
     const QString srcConnName = connPrefix + "_src";
@@ -5858,83 +3869,75 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 goto cleanup;
             }
 
-            // Columns that may be absent in older source databases — resolve
-            // indexes once instead of QSqlQuery::value(name) per row (which
-            // logs an "unknown field" warning for every missing access).
+            // Every column both databases have is copied by name, so a new shots
+            // column crosses restores and transfers with no edit here. Not carried:
+            // the row id (kept or relocated below), the row's own bookkeeping
+            // timestamps, and the bean-repair flag, which queues work for this
+            // device's Visualizer account.
+            static const QSet<QString> kNotCarried = {
+                QStringLiteral("id"), QStringLiteral("created_at"),
+                QStringLiteral("updated_at"), QStringLiteral("bean_repair_pending")};
+            static const QSet<QString> kNullAsZero = {
+                QStringLiteral("channeling_detected"), QStringLiteral("grind_issue_detected"),
+                QStringLiteral("skip_first_frame_detected"), QStringLiteral("pour_truncated_detected")};
             const QSqlRecord srcRecord = srcShots.record();
-            const int idxStoppedBy = srcRecord.indexOf("stopped_by");
-            const int idxBeanBaseJson = srcRecord.indexOf("beanbase_json");
-            const int idxBeanBaseId = srcRecord.indexOf("beanbase_id");
-            const int idxBagId = srcRecord.indexOf("bag_id");
-            const int idxFrozenDate = srcRecord.indexOf("frozen_date");
-            const int idxDefrostDate = srcRecord.indexOf("defrost_date");
-            // Non-frozen storage lifecycle (bean-freshness-followup): carried
-            // verbatim like frozen_date/defrost_date. Present only on
-            // post-migration-32 sources → NULL on older ones (idx == -1),
-            // so a pre-32 source imports cleanly rather than failing per row.
-            const int idxStorageHint = srcRecord.indexOf("storage_hint");
-            const int idxOpenedDate = srcRecord.indexOf("opened_date");
-            // Structured taste axes (add-ai-taste-intake): carried verbatim like
-            // storage_hint/opened_date. Present only on post-migration-33 sources
-            // → NULL on older ones (idx == -1).
-            const int idxTasteBalance = srcRecord.indexOf("taste_balance");
-            const int idxTasteBody = srcRecord.indexOf("taste_body");
-            // equipment_id (a source package row id, remapped) + rpm exist only
-            // on post-migration-22 sources (add-equipment-packages). Older
-            // sources lack both — they resolve to NULL.
-            const int idxEquipmentId = srcRecord.indexOf("equipment_id");
-            const int idxRpm = srcRecord.indexOf("rpm");
-            // Recipe provenance (finish-recipes-first-class): recipe_id is a
-            // source recipe row id (remapped like bag_id); steam_json and
-            // hot_water_json are the whole-drink snapshots taken at shot start,
-            // carried verbatim so promote-from-shot round-trips after transfer.
-            // All three exist only on post-migration-25/27 sources → NULL on
-            // older ones. Before this change none of them were carried at all,
-            // dropping recipe provenance on every transfer.
-            const int idxRecipeId = srcRecord.indexOf("recipe_id");
-            const int idxSteamJson = srcRecord.indexOf("steam_json");
-            const int idxHotWaterJson = srcRecord.indexOf("hot_water_json");
-            const int idxHotWaterResultJson = srcRecord.indexOf("hot_water_result_json");
-            // Yield anchor provenance (add-yield-ratio-anchor): carried
-            // verbatim from post-migration-34 sources. A pre-34 source has
-            // neither column — those rows convert on import by the same
-            // relabel migration 34 applies (yield_override > 0 → 'absolute'
-            // with the target as anchor value, else 'none').
-            const int idxYieldMode = srcRecord.indexOf("yield_mode");
-            const int idxYieldAnchorValue = srcRecord.indexOf("yield_anchor_value");
-            // The multiplier the shot poured under (add-shot-flow-calibration).
-            // Present only on post-migration-39 sources; older ones resolve to
-            // NULL, which reads back as "not recorded" rather than 1.0.
-            const int idxFlowCalibration = srcRecord.indexOf("flow_calibration");
-            // Decent upload state (migration 42): carried so a migrated history is
-            // not uploaded again. Older sources resolve to NULL = never uploaded.
-            const int idxDecentUploadedAt = srcRecord.indexOf("decent_uploaded_at");
-            const int idxDecentShotId = srcRecord.indexOf("decent_shot_id");
-            const int idxDecentSerial = srcRecord.indexOf("decent_serial");
-            const int idxDecentReplacePending = srcRecord.indexOf("decent_replace_pending");
-            const int idxDecentRejectedStatus = srcRecord.indexOf("decent_rejected_status");
-            const int idxDecentRejectedAt = srcRecord.indexOf("decent_rejected_at");
-            // Visualizer edits not yet sent (migration 43): carried with
-            // visualizer_id so a migrated history still sends them, and so a pull
-            // there does not overwrite them. Older sources resolve to 0.
-            const int idxVisualizerDirty = srcRecord.indexOf("visualizer_dirty");
-            const int idxVisualizerDirtySeq = srcRecord.indexOf("visualizer_dirty_seq");
-            // Upload outcomes (migration 44): carried so a migrated history still shows
-            // which uploads failed, and does not offer the shots a destination refused.
-            const int idxDecentFailedAt = srcRecord.indexOf("decent_failed_at");
-            const int idxVisualizerFailedAt = srcRecord.indexOf("visualizer_failed_at");
-            const int idxVisualizerRejectedStatus = srcRecord.indexOf("visualizer_rejected_status");
-            const int idxVisualizerRejectedAt = srcRecord.indexOf("visualizer_rejected_at");
-            const int idxPortalMeanEc = srcRecord.indexOf("portal_mean_ec");
-            const int idxPortalIntegralEcG = srcRecord.indexOf("portal_integral_ec_g");
-            const int idxPortalMeanTempC = srcRecord.indexOf("portal_mean_temp_c");
-            const int idxPortalReliable = srcRecord.indexOf("portal_estimate_reliable");
-            const int idxPortalMounting = srcRecord.indexOf("portal_mounting_mode");
-            const int idxWeightSource = srcRecord.indexOf("weight_source");
-            const int idxPortalPresent = srcRecord.indexOf("portal_present");
-            auto srcValueOrNull = [&srcShots](int idx) {
-                return idx >= 0 ? srcShots.value(idx) : QVariant();
+            QStringList columns{QStringLiteral("id")};
+            QList<int> srcIndex{-1};
+            {
+                QSqlQuery destColumns(destDb);
+                if (!destColumns.exec(QStringLiteral("PRAGMA table_info(shots)"))) {
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to read destination columns:"
+                                                             << destColumns.lastError().text();
+                    destDb.rollback();
+                    goto cleanup;
+                }
+                while (destColumns.next()) {
+                    const QString name = destColumns.value(1).toString();
+                    const int index = srcRecord.indexOf(name);
+                    if (index >= 0 && !kNotCarried.contains(name)) {
+                        columns << name;
+                        srcIndex << index;
+                    }
+                }
+            }
+            const int srcWeightSource = srcRecord.indexOf(QStringLiteral("weight_source"));
+            const int srcMounting = srcRecord.indexOf(QStringLiteral("portal_mounting_mode"));
+            // Ids into the other storages are remapped, NULL when that row was not
+            // imported; a reliable PORTAL estimate needs reference provenance.
+            auto carried = [&](const QString& column, const QVariant& value) -> QVariant {
+                if (column == QLatin1String("equipment_id")) {
+                    const qint64 mapped = packageIdMap.value(value.toLongLong(), 0);
+                    return mapped > 0 ? QVariant(mapped) : QVariant();
+                }
+                if (column == QLatin1String("bag_id")) {
+                    const qint64 mapped = bagIdMap.value(value.toLongLong(), -1);
+                    return mapped > 0 ? QVariant(mapped) : QVariant();
+                }
+                if (column == QLatin1String("recipe_id")) {
+                    const qint64 mapped = recipeIdMap.value(value.toLongLong(), -1);
+                    return (!value.isNull() && mapped > 0) ? QVariant(mapped) : QVariant();
+                }
+                if (column == QLatin1String("portal_estimate_reliable")) {
+                    return value.toBool() && PortalTailAnalyzer::hasReferenceProvenance(
+                        srcWeightSource >= 0 ? srcShots.value(srcWeightSource).toString() : QString(),
+                        srcMounting >= 0 ? srcShots.value(srcMounting).toString() : QString());
+                }
+                if (value.isNull() && column == QLatin1String("beverage_type"))
+                    return QStringLiteral("espresso");
+                if (value.isNull() && kNullAsZero.contains(column))
+                    return 0;
+                return value;
             };
+            QStringList placeholders;
+            placeholders.fill(QStringLiteral("?"), columns.size());
+            QSqlQuery insert(destDb);
+            if (!insert.prepare(QStringLiteral("INSERT INTO shots (%1) VALUES (%2)")
+                                    .arg(columns.join(QStringLiteral(", ")), placeholders.join(QStringLiteral(", "))))) {
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to prepare the shot insert:"
+                                                         << insert.lastError().text();
+                destDb.rollback();
+                goto cleanup;
+            }
 
             while (srcShots.next()) {
                 QString uuid = srcShots.value("uuid").toString();
@@ -5949,32 +3952,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         continue;
                     }
                 }
-
-                QSqlQuery insert(destDb);
-                insert.prepare(R"(
-                    INSERT INTO shots (id, uuid, timestamp, profile_name, profile_json, beverage_type,
-                        duration_seconds, final_weight, dose_weight,
-                        bean_brand, bean_type, roast_date, roast_level,
-                        grinder_setting, equipment_id, rpm,
-                        drink_tds, drink_ey,
-                        enjoyment, espresso_notes, bean_notes, barista,
-                        profile_notes, visualizer_id, visualizer_url, debug_log,
-                        temperature_override, yield_override, yield_mode, yield_anchor_value,
-                        profile_kb_id,
-                        channeling_detected, grind_issue_detected,
-                        skip_first_frame_detected, pour_truncated_detected,
-                        stopped_by, beanbase_json, beanbase_id,
-                        bag_id, frozen_date, defrost_date, storage_hint, opened_date,
-                        taste_balance, taste_body,
-                        recipe_id, steam_json, hot_water_json,
-                        flow_calibration, hot_water_result_json,
-                        decent_uploaded_at, decent_shot_id, decent_serial, decent_replace_pending,
-                        decent_rejected_status, decent_rejected_at,
-                        visualizer_dirty, visualizer_dirty_seq,
-                        decent_failed_at, visualizer_failed_at, visualizer_rejected_status, visualizer_rejected_at,
-                        portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c, portal_estimate_reliable, portal_mounting_mode, weight_source, portal_present)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                )");
 
                 // KEEP THE SHOT'S OWN ID wherever it is free.
                 //
@@ -6003,118 +3980,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // out ids past both maxima cannot collide with a kept id.
                 const qint64 srcId = srcShots.value("id").toLongLong();
                 const bool keepId = srcId > 0 && !occupiedIds.contains(srcId);
-                insert.addBindValue(keepId ? QVariant(srcId) : QVariant(nextRelocatedId++));
-
-                insert.addBindValue(uuid);
-                insert.addBindValue(srcShots.value("timestamp"));
-                insert.addBindValue(srcShots.value("profile_name"));
-                insert.addBindValue(srcShots.value("profile_json"));
-                QVariant bt = srcShots.value("beverage_type");
-                insert.addBindValue((bt.isValid() && !bt.isNull()) ? bt : QVariant(QString("espresso")));
-                insert.addBindValue(srcShots.value("duration_seconds"));
-                insert.addBindValue(srcShots.value("final_weight"));
-                insert.addBindValue(srcShots.value("dose_weight"));
-                insert.addBindValue(srcShots.value("bean_brand"));
-                insert.addBindValue(srcShots.value("bean_type"));
-                insert.addBindValue(srcShots.value("roast_date"));
-                insert.addBindValue(srcShots.value("roast_level"));
-                insert.addBindValue(srcShots.value("grinder_setting"));
-                // equipment_id is a source package row id — remap to the imported
-                // package's new dest id (add-equipment-packages task 2.8); a source
-                // id absent from the map becomes NULL. rpm carries verbatim.
-                {
-                    const qint64 mappedPkg = packageIdMap.value(srcValueOrNull(idxEquipmentId).toLongLong(), 0);
-                    insert.addBindValue(mappedPkg > 0 ? QVariant(mappedPkg) : QVariant());
-                }
-                insert.addBindValue(srcValueOrNull(idxRpm));
-                insert.addBindValue(srcShots.value("drink_tds"));
-                insert.addBindValue(srcShots.value("drink_ey"));
-                insert.addBindValue(srcShots.value("enjoyment"));
-                insert.addBindValue(srcShots.value("espresso_notes"));
-                insert.addBindValue(srcShots.value("bean_notes"));
-                insert.addBindValue(srcShots.value("barista"));
-                insert.addBindValue(srcShots.value("profile_notes"));
-                insert.addBindValue(srcShots.value("visualizer_id"));
-                insert.addBindValue(srcShots.value("visualizer_url"));
-                insert.addBindValue(srcShots.value("debug_log"));
-                insert.addBindValue(srcShots.value("temperature_override"));
-                insert.addBindValue(srcShots.value("yield_override"));
-                // Anchor provenance: verbatim from a ≥34 source; pre-34 rows
-                // (or a ≥34 row still carrying the NULL unconverted marker)
-                // convert by the migration-34 relabel.
-                {
-                    const QVariant srcMode = srcValueOrNull(idxYieldMode);
-                    if (srcMode.isValid() && !srcMode.isNull()) {
-                        insert.addBindValue(srcMode);
-                        insert.addBindValue(srcValueOrNull(idxYieldAnchorValue));
-                    } else {
-                        const double target = srcShots.value("yield_override").toDouble();
-                        insert.addBindValue(target > 0 ? QStringLiteral("absolute")
-                                                       : QStringLiteral("none"));
-                        insert.addBindValue(target > 0 ? QVariant(target) : QVariant());
-                    }
-                }
-                insert.addBindValue(srcShots.value("profile_kb_id"));
-                // Quality flags — fallback to 0 for pre-migration source databases
-                QVariant ch = srcShots.value("channeling_detected");
-                insert.addBindValue((ch.isValid() && !ch.isNull()) ? ch : QVariant(0));
-                QVariant gi = srcShots.value("grind_issue_detected");
-                insert.addBindValue((gi.isValid() && !gi.isNull()) ? gi : QVariant(0));
-                QVariant sf = srcShots.value("skip_first_frame_detected");
-                insert.addBindValue((sf.isValid() && !sf.isNull()) ? sf : QVariant(0));
-                QVariant pt = srcShots.value("pour_truncated_detected");
-                insert.addBindValue((pt.isValid() && !pt.isNull()) ? pt : QVariant(0));
-                insert.addBindValue(srcValueOrNull(idxStoppedBy));
-                insert.addBindValue(srcValueOrNull(idxBeanBaseJson));
-                insert.addBindValue(srcValueOrNull(idxBeanBaseId));
-                // bag_id is a row id in the SOURCE database — remap to the
-                // imported bag's new id, or NULL when the bag wasn't imported.
-                {
-                    const QVariant srcBagId = srcValueOrNull(idxBagId);
-                    const qint64 mapped = bagIdMap.value(srcBagId.toLongLong(), -1);
-                    insert.addBindValue(mapped > 0 ? QVariant(mapped) : QVariant());
-                }
-                insert.addBindValue(srcValueOrNull(idxFrozenDate));
-                insert.addBindValue(srcValueOrNull(idxDefrostDate));
-                insert.addBindValue(srcValueOrNull(idxStorageHint));
-                insert.addBindValue(srcValueOrNull(idxOpenedDate));
-                insert.addBindValue(srcValueOrNull(idxTasteBalance));
-                insert.addBindValue(srcValueOrNull(idxTasteBody));
-                // recipe_id is a row id in the SOURCE database — remap to the
-                // imported recipe's new id, or NULL when the recipe wasn't
-                // imported (so provenance never dangles). steam_json and
-                // hot_water_json are opaque snapshots, carried verbatim.
-                {
-                    const QVariant srcRecipeId = srcValueOrNull(idxRecipeId);
-                    const qint64 mappedRecipe = recipeIdMap.value(srcRecipeId.toLongLong(), -1);
-                    insert.addBindValue((srcRecipeId.isValid() && !srcRecipeId.isNull() && mappedRecipe > 0)
-                                            ? QVariant(mappedRecipe) : QVariant());
-                }
-                insert.addBindValue(srcValueOrNull(idxSteamJson));
-                insert.addBindValue(srcValueOrNull(idxHotWaterJson));
-                insert.addBindValue(srcValueOrNull(idxFlowCalibration));
-                insert.addBindValue(srcValueOrNull(idxHotWaterResultJson));
-                insert.addBindValue(srcValueOrNull(idxDecentUploadedAt));
-                insert.addBindValue(srcValueOrNull(idxDecentShotId));
-                insert.addBindValue(srcValueOrNull(idxDecentSerial));
-                insert.addBindValue(srcValueOrNull(idxDecentReplacePending).toInt());
-                insert.addBindValue(srcValueOrNull(idxDecentRejectedStatus));
-                insert.addBindValue(srcValueOrNull(idxDecentRejectedAt));
-                insert.addBindValue(srcValueOrNull(idxVisualizerDirty).toLongLong());
-                insert.addBindValue(srcValueOrNull(idxVisualizerDirtySeq).toLongLong());
-                insert.addBindValue(srcValueOrNull(idxDecentFailedAt));
-                insert.addBindValue(srcValueOrNull(idxVisualizerFailedAt));
-                insert.addBindValue(srcValueOrNull(idxVisualizerRejectedStatus));
-                insert.addBindValue(srcValueOrNull(idxVisualizerRejectedAt));
-                insert.addBindValue(srcValueOrNull(idxPortalMeanEc));
-                insert.addBindValue(srcValueOrNull(idxPortalIntegralEcG));
-                insert.addBindValue(srcValueOrNull(idxPortalMeanTempC));
-                insert.addBindValue(srcValueOrNull(idxPortalReliable).toBool()
-                    && PortalTailAnalyzer::hasReferenceProvenance(srcValueOrNull(idxWeightSource).toString(),
-                                                                  srcValueOrNull(idxPortalMounting).toString()));
-                insert.addBindValue(srcValueOrNull(idxPortalMounting));
-                insert.addBindValue(srcValueOrNull(idxWeightSource));
-                insert.addBindValue(srcValueOrNull(idxPortalPresent).toBool());
+                insert.bindValue(0, keepId ? QVariant(srcId) : QVariant(nextRelocatedId++));
+                for (qsizetype i = 1; i < columns.size(); ++i)
+                    insert.bindValue(int(i), carried(columns.at(i), srcShots.value(srcIndex.at(i))));
 
                 if (!insert.exec()) {
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -6176,26 +4044,12 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     }
                 }
 
-                // Import phases (try with transition_reason, fall back for older DBs)
                 QSqlQuery srcPhases(srcDb);
                 srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason FROM shot_phases WHERE shot_id = ?");
                 srcPhases.addBindValue(oldId);
-                bool hasReason = srcPhases.exec();
-                if (!hasReason) {
-                    // The retry exists for sources predating transition_reason.
-                    // Any OTHER failure — a locked database, corruption — takes
-                    // the same branch and would silently import every phase with
-                    // an empty reason, so say which one this was rather than
-                    // treating the two as the same thing.
-                    DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: phases query without transition_reason for shot"
-                             << uuid << "- retrying on the older column set. Reported:"
-                             << srcPhases.lastError().text();
-                    srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode FROM shot_phases WHERE shot_id = ?");
-                    srcPhases.addBindValue(oldId);
-                    if (!srcPhases.exec()) {
-                        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to query phases for shot"
-                                   << uuid << ":" << srcPhases.lastError().text();
-                    }
+                if (!srcPhases.exec()) {
+                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to query phases for shot"
+                               << uuid << ":" << srcPhases.lastError().text();
                 }
                 while (srcPhases.next()) {
                     QSqlQuery insertPhase(destDb);
@@ -6205,7 +4059,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     insertPhase.addBindValue(srcPhases.value(1));
                     insertPhase.addBindValue(srcPhases.value(2));
                     insertPhase.addBindValue(srcPhases.value(3));
-                    insertPhase.addBindValue(hasReason ? srcPhases.value(4).toString() : QString());
+                    insertPhase.addBindValue(srcPhases.value(4).toString());
                     if (!insertPhase.exec()) {
                         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import phase for shot"
                                    << uuid << ":" << insertPhase.lastError().text();
@@ -6262,15 +4116,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         update.exec();
                     }
                 }
-                // Shots from pre-migration-19 sources carry beanbase_json but
-                // no beanbase_id column — derive it so the history search
-                // lane covers imported shots too.
-                QSqlQuery beanbaseBackfill(destDb);
-                if (!beanbaseBackfill.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
-                                           "WHERE beanbase_id IS NULL AND beanbase_json IS NOT NULL "
-                                           "AND json_valid(beanbase_json)"))
-                    DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: beanbase_id backfill failed:"
-                               << beanbaseBackfill.lastError().text();
                 // Replace mode restores the DATABASE, so the id sequence should
                 // match the backup as well as the rows. DELETE does not reset
                 // sqlite_sequence (verified: three inserts then DELETE leaves
@@ -6287,9 +4132,6 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                                    << "sqlite_sequence after replace:" << seqFix.lastError().text();
                 }
 
-                // Pre-bag sources also have no bag_id — adopt their shots
-                // into existing bags by identity (idempotent, NULL-only).
-                CoffeeBagStorage::linkOrphanShotsStatic(destDb);
                 if (!backfillTxn.commit())
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Backfill commit failed:" << backfillTxn.commitError();
                 }
@@ -6753,35 +4595,6 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     }
 
     return shotId;
-}
-
-void ShotHistoryStorage::backfillBeverageType()
-{
-    QSqlQuery query(m_db);
-    query.exec("SELECT id, profile_json FROM shots WHERE (beverage_type = 'espresso' OR beverage_type IS NULL) AND profile_json IS NOT NULL AND profile_json != ''");
-
-    int updated = 0;
-    while (query.next()) {
-        qint64 id = query.value(0).toLongLong();
-        QString profileJson = query.value(1).toString();
-
-        QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8());
-        if (doc.isNull()) continue;
-
-        QString type = doc.object().value("beverage_type").toString();
-        if (!type.isEmpty() && type != "espresso") {
-            QSqlQuery update(m_db);
-            update.prepare("UPDATE shots SET beverage_type = ?, "
-                           "updated_at = strftime('%s', 'now') WHERE id = ?");
-            update.bindValue(0, type);
-            update.bindValue(1, id);
-            update.exec();
-            updated++;
-        }
-    }
-
-    if (updated > 0)
-        DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Backfilled beverage_type for" << updated << "shots";
 }
 
 void ShotHistoryStorage::refreshTotalShots()

@@ -160,6 +160,85 @@ private slots:
         QTRY_VERIFY(storage.isDbWorkIdle());
     }
 
+    // A backup whose shot database predates the upgrade floor is refused before
+    // anything in it is applied, on both restore paths.
+    void restoresRefuseADatabaseBelowTheFloor()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+             + QStringLiteral("/translations")).removeRecursively();
+        QTemporaryDir directory;
+        const QString oldDb = directory.filePath(QStringLiteral("old.db"));
+        QVERIFY(QFile::copy(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"), oldDb));
+        QVERIFY(QFile::setPermissions(oldDb, QFile::ReadOwner | QFile::WriteOwner));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("floor_rewind"));
+            db.setDatabaseName(oldDb);
+            QVERIFY(db.open());
+            QVERIFY(QSqlQuery(db).exec(QStringLiteral("UPDATE schema_version SET version = 40")));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("floor_rewind"));
+        QFile oldFile(oldDb);
+        QVERIFY(oldFile.open(QIODevice::ReadOnly));
+        const QByteArray oldBytes = oldFile.readAll();
+        oldFile.close();
+
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+        QNetworkAccessManager network;
+        TranslationManager translations(&network, &settings);
+        translations.registerString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher"));
+        const QJsonObject language{
+            {QStringLiteral("language"), QStringLiteral("en")},
+            {QStringLiteral("translations"), QJsonObject{{QStringLiteral("fixture.source"), QStringLiteral("Jug")}}}};
+
+        // .dcbackup: refused while the archive is parsed.
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("old.dcbackup")), {
+            {QByteArrayLiteral("extra_settings.json"), QJsonDocument(QJsonObject{
+                {QStringLiteral("language"), QStringLiteral("en")},
+                {QStringLiteral("languageTranslation"), language},
+                {QStringLiteral("languageOverrides"), QJsonArray{}}}).toJson()},
+            {QByteArrayLiteral("shots.db"), oldBytes}});
+        FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, &translations);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        QVERIFY(restore.restoreFile(QStringLiteral("old-db"), archive, FullBackupRestore::Options{}));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QVERIFY2(finished.first().at(3).toString().contains(QLatin1String(UpgradeFloor::kSteppingStoneRelease)),
+                 qPrintable(finished.first().at(3).toString()));
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
+                 QStringLiteral("Pitcher"));
+
+        // Zip, merge mode: refused at the shot import, before settings.
+        const QString zipPath = directory.filePath(QStringLiteral("old.zip"));
+        QuaZip writer(zipPath);
+        QVERIFY(writer.open(QuaZip::mdCreate));
+        QVERIFY(ZipArchive::addFile(writer, QStringLiteral("settings.json"), QJsonDocument(QJsonObject{
+            {QStringLiteral("languageTranslation"), language},
+            {QStringLiteral("languageOverrides"), QJsonArray{}}}).toJson()));
+        QVERIFY(ZipArchive::addFile(writer, QStringLiteral("shots_backup_20260920.db"), oldBytes));
+        writer.close();
+        QCOMPARE(writer.getZipError(), UNZ_OK);
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(directory.filePath(QStringLiteral("shots.db"))));
+        DatabaseBackupManager manager(&settings, &storage);
+        manager.setTranslationManager(&translations);
+        QSignalSpy completed(&manager, &DatabaseBackupManager::restoreCompleted);
+        QSignalSpy failed(&manager, &DatabaseBackupManager::restoreFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("source is below the upgrade floor"));
+        QVERIFY(manager.restoreBackupFile(zipPath, true, true, true, false, false));
+        QTRY_VERIFY_WITH_TIMEOUT(completed.count() + failed.count() == 1, 10000);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(failed.first().first().toString().contains(QLatin1String(UpgradeFloor::kSteppingStoneRelease)),
+                 qPrintable(failed.first().first().toString()));
+        QCOMPARE(storage.totalShots(), 0);
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
+                 QStringLiteral("Pitcher"));
+        storage.close();
+        QTRY_VERIFY(storage.isDbWorkIdle());
+    }
+
     void olderBackupDoesNotEraseLanguageCustomizations()
     {
         QStandardPaths::setTestModeEnabled(true);

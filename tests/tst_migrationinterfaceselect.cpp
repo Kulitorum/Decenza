@@ -11,6 +11,7 @@
 #include <QNetworkReply>
 
 #include "core/datamigrationclient.h"
+#include "history/upgradefloor.h"
 
 using AddrPrefix = QPair<QHostAddress, int>;
 
@@ -152,6 +153,27 @@ private slots:
         QCOMPARE(DataMigrationClient::isTransientNetworkError(
                      static_cast<QNetworkReply::NetworkError>(error)),
                  transient);
+    }
+
+    // A transfer is refused at the manifest when the source's reported release
+    // is below the upgrade floor, or missing.
+    void sourceReleaseFloor_data()
+    {
+        QTest::addColumn<QString>("appVersion");
+        QTest::addColumn<bool>("supported");
+        QTest::newRow("2.0.6")     << "2.0.6" << false;
+        QTest::newRow("2.0.7")     << "2.0.7" << true;
+        QTest::newRow("2.1.1")     << "2.1.1" << true;
+        QTest::newRow("1.8.1")     << "1.8.1" << false;
+        QTest::newRow("missing")   << QString() << false;
+        QTest::newRow("garbage")   << "abc" << false;
+    }
+
+    void sourceReleaseFloor()
+    {
+        QFETCH(QString, appVersion);
+        QFETCH(bool, supported);
+        QCOMPARE(UpgradeFloor::releaseSupported(appVersion), supported);
     }
 };
 

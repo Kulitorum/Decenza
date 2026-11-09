@@ -691,7 +691,6 @@ set(SOURCES
     src/main.cpp
     src/core/bundledfontregistration.h
     src/core/appsettings.cpp
-    src/core/settingsstoremigration.cpp
     src/core/settings.cpp
     src/core/settings_mqtt.cpp
     src/core/settings_autowake.cpp
@@ -1116,7 +1115,6 @@ set(HEADERS
     src/widget/machinestatussnapshot.h
     src/widget/widgetsharedkeys.h
     src/core/appsettings.h
-    src/core/settingsstoremigration.h
     src/core/settings.h
     # QML_FOREIGN registration for Settings. Listed here so AUTOMOC processes it and
     # qmltyperegistrar sees the type; it is compiled by no other target, which is the point
@@ -1264,6 +1262,7 @@ set(HEADERS
     src/ai/shotsummarizer.h
     src/history/shothistory_types.h
     src/history/shothistorystorage.h
+    src/history/upgradefloor.h
     src/history/shothistorystorage_internal.h
     src/history/coffeebagstorage.h
     src/history/equipmentstorage.h
@@ -1643,6 +1642,7 @@ set_source_files_properties(qml/components/PuckPrepLabels.qml PROPERTIES QT_QML_
 # Define QML files list for dependency tracking
 set(QML_FILES
     qml/main.qml
+    qml/UpgradeFloorNotice.qml
     qml/AppShell.qml
     qml/Theme.qml
     qml/pages/IdlePage.qml

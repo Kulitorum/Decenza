@@ -128,20 +128,6 @@ public:
     // hand-built one.
     Q_INVOKABLE void setFavoritesOrder(const QStringList& filenamesInOrder);
 
-    // One-time upgrade (rebuild-profile-picker): the removed Selected list was
-    // two keys, profile/selectedBuiltIns (opt-in) and profile/hiddenProfiles
-    // (opt-out) — see ProfileManager::mergeSelectedIntoFavoritesIfNeeded(),
-    // the only remaining reader. Raw, because their own accessors (add/remove/
-    // is-SelectedBuiltIn, add/remove/is-Hidden) are gone with the feature.
-    struct LegacySelectedLists {
-        QStringList selectedBuiltIns;
-        QStringList hiddenProfiles;
-    };
-    LegacySelectedLists takeLegacySelectedLists() const;
-    // Whether the merge above has already run.
-    bool selectedMergedIntoFavorites() const;
-    void setSelectedMergedIntoFavorites();
-
     // Favorites order mode: custom|alpha|usage. See profile-favorites-order.
     QString favoriteProfileOrder() const;
     void setFavoriteProfileOrder(const QString& mode);

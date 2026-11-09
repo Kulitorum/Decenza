@@ -928,7 +928,10 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                     const bool importSuccess = ShotHistoryStorage::importDatabaseStatic(
                         dbPath, tempDbPath, merge, &shotImport);
                     if (!importSuccess) {
-                        if (!shotImport.integrityFailure.isEmpty()) {
+                        if (shotImport.sourceTooOld) {
+                            errors << qMakePair(QString::fromLatin1(UpgradeFloor::kSourceTooOldKey),
+                                                UpgradeFloor::sourceTooOldMessage());
+                        } else if (!shotImport.integrityFailure.isEmpty()) {
                             errors << qMakePair(QStringLiteral("backup.error.importShotsRefused"),
                                                 QStringLiteral("Shot history was not restored"));
                             errors << qMakePair(QString(), shotImport.integrityFailure);
@@ -943,7 +946,9 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
             }
         }
 
-        if (restoreShots && !merge && !shotsImported) {
+        // A source below the upgrade floor stops the whole restore, merge
+        // included: its settings and profiles predate the floor too.
+        if (restoreShots && (!merge || shotImport.sourceTooOld) && !shotsImported) {
             if (errors.isEmpty())
                 errors << qMakePair(QStringLiteral("backup.error.missingShotDatabase"),
                                     QStringLiteral("Backup has no shot database to replace the current history"));

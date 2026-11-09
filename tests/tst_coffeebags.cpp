@@ -35,13 +35,11 @@ static Tier tierOf(const QVariant& row) {
     return static_cast<Tier>(row.toMap().value("tier").toInt());
 }
 
-// Coffee bag storage, the preset -> bag migration, transfer survival, and the
-// unified bean search merge logic (openspec change bean-bag-inventory).
+// Coffee bag storage, transfer survival, and the unified bean search merge
+// logic (openspec change bean-bag-inventory).
 //
 // DB strategy mirrors tst_dbmigration: temp-dir SQLite files, raw scoped
-// connections, ShotHistoryStorage::initialize() to run the real migration
-// chain. The legacy-preset QSettings tests snapshot and restore the real
-// bean/presets key (the import deliberately uses the app's settings scope).
+// connections, ShotHistoryStorage::initialize() to build the real schema.
 
 using ShotRowFixtures::withRawDb;
 
@@ -71,23 +69,6 @@ static qint64 insertShot(QSqlDatabase& db, const QString& brand, const QString& 
         return -1;
     }
     return q.lastInsertId().toLongLong();
-}
-
-static QJsonObject makePreset(const QString& name, const QString& brand, const QString& type,
-                              const QString& roastDate = QString()) {
-    QJsonObject p;
-    p["name"] = name;
-    p["brand"] = brand;
-    p["type"] = type;
-    p["roastDate"] = roastDate;
-    p["roastLevel"] = "Medium";
-    p["grinderBrand"] = "Niche";
-    p["grinderModel"] = "Zero";
-    p["grinderBurrs"] = "Stock";
-    p["grinderSetting"] = "15";
-    p["barista"] = "Jeff";
-    p["showOnIdle"] = true;
-    return p;
 }
 
 class tst_CoffeeBags : public QObject {
@@ -217,60 +198,6 @@ private slots:
         });
     }
 
-    void migration19BackfillsBeanbaseId() {
-        // Simulate a pre-19 database: build the v18 shape by hand, then let
-        // the migration chain bring it to 19 and backfill.
-        const QString path = m_tempDir.filePath("backfill.db");
-        {
-            ShotHistoryStorage storage;
-            QVERIFY(initAndClose(path, storage));
-        }
-        withRawDb(path, "backfill_prep", [&](QSqlDatabase& db) {
-            // Strip the migration-19 artifacts to fake a v18 database.
-            // (The index must go first — SQLite refuses DROP COLUMN on an
-            // indexed column.)
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DROP INDEX IF EXISTS idx_shots_beanbase_id"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN beanbase_id"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN bag_id"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN frozen_date"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN defrost_date"));
-            QVERIFY(q.exec("DROP TABLE coffee_bags"));
-            // Restore the grinder identity columns a real v18 DB had (migration 8
-            // added them; the first full init above dropped them at migration 23).
-            // Without these, the re-run of migration 22 in the chain below can't
-            // read shots.grinder_* and logs a spurious "incomplete" failure.
-            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT"));
-            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN grinder_model TEXT"));
-            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT"));
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (18)"));
-            // One linked, one unlinked shot.
-            QSqlQuery ins(db);
-            ins.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                        "bean_brand, bean_type, beanbase_json) VALUES (:u, 1000, 'P', 30, 'R', 'C', :j)");
-            ins.bindValue(":u", "uuid-linked");
-            ins.bindValue(":j", R"({"id":"canon-123","origin":"Ethiopia"})");
-            QVERIFY(ins.exec());
-            ins.bindValue(":u", "uuid-unlinked");
-            ins.bindValue(":j", QVariant());
-            QVERIFY(ins.exec());
-        });
-        {
-            ShotHistoryStorage storage;
-            QVERIFY(initAndClose(path, storage));  // runs migration 19 again
-        }
-        withRawDb(path, "backfill_check", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT beanbase_id FROM shots WHERE uuid = 'uuid-linked'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QString("canon-123"));
-            QVERIFY(q.exec("SELECT beanbase_id FROM shots WHERE uuid = 'uuid-unlinked'"));
-            QVERIFY(q.next());
-            QVERIFY(q.value(0).isNull());
-        });
-    }
-
     // ==========================================
     // Bag CRUD statics
     // ==========================================
@@ -351,145 +278,6 @@ private slots:
             QVERIFY(!loaded.contains("grinderSetting"));
             QVERIFY(!loaded.contains("equipmentId"));
             QVERIFY(!loaded.contains("rpm"));
-        });
-    }
-
-    // ==========================================
-    // Legacy preset conversion
-    // ==========================================
-
-    void presetMappingDropsBaristaAndShowOnIdle() {
-        // name lands in notes only when it differs from "{brand} {type}".
-        CoffeeBag named = CoffeeBagStorage::bagFromLegacyPreset(
-            makePreset("Morning blend", "Prodigal", "First Batch", "2026-05-01"));
-        QCOMPARE(named.roasterName, QString("Prodigal"));
-        QCOMPARE(named.coffeeName, QString("First Batch"));
-        QCOMPARE(named.roastDate, QString("2026-05-01"));
-        QCOMPARE(named.notes, QString("Morning blend"));
-        QVERIFY(named.inInventory);
-
-        CoffeeBag redundant = CoffeeBagStorage::bagFromLegacyPreset(
-            makePreset("Prodigal First Batch", "Prodigal", "First Batch"));
-        QVERIFY(redundant.notes.isEmpty());
-    }
-
-    void importLegacyPresetsDedupesAndMapsSelection() {
-        const QString path = freshDb();
-        withRawDb(path, "presets", [&](QSqlDatabase& db) {
-            // Pre-existing bag matching preset[1] by identity.
-            CoffeeBag existing;
-            existing.roasterName = "ROASTER B";  // case-insensitive match
-            existing.coffeeName = "Coffee B";
-            existing.roastDate = "2026-05-10";
-            const qint64 existingId = CoffeeBagStorage::insertBagStatic(db, existing);
-            QVERIFY(existingId > 0);
-
-            QJsonArray presets;
-            presets.append(makePreset("A", "Roaster A", "Coffee A", "2026-05-01"));
-            presets.append(makePreset("B", "roaster b", "coffee b", "2026-05-10"));  // dup
-            presets.append(makePreset("C", "Roaster C", "Coffee C"));
-
-            qint64 selectedBagId = -1;
-            const int imported = CoffeeBagStorage::importLegacyPresetsStatic(db, presets, 1, &selectedBagId);
-            QCOMPARE(imported, 2);                 // A and C; B matched existing
-            QCOMPARE(selectedBagId, existingId);   // selection maps to the matched bag
-
-            QCOMPARE(CoffeeBagStorage::loadInventoryStatic(db).size(), 3);
-        });
-    }
-
-    void convertLegacyPresetSettingsClearsKeysOnSuccessOnly() {
-        // Snapshot + restore the REAL settings keys (app scope, deliberate).
-        QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant origPresets = appSettings.value("bean/presets");
-        const QVariant origSelected = appSettings.value("bean/selectedPreset");
-        auto restore = qScopeGuard([&]() {
-            if (origPresets.isValid()) appSettings.setValue("bean/presets", origPresets);
-            else appSettings.remove("bean/presets");
-            if (origSelected.isValid()) appSettings.setValue("bean/selectedPreset", origSelected);
-            else appSettings.remove("bean/selectedPreset");
-        });
-
-        QJsonArray presets;
-        presets.append(makePreset("X", "Roaster X", "Coffee X", "2026-06-01"));
-        appSettings.setValue("bean/presets", QJsonDocument(presets).toJson());
-        appSettings.setValue("bean/selectedPreset", 0);
-
-        // Failure path: nonexistent directory -> keys stay for retry. The
-        // open failure is expected and logged — assert+silence it.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("DB open failed"));
-        const qint64 failed = CoffeeBagStorage::convertLegacyPresetSettings(
-            m_tempDir.filePath("no/such/dir/x.db"));
-        QCOMPARE(failed, -1);
-        QVERIFY(appSettings.contains("bean/presets"));
-
-        // Success path: keys cleared, selection mapped.
-        const QString path = freshDb();
-        const qint64 selectedBagId = CoffeeBagStorage::convertLegacyPresetSettings(path);
-        QVERIFY(selectedBagId > 0);
-        QVERIFY(!appSettings.contains("bean/presets"));
-        QVERIFY(!appSettings.contains("bean/selectedPreset"));
-
-        withRawDb(path, "convert_check", [&](QSqlDatabase& db) {
-            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, selectedBagId);
-            QCOMPARE(bag.roasterName, QString("Roaster X"));
-        });
-    }
-
-    // ==========================================
-    // findBagForShot
-    // ==========================================
-
-    void linkOrphanShotsAdoptsPreBagHistory() {
-        // Migration-20 repair: shots saved before bags existed (bag_id NULL)
-        // are linked by identity so migrated favorites carry their history.
-        const QString path = freshDb();
-        withRawDb(path, "orphan_link", [&](QSqlDatabase& db) {
-            // Pre-bag shots: two for Prodigal (one with a roast date), one
-            // for an unknown coffee.
-            QSqlQuery shotInsert(db);
-            shotInsert.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                               "bean_brand, bean_type, roast_date) VALUES (:u, :ts, 'P', 30, :b, :t, :rd)");
-            auto addShot = [&](const char* uuid, const char* brand, const char* type, const char* roastDate) {
-                shotInsert.bindValue(":u", uuid);
-                shotInsert.bindValue(":ts", 1000);
-                shotInsert.bindValue(":b", brand);
-                shotInsert.bindValue(":t", type);
-                shotInsert.bindValue(":rd", QString(roastDate).isEmpty() ? QVariant() : QVariant(roastDate));
-                QVERIFY(shotInsert.exec());
-            };
-            addShot("s-exact", "Prodigal", "Espresso Milk Blend", "2026-01-01");
-            addShot("s-dateless", "prodigal", "espresso milk blend", "");   // case-insensitive, no date
-            addShot("s-unknown", "Someone", "Else", "");
-
-            // Two Prodigal bags: an old one and the current (MRU) one.
-            CoffeeBag oldBag;
-            oldBag.roasterName = "Prodigal";
-            oldBag.coffeeName = "Espresso Milk Blend";
-            oldBag.roastDate = "2026-01-01";
-            oldBag.lastUsedEpoch = 100;
-            const qint64 oldBagId = CoffeeBagStorage::insertBagStatic(db, oldBag);
-            CoffeeBag newBag = oldBag;
-            newBag.roastDate = "2026-06-01";
-            newBag.lastUsedEpoch = 200;
-            const qint64 newBagId = CoffeeBagStorage::insertBagStatic(db, newBag);
-
-            QVERIFY(CoffeeBagStorage::linkOrphanShotsStatic(db) >= 0);
-
-            auto bagOf = [&](const char* uuid) {
-                QSqlQuery q(db);
-                q.prepare("SELECT bag_id FROM shots WHERE uuid = :u");
-                q.bindValue(":u", uuid);
-                if (!q.exec() || !q.next()) return qint64(-2);
-                return q.value(0).isNull() ? qint64(-1) : q.value(0).toLongLong();
-            };
-            QCOMPARE(bagOf("s-exact"), oldBagId);     // exact roast-date match wins
-            QCOMPARE(bagOf("s-dateless"), newBagId);  // identity fallback -> MRU bag
-            QCOMPARE(bagOf("s-unknown"), qint64(-1)); // no matching bag -> stays NULL
-
-            // Idempotent: a second run changes nothing.
-            QVERIFY(CoffeeBagStorage::linkOrphanShotsStatic(db) >= 0);
-            QCOMPARE(bagOf("s-exact"), oldBagId);
         });
     }
 
@@ -885,13 +673,13 @@ private slots:
             // out-of-freezer storage lifecycle snapshot (bean-freshness-followup).
             QSqlQuery q(db);
             q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                      "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date, "
+                      "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, beanbase_id, frozen_date, "
                       "storage_hint, opened_date, taste_balance, taste_body, decent_uploaded_at, decent_shot_id, "
                       "decent_serial, decent_replace_pending, decent_rejected_status, decent_rejected_at, "
                       "visualizer_dirty, visualizer_dirty_seq, decent_failed_at, visualizer_failed_at, "
                       "visualizer_rejected_status, visualizer_rejected_at) "
                       "VALUES ('src-uuid-1', 2000, 'P', 30, 'Transfer', 'Roast', :bag, 'weight', "
-                      "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05', 'sour', 'heavy', "
+                      "'{\"id\":\"canon-9\"}', 'canon-9', '2026-06-01', 'airtight', '2026-06-05', 'sour', 'heavy', "
                       "1790000000, 'srv-7', '1812', 1, 400, 1790000100, 3, 7, 1790000200, 1790000300, 422, 1790000400)");
             q.bindValue(":bag", srcBagId);
             QVERIFY(q.exec());
@@ -922,7 +710,7 @@ private slots:
             QVERIFY(q.value(0).toLongLong() != srcBagId);          // remapped
             QCOMPARE(q.value(1).toString(), QString("weight"));     // stopped_by restored
             QCOMPARE(q.value(2).toString(), QString("{\"id\":\"canon-9\"}"));
-            QCOMPARE(q.value(3).toString(), QString("canon-9"));    // beanbase_id backfilled
+            QCOMPARE(q.value(3).toString(), QString("canon-9"));
             QCOMPARE(q.value(4).toString(), QString("2026-06-01")); // frozen_date carried
             QCOMPARE(q.value(5).toString(), QString("Transfer"));   // joined to the imported bag
             QCOMPARE(q.value(6).toString(), QString("airtight"));   // shot storage_hint carried
@@ -1234,47 +1022,6 @@ private slots:
         });
     }
 
-    void migration24AddsSyncPendingColumn() {
-        // Fresh DB: the column exists (CREATE TABLE path) with default 0.
-        const QString path = freshDb();
-        withRawDb(path, "m24_fresh", [&](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));
-            CoffeeBag bag;
-            bag.roasterName = "R";
-            bag.coffeeName = "C";
-            const qint64 id = CoffeeBagStorage::insertBagStatic(db, bag);
-            const CoffeeBag loaded = CoffeeBagStorage::loadBagStatic(db, id);
-            QVERIFY(!loaded.visualizerSyncPending);
-            // Round-trips through the kCols update map.
-            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(
-                db, id, {{"visualizerSyncPending", true}}));
-            QVERIFY(CoffeeBagStorage::loadBagStatic(db, id).visualizerSyncPending);
-        });
-
-        // Upgrade path: fake a v23 database (column stripped), re-run the chain.
-        withRawDb(path, "m24_strip", [&](QSqlDatabase& db) {
-            QVERIFY(restoreLegacyBagColumns(db));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN visualizer_sync_pending"));
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (23)"));
-        });
-        {
-            ShotHistoryStorage storage;
-            QVERIFY(initAndClose(path, storage));  // runs migration 24
-        }
-        withRawDb(path, "m24_check", [&](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT COALESCE(visualizer_sync_pending, -1) FROM coffee_bags LIMIT 1"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
-            QVERIFY(q.exec("SELECT version FROM schema_version"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), ShotHistoryStorage::kCurrentSchemaVersion);  // chain runs on to the latest
-        });
-    }
-
     void importToleratesSourceWithoutNewerColumns() {
         // A backup written by an older app version lacks newer coffee_bags
         // columns; the import SELECT substitutes NULL so the restore still
@@ -1324,39 +1071,6 @@ private slots:
             QVERIFY(q.next());
             QVERIFY(q.value(0).isNull());
             QVERIFY(q.value(1).isNull());
-        });
-    }
-
-    // Yield-spec import conversion (add-yield-ratio-anchor): a pre-34 source
-    // (no yield_mode column) converts on import — a legacy yield_override_g
-    // becomes {value, absolute}, matching the local migration; a bag without
-    // one lands on mode "none". No per-row warning (failOnWarning is armed).
-    void importConvertsLegacyBagYield() {
-        const QString srcPath = freshDb();
-        const QString destPath = freshDb();
-        withRawDb(srcPath, "legacy_yield_src", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_value"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_mode"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_override_g) "
-                           "VALUES ('Legacy', 'WithYield', 38.0)"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name) "
-                           "VALUES ('Legacy', 'NoYield')"));
-            // The bag import only runs alongside a shot import.
-            insertShot(db, "Legacy", "WithYield", 4000, QString(), 1);
-        });
-
-        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
-
-        withRawDb(destPath, "legacy_yield_check", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT yield_value, yield_mode FROM coffee_bags WHERE coffee_name = 'WithYield'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toDouble(), 38.0);
-            QCOMPARE(q.value(1).toString(), QStringLiteral("absolute"));
-            QVERIFY(q.exec("SELECT yield_mode FROM coffee_bags WHERE coffee_name = 'NoYield'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QStringLiteral("none"));
         });
     }
 
@@ -2242,71 +1956,6 @@ private slots:
             const QVector<InventoryBag> bags = CoffeeBagStorage::loadInventoryStatic(db);
             QCOMPARE(bags.size(), 1);
             QCOMPARE(bags.first().bag.kind, QString("tea"));
-        });
-    }
-
-    void migration24RetriesAfterMidStepCrash() {
-        // The state the hasColumn guard exists for: crash between the ALTER
-        // and the version write (column present, version still 23).
-        const QString path = freshDb();
-        withRawDb(path, "m24_crash", [&](QSqlDatabase& db) {
-            QVERIFY(restoreLegacyBagColumns(db));
-            QSqlQuery q(db);
-            QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));  // ALTER "already ran"
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (23)"));
-        });
-        {
-            ShotHistoryStorage storage;
-            QVERIFY(initAndClose(path, storage));  // re-runs migration 24
-        }
-        withRawDb(path, "m24_crash_check", [&](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT version FROM schema_version"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), ShotHistoryStorage::kCurrentSchemaVersion);  // chain runs on to the latest
-        });
-    }
-
-    // Migration 26 (add-recipes) repairs branch-dev DBs that stamped version 25
-    // with the OLD recipes table (no rpm_pinned). The fresh-DB path gets the
-    // column from ensureTableStatic, so exercising the ALTER branch needs a
-    // staged v25 DB with the column dropped — otherwise the "hasColumn" assert
-    // passes on migration 25's work, not 26's.
-    void migration26AddsRpmPinnedColumn() {
-        const QString path = freshDb();
-        // Stand the schema up fully, then rewind to a v25-without-rpm_pinned DB.
-        {
-            ShotHistoryStorage storage;
-            QVERIFY(initAndClose(path, storage));
-        }
-        withRawDb(path, "m26_strip", [&](QSqlDatabase& db) {
-            QVERIFY(restoreLegacyBagColumns(db));
-            QSqlQuery q(db);
-            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));  // fresh path had it
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN rpm_pinned"));
-            QVERIFY(!hasColumn(db, "recipes", "rpm_pinned"));
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (25)"));
-        });
-        {
-            ShotHistoryStorage storage;
-            QVERIFY(initAndClose(path, storage));  // runs migration 26's ALTER
-        }
-        withRawDb(path, "m26_check", [&](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT version FROM schema_version"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), ShotHistoryStorage::kCurrentSchemaVersion);  // chain runs on to the latest
-            // The repaired table is writable — insertRecipeStatic binds
-            // rpm_pinned unconditionally, so it would fail wholesale if the
-            // ALTER hadn't landed.
-            Recipe r; r.name = "R"; r.rpmPinned = 1350;
-            const qint64 id = RecipeStorage::insertRecipeStatic(db, r);
-            QVERIFY(id > 0);
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).rpmPinned, (qint64)1350);
         });
     }
 

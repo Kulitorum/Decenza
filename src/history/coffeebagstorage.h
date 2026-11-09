@@ -404,36 +404,10 @@ public:
     // local-key → Visualizer-field mapping.
     static bool touchesVisualizerFields(const QVariantMap& fields);
 
-    // Convert one legacy bean preset JSON object (SettingsDye "bean/presets"
-    // entry: name/brand/type/roastDate/roastLevel/grinder*/barista/showOnIdle/
-    // beanBaseId/beanBaseData) into a CoffeeBag. Preset `name` lands in notes
-    // when it differs from "{brand} {type}"; grinder*, barista and showOnIdle are
-    // intentionally dropped.
-    static CoffeeBag bagFromLegacyPreset(const QJsonObject& preset);
-
-    // Merge-import legacy presets: inserts presets that do not match an
-    // existing bag (case-insensitive roasterName+coffeeName+roastDate), skips
-    // matches. Shared by migration 19 and SettingsSerializer import. Returns
-    // the number of bags inserted; appends the bag id created for index
-    // `selectedIndex` (or the matched existing bag's id) to *outSelectedBagId
-    // when both are non-null/valid.
-    static int importLegacyPresetsStatic(QSqlDatabase& db, const QJsonArray& presets,
-                                         int selectedIndex = -1,
-                                         qint64* outSelectedBagId = nullptr);
-
     // Copy the bag's canonical link (beanbase_id + beanbase_json, possibly
     // empty = unlink) onto every shot whose bag_id references it. Returns
     // the number of shots updated, -1 on failure.
     static int propagateBeanBaseStatic(QSqlDatabase& db, qint64 bagId);
-
-    // Link orphan shots (bag_id NULL) to bags by identity — two passes:
-    // exact (case-insensitive roaster+coffee+roast_date), then identity-only
-    // for the leftovers, preferring the most recently used bag. Idempotent
-    // (only touches NULL bag_id rows). Used by migration 20 (repairs
-    // upgraded devices whose migrated preset-bags predate their shots) and
-    // by importDatabaseStatic for pre-bag backup sources. Returns the
-    // number of shots linked, -1 on failure.
-    static int linkOrphanShotsStatic(QSqlDatabase& db);
 
     // Resolve which bag a historical shot belongs to: the shot's own bag_id
     // link when it exists (snapshot from save time), else the best identity
@@ -441,16 +415,6 @@ public:
     // used first — covers pre-bag shots). Returns -1 when nothing matches.
     static qint64 findBagForShotStatic(QSqlDatabase& db, qint64 shotId,
                                        const QString& roasterName, const QString& coffeeName);
-
-    // Reads the legacy bean/presets + bean/selectedPreset QSettings keys,
-    // merge-imports them into coffee_bags in the given database, and clears
-    // the keys only after a successful commit. Returns the bag id the
-    // selected preset mapped to, or -1 (none selected, nothing to import, or
-    // failure — failure leaves QSettings intact for retry). Shared by
-    // ShotHistoryStorage's launch-time import and SettingsSerializer's
-    // mid-session legacy import; safe alongside an open main connection
-    // (WAL + busy_timeout via withTempDb).
-    static qint64 convertLegacyPresetSettings(const QString& dbPath);
 
     // Copy coffee_bags rows from srcDb into destDb (device transfer / backup
     // restore). Row ids change on insert — outIdMap records old->new so the

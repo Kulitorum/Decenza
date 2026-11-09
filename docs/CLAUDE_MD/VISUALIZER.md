@@ -165,20 +165,6 @@ page-gated writeback — it silently lost links whenever the review page
 was disabled, auto-closed, or navigated away before the ~1 s round
 trip (OpenSpec `persist-visualizer-id-in-controller`).
 
-#### One-time reconciliation backfill
-
-`MainController::processVisualizerReconciliation()` runs once per
-device (QSettings `visualizerBackfill/doneV1`), gated on credentials
-(absent → skip without setting the flag, retried next boot). It lists
-the user's shots (`GET /api/shots`, paged, bounded to 60 days),
-relinks local rows whose `visualizer_id` is empty by matching
-`shots.timestamp` to the cloud shot's `clock` within ±2 s — strict
-1:1, no reuse of an id already on a row, ambiguous skipped
-(`reconcileVisualizerLinksStatic`, unit-tested). Each linked row is
-then queued onto the same serial drain as the migration-16 sync to
-push the now-authoritative local rating up (cleared → JSON `null`).
-Independent of and order-insensitive to the migration-16 back-sync.
-
 #### Upload JSON Structure
 
 The upload JSON matches de1app v2 format:

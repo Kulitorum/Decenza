@@ -242,68 +242,6 @@ private slots:
         QCOMPARE(fields.value("hotWaterJson").toString(), record.hotWaterJson);
     }
 
-    // milkPreselectedFromSteamJson: the upgrade dialog's Espresso/Milk
-    // heuristic (recipes-idle-layout-upgrade decision 5).
-
-    void milkPreselectedWhenHasMilkTrue() {
-        QVERIFY(RecipePromotion::milkPreselectedFromSteamJson(
-            "{\"hasMilk\":true,\"milkWeightG\":0}"));
-    }
-
-    void milkPreselectedWhenMilkWeightPositive() {
-        // The upgrade dialog offers a choice; last milk supplies its default.
-        QVERIFY(RecipePromotion::milkPreselectedFromSteamJson(
-            "{\"hasMilk\":false,\"milkWeightG\":180}"));
-    }
-
-    void espressoPreselectedWhenNoMilkSignal() {
-        QVERIFY(!RecipePromotion::milkPreselectedFromSteamJson(
-            "{\"hasMilk\":false,\"milkWeightG\":0}"));
-    }
-
-    void espressoPreselectedWhenSteamJsonEmpty() {
-        // A shot with no steam snapshot (predates the feature, or an
-        // espresso-only shot) must not crash and defaults to espresso.
-        QVERIFY(!RecipePromotion::milkPreselectedFromSteamJson(QString()));
-    }
-
-    // isEligibleForStarterRecipe: the recipes-idle-layout-upgrade offer's
-    // starter-recipe gate. recipeCountOk=false must always mean "not
-    // eligible" — an unreliable count must never be read as "zero recipes",
-    // which would create a spurious duplicate for a user who already has
-    // some (the bug this predicate was extracted to make impossible to
-    // reintroduce silently).
-
-    void eligibleWhenNoRecipesAndShotLoaded() {
-        QVERIFY(RecipePromotion::isEligibleForStarterRecipe(
-            /*recipeCountOk=*/true, /*recipeCount=*/0, /*latestShotId=*/42, /*loadedRecordId=*/42));
-    }
-
-    void ineligibleWhenRecipeCountUnreliable() {
-        // DB open/query failure — even though the (stale/default) count
-        // reads as zero and a shot was found, an unreliable count must fail
-        // closed, not be treated as "confirmed zero recipes".
-        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
-            /*recipeCountOk=*/false, /*recipeCount=*/0, /*latestShotId=*/42, /*loadedRecordId=*/42));
-    }
-
-    void ineligibleWhenUserHasRecipes() {
-        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
-            /*recipeCountOk=*/true, /*recipeCount=*/3, /*latestShotId=*/42, /*loadedRecordId=*/42));
-    }
-
-    void ineligibleWhenNoSavedShots() {
-        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
-            /*recipeCountOk=*/true, /*recipeCount=*/0, /*latestShotId=*/-1, /*loadedRecordId=*/0));
-    }
-
-    void ineligibleWhenShotIdFoundButRecordFailedToLoad() {
-        // A shot id was found by the latest-shot query but loadShotRecordStatic
-        // came back empty (e.g. a race with a concurrent delete) — the found
-        // id alone isn't enough, the record must have actually loaded.
-        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
-            /*recipeCountOk=*/true, /*recipeCount=*/0, /*latestShotId=*/42, /*loadedRecordId=*/0));
-    }
 };
 
 QTEST_GUILESS_MAIN(tst_RecipePromotion)

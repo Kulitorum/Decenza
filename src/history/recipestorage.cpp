@@ -1310,43 +1310,6 @@ qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input,
     return query.lastInsertId().toLongLong();
 }
 
-bool RecipeStorage::healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed)
-{
-    if (healed)
-        *healed = 0;
-    if (!db.tables().contains(QStringLiteral("recipes")))
-        return true;  // table not created yet: nothing linked
-    QSqlQuery query(db);
-    if (!query.exec("SELECT r.id, r.equipment_id FROM recipes r "
-                    "JOIN equipment_packages p ON p.id = r.equipment_id "
-                    "WHERE p.in_inventory = 0 AND p.superseded_by IS NOT NULL")) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "retired-equipment heal query failed:" << query.lastError().text();
-        return false;
-    }
-    QVector<QPair<qint64, qint64>> moves;
-    while (query.next()) {
-        const qint64 from = query.value(1).toLongLong();
-        const qint64 to = liveEquipmentId(db, from);
-        if (to != from)
-            moves.append({query.value(0).toLongLong(), to});
-    }
-    query.finish();
-    for (const auto& [recipeId, to] : std::as_const(moves)) {
-        QSqlQuery upd(db);
-        upd.prepare("UPDATE recipes SET equipment_id = ? WHERE id = ?");
-        upd.addBindValue(to);
-        upd.addBindValue(recipeId);
-        if (!upd.exec()) {
-            DIAG_WARN(RECIPES, "RecipeStorage") << "retired-equipment heal failed for recipe" << recipeId
-                                                << ":" << upd.lastError().text();
-            return false;
-        }
-    }
-    if (healed)
-        *healed = moves.size();
-    return true;
-}
-
 Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId, bool* querySucceeded)
 {
     if (querySucceeded)
@@ -1641,82 +1604,6 @@ qint64 RecipeStorage::resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recip
 }
 
 // static
-bool RecipeStorage::migrateBagLinksStatic(QSqlDatabase& db)
-{
-    // The one-time data pass of migration 29: resolve each still-unlinked
-    // recipe's bean identity to its current open bag — the retired
-    // activation resolver's logic, run once at migration instead of at
-    // every activation. Unresolvable recipes stay NULL → stale.
-    QSqlQuery query(db);
-    if (!query.exec(QStringLiteral(
-            "SELECT id, beanbase_id, roaster_name, coffee_name FROM recipes "
-            "WHERE bag_id IS NULL AND (COALESCE(beanbase_id,'') <> '' "
-            "OR COALESCE(roaster_name,'') <> '' OR COALESCE(coffee_name,'') <> '')"))) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "bag-link migration query failed:"
-                   << query.lastError().text();
-        return false;
-    }
-    // Collect first, update after — updating while iterating the same
-    // connection's result set is undefined with some SQLite driver configs.
-    QVector<QPair<qint64, qint64>> links;   // recipe id -> resolved bag id
-    int unresolved = 0;
-    while (query.next()) {
-        Recipe probe;
-        probe.beanBaseId = query.value(1).toString();
-        probe.roasterName = query.value(2).toString();
-        probe.coffeeName = query.value(3).toString();
-        const qint64 bagId = resolveOpenBagStatic(db, probe);
-        if (bagId > 0)
-            links.append({query.value(0).toLongLong(), bagId});
-        else
-            unresolved++;
-    }
-    int linked = 0;
-    bool complete = true;
-    for (const auto& link : links) {
-        QSqlQuery update(db);
-        update.prepare("UPDATE recipes SET bag_id = :bag WHERE id = :id");
-        update.bindValue(":bag", link.second);
-        update.bindValue(":id", link.first);
-        if (update.exec()) {
-            linked++;
-        } else {
-            DIAG_WARN(RECIPES, "RecipeStorage") << "bag-link migration update failed for recipe"
-                       << link.first << "-" << update.lastError().text();
-            complete = false;
-        }
-    }
-    if (linked > 0 || unresolved > 0)
-        DIAG_DEBUG(RECIPES, "RecipeStorage") << "bag-link migration -" << linked << "recipes linked,"
-                 << unresolved << "left unlinked (no open bag of their bean)";
-    return complete;
-}
-
-// static
-bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db)
-{
-    const QString sql = QStringLiteral(
-        "UPDATE recipes SET "
-        "  grind_pinned = (SELECT b.grinder_setting FROM coffee_bags b WHERE b.id = recipes.bag_id), "
-        "  rpm_pinned = (SELECT COALESCE(b.rpm, 0) FROM coffee_bags b WHERE b.id = recipes.bag_id) "
-        "WHERE COALESCE(grind_pinned,'') = '' "
-        "  AND bag_id IS NOT NULL "
-        "  AND EXISTS (SELECT 1 FROM coffee_bags b WHERE b.id = recipes.bag_id "
-        "              AND COALESCE(b.grinder_setting,'') <> '')");
-    QSqlQuery query(db);
-    const bool ok = query.exec(sql);
-    if (!ok) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "grind-ownership migration failed:"
-                   << query.lastError().text();
-        return false;
-    }
-    if (query.numRowsAffected() > 0)
-        DIAG_DEBUG(RECIPES, "RecipeStorage") << "grind-ownership migration -" << query.numRowsAffected()
-                 << "inherit-mode recipes adopted their bag's grind";
-    return true;
-}
-
-// static
 bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
                                                    const QHash<QString, double>& profileTempsByTitle,
                                                    int* outConvertedCount)
@@ -1830,94 +1717,6 @@ void RecipeStorage::requestLegacyTempOffsetConversion(const QHash<QString, doubl
             // remaining NULL rows retry on the next launch.
             if (*convertedCount > 0)
                 emit recipesChanged();
-        });
-}
-
-// static
-bool RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
-                                                         const QStringList& removedNames,
-                                                         int* outRewrittenCount)
-{
-    if (outRewrittenCount)
-        *outRewrittenCount = 0;
-    if (removedNames.isEmpty())
-        return true;
-
-    QSqlQuery select(db);
-    if (!select.exec("SELECT id, steam_json FROM recipes "
-                     "WHERE steam_json IS NOT NULL AND steam_json != ''")) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "heater-off rewrite select failed:"
-                   << select.lastError().text();
-        return false;
-    }
-
-    struct Row { qint64 id; QString json; };
-    QVector<Row> rows;
-    while (select.next()) {
-        const qint64 id = select.value(0).toLongLong();
-        QJsonObject steam = QJsonDocument::fromJson(select.value(1).toString().toUtf8()).object();
-        const QString pitcherName = steam.value(QStringLiteral("pitcherName")).toString();
-        if (pitcherName.isEmpty())
-            continue;
-        bool matched = false;
-        for (const QString& removed : removedNames) {
-            if (pitcherName.compare(removed, Qt::CaseInsensitive) == 0) {
-                matched = true;
-                break;
-            }
-        }
-        if (!matched)
-            continue;
-
-        // The marker replaces the pitcher fields outright — the built-in entry
-        // carries no values, so leaving durationSec/flow/temperatureC behind
-        // would describe a pitcher that is not being used.
-        steam.remove(QStringLiteral("pitcherName"));
-        steam.remove(QStringLiteral("durationSec"));
-        steam.remove(QStringLiteral("flow"));
-        steam.remove(QStringLiteral("temperatureC"));
-        steam.insert(QStringLiteral("heaterOff"), true);
-        rows.append({id, QString::fromUtf8(QJsonDocument(steam).toJson(QJsonDocument::Compact))});
-    }
-
-    for (const Row& row : rows) {
-        QSqlQuery update(db);
-        update.prepare("UPDATE recipes SET steam_json = :json WHERE id = :id");
-        update.bindValue(":json", row.json);
-        update.bindValue(":id", row.id);
-        if (!update.exec()) {
-            DIAG_WARN(RECIPES, "RecipeStorage") << "heater-off rewrite update failed:"
-                       << update.lastError().text();
-            return false;
-        }
-        if (outRewrittenCount)
-            ++(*outRewrittenCount);
-    }
-    if (!rows.isEmpty())
-        DIAG_INFO(RECIPES, "RecipeStorage") << "rewrote" << rows.size()
-                << "recipe(s) from a removed Off pitcher to the Heater off marker";
-    return true;
-}
-
-void RecipeStorage::requestHeaterOffPitcherRewrite(const QStringList& removedNames,
-                                                   std::function<void(bool)> onDone)
-{
-    if (removedNames.isEmpty()) {
-        if (onDone) onDone(true);   // nothing to do IS a completed pass
-        return;
-    }
-    auto rewritten = std::make_shared<int>(0);
-    auto succeeded = std::make_shared<bool>(false);
-    runAsync("recipes_heater_off_rewrite",
-        [removedNames, rewritten, succeeded](QSqlDatabase& db) {
-            *succeeded = rewriteHeaterOffPitcherRecipesStatic(db, removedNames, rewritten.get());
-        },
-        [this, rewritten, succeeded, onDone](bool ok) {
-            if (*rewritten > 0)
-                emit recipesChanged();
-            // Both halves must have held: the async runner reached the work AND
-            // the pass itself ran to completion. A partial run keeps the names.
-            if (onDone) onDone(ok && *succeeded);
         });
 }
 
@@ -2138,29 +1937,12 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     const bool srcHasOverrideCol = srcColumns.contains(QStringLiteral("temp_override_c"));
     const bool srcHasOffsetCol = srcColumns.contains(QStringLiteral("temp_offset_c"));
     QString trailingCols;
-    int nextTrailingIdx = kColCount;
     if (srcHasOverrideCol) {
         trailingCols += QStringLiteral(", COALESCE(temp_override_c, 0)");
-        ++nextTrailingIdx;
     }
     if (srcHasOverrideCol && srcHasOffsetCol) {
         trailingCols += QStringLiteral(", temp_offset_c IS NULL");
-        ++nextTrailingIdx;
     }
-    // Yield-spec conversion for pre-34 sources (add-yield-ratio-anchor): a
-    // source with yield_g but no yield_mode column converts on import —
-    // yield_g > 0 becomes {yield_g, absolute}, else the struct's default
-    // "none" — producing the same specs the local migration would have.
-    // Unlike temperature the conversion needs no external anchor, so it runs
-    // inline on the struct rather than staging for a deferred pass. A ≥34
-    // source imports its spec verbatim through kCols and its dead yield_g is
-    // ignored — reconverting would resurrect a yield the user has since
-    // changed to a ratio or cleared.
-    const bool srcNeedsYieldConversion = !srcColumns.contains(QStringLiteral("yield_mode"))
-        && srcColumns.contains(QStringLiteral("yield_g"));
-    const int yieldTrailingIdx = nextTrailingIdx;
-    if (srcNeedsYieldConversion)
-        trailingCols += QStringLiteral(", COALESCE(yield_g, 0)");
     QString selectSql = QString("SELECT %1%2 FROM recipes")
         .arg(selectCols.join(QStringLiteral(", ")), trailingCols);
 
@@ -2170,31 +1952,9 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         return false;
     }
 
-    // Only pre-30 sources used an empty grind to mean "inherit". A current
-    // source's empty value is intentional and must never be backfilled.
-    int sourceVersion = 0;
-    bool sourceVersionKnown = false;
-    if (srcDb.tables().contains(QStringLiteral("schema_version"))) {
-        QSqlQuery version(srcDb);
-        if (!version.exec(QStringLiteral("SELECT MAX(version) FROM schema_version")) || !version.next()) {
-            DIAG_WARN(RECIPES, "RecipeStorage") << "recipe import: source schema version read failed -"
-                                                << version.lastError().text();
-            return false;
-        }
-        sourceVersion = version.value(0).toInt(&sourceVersionKnown);
-    }
-    if (!sourceVersionKnown)
-        DIAG_DEBUG(RECIPES, "RecipeStorage") << "recipe import: source schema version unknown -"
-                                             << "inherited grinds are not recovered";
-    const bool legacyGrind = sourceVersionKnown && sourceVersion < 30;
     int imported = 0, matched = 0;
     while (srcRecipes.next()) {
         Recipe recipe = recipeFromQueryRow(srcRecipes);
-        qint64 sourceBagId = recipe.bagId;
-        // A pre-29 source has no bag_id: resolve the bean's open bag in the
-        // SOURCE, to read its grind and remap the link.
-        if (legacyGrind && !srcColumns.contains(QStringLiteral("bag_id")))
-            sourceBagId = resolveOpenBagStatic(srcDb, recipe);
         const double legacyAbsTemp = srcHasOverrideCol
             ? srcRecipes.value(kColCount).toDouble() : 0.0;
         const bool rowUnconverted = srcHasOverrideCol
@@ -2209,15 +1969,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         // relink matching key, so wake-on-restock can later re-home the
         // recipe.
         recipe.equipmentId = packageIdMap.value(recipe.equipmentId, 0);
-        recipe.bagId = bagIdMap.value(sourceBagId, 0);
-
-        if (srcNeedsYieldConversion) {
-            const double legacyYieldG = srcRecipes.value(yieldTrailingIdx).toDouble();
-            if (legacyYieldG > 0) {
-                recipe.yieldValue = legacyYieldG;
-                recipe.yieldMode = YieldSpec::modeAbsolute();
-            }
-        }
+        recipe.bagId = bagIdMap.value(recipe.bagId, 0);
 
         qint64 destId = -1;
         if (merge) {
@@ -2253,24 +2005,6 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         }
 
         if (destId < 0) {
-            if (legacyGrind && recipe.grindPinned.isEmpty() && sourceBagId > 0) {
-                // Read the SOURCE bag: destination bags no longer carry grind.
-                // A merge into an existing recipe never backfills.
-                QSqlQuery sourceBag(srcDb);
-                if (!sourceBag.prepare(QStringLiteral("SELECT grinder_setting, rpm FROM coffee_bags WHERE id = ?"))) {
-                    DIAG_WARN(RECIPES, "RecipeStorage") << "legacy bag grind read failed:" << sourceBag.lastError().text();
-                    return false;
-                }
-                sourceBag.addBindValue(sourceBagId);
-                if (!sourceBag.exec()) {
-                    DIAG_WARN(RECIPES, "RecipeStorage") << "legacy bag grind read failed:" << sourceBag.lastError().text();
-                    return false;
-                }
-                if (sourceBag.next() && !sourceBag.value(0).toString().isEmpty()) {
-                    recipe.grindPinned = sourceBag.value(0).toString();
-                    recipe.rpmPinned = sourceBag.value(1).toLongLong();
-                }
-            }
             QString waterError;
             destId = insertRecipeStatic(destDb, recipe, {}, &waterError);
             if (destId < 0) {

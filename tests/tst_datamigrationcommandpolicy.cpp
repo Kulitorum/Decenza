@@ -1,3 +1,4 @@
+#include "history/upgradefloor.h"
 #include <QtTest>
 #include "../src/remote/datamigrationcommandpolicy.h"
 #include "core/datamigrationclient.h"
@@ -69,7 +70,7 @@ public:
     {
         responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Disposable peer")},
-            {QStringLiteral("appVersion"), QStringLiteral("test")},
+            {QStringLiteral("appVersion"), QString::fromLatin1(UpgradeFloor::kRelease)},
             {QStringLiteral("aiConversationCount"), conversationCount},
             {QStringLiteral("aiConversationsSize"), 200000},
             {QStringLiteral("sessionToken"), QStringLiteral("must-not-cross-QtRO")}
@@ -267,6 +268,7 @@ private slots:
         QVERIFY(peer.listen());
         peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Peer")},
+            {QStringLiteral("appVersion"), QString::fromLatin1(UpgradeFloor::kRelease)},
             {QStringLiteral("hasSettings"), true}}).toJson(), 200, false};
         peer.responses["/api/backup/settings"] = {"{}", 200, false};
         peer.responses["/api/backup/extra-settings"] = {QJsonDocument(QJsonObject{
@@ -444,6 +446,7 @@ private slots:
         QVERIFY(peer.listen());
         peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Failure fixture")},
+            {QStringLiteral("appVersion"), QString::fromLatin1(UpgradeFloor::kRelease)},
             {QStringLiteral("hasSettings"), true}, {QStringLiteral("profileCount"), 1},
             {QStringLiteral("shotCount"), 1}, {QStringLiteral("mediaCount"), 1},
             {QStringLiteral("aiConversationCount"), 1}
@@ -567,7 +570,8 @@ private slots:
         QCOMPARE(completed.count(), 1);
         QCOMPARE(completed.first().at(0).toString(), id);
         QCOMPARE(completed.first().at(4).toString(), QStringLiteral("disconnected"));
-        peer.release("/api/backup/manifest", "{\"deviceName\":\"Late peer\"}");
+        peer.release("/api/backup/manifest", QStringLiteral("{\"deviceName\":\"Late peer\",\"appVersion\":\"%1\"}")
+                         .arg(QLatin1String(UpgradeFloor::kRelease)).toUtf8());
         QTRY_VERIFY(!fixture.client.isConnecting());
         fixture.service->setNode(&fixture.node);
         QTRY_VERIFY(fixture.service->ready());
@@ -620,6 +624,7 @@ private slots:
         QVERIFY(peer.listen());
         peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Shot fixture")},
+            {QStringLiteral("appVersion"), QString::fromLatin1(UpgradeFloor::kRelease)},
             {QStringLiteral("shotCount"), 1}, {QStringLiteral("shotsSize"), database.size()}
         }).toJson(QJsonDocument::Compact), 200, false};
         peer.responses["/api/backup/shots"] = {database, 200, false};
