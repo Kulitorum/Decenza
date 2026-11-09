@@ -390,6 +390,19 @@ void wireWifiScaleDriver(DecentScaleWifi* wifi, Settings& settings, BLEManager& 
     });
 }
 
+// A desktop install last run before 1.5.6 keeps its data under the old app
+// name. Read as a fresh install, it would get a new database here, and that
+// database stops 2.1.0's app-name move from ever recovering the old one.
+bool hasPreRenameShotDatabase()
+{
+    const QString currentName = QCoreApplication::applicationName();
+    QCoreApplication::setApplicationName(QStringLiteral("Decenza DE1"));
+    const QString oldDatabase = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                                + QStringLiteral("/shots.db");
+    QCoreApplication::setApplicationName(currentName);
+    return QFileInfo::exists(oldDatabase);
+}
+
 }  // namespace
 
 #ifdef DECENZA_SANITIZERS_PRESENT
@@ -900,7 +913,12 @@ int main(int argc, char *argv[])
 
     // Before any settings or database migration runs: data older than the
     // upgrade floor is refused and left exactly as it is.
-    switch (ShotHistoryStorage::probeUpgradeFloor(ShotHistoryStorage::defaultDatabasePath())) {
+    auto floorProbe = ShotHistoryStorage::probeUpgradeFloor(ShotHistoryStorage::defaultDatabasePath());
+    if (floorProbe == ShotHistoryStorage::UpgradeFloorProbe::NoDatabase && hasPreRenameShotDatabase()) {
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "shot database found only under the pre-1.5.6 app name";
+        floorProbe = ShotHistoryStorage::UpgradeFloorProbe::BelowFloor;
+    }
+    switch (floorProbe) {
     case ShotHistoryStorage::UpgradeFloorProbe::BelowFloor: {
         DIAG_WARN(STORAGE, "UpgradeFloor") << "shot database is below schema"
             << UpgradeFloor::kSchemaVersion << "- showing the install-"

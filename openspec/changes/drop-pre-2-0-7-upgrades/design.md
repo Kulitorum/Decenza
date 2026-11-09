@@ -9,7 +9,7 @@ See proposal.md for motivation. Facts the approach depends on:
 - **Settings migrations run before the database opens.** `runSettingsStoreMigrationOnce()` / `runAppNameMigrationOnce()` run at `main.cpp:1104`, and the `Settings` constructor runs after that. Any launch check must come before all three.
 - **Settings carry no version stamp.** The shot database's `schema_version` is the only reliable witness that a device has run a given release. A database at 41 or above means the 2.0.7-era settings migrations already ran in the same process.
 - **Every restore and transfer funnels through `ShotHistoryStorage::importDatabaseStatic`**. Callers: `DatabaseBackupManager` (`:928`), `FullBackupRestore` (`:807`), `DataMigrationClient` (`:1347`). That function copies column by column into the live database; it never replaces the live file.
-- **A transfer source already reports its version.** The `/api/backup/manifest` response has carried `appVersion` since January 2026, 1.x included (`shotserver_backup.cpp:70`).
+- **A transfer source does not report its schema.** The `/api/backup/manifest` response carries `appVersion`, but a release number is only a proxy for a schema, and a source whose migration failed can sit below the floor on a supported release.
 - **Layout normalisation can go even where it isn't persisted.** The statusBar and lowerMidBar additions in `SettingsNetwork::getLayoutObject()` are never saved; they run on every read. But a stored layout lacks them only until its next save, and readers already treat a missing zone as empty:
   - `IdlePage.qml:105`, `StatusBar.qml:15` and `LibraryItemCard.qml:125` read `zones.<name> || []`
   - adding an item writes the zone in (`settings_network.cpp:626-632`)
@@ -26,7 +26,7 @@ See proposal.md for motivation. Facts the approach depends on:
 - Older data is never written to: not at launch, not by a failed restore, not by a transfer.
 
 **Non-Goals:**
-- No rescue copy of old data and no "Decenza DE1" folder check. Users before the floor are covered by the release notes and the 2.1.0 stepping stone.
+- No rescue copy of old data. Users before the floor are covered by the release notes and the 2.1.0 stepping stone.
 - No version field added to settings-only exports. Those stay ungated; keys only older releases wrote are simply no longer understood.
 - No change to the BLE carry-forward, to the read-time key fallbacks, or to any 2.0.8+ upgrade step.
 - No squashing of migrations 42 and up.
@@ -35,13 +35,15 @@ See proposal.md for motivation. Facts the approach depends on:
 
 ### 1. The floor is a schema number, and the stepping stone is named once
 The floor and the stepping stone live in one header-only file, `src/history/upgradefloor.h` (`namespace UpgradeFloor`):
-- `kSchemaVersion = 41` and the matching release `"2.0.7"`
+- `kSchemaVersion = 41`. No release number defines the floor.
 - the stepping-stone release `"2.1.0"`
-- the shared refusal text, and the release check a transfer manifest uses
+- the shared refusal text
 
 It is header-only so the transfer client and its tests need no storage sources. Every check and message reads it. *Alternative:* key the floor on the app version string. Rejected: the version isn't stored anywhere a later build can read reliably, and the schema is.
 
 ### 2. Launch check: a read of the database before anything else
+A desktop install last run before 1.5.6 keeps its data under the "Decenza DE1" app name. With no database at the current path and one there, the check treats it as below the floor. Otherwise a fresh database would be created at the new path, and 2.1.0's app-name move skips a destination that already holds one, so the old history could never be recovered.
+
 A static probe, `ShotHistoryStorage::probeUpgradeFloor(path)`, returns one of four results: `NoDatabase`, `Supported`, `BelowFloor` or `Unknown`. It runs right after `setApplicationVersion()` in `main()`, before every settings and database migration.
 
 How it decides:
@@ -84,7 +86,7 @@ It goes into `tst_dbmigration.cpp`, not a new file, per the per-file build cost 
 ### 7. Import refusal: early where possible, and always at the funnel
 - **`importDatabaseStatic`** reads the *source* `schema_version` before touching the destination. A source below the floor, or with none, returns a distinct `sourceTooOld` outcome on its existing result.
 - **`FullBackupRestore` and `DatabaseBackupManager`** run the same source check in their prepare step, against the archive's `shots.db`, before any settings, profiles or media are applied. That keeps a refused restore from landing half-applied.
-- **`DataMigrationClient`** refuses at the manifest when `appVersion` is below 2.0.7, before queueing any step. A missing `appVersion` counts as below; only builds older than January 2026 omit it.
+- **`DataMigrationClient`**: this build's manifest reports `shotSchemaVersion`, and a source below the floor is refused at connect. A source too old to report it is decided when its database arrives: the import queue takes shots first, and a refusal clears the rest of the queue, so no settings, profiles or media from it are applied.
 
 Each path shows a translated "restore it in Decenza 2.1.0 first" message through its existing failure surface. *Alternative:* refuse only at the funnel. Rejected: a full restore applies settings before the database, so the refusal would come after the damage.
 

@@ -90,6 +90,12 @@ Builds and tests run through the Qt Creator MCP (`mcp__qtcreator__build`, `mcp__
 - [x] 8.4 Backups export only stored theme palettes: drop the `customColors` key from export and import. Verify: suite passes.
 - [x] 8.5 Transfer test fixtures report `UpgradeFloor::kRelease` instead of a literal version. Verify: `tst_datamigrationcommandpolicy` passes.
 
+## 9. Review fixes (code review and Codex)
+
+- [x] 9.1 Make the floor schema-only: drop the release constant from `upgradefloor.h`, and stop the refusal text and the launch notice naming a floor release (the notice had hard-coded it). Verify: grep finds no floor release literal outside docs.
+- [x] 9.2 Gate transfers on the source's schema: the manifest reports `shotSchemaVersion`, the client refuses a source below the floor at connect, and for a source too old to report it, shots import first and a refusal clears the rest of the queue. Verify: `tst_datamigrationcommandpolicy` cases for a below-floor manifest and for an unreported source whose database is below the floor (no settings fetched).
+- [x] 9.3 Treat a desktop shot database found only under the pre-1.5.6 "Decenza DE1" app name as below the floor at launch, so no fresh database blocks 2.1.0's app-name move. Verify: read the startup path; covered by manual check 7.3.
+
 ## Workflow follow-up
 
 - Open the PR, then run `/pr-review-toolkit:review-pr` before merging.

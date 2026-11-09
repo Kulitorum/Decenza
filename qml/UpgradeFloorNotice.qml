@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 
-// Shown instead of the app when the shot database predates 2.0.7. main() loads
+// Shown instead of the app when the shot database is below the upgrade floor. main() loads
 // it before Settings exists, so it uses no Decenza singleton, and its text is
 // English: TranslationManager needs Settings, and constructing Settings is what
 // this check exists to avoid.
@@ -16,7 +16,7 @@ ApplicationWindow {
     title: "Decenza"
 
     readonly property string message: "This version of Decenza can't open your data yet. It was last used "
-        + "by a release older than 2.0.7.\n\nInstall Decenza " + steppingStoneRelease
+        + "by an older release.\n\nInstall Decenza " + steppingStoneRelease
         + " first and open it once to bring your data up to date, then install this version again. "
         + "Nothing has been changed."
 

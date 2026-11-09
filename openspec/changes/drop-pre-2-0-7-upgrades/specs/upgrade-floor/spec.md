@@ -7,9 +7,9 @@ Defines the oldest user data the app upgrades from, how a fresh install reaches 
 ## ADDED Requirements
 
 ### Requirement: The upgrade floor is shot database schema 41
-The app SHALL upgrade only data that has run Decenza 2.0.7 or later, identified by a shot database schema version of 41 or higher. Release 2.1.0 SHALL be named as the stepping stone for older data. The floor and the stepping-stone release SHALL each be defined once and used by every check and message below.
+The app SHALL upgrade only data whose shot database is at schema version 41 or higher; no release number defines the floor. Release 2.1.0 SHALL be named as the stepping stone for older data. The floor and the stepping-stone release SHALL each be defined once and used by every check and message below.
 
-#### Scenario: A 2.0.7 database upgrades
+#### Scenario: A schema-41 database upgrades
 - **WHEN** the app starts on a device whose shot database is at schema 41
 - **THEN** migrations 42 and up run and the app starts normally
 
@@ -28,10 +28,15 @@ Before any settings or database migration runs, the app SHALL read the shot data
 - **AND** the database file's tables, rows and schema version are unchanged
 - **AND** no settings key has been written
 
-#### Scenario: A 2.0.6 database is refused
+#### Scenario: A schema-40 database is refused
 - **GIVEN** a device whose shot database is at schema 40
 - **WHEN** the app starts
 - **THEN** the notice is shown and the app exits on confirm without modifying any data
+
+#### Scenario: Data under the pre-1.5.6 app name is refused
+- **GIVEN** a desktop install with no shot database under the current app name and one under "Decenza DE1"
+- **WHEN** the app starts
+- **THEN** the notice is shown and the app exits without creating a database
 
 #### Scenario: Refused data still upgrades through the stepping stone
 - **GIVEN** a device that was refused and then had Decenza 2.1.0 installed and launched once
@@ -55,10 +60,10 @@ When the launch check cannot read a schema version from an existing database, it
 - **AND** if the database proves to be below the floor, the database layer stops before changing it and reports the failure
 
 ### Requirement: A fresh install starts at the floor schema
-When no shot database exists, the app SHALL create the schema that a 2.0.7 database has, stamp it at version 41, and then run migrations 42 and up. A fresh install SHALL end with the same tables, columns, indexes and triggers as a 2.0.7 database upgraded by the same release.
+When no shot database exists, the app SHALL create the schema-41 tables directly, stamp it at version 41, and then run migrations 42 and up. A fresh install SHALL end with the same tables, columns, indexes and triggers as a schema-41 database upgraded by the same release.
 
 #### Scenario: Fresh install matches an upgraded database
-- **GIVEN** a fresh install and a database created by 2.0.7
+- **GIVEN** a fresh install and a database a fresh install of 2.0.7 created
 - **WHEN** both are opened by the new release
 - **THEN** both end at the same schema version
 - **AND** their tables, columns, indexes and triggers are the same
@@ -68,23 +73,29 @@ When no shot database exists, the app SHALL create the schema that a 2.0.7 datab
 - **THEN** no refusal notice is shown and the app starts normally
 
 ### Requirement: Restores and transfers refuse sources older than the floor
-Restoring a backup and receiving a device-to-device transfer SHALL read the source database's schema version before applying anything. A source below the floor, or one with no schema version, SHALL be refused with a message naming Decenza 2.1.0 as the release to restore it in. Nothing from that source SHALL be applied, including settings, profiles and media in the same archive.
+Restoring a backup and receiving a device-to-device transfer SHALL refuse a source whose shot database is below the floor, or has no schema version, with a message naming Decenza 2.1.0 as the release to restore it in. Nothing from that source SHALL be applied, including settings, profiles and media. A transfer source reports its schema in its manifest; for a source that does not, the shot database SHALL be imported first and a refusal SHALL stop the rest of the transfer.
 
 #### Scenario: A backup from 1.8 is refused
 - **WHEN** the user restores a backup whose shot database is at schema 23
 - **THEN** the restore fails with a message naming Decenza 2.1.0
 - **AND** the device's shots, settings, profiles and media are unchanged
 
-#### Scenario: A transfer from a 2.0.5 device is refused
+#### Scenario: A transfer of a schema-40 database is refused
 - **WHEN** a device-to-device transfer delivers a shot database at schema 40
 - **THEN** the transfer reports the refusal with a message naming Decenza 2.1.0
 - **AND** nothing from the source is imported
 
-#### Scenario: A backup from 2.0.7 restores
+#### Scenario: A source that does not report its schema stops at its database
+- **GIVEN** a transfer source whose manifest reports no schema and whose shot database is at schema 40
+- **WHEN** the user imports everything from it
+- **THEN** the transfer fails with a message naming Decenza 2.1.0
+- **AND** no settings are fetched or applied
+
+#### Scenario: A schema-41 backup restores
 - **WHEN** the user restores a backup whose shot database is at schema 41
 - **THEN** the restore proceeds, filling columns the source lacks as it does today
 
 #### Scenario: A settings-only file is not version-gated
 - **WHEN** the user imports a settings export that carries no shot database
 - **THEN** the import proceeds
-- **AND** keys that only pre-2.0.7 releases wrote are ignored
+- **AND** keys that only releases below the floor wrote are ignored

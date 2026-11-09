@@ -6,7 +6,7 @@ Every launch still carries the code needed to upgrade any database and settings 
 
 ## What Changes
 
-- **BREAKING**: The new release upgrades only from data that has run 2.0.7 or later (shot database schema 41). Older data is refused, never modified.
+- **BREAKING**: The new release upgrades only data whose shot database is at schema 41 or higher (first shipped in 2.0.6). Older data is refused, never modified.
 - A launch-time check reads the shot database's schema version before any settings or database migration runs. Below 41, it shows "install Decenza 2.1.0 first" and exits on confirm, writing nothing.
 - A fresh install creates the schema-41 tables directly, then runs migrations 42 and up. It no longer replays the chain from version 1.
 - Restoring a backup and receiving a device transfer refuse a source database below schema 41, with the same stepping-stone message, before applying anything.

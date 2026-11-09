@@ -47,6 +47,8 @@ public:
     // Database lifecycle
     bool initialize(const QString& dbPath = QString());
     bool isReady() const { return m_ready; }
+    // The schema version this database reached on open; a transfer manifest reports it.
+    int schemaVersion() const { return m_schemaVersion; }
     // Migration 52's one-time notice for users who relied on per-bag grind recall.
     Q_INVOKABLE bool bagGrindNoticePending() const { return m_bagGrindNoticePending; }
     Q_INVOKABLE void acknowledgeBagGrindNotice();

@@ -402,13 +402,13 @@ void DataMigrationClient::onManifestReply()
         return;
     }
 
-    // Before anything is offered for import: a source below the upgrade floor
-    // has to transfer through the stepping-stone release instead.
-    const QString sourceVersion = doc.object().value(QStringLiteral("appVersion")).toString();
-    if (!UpgradeFloor::releaseSupported(sourceVersion)) {
-        DIAG_WARN(STORAGE, "DataMigrationClient") << "source reports release"
-                 << (sourceVersion.isEmpty() ? QStringLiteral("(none)") : sourceVersion)
-                 << "- below the upgrade floor" << UpgradeFloor::kRelease << "; transfer refused";
+    // A source that reports a schema below the upgrade floor is refused before
+    // anything is offered. One too old to report it is decided when its
+    // database arrives, which the import queue takes first.
+    const int sourceSchema = doc.object().value(QStringLiteral("shotSchemaVersion")).toInt();
+    if (sourceSchema > 0 && sourceSchema < UpgradeFloor::kSchemaVersion) {
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "source shot schema" << sourceSchema
+                 << "is below the upgrade floor" << UpgradeFloor::kSchemaVersion << "; transfer refused";
         setError(translateOrFallback(m_translationManager, QString::fromLatin1(UpgradeFloor::kSourceTooOldKey),
                                      UpgradeFloor::sourceTooOldMessage()));
         emit connectionFailed(m_errorMessage);
@@ -563,8 +563,11 @@ void DataMigrationClient::startImport(const QStringList& types)
     }
     m_receivedBytes = 0;
 
-    // Set up the import queue
+    // Shots first: whether the source is below the upgrade floor is certain only
+    // once its database arrives, and nothing else may be applied before that.
     m_importQueue = types;
+    if (const qsizetype shots = m_importQueue.indexOf(QStringLiteral("shots")); shots > 0)
+        m_importQueue.move(shots, 0);
 
     startNextImport();
 }
@@ -1380,10 +1383,11 @@ void DataMigrationClient::onShotsReply()
             if (!saved) {
                 self->setErrorIfFirst(self->tr("The shot history download could not be saved."));
             } else if (!success) {
-                if (shotImport.sourceTooOld)
+                if (shotImport.sourceTooOld) {
                     self->setErrorIfFirst(translateOrFallback(self->m_translationManager,
                         QString::fromLatin1(UpgradeFloor::kSourceTooOldKey), UpgradeFloor::sourceTooOldMessage()));
-                else if (!shotImport.integrityFailure.isEmpty())
+                    self->m_importQueue.clear();
+                } else if (!shotImport.integrityFailure.isEmpty())
                     self->setErrorIfFirst(self->tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
                 else
                     self->setErrorIfFirst(self->tr("Shots could not be imported. Your existing shots were not changed."));
