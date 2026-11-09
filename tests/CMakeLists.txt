@@ -1525,8 +1525,6 @@ add_decenza_test(tst_decentscalewifi
 )
 target_link_libraries(tst_decentscalewifi PRIVATE
     Qt6::WebSockets
-    Qt6::WebSocketsPrivate
-    Qt6::CorePrivate
     # name() formats its label through WifiScaleResultUtil so the WiFi scale is
     # spelled identically everywhere it is shown.
     decenza_wifiscaleresultlib

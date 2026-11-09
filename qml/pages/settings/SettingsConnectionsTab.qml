@@ -2707,6 +2707,15 @@ Item {
                                     connectionsTab.knownScales.length > visibleRows
                                 readonly property int scrollBarWidth: Theme.scaled(6)
 
+                                // Only the primary is ever connected, except the WiFi-to-Bluetooth
+                                // fallback and a plugged-in USB scale. Both change the transport,
+                                // so a type mismatch means a different scale is the connected one.
+                                readonly property bool primaryConnected: {
+                                    const i = indexOfPrimary()
+                                    return i >= 0 && scaleStatusHelper.isConnected
+                                        && connectionsTab.scaleState.type === connectionsTab.knownScales[i].type
+                                }
+
                                 function indexOfPrimary() {
                                     var scales = connectionsTab.knownScales
                                     for (let i = 0; i < scales.length; i++) {
@@ -2787,11 +2796,8 @@ Item {
                                         Layout.preferredWidth: Theme.scaled(8)
                                         Layout.preferredHeight: Theme.scaled(8)
                                         radius: Theme.scaled(4)
-                                        // scaleStatusHelper, not connectionsTab.scaleState.connected: after a
-                                        // physical scale is released the app falls back to
-                                        // FlowScale, which reports connected — the raw check lit
-                                        // this dot green next to a device just unplugged.
-                                        color: scaleStatusHelper.isConnected
+                                        // Green only for the scale shown here (see primaryConnected).
+                                        color: scalePicker.primaryConnected
                                                ? Theme.successColor
                                                : Theme.textSecondaryColor
                                         Accessible.ignored: true

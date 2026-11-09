@@ -352,6 +352,7 @@ void NativeSettingsConnectionsServiceSource::refreshSnapshot()
         snapshot.insert(QStringLiteral("scale"), QVariantMap{
             {QStringLiteral("connected"), scale->connected()},
             {QStringLiteral("name"), scale->name()},
+            {QStringLiteral("type"), scale->type()},
             {QStringLiteral("isFlowScale"), scale->isFlowScale()},
             {QStringLiteral("isSimulated"), scale->isSimulated()},
             {QStringLiteral("batteryLevel"), scale->batteryLevel()},

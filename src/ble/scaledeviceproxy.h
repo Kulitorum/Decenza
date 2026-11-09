@@ -89,6 +89,7 @@ public:
     QString firmwareVersion() const { return m_target ? m_target->firmwareVersion() : QString(); }
     bool supportsFirmwareUpdate() const { return m_target && m_target->supportsFirmwareUpdate(); }
     QString name() const { return m_target ? m_target->name() : QString(); }
+    QString type() const { return m_target ? m_target->type() : QString(); }
     bool isFlowScale() const { return m_target && m_target->isFlowScale(); }
     bool isSimulated() const { return m_target && m_target->isSimulated(); }
 
