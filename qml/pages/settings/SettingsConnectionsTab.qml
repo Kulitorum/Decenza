@@ -2707,13 +2707,15 @@ Item {
                                     connectionsTab.knownScales.length > visibleRows
                                 readonly property int scrollBarWidth: Theme.scaled(6)
 
-                                // Only the primary is ever connected, except the WiFi-to-Bluetooth
-                                // fallback and a plugged-in USB scale. Both change the transport,
-                                // so a type mismatch means a different scale is the connected one.
+                                // The WiFi-to-Bluetooth fallback connects without becoming primary
+                                // (isFallbackConnect, main.cpp), so it shows as a transport mismatch.
+                                // Compare transports, not type ids: an Acaia is saved as "acaia" and
+                                // reports "acaiapyxis" once it picks the Pyxis protocol.
                                 readonly property bool primaryConnected: {
                                     const i = indexOfPrimary()
                                     return i >= 0 && scaleStatusHelper.isConnected
-                                        && connectionsTab.scaleState.type === connectionsTab.knownScales[i].type
+                                        && transportLabel(connectionsTab.scaleState.type)
+                                           === transportLabel(connectionsTab.knownScales[i].type)
                                 }
 
                                 function indexOfPrimary() {

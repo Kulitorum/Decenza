@@ -182,7 +182,6 @@ private:
     // to log a delivery failure for the power-off command.
     bool send(const QString& text);
 
-
     // Tear down the current m_socket and replace it with a fresh QWebSocket
     // before each connect attempt. Reusing a single QWebSocket across multiple
     // open()/abort() cycles surfaces a Qt-internal state-staleness bug where
