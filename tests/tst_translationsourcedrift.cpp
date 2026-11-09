@@ -972,7 +972,7 @@ private slots:
         QCOMPARE(tm.importTranslation(path, QStringLiteral("qab")).value(QStringLiteral("reason")).toString(), QStringLiteral("languageMismatch"));
         QVERIFY(!QFile::exists(tm.languageFilePath(QStringLiteral("qaa"))));
         QVERIFY(writeInput(QStringLiteral("Wert")));
-        QCOMPARE(tm.importTranslation(path).value(QStringLiteral("reason")).toString(), QStringLiteral("invalidPlaceholders"));
+        QCOMPARE(tm.importTranslation(path).value(QStringLiteral("reason")).toString(), QStringLiteral("invalidTranslation"));
         QVERIFY(writeInput(QStringLiteral("Wert %1")));
         const QString destination = tm.languageFilePath(QStringLiteral("qaa"));
         QFile existing(destination);
@@ -1250,6 +1250,13 @@ private slots:
         // Repetition is harmless: QString::arg replaces every occurrence of %1.
         QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("%1 and %1 again")),
                  TranslationManager::placeholderSet(QStringLiteral("%1")));
+
+        // arg() reads two digits, so Turkish "%90" (90%) is prose, not %9...
+        QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("Pili %90-95 arasında tutar")),
+                 TranslationManager::placeholderSet(QStringLiteral("Keeps battery at 90-95%")));
+        // ...and "%15" is not a %1 that survived.
+        QVERIFY(TranslationManager::placeholderSet(QStringLiteral("%15 dakika"))
+                != TranslationManager::placeholderSet(QStringLiteral("%1 5 minutes")));
     }
 
     // A community download cannot reintroduce a placeholder-broken string either.
@@ -1281,6 +1288,41 @@ private slots:
         QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild %1 von %2")}}));
         QCOMPARE(tm.translateString(key, QStringLiteral("Background image %1 of %2")),
                  QStringLiteral("Hintergrundbild %1 von %2"));
+
+        // A source cut off at an escaped quote translated to a bare "\", which has no
+        // placeholder to fail on. It is not merged over a good value either.
+        const QString quoted = QStringLiteral("hint.quoted");
+        tm.registerString(quoted, QStringLiteral("\"What AI apps can do\" sets both of these."));
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{quoted, QStringLiteral("„Was KI-Apps tun können“ legt beides fest.")}}));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("no letters or digits")));
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{quoted, QStringLiteral("\\")}}));
+        QCOMPARE(tm.m_translations.value(quoted), QStringLiteral("„Was KI-Apps tun können“ legt beides fest."));
+    }
+
+    // An upload replaces the server copy for every user of the language, so a stale broken value
+    // in a local file must not travel with it: that is how a repaired server copy gets re-broken.
+    void anUploadWithholdsBrokenTranslations()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+        tm.registerString(QStringLiteral("good"), QStringLiteral("Profile \"%1\" is missing"));
+        tm.registerString(QStringLiteral("lostPlaceholder"), QStringLiteral("Profile \"%1\" is missing"));
+        tm.registerString(QStringLiteral("bareBackslash"), QStringLiteral("\"What AI apps can do\" sets both."));
+        tm.m_translations[QStringLiteral("good")] = QStringLiteral("Profil „%1“ fehlt");
+        tm.m_translations[QStringLiteral("lostPlaceholder")] = QStringLiteral("Profil \\");
+        tm.m_translations[QStringLiteral("bareBackslash")] = QStringLiteral("\\");
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Not uploading translation for lostPlaceholder")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Not uploading translation for bareBackslash")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("withheld 2 broken")));
+        tm.submitTranslation();
+
+        const QJsonObject sent = QJsonDocument::fromJson(tm.m_pendingUploadData).object()
+                                     .value(QStringLiteral("translations")).toObject();
+        QCOMPARE(sent.value(QStringLiteral("good")).toString(), QStringLiteral("Profil „%1“ fehlt"));
+        QVERIFY(!sent.contains(QStringLiteral("lostPlaceholder")));
+        QVERIFY(!sent.contains(QStringLiteral("bareBackslash")));
     }
 
     // The scanner must not capture across a line.

@@ -437,6 +437,11 @@ private:
     // Placeholders a string carries, e.g. {1, 2} for "%1 of %2". A translation must carry the
     // same set: reordering is fine and expected, losing or inventing one is not.
     static QSet<int> placeholderSet(const QString& text);
+    // Why `translation` cannot stand in for `source`, or empty when it can (or either is empty).
+    // The one rule every path that applies or uploads a translation checks.
+    static QString translationDefect(const QString& source, const QString& translation);
+    // The language file as saved and uploaded: metadata for the current language plus `translations`.
+    QJsonObject currentLanguageDocument(const QJsonObject& translations) const;
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
     [[nodiscard]] bool saveAiTranslations();
