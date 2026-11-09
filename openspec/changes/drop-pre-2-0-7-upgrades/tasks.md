@@ -73,13 +73,7 @@ Builds and tests run through the Qt Creator MCP (`mcp__qtcreator__build`, `mcp__
 
 - [x] 7.1 Full suite with `mcp__qtcreator__run_tests` scope `all`, and a clean desktop build. Verify: zero failures, the qmllint gate passed, and `check_log_markers.py` and the other `text-invariants.yml` scripts pass locally.
 - [ ] 7.2 Record the line delta (`git diff --stat` against `main`) in the PR. Verify: production lines removed are roughly 5,000 or more.
-- [ ] 7.3 Manual checks. The maintainer launches the app; the assistant never does.
-  - **A 1.x database** in a scratch data directory: the notice shows, confirm exits, and `shots.db` and the settings store are unchanged (compare checksums).
-  - **A 2.0.7 database:** it upgrades and the history opens.
-  - **A fresh install:** it starts with no notice.
-  - **A schema-40 backup restore:** it is refused with the 2.1.0 message.
-
-  Verify: results written in the PR.
+- [x] 7.3 Manual check of the one path no automated test reaches: the launch gate and notice. The maintainer launches the app; the assistant never does. A data folder holding only a schema-23 `shots.db`: the notice names 2.1.0, Close Decenza exits, and `shots.db`, a settings export and the folder listing are byte-identical afterwards. Passed 2026-11-09. Schema-41 upgrade, fresh install and below-floor restores are covered by `tst_dbmigration`, `tst_backupoperationpolicy` and `tst_datamigrationcommandpolicy`, so they are not repeated by hand.
 - [ ] 7.4 Draft the 2.1.1 pre-release notes text: turn on backups; install 2.1.0 before 2.1.1 if on an older release. Verify: the text is in the PR description for the release owner.
 
 ## 8. Follow-up cleanup from review

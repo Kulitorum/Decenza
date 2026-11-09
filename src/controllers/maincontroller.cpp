@@ -600,20 +600,20 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_shotHistory->requestProfileUsage();
 
     // Coffee bag storage shares the shot history database (coffee_bags
-    // table, created by migration 19 inside initialize() above).
+    // table, created by initialize() above).
     m_bagStorage = new CoffeeBagStorage(this);
     m_bagStorage->initialize(m_shotHistory->databasePath());
     m_settings->dye()->setBagStorage(m_bagStorage);
 
     // Equipment storage shares the same database (equipment_packages +
-    // equipment_items tables, created by migration 22). The active package is
+    // equipment_items tables, created by initialize() above). The active package is
     // dye/activeEquipmentId.
     m_equipmentStorage = new EquipmentStorage(this);
     m_equipmentStorage->initialize(m_shotHistory->databasePath());
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
 
 
-    // Recipe storage shares the same database (recipes table, migration 25).
+    // Recipe storage shares the same database (recipes table).
     // Wired BEFORE the clearBrewOverrides connection below on purpose: the
     // deactivate-on-bag-swap watcher inside must see the swap first, so the
     // override reset that follows a bag change cannot be stamped onto a
@@ -623,7 +623,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         return m_profileManager->recipeBrewDefaultsSnapshot();
     });
     m_recipeStorage->initialize(m_shotHistory->databasePath());
-    // Migration 31's deferred temp-offset conversion must be queued on the
+    // The deferred temp-offset conversion must be queued on the
     // serialized recipe worker BEFORE setupRecipeConnections() — whose tail
     // enqueues the startup active-recipe restore read — so that read (and
     // every later one; the worker is FIFO) sees converted values. Queued
@@ -4001,8 +4001,8 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     // A shot that never latched is SKIPPED rather than computed against the live
     // multiplier. Substituting one would put an ideal derived from an assumed
     // calibration into a median whose whole premise is that every member was
-    // measured under the same one — the premise v4, v5 and v6 each clear the
-    // accumulator to protect. It would also disagree with the record: that shot
+    // measured under the same one — the premise the v4–v6 batch clears
+    // protected. It would also disagree with the record: that shot
     // saves flow_calibration as NULL, so the database would say "unknown" while
     // the batch had consumed a guess, and nobody replaying the column could
     // reproduce the number.

@@ -30,6 +30,7 @@ ApplicationWindow {
         Text {
             width: parent.width
             text: window.message
+            color: window.palette.windowText
             wrapMode: Text.Wrap
             font.pixelSize: 18
             Accessible.role: Accessible.StaticText

@@ -717,9 +717,7 @@ private slots:
             QCOMPARE(q.value(7).toString(), QString("2026-06-05")); // shot opened_date carried
             QCOMPARE(q.value(8).toString(), QString("airtight"));   // bag storage_hint carried
             QCOMPARE(q.value(9).toString(), QString("2026-06-05")); // bag opened_date carried
-            // add-ai-taste-intake: taste columns carry across transfer. This also
-            // guards the positional bind-order in importDatabaseStatic — a shifted
-            // bind would corrupt these or the adjacent recipe/steam columns.
+            // add-ai-taste-intake: taste columns carry across transfer.
             QCOMPARE(q.value(10).toString(), QString("sour"));      // taste_balance carried
             QCOMPARE(q.value(11).toString(), QString("heavy"));     // taste_body carried
             // Decent upload state carries, so a migrated history is not uploaded again.

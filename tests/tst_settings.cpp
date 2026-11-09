@@ -112,12 +112,6 @@ private:
 
 private slots:
 
-    // A brand-new install is not "no keys at all". One-time migrations run before
-    // Settings is constructed and stamp their done-flags unconditionally — including
-    // on a fresh install, where there is nothing to migrate. Counting those made
-    // every install look like an upgrade, so the constructor's one-shot blocks seeded
-    // legacy defaults (e.g. two-tap steam stop) for users who should get the current
-    // ones.
     // Remote MCP no longer needs the local MCP switch. A store holding Remote Access
     // on with MCP off had remote MCP OFF, and must not come up with the public
     // connector running after the upgrade; one with both on keeps it.

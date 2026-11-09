@@ -219,7 +219,7 @@ struct InventoryBag {
 };
 
 // SQLite-backed bag storage in the shot history database (coffee_bags table,
-// created by ShotHistoryStorage migration 19). All public request* methods are
+// created by ShotHistoryStorage::createTables()). All public request* methods are
 // async: DB work runs on a QThread::create() background thread and results are
 // delivered back via signals, following the ShotHistoryStorage pattern. The
 // *Static helpers are synchronous, take a caller-provided connection, and are
@@ -344,7 +344,7 @@ public:
 
     // --- Synchronous static helpers (caller provides the connection) ---
 
-    // Create the coffee_bags table if missing. Used by migration 19 and tests.
+    // Create the coffee_bags table if missing. Used by the createTables() baseline and tests.
     static bool ensureTableStatic(QSqlDatabase& db);
 
     static qint64 insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag);
@@ -410,9 +410,7 @@ public:
     // caller can remap shots.bag_id. Merge mode maps a source bag matching an
     // existing dest bag (case-insensitive roaster+coffee+roastDate) to the
     // existing row instead of inserting a duplicate; replace mode clears
-    // dest bags first. Source DBs from before migration 19 have no
-    // coffee_bags table — returns true with an empty map. Runs inside the
-    // caller's destDb transaction.
+    // dest bags first. Runs inside the caller's destDb transaction.
     static bool importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                  QHash<qint64, qint64>& outIdMap);
 

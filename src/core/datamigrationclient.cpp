@@ -1322,22 +1322,27 @@ void DataMigrationClient::onShotsReply()
         return;
     }
 
-    if (reply->error() != QNetworkReply::NoError) {
-        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import shots:" << reply->errorString();
-        setErrorIfFirst(tr("The shot history could not be fetched from the other device."));
+    // A source that did not report its schema was never confirmed at the floor
+    // unless its database imports, so nothing else from it may follow a failure.
+    const auto failShotsStep = [this](const QString& message) {
+        setErrorIfFirst(message);
         if (!m_sourceSchemaReported)
             m_importQueue.clear();
+        startNextImport();
+    };
+
+    if (reply->error() != QNetworkReply::NoError) {
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import shots:" << reply->errorString();
         reply->deleteLater();
         m_currentReply = nullptr;
-        startNextImport();
+        failShotsStep(tr("The shot history could not be fetched from the other device."));
         return;
     }
 
     if (!m_shotHistory) {
-        setErrorIfFirst(tr("The shot history store is unavailable."));
         reply->deleteLater();
         m_currentReply = nullptr;
-        startNextImport();
+        failShotsStep(tr("The shot history store is unavailable."));
         return;
     }
 
@@ -1350,8 +1355,7 @@ void DataMigrationClient::onShotsReply()
     auto directory = std::make_shared<QTemporaryDir>();
     QObject* context = QCoreApplication::instance();
     if (!directory->isValid() || !context) {
-        setErrorIfFirst(tr("The shot history download could not be saved."));
-        startNextImport();
+        failShotsStep(tr("The shot history download could not be saved."));
         return;
     }
     const QString tempDbPath = directory->filePath(QStringLiteral("shots.db"));

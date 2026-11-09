@@ -1608,10 +1608,8 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
                                                    const QHash<QString, double>& profileTempsByTitle,
                                                    int* outConvertedCount)
 {
-    // Migration 31 data pass (recipe-relative-temp-offset): rows whose
-    // temp_offset_c is NULL are unconverted — either migration 31 just added
-    // the column, or an unconverted-source import marked them
-    // (importRecipesStatic). Converted rows always hold an explicit value
+    // Deferred temp-offset pass (recipe-relative-temp-offset): rows whose
+    // temp_offset_c is NULL were staged unconverted by importRecipesStatic. Converted rows always hold an explicit value
     // (bindDblSigned never writes NULL), so the pass is idempotent and
     // re-runs are no-ops. The profile's CURRENT temperature is the anchor
     // (catalog snapshot first — the files are the live truth); the recipe's
@@ -1697,13 +1695,11 @@ void RecipeStorage::requestLegacyTempOffsetConversion(const QHash<QString, doubl
             // report success and emit a spurious recipesChanged() (QML
             // inventory refresh) on every launch — the probe keeps the
             // steady state signal-free. Its own exec failing is NOT "nothing
-            // to convert": most plausibly the column is missing (migration 31
-            // failed and will retry), and staying silent here would hide that
-            // on every launch.
+            // to convert", and staying silent here would hide the failure on
+            // every launch.
             QSqlQuery probe(db);
             if (!probe.exec("SELECT 1 FROM recipes WHERE temp_offset_c IS NULL LIMIT 1")) {
-                DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion probe failed"
-                              "(temp_offset_c column missing? migration 31 will retry):"
+                DIAG_WARN(RECIPES, "RecipeStorage") << "temp-offset conversion probe failed:"
                            << probe.lastError().text();
                 return;
             }

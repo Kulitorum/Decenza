@@ -270,7 +270,7 @@ struct InventoryRecipe {
 };
 
 // SQLite-backed recipe storage in the shot history database (recipes table,
-// created by ShotHistoryStorage migration 25). All public request* methods are
+// created by ShotHistoryStorage::createTables()). All public request* methods are
 // async: DB work runs on a serialized background worker and results are
 // delivered back via signals, following the CoffeeBagStorage pattern. The
 // *Static helpers are synchronous, take a caller-provided connection, and are
@@ -431,7 +431,7 @@ public:
 
     // --- Synchronous static helpers (caller provides the connection) ---
 
-    // Create the recipes table if missing. Used by migration 25 and tests.
+    // Create the recipes table if missing. Used by the createTables() baseline and tests.
     static bool ensureTableStatic(QSqlDatabase& db);
 
     // Stores recipe.equipmentId as its live package (see liveEquipmentId in
@@ -467,7 +467,7 @@ public:
     // bags only, most recently used first. Returns -1 when the recipe has no
     // bean identity or no open bag of that bean exists. NOT an activation
     // input anymore (activation uses the hard bag link) — this survives as
-    // the relink matching helper and the one-time migration-29 data pass.
+    // the relink matching helper.
     static qint64 resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recipe);
 
     // Migration 31 data pass (recipe-relative-temp-offset): convert the legacy
@@ -514,8 +514,7 @@ public:
     // Merge mode maps a source recipe matching an existing dest recipe
     // (case-insensitive name + profile_title + bean identity) to the existing
     // row instead of inserting a duplicate; replace mode clears dest recipes
-    // first. Source DBs from before migration 25 have no recipes table —
-    // returns true with an empty map. Runs inside the caller's destDb
+    // first. Runs inside the caller's destDb
     // transaction. packageIdMap remaps each source recipe's equipment_id to the
     // imported package's new dest id (EquipmentStorage::importEquipmentStatic
     // runs first); a source equipment_id absent from the map becomes NULL.

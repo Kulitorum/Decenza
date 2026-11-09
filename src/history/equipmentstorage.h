@@ -345,7 +345,7 @@ public:
     static EquipmentMergeResult mergePackagesStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
 
     // The merge body without a transaction of its own, for a caller that already
-    // owns one (the migration heal below — DbWriteTxn refuses to nest, and
+    // owns one (mergePackagesStatic — DbWriteTxn refuses to nest, and
     // adopting an outer transaction would let a rejection leave partial writes
     // staged in it). Returns with `ok` false and the writes NOT undone; the
     // caller's rollback is what cleans up.
@@ -403,8 +403,7 @@ public:
 
     // Calibration anchors. `side` is "fine" or "coarse"; a shotId of 0 clears it.
     // Callers run at the current schema. Merge and import are the two paths that can
-    // meet a database without the columns (the migration-35 heal merges before
-    // migration 46; an old backup), and they check.
+    // meet a database without the columns (an imported database), and they check.
     static CalibrationAnchors loadCalibrationAnchorsStatic(QSqlDatabase& db, qint64 packageId);
     static bool setCalibrationAnchorStatic(QSqlDatabase& db, qint64 packageId,
                                            const QString& side, qint64 shotId);

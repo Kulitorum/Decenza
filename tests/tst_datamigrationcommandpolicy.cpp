@@ -620,6 +620,8 @@ private slots:
         QTest::newRow("settings only") << "importOnlySettings" << true << "source is below the upgrade floor" << tooOld;
         QTest::newRow("database unavailable") << "importOnlySettings" << false
                                               << "source database check download failed" << "could not be checked";
+        // Every shipped release omits the schema, so this is the ordinary transfer: it must go through.
+        QTest::newRow("at the floor") << "importOnlySettings" << true << QString() << QString();
     }
 
     void uncheckedSourceStopsBeforeOtherData()
@@ -630,8 +632,13 @@ private slots:
         QFETCH(QString, shown);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        const QByteArray database = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
+        QByteArray database = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
         QVERIFY(!database.isEmpty());
+        if (shown.isEmpty()) {
+            QFile fixture(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"));
+            QVERIFY(fixture.open(QIODevice::ReadOnly));
+            database = fixture.readAll();
+        }
 
         ShotHistoryStorage destination;
         QVERIFY(destination.initialize(directory.filePath(QStringLiteral("destination.db"))));
@@ -645,8 +652,10 @@ private slots:
         peer.responses["/api/backup/shots"] = databaseServed ? MigrationHttpFixture::Response{database, 200, false}
                                                              : MigrationHttpFixture::Response{{}, 500, false};
         peer.responses["/api/backup/settings"] = {"{}", 200, false};
+        Settings settings;
         MigrationServiceFixture fixture;
         fixture.client.setShotHistoryStorage(&destination);
+        fixture.client.setSettings(&settings);
         QVERIFY(fixture.initialize());
         QTRY_VERIFY(fixture.service->ready());
         QSignalSpy completed(fixture.service, &DataMigrationService::operationCompleted);
@@ -655,6 +664,13 @@ private slots:
         QTRY_COMPARE(completed.count(), 1);
         QVERIFY(completed.first().at(2).toBool());
 
+        if (shown.isEmpty()) {
+            fixture.service->execute(operation);
+            QTRY_COMPARE(peer.count("/api/backup/settings"), 1);
+            destination.close();
+            QTRY_VERIFY(destination.isDbWorkIdle());
+            return;
+        }
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(logged));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(shown));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("import finished with errors"));

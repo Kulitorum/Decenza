@@ -633,7 +633,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QVERIFY(hasTable(db, "recipes"));  // migration 25 (add-recipes)
+            QVERIFY(hasTable(db, "recipes"));  // createTables() baseline
             QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
         });
     }

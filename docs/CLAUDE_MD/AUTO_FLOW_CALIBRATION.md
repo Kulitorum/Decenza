@@ -309,7 +309,7 @@ The calibration multiplier is written to the DE1 via the existing `DE1Device::se
 
 ## Past One-Time Resets (Removed)
 
-Releases before the schema-41 upgrade floor ran one-time calibration migrations (`calibration/v2`–`v6` flags). v2 and v3 reset every multiplier to 1.0 after bad scale data had dragged values down to ~0.6; the ratio guards added alongside them are what fixed that, and v3's target-anchored formula change was wrong (its fixed point is √e) and v6 reversed it. v4–v6 cleared only pending batches, so no median mixed ideals from two window rules. The steps are gone and their flags are no longer read.
+Releases before the schema-41 floor ran one-time resets under `calibration/v2`–`v6`; the steps are gone and the flags are not read.
 
 ## Flow Calibration Recorded Per Shot
 

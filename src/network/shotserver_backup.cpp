@@ -139,7 +139,10 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
     if (m_storage) {
         manifest["shotCount"] = m_storage->totalShots();
         // Lets a receiving build check the upgrade floor before importing anything.
-        manifest["shotSchemaVersion"] = m_storage->schemaVersion();
+        // Omitted when storage never opened: its default would read as "too old",
+        // while an unreported schema makes the receiver check the database itself.
+        if (m_storage->isReady())
+            manifest["shotSchemaVersion"] = m_storage->schemaVersion();
         QString dbPath = m_storage->databasePath();
         QFileInfo dbInfo(dbPath);
         manifest["shotsSize"] = dbInfo.exists() ? dbInfo.size() : 0;

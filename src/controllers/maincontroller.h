@@ -1034,7 +1034,7 @@ private:
     // Wire the deactivation watchers + write-through stamps (called once
     // from the constructor after storages exist).
     void setupRecipeConnections();
-    // Migration 31's deferred data pass (recipe-relative-temp-offset): snapshot
+    // The deferred temp-offset conversion (recipe-relative-temp-offset): snapshot
     // the profile catalog's title→temperature map on the main thread and hand
     // it to RecipeStorage to convert legacy absolute temps into offsets. Run
     // at startup and re-run after imports that can land legacy-source rows.

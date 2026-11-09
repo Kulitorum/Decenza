@@ -1498,8 +1498,7 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
     // bug, and that judgement is already made and written down next door.
     //
     // Trimming is the other half and was missing entirely on the stored side.
-    // ShotHistoryStorage::grinderModelMatchSql folds case AND whitespace, and
-    // so does the enrichment-heal query further down THIS file, so a model
+    // ShotHistoryStorage::grinderModelMatchSql folds case AND whitespace, so a model
     // stored as " Niche Zero" was two grinders to this matcher and one to
     // every query that reads dial history. Forking a package is precisely what
     // detaches that history — #1713's mechanism — so two matchers disagreeing
@@ -1703,7 +1702,7 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     // because a THIRD package replaced it is still genuinely retired, and
     // reviving it puts a stale duplicate back in the inventory — with the same
     // derived name as its own successor, since a fork copies the name. That is
-    // reachable from the heal on a real database: A retired into B, then B
+    // reachable when a retired package is merged: A retired into B, then B
     // retired into C, and the heal folds A into B. loadInventoryStatic and
     // findPackageByGrinderIdentityStatic both key on in_inventory alone, so the
     // zombie would read as live gear to the Equipment page AND become a merge
@@ -1761,7 +1760,7 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     result.ok = true;
     // DEBUG, and worded as staged rather than done: this body writes inside SOMEONE
     // ELSE'S transaction and has committed nothing. The outcome line belongs to
-    // whoever commits — mergePackagesStatic below, or migration 35 for the heal.
+    // whoever commits — mergePackagesStatic below.
     EQUIP_LOG_STDERR("Merge",
                      QString("staged fold of package %1 into %2 - %3 shots, %4 recipes")
                          .arg(sourceId)
