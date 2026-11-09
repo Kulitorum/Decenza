@@ -439,12 +439,6 @@ if(ENABLE_UBSAN)
     if(MSVC)
         message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
     else()
-        # vptr (bad-downcast detection) needs the target type's typeinfo at
-        # link time, and Qt does not export typeinfo for its private classes on
-        # Linux. It was disabled while decentscalewifi.cpp downcast to
-        # QWebSocketPrivate ("undefined reference to `typeinfo for
-        # QWebSocketPrivate'"); a new downcast to a Qt private class breaks the
-        # Linux link the same way, and macOS links regardless.
         # The optional checks are PROBED, not assumed. `local-bounds` is
         # clang-only — GCC fails the whole compile with "unrecognized argument
         # to '-fsanitize=' option", which is how this was found: verified on
@@ -477,6 +471,15 @@ if(ENABLE_UBSAN)
         set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra}${_ubsan_halt} -fno-omit-frame-pointer")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
+        # GCC's vptr check links against `typeinfo for T` at every member call
+        # through a T*, and the narrow test libraries omit the TUs that define
+        # it, so test targets fail to link (nightly run 42580343443). Clang
+        # resolves the type at runtime and keeps the check. Branch on compiler
+        # id, not a probe: GCC accepts the flag, so a probe would pass.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            string(APPEND CMAKE_CXX_FLAGS " -fno-sanitize=vptr")
+            message(STATUS "UBSan: vptr disabled for GCC (link-time typeinfo references)")
+        endif()
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=undefined")
     endif()
