@@ -1,3 +1,4 @@
+#include "history/upgradefloor.h"
 #include <QtTest>
 #include "../src/remote/datamigrationcommandpolicy.h"
 #include "core/datamigrationclient.h"
@@ -69,7 +70,7 @@ public:
     {
         responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Disposable peer")},
-            {QStringLiteral("appVersion"), QStringLiteral("test")},
+            {QStringLiteral("shotSchemaVersion"), UpgradeFloor::kSchemaVersion},
             {QStringLiteral("aiConversationCount"), conversationCount},
             {QStringLiteral("aiConversationsSize"), 200000},
             {QStringLiteral("sessionToken"), QStringLiteral("must-not-cross-QtRO")}
@@ -267,6 +268,7 @@ private slots:
         QVERIFY(peer.listen());
         peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Peer")},
+            {QStringLiteral("shotSchemaVersion"), UpgradeFloor::kSchemaVersion},
             {QStringLiteral("hasSettings"), true}}).toJson(), 200, false};
         peer.responses["/api/backup/settings"] = {"{}", 200, false};
         peer.responses["/api/backup/extra-settings"] = {QJsonDocument(QJsonObject{
@@ -444,6 +446,7 @@ private slots:
         QVERIFY(peer.listen());
         peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Failure fixture")},
+            {QStringLiteral("shotSchemaVersion"), UpgradeFloor::kSchemaVersion},
             {QStringLiteral("hasSettings"), true}, {QStringLiteral("profileCount"), 1},
             {QStringLiteral("shotCount"), 1}, {QStringLiteral("mediaCount"), 1},
             {QStringLiteral("aiConversationCount"), 1}
@@ -567,7 +570,8 @@ private slots:
         QCOMPARE(completed.count(), 1);
         QCOMPARE(completed.first().at(0).toString(), id);
         QCOMPARE(completed.first().at(4).toString(), QStringLiteral("disconnected"));
-        peer.release("/api/backup/manifest", "{\"deviceName\":\"Late peer\"}");
+        peer.release("/api/backup/manifest", QStringLiteral("{\"deviceName\":\"Late peer\",\"shotSchemaVersion\":%1}")
+                         .arg(UpgradeFloor::kSchemaVersion).toUtf8());
         QTRY_VERIFY(!fixture.client.isConnecting());
         fixture.service->setNode(&fixture.node);
         QTRY_VERIFY(fixture.service->ready());
@@ -580,6 +584,103 @@ private slots:
         QCOMPARE(completed.last().at(0).toString(), disconnectId);
         QVERIFY(completed.last().at(2).toBool());
         QTRY_VERIFY(fixture.service->snapshot().value(QStringLiteral("serverUrl")).toString().isEmpty());
+    }
+
+    void manifestReportingABelowFloorSchemaIsRefused()
+    {
+        MigrationHttpFixture peer;
+        QVERIFY(peer.listen());
+        peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
+            {QStringLiteral("deviceName"), QStringLiteral("Old peer")},
+            {QStringLiteral("shotSchemaVersion"), UpgradeFloor::kSchemaVersion - 1},
+            {QStringLiteral("hasSettings"), true}}).toJson(QJsonDocument::Compact), 200, false};
+        MigrationServiceFixture fixture;
+        QVERIFY(fixture.initialize());
+        QTRY_VERIFY(fixture.service->ready());
+        QSignalSpy completed(fixture.service, &DataMigrationService::operationCompleted);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("below the upgrade floor"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("older release of Decenza"));
+        fixture.service->execute(QStringLiteral("connectToServer"), {{QStringLiteral("serverUrl"), peer.url()}});
+        QTRY_COMPARE(completed.count(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(fixture.client.manifest().isEmpty());
+    }
+
+    // A source too old to report its schema is checked by its database before
+    // anything is applied, whichever categories are imported; a database that
+    // cannot be checked refuses the transfer too.
+    void uncheckedSourceStopsBeforeOtherData_data()
+    {
+        QTest::addColumn<QString>("operation");
+        QTest::addColumn<bool>("databaseServed");
+        QTest::addColumn<QString>("logged");
+        QTest::addColumn<QString>("shown");
+        const QString tooOld = QLatin1String(UpgradeFloor::kSteppingStoneRelease);
+        QTest::newRow("import all") << "importAll" << true << "source is below the upgrade floor" << tooOld;
+        QTest::newRow("settings only") << "importOnlySettings" << true << "source is below the upgrade floor" << tooOld;
+        QTest::newRow("database unavailable") << "importOnlySettings" << false
+                                              << "source database check download failed" << "could not be checked";
+        // Every shipped release omits the schema, so this is the ordinary transfer: it must go through.
+        QTest::newRow("at the floor") << "importOnlySettings" << true << QString() << QString();
+    }
+
+    void uncheckedSourceStopsBeforeOtherData()
+    {
+        QFETCH(QString, operation);
+        QFETCH(bool, databaseServed);
+        QFETCH(QString, logged);
+        QFETCH(QString, shown);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QByteArray database = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
+        QVERIFY(!database.isEmpty());
+        if (shown.isEmpty()) {
+            QFile fixture(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"));
+            QVERIFY(fixture.open(QIODevice::ReadOnly));
+            database = fixture.readAll();
+        }
+
+        ShotHistoryStorage destination;
+        QVERIFY(destination.initialize(directory.filePath(QStringLiteral("destination.db"))));
+        QTRY_VERIFY(destination.isDbWorkIdle());
+        MigrationHttpFixture peer;
+        QVERIFY(peer.listen());
+        peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
+            {QStringLiteral("deviceName"), QStringLiteral("Unreported peer")},
+            {QStringLiteral("hasSettings"), true}, {QStringLiteral("shotCount"), 2},
+            {QStringLiteral("shotsSize"), database.size()}}).toJson(QJsonDocument::Compact), 200, false};
+        peer.responses["/api/backup/shots"] = databaseServed ? MigrationHttpFixture::Response{database, 200, false}
+                                                             : MigrationHttpFixture::Response{{}, 500, false};
+        peer.responses["/api/backup/settings"] = {"{}", 200, false};
+        Settings settings;
+        MigrationServiceFixture fixture;
+        fixture.client.setShotHistoryStorage(&destination);
+        fixture.client.setSettings(&settings);
+        QVERIFY(fixture.initialize());
+        QTRY_VERIFY(fixture.service->ready());
+        QSignalSpy completed(fixture.service, &DataMigrationService::operationCompleted);
+        QSignalSpy failed(&fixture.client, &DataMigrationClient::importFailed);
+        fixture.service->execute(QStringLiteral("connectToServer"), {{QStringLiteral("serverUrl"), peer.url()}});
+        QTRY_COMPARE(completed.count(), 1);
+        QVERIFY(completed.first().at(2).toBool());
+
+        if (shown.isEmpty()) {
+            fixture.service->execute(operation);
+            QTRY_COMPARE(peer.count("/api/backup/settings"), 1);
+            destination.close();
+            QTRY_VERIFY(destination.isDbWorkIdle());
+            return;
+        }
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(logged));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(shown));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("import finished with errors"));
+        fixture.service->execute(operation);
+        QTRY_COMPARE(failed.count(), 1);
+        QVERIFY2(failed.first().first().toString().contains(shown), qPrintable(failed.first().first().toString()));
+        QCOMPARE(peer.count("/api/backup/settings"), 0);
+        QCOMPARE(destination.totalShots(), 0);
+        destination.close();
+        QTRY_VERIFY(destination.isDbWorkIdle());
     }
 
     void shotWorkerRetainsItsLeaseAndAdmissionUntilPhysicalCompletion_data()
@@ -620,6 +721,7 @@ private slots:
         QVERIFY(peer.listen());
         peer.responses["/api/backup/manifest"] = {QJsonDocument(QJsonObject{
             {QStringLiteral("deviceName"), QStringLiteral("Shot fixture")},
+            {QStringLiteral("shotSchemaVersion"), UpgradeFloor::kSchemaVersion},
             {QStringLiteral("shotCount"), 1}, {QStringLiteral("shotsSize"), database.size()}
         }).toJson(QJsonDocument::Compact), 200, false};
         peer.responses["/api/backup/shots"] = {database, 200, false};

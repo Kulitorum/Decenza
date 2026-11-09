@@ -676,6 +676,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/library/LibraryPanel.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
 | `qml/components/qrcode.js` | 26 | native + Wasm | policy/data producer; `SettingsUpdateTab.qml` (20/24) |
 | `qml/main.qml` | 16 | native only | native window/device/screensaver lifecycle and bootstrap |
+| `qml/UpgradeFloorNotice.qml` | 16 | native only | native pre-Settings startup notice for data below the upgrade floor (drop-pre-2-0-7-upgrades) |
 | `qml/pages/AISettingsPage.qml` | 21 | native + Wasm | presentation; `AISettingsPage.qml` (21) |
 | `qml/pages/AutoFavoriteInfoPage.qml` | 18 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
 | `qml/pages/AutoFavoritesPage.qml` | 18 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |

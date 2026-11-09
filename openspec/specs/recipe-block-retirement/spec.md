@@ -5,6 +5,7 @@
 Retires the `recipe` block from Decenza's profile format. Covers removing the block on write and on sight, the one-time upgrade of saved profiles, promoting a set dose to `recommended_dose`, and a single dose field across every surface, with retired spellings rejected rather than applied.
 
 ## Requirements
+
 ### Requirement: No recipe block is written
 
 A profile Decenza serializes SHALL NOT contain a `recipe` key, because its editor parameters are reconstructed from the frames on every read. `recipe` SHALL remain listed as a key the serializer models, since that list is the unknown-key passthrough's exclusion list and removing the entry would re-emit stale blocks verbatim.
@@ -223,41 +224,3 @@ A dose value that cannot be read as a number SHALL be rejected, never coerced to
 #### Scenario: Malformed dose leaves the profile untouched
 - **WHEN** a dose argument cannot be read as a number
 - **THEN** the call is rejected and the stored dose and its enabled flag are unchanged
-
-### Requirement: A one-time upgrade brings saved profiles to the new shape
-
-A one-time pass SHALL rewrite already-saved profiles in the user, downloaded and SAF stores to
-remove the `recipe` key, promoting a set dose by the rule above. The pass SHALL run once and
-SHALL report what it changed and what it skipped.
-
-It SHALL NOT rewrite a profile whose conversion would lose anything other than the block, and it
-SHALL run in an order that does not defeat the lossless-conversion gate protecting legacy profile
-migration.
-
-#### Scenario: Saved profiles lose their blocks
-
-- **WHEN** the upgrade runs over a store containing profiles with recipe blocks
-- **THEN** each profile is rewritten without a `recipe` key
-- **AND** each profile's frames, targets and every other key are unchanged
-
-#### Scenario: The upgrade runs once
-
-- **WHEN** the upgrade has already completed
-- **THEN** a subsequent start does not rewrite profiles again
-
-#### Scenario: A legacy profile is not rewritten unaudited
-
-- **WHEN** the store holds a legacy-format profile carrying a block
-- **THEN** it is converted once through the audited path, not rewritten twice by two passes
-
-#### Scenario: A failed write does not lose a profile
-
-- **WHEN** rewriting a profile fails
-- **THEN** the original file is left intact and the failure is reported
-
-#### Scenario: An interrupted write does not lose a profile
-
-- **WHEN** a rewrite is interrupted partway — a full disk, a lost volume, a killed process
-- **THEN** the profile that was there before is still there afterwards
-- **AND** the upgrade has not recorded that profile as done
-

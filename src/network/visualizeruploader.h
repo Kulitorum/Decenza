@@ -132,10 +132,6 @@ public:
     // English fallback.
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
-    // PATCH `fields` (VisualizerSync::Field bits) of an already-uploaded shot;
-    // false if nothing was sent. Outside ShotUploads only for the migration-16
-    // back-sync, which carries its own id.
-    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData, quint32 fields);
     // The {"shot": ...} object of that PATCH. Pure, so the field-subset rule is
     // unit-tested.
     static QJsonObject buildShotUpdateBody(const ShotProjection& shotData, quint32 fields);
@@ -215,13 +211,6 @@ public:
     // device that never uploads a shot.
     void retrySyncPendingBags();
 
-    // One-time reconciliation support: fetch the user's shot list
-    // (GET /api/shots, paged) for shots whose start time (clock) is at
-    // or after windowStartEpoch. Emits shotListFetched with a
-    // QVariantList of {visualizerId, url, clockEpoch} maps, or
-    // shotListFailed on any HTTP/parse error (fail safe — caller does
-    // not advance its run-once flag on failure).
-    void fetchShotListSince(qint64 windowStartEpoch);
 
     // Repair the shots visualizer.coffee renamed from a borrowed canonical
     // record. `repairs` is the queue from
@@ -257,22 +246,10 @@ signals:
     // 0 when the upload had no associated local row (should not happen
     // on the normal paths).
     void uploadSucceededForShot(qint64 dbShotId, const QString& visualizerId, const QString& url);
-    void updateSuccess(const QString& visualizerId);
     void uploadFailed(const QString& error);
-    // Correlated failure for the PATCH path (updateShotOnVisualizer):
-    // carries the target visualizerId (empty
-    // only on the no-id guard path) plus whether the failure is permanent
-    // (HTTP 404 — the shot does not exist on Visualizer and never will),
-    // so queue-drain listeners (MainController's migration16 sync, #1431)
-    // can evict poison entries instead of retrying them on every boot.
-    // Emitted alongside uploadFailed, which remains uncorrelated by
-    // design for the UI status listeners.
-    void updateFailed(const QString& visualizerId, bool permanent, const QString& error);
     // Emitted when an upload attempt is rejected by policy rather than
     // an actual failure (maintenance profile, too-short shot). Listeners
-    // that track real failure conditions should NOT react to this. The
-    // migration-16 drain is safe by construction: it listens only to the
-    // PATCH-correlated updateFailed, which upload-policy skips never emit.
+    // that track real failure conditions should NOT react to this.
     void uploadSkipped(const QString& reason);
     // A send ShotUploads made is over, after its last attempt: an empty error and
     // skip reason mean it was uploaded, updated, or had nothing to send.
@@ -286,9 +263,6 @@ signals:
     // from the retry drain long after the edit) and the server's message for
     // a one-shot non-blocking toast (add-bag-detail-editing).
     void bagPushRejected(qint64 localBagId, const QString& bagName, const QString& message);
-    // Reconciliation list fetch results.
-    void shotListFetched(const QVariantList& shots);
-    void shotListFailed(const QString& error);
     // One queued shot needs nothing further — repaired, already correct, or gone
     // from visualizer.coffee. The caller clears its bean_repair_pending flag.
     void beanRepairSettled(qint64 shotId);
@@ -302,6 +276,9 @@ private slots:
     void onUpdateFinished(QNetworkReply* reply, const QString& visualizerId);
 
 private:
+    // PATCH `fields` (VisualizerSync::Field bits) of an already-uploaded shot;
+    // false if nothing was sent.
+    bool updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData, quint32 fields);
     // False if nothing was sent (unreadable or ineligible shot, no account).
     bool uploadShotFromHistory(const ShotProjection& shotData);
     // Ends this attempt of the job's send with `outcome` (ShotUploads may retry it).
@@ -313,7 +290,7 @@ private:
     // their seq was read.
     void clearJobDirty();
     // Records a failure as the running job's result; a PATCH failure only when it
-    // is the job's own (the migration-16 back-sync PATCHes outside jobs).
+    // is the job's own.
     void noteJobFailure(const QString& message, const QString& visualizerId = QString());
 
     QByteArray buildMultipartData(const QByteArray& jsonData, const QString& boundary);
@@ -328,10 +305,6 @@ private:
     bool validateUpload(const ShotProjection& shot);
     void sendUpload(const QByteArray& jsonData);
 
-    // Paged reconciliation fetch: accumulates results across pages,
-    // recurses until older than m_reconcileWindowStartEpoch or paging
-    // exhausted, then emits shotListFetched once.
-    void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
 
     // Take the next queued shot: GET it, compare against the app's values, and
     // PATCH only on a real difference. Emits beanRepairFinished when the queue
@@ -476,8 +449,7 @@ private:
     Send m_jobHow = Send::UploadOrUpdate;
     QString m_jobError;
     QString m_jobSkipReason;
-    // The visualizer id that job is PATCHing, so the migration-16 back-sync's
-    // PATCH does not end it.
+    // The visualizer id that job is PATCHing.
     QString m_jobVisualizerId;
     QHash<qint64, quint64> m_shotPushGeneration;
     QHash<qint64, quint64> m_bagPushGeneration;

@@ -270,7 +270,7 @@ struct InventoryRecipe {
 };
 
 // SQLite-backed recipe storage in the shot history database (recipes table,
-// created by ShotHistoryStorage migration 25). All public request* methods are
+// created by ShotHistoryStorage::createTables()). All public request* methods are
 // async: DB work runs on a serialized background worker and results are
 // delivered back via signals, following the CoffeeBagStorage pattern. The
 // *Static helpers are synchronous, take a caller-provided connection, and are
@@ -431,15 +431,12 @@ public:
 
     // --- Synchronous static helpers (caller provides the connection) ---
 
-    // Create the recipes table if missing. Used by migration 25 and tests.
+    // Create the recipes table if missing. Used by the createTables() baseline and tests.
     static bool ensureTableStatic(QSqlDatabase& db);
 
     // Stores recipe.equipmentId as its live package (see liveEquipmentId in
     // the .cpp); updateRecipeFieldsStatic does the same for an equipmentId key.
     static qint64 insertRecipeStatic(QSqlDatabase& db, const Recipe& recipe, WaterAmount::ValidationContext profileContext = {}, QString* waterError = nullptr);
-    // Migration 41: repoint recipes still linked to a package a grinder edit
-    // retired (edits used to move bags but not recipes). *healed = rows moved.
-    static bool healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed = nullptr);
     static Recipe loadRecipeStatic(QSqlDatabase& db, qint64 recipeId,
                                    bool* querySucceeded = nullptr);
     // True when a recipeReady()-shaped map represents a row that no longer
@@ -470,24 +467,8 @@ public:
     // bags only, most recently used first. Returns -1 when the recipe has no
     // bean identity or no open bag of that bean exists. NOT an activation
     // input anymore (activation uses the hard bag link) — this survives as
-    // the relink matching helper and the one-time migration-29 data pass.
+    // the relink matching helper.
     static qint64 resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recipe);
-
-    // Migration 29 data pass: populate bag_id for every recipe that has a
-    // bean identity but no bag link yet, using resolveOpenBagStatic (the old
-    // activation resolver's logic, run once). Recipes whose bean has no open
-    // bag keep bag_id NULL and present as stale. Idempotent (only touches
-    // NULL bag_id rows). Returns false when the pass could not run to
-    // completion (query/update failure) — the caller must NOT bump the
-    // schema version then, so the idempotent pass retries next launch
-    // instead of silently stranding every recipe stale forever.
-    static bool migrateBagLinksStatic(QSqlDatabase& db);
-
-    // Migration 30 data pass: copy each linked bag's grinder_setting/rpm into
-    // empty grind_pinned/rpm_pinned rows. Skips bags with no dial and leaves
-    // bag-less rows alone. False when the pass could not run (the caller must
-    // not bump the version).
-    static bool migrateGrindOwnershipStatic(QSqlDatabase& db);
 
     // Migration 31 data pass (recipe-relative-temp-offset): convert the legacy
     // absolute temp_override_c into the relative temp_offset_c. Touches ONLY
@@ -513,26 +494,6 @@ public:
     // marker and retry next launch.
     void requestLegacyTempOffsetConversion(const QHash<QString, double>& profileTempsByTitle);
 
-    // steam-heater-policy migration: recipes that named one of the user-created
-    // "Off" pitcher presets now removed from settings. Their steam block keeps
-    // hasMilk and milkWeightG but trades the pitcher fields for the
-    // {"heaterOff": true} marker, so the recipe still says "keep the boiler
-    // cold" instead of silently naming a pitcher that no longer exists — which
-    // the activation path would resurrect as a real preset, putting a second
-    // "Heater off" row in the picker.
-    //
-    // Matching is by name, case-insensitively, against `removedNames`. Driven by
-    // SettingsBrew::migratedHeaterOffNames(), so it runs only on the launch
-    // that migrated and is a no-op afterwards. Emits recipesChanged() when at
-    // least one row was rewritten.
-    static bool rewriteHeaterOffPitcherRecipesStatic(QSqlDatabase& db,
-                                                     const QStringList& removedNames,
-                                                     int* outRewrittenCount = nullptr);
-    // `onDone(true)` only when the pass completed; the caller uses it to decide
-    // whether the migration's name list may be discarded.
-    void requestHeaterOffPitcherRewrite(const QStringList& removedNames,
-                                        std::function<void(bool)> onDone = {});
-
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,
     // skipping dup-guard collisions. Returns the moved recipe ids (empty when
@@ -553,8 +514,7 @@ public:
     // Merge mode maps a source recipe matching an existing dest recipe
     // (case-insensitive name + profile_title + bean identity) to the existing
     // row instead of inserting a duplicate; replace mode clears dest recipes
-    // first. Source DBs from before migration 25 have no recipes table —
-    // returns true with an empty map. Runs inside the caller's destDb
+    // first. Runs inside the caller's destDb
     // transaction. packageIdMap remaps each source recipe's equipment_id to the
     // imported package's new dest id (EquipmentStorage::importEquipmentStatic
     // runs first); a source equipment_id absent from the map becomes NULL.

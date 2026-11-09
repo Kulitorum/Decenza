@@ -779,14 +779,6 @@ private:
     // afterward — the resort is positional, identity must survive it.
     void resortFavorites();
 
-    // One-time upgrade (rebuild-profile-picker): the removed Selected list —
-    // built-ins opted IN via the old selectedBuiltIns, downloaded/user
-    // profiles opted OUT via the old hiddenProfiles — folded into favorites,
-    // appended alphabetically by title after the existing favorites. Gated by
-    // SettingsApp::selectedMergedIntoFavorites(); called once from the
-    // constructor, after refreshProfiles() has populated m_allProfiles and
-    // before persistFavoriteProfileOrderIfAbsent() resolves the order mode.
-    void mergeSelectedIntoFavoritesIfNeeded();
 
 
     // Catalog lookup by title for the four KB surfaces. Returns nullptr when
@@ -861,11 +853,7 @@ private:
     // the startup load, where the ladder cannot yet be answered and the live
     // dose is already persisted.
     void applyRecommendedDoseIfProfileOwnsIt();
-    void migrateProfileFolders();
-    void migrateProfileFormat();
-    // One-time upgrade: remove the `recipe` block from already-saved profiles,
-    // promoting a set dose to recommended_dose. Replaces migrateRecipeFrames().
-    void stripStoredRecipeBlocks();
+    void ensureProfileFolders();
 
     enum class WriteBack { Written, Refused, Failed, NotWritable };
 
@@ -886,7 +874,6 @@ private:
     WriteBack writeProfileBackIfLossless(const QString& resolvedName, const QString& filePath,
                                          bool preferStorage, const Profile& profile,
                                          const QString& excludedKey, QStringList* parityOut);
-    void migrateReadOnlyProfiles();
     void createNewProfileWithEditorType(EditorType type, const QString& title);
     QString profilesPath() const;
     QString userProfilesPath() const;

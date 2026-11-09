@@ -96,8 +96,7 @@ class of bug, so they are named here together.
    shipped byte-identical 88 °C / 20 s / 9 bar blocks against frames saying 93–95 / 6–60 / 9–10,
    because their parameters had been established at some point in the past and then drifted. A
    cache no reader trusts still goes stale, so **nothing writes one now**, and a stored block is
-   removed on sight (`ProfileManager::stripStoredRecipeBlocks` at startup for what is already
-   saved, plus a write-back in `loadProfile` for anything that arrives later).
+   removed on sight by a write-back in `loadProfile` (2.0.1 also stripped every saved profile once).
 
    Three consequences worth knowing:
    - `recipe` **stays listed in `kKnownProfileKeys`** even though nothing reads or writes it. That
@@ -1017,7 +1016,7 @@ State lives on two `SettingsApp` properties:
 
 `ProfileSelectorPage` and the recipe wizard's profile step both host `qml/components/ProfilePicker.qml`: search, filter chips (Favorites, Source, Beverage), a sort control, bean-ranked tiers, and a virtualised `GridView` of `qml/components/ProfileCard.qml`. The host supplies bean identity and a beverage constraint (`allowedBeverageTypes` — the wizard's drink type; empty on the selector) and gets one `profileChosen(filename)` signal back; the host decides whether that loads the profile (selector) or only picks it for a recipe (wizard). `ProfileManager::filterProfiles()`/`facetCounts()` are the one predicate/facet-counter both hosts and the picker share — see `Profile::beverageBucket()` beside `beverageGroup()` for the four-way chip mapping (distinct from `beverageGroup()`, which folds maintenance types together for the ratio rule).
 
-There is no separate Selected list any more — favorites are the only membership, and the star on a card is the one way to join it. A one-time upgrade (`ProfileManager::mergeSelectedIntoFavoritesIfNeeded()`, gated by `SettingsApp::selectedMergedIntoFavorites()`) folds whatever the old Selected list named into favorites at first startup after the upgrade, appended alphabetically by title after the existing favorites, capped at 50.
+There is no separate Selected list any more — favorites are the only membership, and the star on a card is the one way to join it. (2.0.5 folded the old Selected list into favorites once.)
 
 Favorites order is a `SettingsApp::favoriteProfileOrder` setting (`custom|alpha|usage`, resolve-when-absent: existing favorites keep their hand-built order, a fresh install starts in usage order). The picker's Sort dropdown is grid-only (A–Z / Recently used, never persisted); the always-visible **Favorites…** button opens `ProfileFavoritesOrderDialog.qml`, the one place the setting is written, a drag-to-reorder dialog built on the shared `FavoritesListView`. `ProfileManager::resortFavorites()` re-sorts the stored list under `alpha`/`usage` and re-syncs `selectedFavoriteProfile` by filename, never by position. Per-profile usage (last shot, shot count) comes from `ShotHistoryStorage::requestProfileUsage()`, a threaded `GROUP BY profile_name` query keyed by title, refreshed at startup and after every shot save.
 

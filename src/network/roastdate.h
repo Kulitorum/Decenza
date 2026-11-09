@@ -7,8 +7,8 @@
 
 // Normalize a stored roast-date string to ISO yyyy-MM-dd for the Visualizer
 // payload. New (bean-bag) shots already store ISO, but legacy pre-bag shots
-// stored the user's *display* format (e.g. US "12.15.2025"), and the
-// migration-16 enjoyment re-sync ships those strings verbatim.
+// stored the user's *display* format (e.g. US "12.15.2025"), and uploading
+// one would ship that string verbatim.
 //
 // Visualizer parses roast_date server-side with Date.strptime(user's Visualizer
 // date format) and only falls back to a lenient Date.parse on failure

@@ -158,11 +158,6 @@ public:
     // timeSec / milkG. Guarded (both > 0). Turns weight-timed steaming on, matching
     // the old per-pitcher calibrate opt-in.
     Q_INVOKABLE void calibrateSteamFromReference(double milkG, double timeSec);
-    // Derive a global rate from the legacy per-pitcher (calibMilkG, duration) — first
-    // calibrated preset wins, 0 if none. Shared by the ctor migration and the backup-
-    // import re-seed. seed…() applies it (positive only) through the setter.
-    double deriveSteamRateFromLegacyPresets() const;
-    void seedSteamRateFromLegacyPresets();
 
     // Steam
     double steamTemperature() const;
@@ -265,16 +260,6 @@ public:
     // A recipe with no pitcher leaves the current selection unchanged.
     int resolveRecipePitcherOverride(int recipeIndex);
 
-    // Names of the user-created "Off" presets the constructor migration removed,
-    // for the recipe rewrite that cannot run here (it needs the database).
-    //
-    // Reading does NOT clear them. The rewrite is asynchronous and can fail, and
-    // an earlier version consumed the names up front — so a failed pass lost them
-    // forever and left those recipes naming a preset that no longer exists.
-    // The caller clears only once the pass reports success; until then the names
-    // stay and the rewrite retries on the next launch.
-    QStringList migratedHeaterOffNames() const;
-    void clearMigratedHeaterOffNames();
     // The synthetic entry itself, so callers that resolve a pitcher by index can
     // return it without knowing how it is assembled.
     static QVariantMap heaterOffPitcherEntry();

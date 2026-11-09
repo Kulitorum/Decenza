@@ -22,11 +22,9 @@
 
 #include "shotrowfixtures.h"
 
-// Test the ShotHistoryStorage schema creation and migration chain (v1->v15).
-//
-// Strategy: create a temp DB with an old schema (missing columns),
-// set schema_version to an old value, then call initialize() which runs
-// createTables() + runMigrations(). Verify columns, indexes, FTS, and data.
+// ShotHistoryStorage schema creation, the upgrade floor, and the migrations
+// above it. A migration test rewinds schema_version on a current database and
+// re-runs initialize().
 //
 // No de1app equivalent -- this is Decenza-internal storage.
 
@@ -46,72 +44,39 @@ static int getSchemaVersion(QSqlDatabase& db) {
     return q.next() ? q.value(0).toInt() : -1;
 }
 
-// After a full init, migration 23 has dropped grinder_brand/model/burrs from
-// shots + coffee_bags. Tests that rewind schema_version below 22 to re-exercise
-// an earlier migration then re-run the WHOLE chain — including migration 22,
-// which reads those columns to seed equipment packages. Production never rewinds
-// (the chain is monotonic, so the columns are always present when migration 22
-// runs), so restore them here to make the simulated "old version" DB schema-
-// faithful. ADD COLUMN is a no-op-safe failure when the column already exists.
-static void restoreLegacyGrinderColumns(QSqlDatabase& db) {
-    QSqlQuery q(db);
-    for (const char* table : {"shots", "coffee_bags"})
-        for (const char* col : {"grinder_brand", "grinder_model", "grinder_burrs"})
-            q.exec(QString("ALTER TABLE %1 ADD COLUMN %2 TEXT").arg(QLatin1String(table), QLatin1String(col)));
-}
-
-static void createV1Schema(QSqlDatabase& db) {
-    QSqlQuery q(db);
-    q.exec(R"(
-        CREATE TABLE shots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT UNIQUE,
-            timestamp INTEGER NOT NULL,
-            profile_name TEXT NOT NULL,
-            profile_json TEXT,
-            duration_seconds REAL NOT NULL,
-            final_weight REAL,
-            dose_weight REAL,
-            bean_brand TEXT,
-            bean_type TEXT,
-            roast_date TEXT,
-            roast_level TEXT,
-            grinder_model TEXT,
-            grinder_setting TEXT,
-            drink_tds REAL,
-            drink_ey REAL,
-            enjoyment INTEGER,
-            espresso_notes TEXT,
-            barista TEXT,
-            visualizer_id TEXT,
-            visualizer_url TEXT,
-            debug_log TEXT,
-            created_at INTEGER DEFAULT (strftime('%s', 'now')),
-            updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )
-    )");
-    q.exec(R"(
-        CREATE TABLE shot_samples (
-            shot_id INTEGER PRIMARY KEY REFERENCES shots(id) ON DELETE CASCADE,
-            sample_count INTEGER NOT NULL,
-            data_blob BLOB NOT NULL
-        )
-    )");
-    q.exec(R"(
-        CREATE TABLE shot_phases (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            shot_id INTEGER NOT NULL REFERENCES shots(id) ON DELETE CASCADE,
-            time_offset REAL NOT NULL,
-            label TEXT NOT NULL,
-            frame_number INTEGER,
-            is_flow_mode INTEGER DEFAULT 0
-        )
-    )");
-    // NOTE: Do NOT create shots_fts here. createTables() will create it
-    // with the correct column set. Creating it with fewer columns causes
-    // trigger/FTS column count mismatches when createTables() creates triggers.
-    q.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
-    q.exec("INSERT INTO schema_version (version) VALUES (1)");
+// Every table's columns (name, type, not-null, default, primary key), every
+// index's columns and every trigger's SQL, one line each, so two databases can
+// be compared regardless of column order or the whitespace a statement was
+// written with.
+static QStringList schemaSignature(QSqlDatabase& db) {
+    QStringList out;
+    QSqlQuery objects(db);
+    if (!objects.exec("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_autoindex%'"))
+        return {QStringLiteral("unreadable: ") + objects.lastError().text()};
+    while (objects.next()) {
+        const QString type = objects.value(0).toString();
+        const QString name = objects.value(1).toString();
+        if (type == QLatin1String("table")) {
+            QSqlQuery cols(db);
+            cols.exec(QString("PRAGMA table_info(%1)").arg(name));
+            while (cols.next())
+                out << QString("column %1.%2 %3 notnull=%4 default=%5 pk=%6")
+                           .arg(name, cols.value(1).toString(), cols.value(2).toString().toUpper(),
+                                cols.value(3).toString(), cols.value(4).toString(), cols.value(5).toString());
+        } else if (type == QLatin1String("index")) {
+            QStringList columns;
+            QSqlQuery cols(db);
+            cols.exec(QString("PRAGMA index_info(%1)").arg(name));
+            while (cols.next())
+                columns << cols.value(2).toString();
+            out << QString("index %1 on %2(%3)").arg(name, objects.value(2).toString(), columns.join(','));
+        } else if (type == QLatin1String("trigger")) {
+            out << QString("trigger %1 %2").arg(name, objects.value(3).toString().simplified()
+                                                          .remove(QStringLiteral("IF NOT EXISTS ")));
+        }
+    }
+    out.sort();
+    return out;
 }
 
 class tst_DbMigration : public QObject {
@@ -238,7 +203,6 @@ private:
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());
     }
-
 
 private slots:
     void waterResultAsyncWriterIsNarrowAndReportsFailure_data() {
@@ -400,9 +364,7 @@ private slots:
 
     // Reset the migration fault-injection seam before every test so a one-shot
     // fault set by one test can never leak into the next.
-    void init() { QTest::failOnWarning();
-        ShotHistoryStorage::s_faultInjectMigration = 0;
-    }
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // Fresh DB: full schema at v12
@@ -496,6 +458,171 @@ private slots:
         });
     }
 
+    void probeUpgradeFloorReadsWithoutWriting_data() {
+        // setup: "none" no file, "garbage" a text file, "empty" an SQLite file
+        // with no tables, "noversion" shots but no schema_version table,
+        // "emptyversion" both tables and no row, "vN" schema version N.
+        QTest::addColumn<QString>("setup");
+        QTest::addColumn<int>("expected");
+        using P = ShotHistoryStorage::UpgradeFloorProbe;
+        QTest::newRow("no file") << "none" << int(P::NoDatabase);
+        QTest::newRow("no tables") << "empty" << int(P::NoDatabase);
+        QTest::newRow("2.0.7") << "v41" << int(P::Supported);
+        QTest::newRow("2.1.0") << "v47" << int(P::Supported);
+        QTest::newRow("2.0.5") << "v40" << int(P::BelowFloor);
+        QTest::newRow("1.8.1") << "v23" << int(P::BelowFloor);
+        QTest::newRow("no version table") << "noversion" << int(P::BelowFloor);
+        QTest::newRow("no version row") << "emptyversion" << int(P::BelowFloor);
+        QTest::newRow("not a database") << "garbage" << int(P::Unknown);
+    }
+
+    void probeUpgradeFloorReadsWithoutWriting() {
+        QFETCH(QString, setup);
+        QFETCH(int, expected);
+        const QString path = freshDbPath();
+        if (setup == QLatin1String("garbage")) {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(QByteArray(4096, 'x'));
+        } else if (setup != QLatin1String("none")) {
+            withRawDb(path, "probe_setup", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                if (setup == QLatin1String("empty"))
+                    return;
+                QVERIFY(q.exec("CREATE TABLE shots (id INTEGER PRIMARY KEY, uuid TEXT)"));
+                QVERIFY(q.exec("INSERT INTO shots (uuid) VALUES ('kept')"));
+                if (setup == QLatin1String("noversion"))
+                    return;
+                QVERIFY(q.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)"));
+                if (setup.startsWith('v'))
+                    QVERIFY(q.exec(QString("INSERT INTO schema_version (version) VALUES (%1)").arg(setup.mid(1))));
+            });
+        }
+        auto bytes = [&]() -> QByteArray {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+        const bool existed = QFileInfo::exists(path);
+        const QByteArray before = bytes();
+
+        QCOMPARE(int(ShotHistoryStorage::probeUpgradeFloor(path)), expected);
+
+        QCOMPARE(QFileInfo::exists(path), existed);
+        QCOMPARE(bytes(), before);
+    }
+
+    // A fresh install and a database 2.0.7 left behind must end on the same
+    // schema: createTables()' baseline is the only thing standing in for the
+    // migration steps that used to build it.
+    void freshInstallMatchesAnUpgraded207Database() {
+        const QString upgraded = freshDbPath();
+        QVERIFY(QFile::copy(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"), upgraded));
+        QVERIFY(QFile::setPermissions(upgraded, QFile::ReadOwner | QFile::WriteOwner));
+        const QString fresh = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(upgraded, s); }
+        { ShotHistoryStorage s; initAndClose(fresh, s); }
+
+        QStringList upgradedSchema, freshSchema;
+        withRawDb(upgraded, "eq_upgraded", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            upgradedSchema = schemaSignature(db);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT COUNT(*) FROM shots WHERE espresso_notes LIKE 'fixture note %'") && q.next());
+            QCOMPARE(q.value(0).toInt(), 2);
+            QVERIFY(q.exec("SELECT COUNT(*) FROM shots_fts WHERE shots_fts MATCH 'Fixture'") && q.next());
+            QCOMPARE(q.value(0).toInt(), 2);
+            for (const char* table : {"coffee_bags", "equipment_packages", "recipes"}) {
+                QVERIFY(q.exec(QString("SELECT COUNT(*) FROM %1").arg(QLatin1String(table))) && q.next());
+                QCOMPARE(q.value(0).toInt(), 1);
+            }
+            QVERIFY(q.exec("SELECT COUNT(*) FROM shots s JOIN recipes r ON r.id = s.recipe_id "
+                           "JOIN coffee_bags b ON b.id = s.bag_id") && q.next());
+            QCOMPARE(q.value(0).toInt(), 2);
+        });
+        withRawDb(fresh, "eq_fresh", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            freshSchema = schemaSignature(db);
+        });
+        for (const QString& line : upgradedSchema)
+            QVERIFY2(freshSchema.contains(line), qPrintable("fresh install lacks: " + line));
+        for (const QString& line : freshSchema)
+            QVERIFY2(upgradedSchema.contains(line), qPrintable("upgraded 2.0.7 database lacks: " + line));
+    }
+
+    void importRefusesASourceBelowTheFloor_data() {
+        QTest::addColumn<bool>("merge");
+        QTest::newRow("merge") << true;
+        QTest::newRow("replace") << false;
+    }
+
+    void importRefusesASourceBelowTheFloor() {
+        QFETCH(bool, merge);
+        const QString dest = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(dest, s); }
+        withRawDb(dest, "floor_dest_seed", [](QSqlDatabase& db) {
+            QVERIFY(QSqlQuery(db).exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                                       "VALUES ('dest-kept', 1000, 'P', 30)"));
+        });
+
+        const QString oldSource = freshDbPath();
+        QVERIFY(!ShotRowFixtures::writeBelowFloorDatabase(oldSource).isEmpty());
+
+        ShotHistoryStorage::ImportResult result;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("source is below the upgrade floor"));
+        QVERIFY(!ShotHistoryStorage::importDatabaseStatic(dest, oldSource, merge, &result));
+        QVERIFY(result.sourceTooOld);
+        withRawDb(dest, "floor_dest_check", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT uuid FROM shots") && q.next());
+            QCOMPARE(q.value(0).toString(), QStringLiteral("dest-kept"));
+            QVERIFY(!q.next());
+        });
+
+        // The same database at the floor imports.
+        withRawDb(oldSource, "floor_restore", [](QSqlDatabase& db) {
+            QVERIFY(QSqlQuery(db).exec("UPDATE schema_version SET version = 41"));
+        });
+        ShotHistoryStorage::ImportResult accepted;
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(dest, oldSource, merge, &accepted));
+        QVERIFY(!accepted.sourceTooOld);
+        QCOMPARE(accepted.imported, 2);
+    }
+
+    // runMigrations() reads the version before it writes anything, so a
+    // database the launch probe could not classify is still refused intact.
+    void belowFloorDatabaseIsRefusedUntouched() {
+        const QString path = freshDbPath();
+        withRawDb(path, "below_floor_seed", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("CREATE TABLE shots (id INTEGER PRIMARY KEY, uuid TEXT)"));
+            QVERIFY(q.exec("INSERT INTO shots (uuid) VALUES ('kept')"));
+            QVERIFY(q.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (40)"));
+        });
+        auto dump = [&]() {
+            QStringList out;
+            withRawDb(path, "below_floor_dump", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                QVERIFY(q.exec("SELECT type, name, sql FROM sqlite_master ORDER BY name"));
+                while (q.next())
+                    out << q.value(0).toString() + '|' + q.value(1).toString() + '|' + q.value(2).toString();
+                QVERIFY(q.exec("SELECT id, uuid FROM shots UNION ALL SELECT version, '' FROM schema_version"));
+                while (q.next())
+                    out << q.value(0).toString() + '|' + q.value(1).toString();
+            });
+            return out;
+        };
+        const QStringList before = dump();
+
+        ShotHistoryStorage storage;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("below the upgrade floor"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Failed to run migrations"));
+        QVERIFY(!storage.initialize(path));
+        storage.close();
+
+        QCOMPARE(dump(), before);
+    }
+
     void freshDbCreatesSchema() {
         QString path = freshDbPath();
         ShotHistoryStorage storage;
@@ -506,130 +633,8 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QVERIFY(hasTable(db, "recipes"));  // migration 25 (add-recipes)
+            QVERIFY(hasTable(db, "recipes"));  // createTables() baseline
             QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-        });
-    }
-
-    void freshDbHasAllColumns() {
-        QString path = freshDbPath();
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "fresh_cols", [](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "shots", "temperature_override"));
-            QVERIFY(hasColumn(db, "shots", "yield_override"));
-            QVERIFY(hasColumn(db, "shots", "beverage_type"));
-            QVERIFY(hasColumn(db, "shots", "bean_notes"));
-            QVERIFY(hasColumn(db, "shots", "profile_notes"));
-            // Grinder identity columns were added by migration 8 and DROPPED by
-            // migration 23 (add-equipment-packages) — identity now resolves via
-            // equipment_id. The grind setting + equipment_id/rpm survive.
-            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(!hasColumn(db, "shots", "grinder_model"));
-            QVERIFY(!hasColumn(db, "shots", "grinder_burrs"));
-            QVERIFY(hasColumn(db, "shots", "grinder_setting"));
-            QVERIFY(hasColumn(db, "shots", "equipment_id"));
-            QVERIFY(hasColumn(db, "shots", "rpm"));
-            QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
-            QVERIFY(hasColumn(db, "shots", "channeling_detected"));
-            // temperature_unstable was added in migration 10 and dropped in
-            // migration 15 — see remove-temperature-unstable-badge change.
-            QVERIFY(!hasColumn(db, "shots", "temperature_unstable"));
-            QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
-            QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
-            QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
-            QVERIFY(hasColumn(db, "shots", "stopped_by"));  // migration 17 (#1161)
-            QVERIFY(hasColumn(db, "shots", "beanbase_json"));  // migration 18 (bean base)
-            QVERIFY(hasColumn(db, "shots", "recipe_id"));      // migration 25 (add-recipes)
-            QVERIFY(hasColumn(db, "shots", "steam_json"));     // migration 25 (add-recipes)
-            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));   // migration 26 (add-recipes)
-            QVERIFY(hasColumn(db, "recipes", "bag_id"));       // migration 29 (recipes-bag-links)
-            QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
-            // Non-frozen storage lifecycle (migration 32, bean-freshness-followup):
-            // added to BOTH shots and coffee_bags.
-            QVERIFY(hasColumn(db, "shots", "storage_hint"));
-            QVERIFY(hasColumn(db, "shots", "opened_date"));
-            QVERIFY(hasColumn(db, "coffee_bags", "storage_hint"));
-            QVERIFY(hasColumn(db, "coffee_bags", "opened_date"));
-            // Structured taste axes (migration 33, add-ai-taste-intake): shots-only.
-            QVERIFY(hasColumn(db, "shots", "taste_balance"));
-            QVERIFY(hasColumn(db, "shots", "taste_body"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "taste_balance"));
-        });
-    }
-
-    void freshDbHasFtsAndIndexes() {
-        QString path = freshDbPath();
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "fresh_fts", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT * FROM shots_fts LIMIT 0"));
-            QVERIFY(hasIndex(db, "idx_shots_timestamp"));
-            QVERIFY(hasIndex(db, "idx_shots_profile"));
-            QVERIFY(hasIndex(db, "idx_shots_bean"));
-            // idx_shots_grinder was on grinder_brand/model, dropped with those
-            // columns in migration 23 (add-equipment-packages).
-            QVERIFY(!hasIndex(db, "idx_shots_grinder"));
-            QVERIFY(hasIndex(db, "idx_shots_enjoyment"));
-            QVERIFY(hasIndex(db, "idx_shot_phases_shot"));
-            QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-        });
-    }
-
-    // ==========================================
-    // Migration from v1: adds all missing columns
-    // ==========================================
-
-    void v1MigrationAddsColumns() {
-        QString path = freshDbPath();
-
-        withRawDb(path, "v1_create", [](QSqlDatabase& db) {
-            createV1Schema(db);
-            QCOMPARE(getSchemaVersion(db), 1);
-            QVERIFY(!hasColumn(db, "shots", "temperature_override"));
-        });
-
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QVERIFY(hasColumn(db, "shots", "temperature_override"));
-            QVERIFY(hasColumn(db, "shots", "yield_override"));
-            QVERIFY(hasColumn(db, "shots", "beverage_type"));
-            // Grinder identity columns are dropped by migration 23; equipment_id
-            // is the identity pointer now (add-equipment-packages).
-            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(!hasColumn(db, "shots", "grinder_burrs"));
-            QVERIFY(hasColumn(db, "shots", "equipment_id"));
-            QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
-            QVERIFY(hasColumn(db, "shots", "channeling_detected"));
-            // temperature_unstable was added in migration 10 and dropped in
-            // migration 15 — see remove-temperature-unstable-badge change.
-            QVERIFY(!hasColumn(db, "shots", "temperature_unstable"));
-            QVERIFY(hasColumn(db, "shots", "grind_issue_detected"));
-            QVERIFY(hasColumn(db, "shots", "skip_first_frame_detected"));
-            QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
-            QVERIFY(hasColumn(db, "shots", "stopped_by"));  // migration 17 (#1161)
-            QVERIFY(hasColumn(db, "shots", "beanbase_json"));  // migration 18 (bean base)
-            QVERIFY(hasColumn(db, "shots", "recipe_id"));      // migration 25 (add-recipes)
-            QVERIFY(hasColumn(db, "shots", "steam_json"));     // migration 25 (add-recipes)
-            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));   // migration 26 (add-recipes)
-            QVERIFY(hasColumn(db, "recipes", "bag_id"));       // migration 29 (recipes-bag-links)
-            QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
-            // Non-frozen storage lifecycle (migration 32, bean-freshness-followup):
-            // added to BOTH shots and coffee_bags.
-            QVERIFY(hasColumn(db, "shots", "storage_hint"));
-            QVERIFY(hasColumn(db, "shots", "opened_date"));
-            QVERIFY(hasColumn(db, "coffee_bags", "storage_hint"));
-            QVERIFY(hasColumn(db, "coffee_bags", "opened_date"));
-            // Structured taste axes (migration 33, add-ai-taste-intake): shots-only.
-            QVERIFY(hasColumn(db, "shots", "taste_balance"));
-            QVERIFY(hasColumn(db, "shots", "taste_body"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "taste_balance"));
         });
     }
 
@@ -668,64 +673,6 @@ private slots:
     }
 
     // ==========================================
-    // beverage_type column exists and has default
-    // ==========================================
-
-    void beverageTypeColumn() {
-        QString path = freshDbPath();
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "bev_verify", [](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "shots", "beverage_type"));
-            // Insert and verify default is 'espresso'
-            QSqlQuery q(db);
-            q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) VALUES ('bev-test', 1000, 'Test', 30.0)");
-            q.exec("SELECT beverage_type FROM shots WHERE uuid = 'bev-test'");
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QString("espresso"));
-        });
-    }
-
-    // ==========================================
-    // Migration 23: grinder identity columns are dropped from shots
-    // ==========================================
-    // Migration 8 added grinder_brand/model/burrs; migration 23 (add-equipment-
-    // packages) drops them from BOTH shots and coffee_bags — grinder identity
-    // resolves through equipment_id to the package's grinder item.
-    void grinderIdentityColumnsDropped() {
-        QString path = freshDbPath();
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "grinder_verify", [](QSqlDatabase& db) {
-            for (const char* table : {"shots", "coffee_bags"}) {
-                QVERIFY2(!hasColumn(db, table, "grinder_brand"), table);
-                QVERIFY2(!hasColumn(db, table, "grinder_model"), table);
-                QVERIFY2(!hasColumn(db, table, "grinder_burrs"), table);
-            }
-            // The grinder index is gone (it was on the dropped shots columns).
-            QVERIFY(!hasIndex(db, "idx_shots_grinder"));
-        });
-    }
-
-    // ==========================================
-    // Migration v9: profile_kb_id
-    // ==========================================
-
-    void v9AddsProfileKbId() {
-        QString path = freshDbPath();
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
-            QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-        });
-    }
-
-    // ==========================================
     // Idempotency: run twice, no crash
     // ==========================================
 
@@ -736,418 +683,6 @@ private slots:
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
             QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-        });
-    }
-
-    // Migration 30 wiring through the real runMigrations() gate (the data
-    // pass itself is covered in tst_recipestorage): a v29 DB with an
-    // inherit-mode recipe (empty grind_pinned + a dialed bag) adopts the
-    // bag's grind/rpm and lands on version 30.
-    void v29ToV30AdoptsBagGrind() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> 30
-
-        qint64 bagId = 0, recipeId = 0;
-        withRawDb(path, "v29_seed", [&](QSqlDatabase& db) {
-            // Rewind to 29 and seed an inherit-mode row, simulating a DB that
-            // upgraded to 29 before this migration shipped.
-            QVERIFY(ShotRowFixtures::restoreLegacyBagColumns(db));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (29)"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, "
-                           "in_inventory, grinder_setting, rpm) "
-                           "VALUES ('Roaster', 'Guji', 1, '18', 1200)"));
-            bagId = q.lastInsertId().toLongLong();
-            QVERIFY(q.exec(QString("INSERT INTO recipes (name, profile_title, bag_id) "
-                                   "VALUES ('Inheriting', 'P', %1)").arg(bagId)));
-            recipeId = q.lastInsertId().toLongLong();
-        });
-        QVERIFY(bagId > 0 && recipeId > 0);
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 30
-
-        withRawDb(path, "v29_verify30", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QString("SELECT grind_pinned, rpm_pinned FROM recipes "
-                                   "WHERE id = %1").arg(recipeId)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QString("18"));
-            QCOMPARE(q.value(1).toLongLong(), (qint64)1200);
-        });
-    }
-
-    // v30 -> v31 (recipe-relative-temp-offset): the schema step adds
-    // recipes.temp_offset_c with NULL (= unconverted) on pre-31 rows — the
-    // data pass is deferred to MainController (it needs the profile catalog),
-    // so the migration itself must leave the marker in place.
-    void v30ToV31AddsTempOffsetColumn() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
-
-        qint64 recipeId = 0;
-        withRawDb(path, "v30_seed", [&](QSqlDatabase& db) {
-            // Rewind to 30 and drop the column, simulating a DB that upgraded
-            // to 30 before this migration shipped, with a legacy absolute.
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (30)"));
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN temp_offset_c"));
-            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, temp_override_c) "
-                           "VALUES ('Legacy', 'P', 87.0)"));
-            recipeId = q.lastInsertId().toLongLong();
-        });
-        QVERIFY(recipeId > 0);
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 31
-
-        withRawDb(path, "v30_verify31", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QString("SELECT temp_offset_c, temp_override_c FROM recipes "
-                                   "WHERE id = %1").arg(recipeId)));
-            QVERIFY(q.next());
-            QVERIFY(q.value(0).isNull());              // unconverted marker intact
-            QCOMPARE(q.value(1).toDouble(), 87.0);     // legacy absolute untouched
-        });
-    }
-
-    // Migration 32 (bean-freshness-followup) adds storage_hint/opened_date to
-    // BOTH shots and coffee_bags. Existing rows must gain the columns as NULL
-    // (no backfill), on both tables.
-    void v31ToV32AddsStorageHintAndOpenedDate() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
-
-        qint64 shotId = 0, bagId = 0;
-        withRawDb(path, "v31_seed", [&](QSqlDatabase& db) {
-            // Rewind to 31 and drop the new columns, simulating a DB that
-            // upgraded to 31 before this migration shipped.
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (31)"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN storage_hint"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN opened_date"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN storage_hint"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN opened_date"));
-            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
-                           "VALUES ('m32-shot', 1000, 'P', 25.0)"));
-            shotId = q.lastInsertId().toLongLong();
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name) "
-                           "VALUES ('R', 'C')"));
-            bagId = q.lastInsertId().toLongLong();
-        });
-        QVERIFY(shotId > 0);
-        QVERIFY(bagId > 0);
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 32
-
-        withRawDb(path, "v31_verify32", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QVERIFY(hasColumn(db, "shots", "storage_hint"));
-            QVERIFY(hasColumn(db, "shots", "opened_date"));
-            QVERIFY(hasColumn(db, "coffee_bags", "storage_hint"));
-            QVERIFY(hasColumn(db, "coffee_bags", "opened_date"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QString("SELECT storage_hint, opened_date FROM shots WHERE id = %1").arg(shotId)));
-            QVERIFY(q.next());
-            QVERIFY2(q.value(0).isNull(), "existing shot row must have NULL storage_hint");
-            QVERIFY2(q.value(1).isNull(), "existing shot row must have NULL opened_date");
-            QVERIFY(q.exec(QString("SELECT storage_hint, opened_date FROM coffee_bags WHERE id = %1").arg(bagId)));
-            QVERIFY(q.next());
-            QVERIFY2(q.value(0).isNull(), "existing bag row must have NULL storage_hint");
-            QVERIFY2(q.value(1).isNull(), "existing bag row must have NULL opened_date");
-        });
-    }
-
-    // Migration 33 (add-ai-taste-intake): taste_balance / taste_body added to
-    // shots only (never coffee_bags). Existing rows must gain them as NULL.
-    void v32ToV33AddsTasteAxes() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
-
-        qint64 shotId = 0;
-        withRawDb(path, "v32_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (32)"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN taste_balance"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN taste_body"));
-            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
-                           "VALUES ('m33-shot', 1000, 'P', 25.0)"));
-            shotId = q.lastInsertId().toLongLong();
-        });
-        QVERIFY(shotId > 0);
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 33
-
-        withRawDb(path, "v32_verify33", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QVERIFY(hasColumn(db, "shots", "taste_balance"));
-            QVERIFY(hasColumn(db, "shots", "taste_body"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "taste_balance"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "taste_body"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QString("SELECT taste_balance, taste_body FROM shots WHERE id = %1").arg(shotId)));
-            QVERIFY(q.next());
-            QVERIFY2(q.value(0).isNull(), "existing shot row must have NULL taste_balance");
-            QVERIFY2(q.value(1).isNull(), "existing shot row must have NULL taste_body");
-        });
-    }
-
-    // Migration 34 (add-yield-ratio-anchor): yield specs on three tables.
-    // recipes/coffee_bags gain yield_value + yield_mode backfilled from their
-    // legacy absolute columns (>0 -> 'absolute' with the value, else 'none');
-    // shots gain yield_mode + yield_anchor_value backfilled from
-    // yield_override, which itself stays UNTOUCHED (it is the resolved-grams
-    // column every detector reads). The legacy columns stay dead in place.
-    // A database that ALREADY ran migration 35 and healed nothing still gets its
-    // fork repaired by 36. This is the population that matters: 35's predicate
-    // tested the burrs alone, so a fork caused by recording a BASKET left it
-    // stamped 35 with the split intact and a log reading "merged 0 package(s)".
-    // The maintainer's own device is in exactly that state.
-    void v35ToV36HealsABasketFork() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
-
-        qint64 bare = 0, dressed = 0, strandedShot = 0;
-        withRawDb(path, "v36_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            // Rewind to 35: this database has already had its burr forks healed.
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (35)"));
-
-            // Identical grinder INCLUDING burrs; the successor adds a basket and
-            // a puck prep. 35 skips this; 36 must not.
-            EquipmentPackage a, b;
-            bare = EquipmentStorage::createPackageWithGrinderStatic(
-                db, a, "Niche", "Zero", "63mm Mazzer Kony conical");
-            dressed = EquipmentStorage::createPackageWithGrinderStatic(
-                db, b, "Niche", "Zero", "63mm Mazzer Kony conical");
-            QVERIFY(bare > 0 && dressed > 0);
-            QVERIFY(EquipmentStorage::setBasketItemStatic(db, dressed, "Decent", "18g Ridged"));
-            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, dressed, "puckScreen,shaker"));
-            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
-                                          "superseded_by = %1 WHERE id = %2").arg(dressed).arg(bare)));
-
-            QVERIFY(q.exec(QStringLiteral("INSERT INTO shots (uuid, timestamp, profile_name, "
-                                          "duration_seconds, equipment_id) "
-                                          "VALUES ('m36-a', 1000, 'P', 25.0, %1)").arg(bare)));
-            strandedShot = q.lastInsertId().toLongLong();
-        });
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 36
-
-        withRawDb(path, "v36_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            // The stranded shot now hangs off the surviving package.
-            QVERIFY(q.exec(QStringLiteral("SELECT equipment_id FROM shots WHERE id = %1")
-                               .arg(strandedShot)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toLongLong(), dressed);
-            // The superseded package is gone; the survivor is back in inventory.
-            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id = %1")
-                               .arg(bare)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 0);
-            // Deliberately NOT asserting the survivor's in_inventory/superseded_by
-            // here: `dressed` was created unlinked, so those are its creation state
-            // and hold whether or not the heal ran. The discriminating assertions
-            // are the shot remap above and `bare` being gone.
-        });
-    }
-
-    // The active-equipment selection lives in QSettings, not the database, so a
-    // migration that folds the package it names must hand the survivor's id back or
-    // the app points at a row that no longer exists.
-    //
-    // A CHAIN is the case worth covering: bare -> mid (burrs recorded) -> full
-    // (basket recorded), both links enrichment. The whole chain collapses in one
-    // pass, and the remap must follow the active id all the way to the survivor
-    // rather than stopping at the intermediate package that the same pass deleted.
-    void healRelocatesTheActiveEquipmentIdThroughAChain() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        qint64 bare1 = 0, mid = 0, full = 0;
-        withRawDb(path, "v36_active_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (34)"));
-
-            EquipmentPackage a, b, c;
-            bare1 = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "");
-            mid   = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Niche", "Zero", "63mm conical");
-            full  = EquipmentStorage::createPackageWithGrinderStatic(db, c, "Niche", "Zero", "63mm conical");
-            QVERIFY(bare1 > 0 && mid > 0 && full > 0);
-            QVERIFY(EquipmentStorage::setBasketItemStatic(db, full, "Decent", "18g Ridged"));
-            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
-                                          "superseded_by = %1 WHERE id = %2").arg(mid).arg(bare1)));
-            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
-                                          "superseded_by = %1 WHERE id = %2").arg(full).arg(mid)));
-        });
-
-        // The app's stored selection names the package that will be folded away.
-        {
-            AppSettings settings;
-            settings.setValue("dye/activeEquipmentId", static_cast<qlonglong>(bare1));
-            settings.sync();
-        }
-
-        qint64 healedTo = -1;
-        {
-            ShotHistoryStorage s;
-            initAndClose(path, s);
-            healedTo = s.healedActiveEquipmentId();
-        }
-
-        // Resolved all the way to the surviving package, not to the intermediate
-        // one that the second fold deleted.
-        QCOMPARE(healedTo, full);
-        withRawDb(path, "v36_active_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id IN (%1,%2)")
-                               .arg(bare1).arg(mid)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 0);
-        });
-        AppSettings().remove("dye/activeEquipmentId");
-    }
-
-    // Migration 52 runs in the same launch as a heal, so its "is equipment
-    // active" check must use the healed id: the stored one names a package the
-    // heal deleted. Shape: A -> B (burrs named, a fold) -> C (burrs swapped,
-    // kept), C retired, so nothing is in inventory and only the selection can
-    // suppress the notice that two dialled bags would otherwise earn.
-    void bagGrindNoticeUsesTheHealedActiveEquipmentId() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        qint64 a = 0, b = 0, c = 0, bagId = 0;
-        withRawDb(path, "m52_heal_seed", [&](QSqlDatabase& db) {
-            QVERIFY(ShotRowFixtures::restoreLegacyBagColumns(db));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (34)"));
-            EquipmentPackage pa, pb, pc;
-            a = EquipmentStorage::createPackageWithGrinderStatic(db, pa, "Niche", "Zero", "");
-            b = EquipmentStorage::createPackageWithGrinderStatic(db, pb, "Niche", "Zero", "63mm conical");
-            c = EquipmentStorage::createPackageWithGrinderStatic(db, pc, "Niche", "Zero", "83mm flat");
-            QVERIFY(a > 0 && b > 0 && c > 0);
-            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
-                                          "superseded_by = %1 WHERE id = %2").arg(b).arg(a)));
-            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0, "
-                                          "superseded_by = %1 WHERE id = %2").arg(c).arg(b)));
-            QVERIFY(q.exec(QStringLiteral("UPDATE equipment_packages SET in_inventory = 0 WHERE id = %1").arg(c)));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, in_inventory, grinder_setting) "
-                           "VALUES ('R', 'One', 1, '7'), ('R', 'Two', 1, '8')"));
-            bagId = q.lastInsertId().toLongLong();
-        });
-        QVERIFY(bagId > 0);
-
-        // The heal reads the app store; migration 52 reads the DB's test store.
-        {
-            AppSettings settings;
-            settings.setValue("dye/activeEquipmentId", static_cast<qlonglong>(a));
-            settings.sync();
-            QSettings upgrade(path + ".upgrade-settings", QSettings::IniFormat);
-            upgrade.setValue("dye/activeEquipmentId", static_cast<qlonglong>(a));
-            upgrade.setValue("dye/activeBagId", static_cast<qlonglong>(bagId));
-            upgrade.sync();
-        }
-
-        qint64 healedTo = -1;
-        bool noticePending = true;
-        {
-            ShotHistoryStorage s;
-            initAndClose(path, s);
-            healedTo = s.healedActiveEquipmentId();
-            noticePending = s.bagGrindNoticePending();
-        }
-        AppSettings().remove("dye/activeEquipmentId");
-
-        QCOMPARE(healedTo, b);
-        withRawDb(path, "m52_heal_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QStringLiteral("SELECT COUNT(*) FROM equipment_packages WHERE id = %1").arg(a)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 0);
-            q.finish();
-            QVERIFY(q.exec("SELECT COUNT(*) FROM equipment_packages WHERE in_inventory = 1"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 0);
-        });
-        QVERIFY(!noticePending);
-    }
-
-    void v33ToV34AddsYieldSpecs() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
-
-        qint64 shotWithTarget = 0, shotNoTarget = 0;
-        withRawDb(path, "v34_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (33)"));
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN yield_value"));
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN yield_mode"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_value"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_mode"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN yield_mode"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN yield_anchor_value"));
-            // A recipe with a legacy absolute yield, and one without.
-            QVERIFY(q.exec("INSERT INTO recipes (name, yield_g) VALUES ('With', 40.0)"));
-            QVERIFY(q.exec("INSERT INTO recipes (name) VALUES ('Without')"));
-            // Bags: one with a legacy override, one without.
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, yield_override_g) VALUES ('R', 38.0)"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name) VALUES ('R2')"));
-            // Shots: one with a recorded target, one without.
-            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, yield_override) "
-                           "VALUES ('m34-a', 1000, 'P', 25.0, 36.0)"));
-            shotWithTarget = q.lastInsertId().toLongLong();
-            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
-                           "VALUES ('m34-b', 1001, 'P', 25.0)"));
-            shotNoTarget = q.lastInsertId().toLongLong();
-        });
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 34
-
-        withRawDb(path, "v34_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT yield_value, yield_mode, yield_g FROM recipes WHERE name = 'With'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toDouble(), 40.0);
-            QCOMPARE(q.value(1).toString(), QStringLiteral("absolute"));
-            QCOMPARE(q.value(2).toDouble(), 40.0);  // dead column untouched
-            QVERIFY(q.exec("SELECT yield_value, yield_mode FROM recipes WHERE name = 'Without'"));
-            QVERIFY(q.next());
-            QVERIFY(q.value(0).isNull());
-            QCOMPARE(q.value(1).toString(), QStringLiteral("none"));
-
-            QVERIFY(q.exec("SELECT yield_value, yield_mode FROM coffee_bags WHERE roaster_name = 'R'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toDouble(), 38.0);
-            QCOMPARE(q.value(1).toString(), QStringLiteral("absolute"));
-            QVERIFY(q.exec("SELECT yield_mode FROM coffee_bags WHERE roaster_name = 'R2'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QStringLiteral("none"));
-
-            QVERIFY(q.exec(QString("SELECT yield_mode, yield_anchor_value, yield_override "
-                                   "FROM shots WHERE id = %1").arg(shotWithTarget)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QStringLiteral("absolute"));
-            QCOMPARE(q.value(1).toDouble(), 36.0);
-            QCOMPARE(q.value(2).toDouble(), 36.0);  // yield_override untouched
-            QVERIFY(q.exec(QString("SELECT yield_mode, yield_anchor_value "
-                                   "FROM shots WHERE id = %1").arg(shotNoTarget)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QStringLiteral("none"));
-            QVERIFY(q.value(1).isNull());
         });
     }
 
@@ -1327,119 +862,6 @@ private slots:
     }
 
     // ==========================================
-    // Edge case: empty v1 DB migrates cleanly
-    // ==========================================
-
-    // add-shot-flow-calibration: migration 39 adds shots.flow_calibration, the
-    // multiplier a shot poured under. Additive and deliberately NOT backfilled
-    // — the multiplier a past shot ran at is unrecoverable, and 1.0 is a
-    // legitimate value, so an existing row must come back NULL ("not
-    // recorded") rather than neutral. That distinction is the whole point of
-    // the column, so it is what this asserts.
-    void v38ToV39AddsFlowCalibration() {
-        QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> latest
-
-        qint64 legacyShot = 0;
-        withRawDb(path, "v39_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (38)"));
-            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN flow_calibration"));
-            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
-                           "VALUES ('m39-a', 2000, 'P', 25.0)"));
-            legacyShot = q.lastInsertId().toLongLong();
-        });
-
-        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 39
-
-        withRawDb(path, "v39_verify", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            QVERIFY(q.exec(QString("SELECT flow_calibration FROM shots WHERE id = %1").arg(legacyShot)));
-            QVERIFY(q.next());
-            QVERIFY(q.value(0).isNull());  // NOT 1.0, and not 0
-
-            // The column accepts a real multiplier, so a post-migration write
-            // round-trips rather than silently failing on a missing column.
-            QVERIFY(q.exec(QString("UPDATE shots SET flow_calibration = 1.35 WHERE id = %1").arg(legacyShot)));
-            QVERIFY(q.exec(QString("SELECT flow_calibration FROM shots WHERE id = %1").arg(legacyShot)));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toDouble(), 1.35);
-        });
-    }
-
-    void emptyDbMigration() {
-        QString path = freshDbPath();
-        withRawDb(path, "empty_create", [](QSqlDatabase& db) { createV1Schema(db); });
-
-        ShotHistoryStorage storage;
-        QVERIFY(storage.initialize(path));
-        QCOMPARE(storage.totalShots(), 0);
-        storage.close();
-        QCoreApplication::processEvents();
-
-        withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-        });
-    }
-
-    // ==========================================
-    // Edge case: NULLs in optional columns
-    // ==========================================
-
-    void nullColumnsNocrash() {
-        QString path = freshDbPath();
-        withRawDb(path, "null_create", [](QSqlDatabase& db) {
-            createV1Schema(db);
-            QSqlQuery(db).exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) VALUES ('test-null', 1000, 'NullTest', 30.0)");
-        });
-
-        ShotHistoryStorage storage;
-        QVERIFY(storage.initialize(path));
-        QCOMPARE(storage.totalShots(), 1);
-        storage.close();
-        QCoreApplication::processEvents();
-
-        withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QSqlQuery q(db);
-            // grinder_brand was dropped in migration 23; grinder_setting (the
-            // surviving per-shot dial-in) exercises the same NULL-tolerance path.
-            q.exec("SELECT grinder_setting FROM shots WHERE uuid = 'test-null'");
-            QVERIFY(q.next());
-            QVERIFY(q.value(0).isNull() || q.value(0).toString().isEmpty());
-        });
-    }
-
-    // ==========================================
-    // FTS indexes data from v1 chain
-    // ==========================================
-
-    void ftsIndexesExistingData() {
-        // Insert data in v1 schema, run full chain, verify FTS has it
-        QString path = freshDbPath();
-        withRawDb(path, "fts_v1", [](QSqlDatabase& db) {
-            createV1Schema(db);
-            QSqlQuery q(db);
-            q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, espresso_notes, bean_brand) VALUES ('fts-v1', 1000, 'D-Flow Default', 30.0, 'Sweet and balanced', 'Onyx')");
-        });
-
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "fts_v1_verify", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            // FTS should have indexed the existing shot after migration chain
-            QVERIFY(q.exec("SELECT rowid FROM shots_fts WHERE shots_fts MATCH 'Sweet'"));
-            QVERIFY2(q.next(), "FTS should find by espresso_notes after full chain");
-
-            QVERIFY(q.exec("SELECT rowid FROM shots_fts WHERE shots_fts MATCH 'Onyx'"));
-            QVERIFY2(q.next(), "FTS should find by bean_brand after full chain");
-        });
-    }
-
-    // ==========================================
     // Schema version has exactly one row
     // ==========================================
 
@@ -1453,625 +875,6 @@ private slots:
             q.exec("SELECT COUNT(*) FROM schema_version");
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toInt(), 1);
-        });
-    }
-
-    // ==========================================
-    // Full chain v1->v15 preserves existing data
-    // ==========================================
-
-    void fullChainPreservesData() {
-        QString path = freshDbPath();
-        withRawDb(path, "chain_create", [](QSqlDatabase& db) {
-            createV1Schema(db);
-            QSqlQuery q(db);
-            q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, final_weight, bean_brand, grinder_model) VALUES ('p1', 1000, 'Blooming', 28.5, 36.2, 'Onyx', 'Niche Zero')");
-            q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, final_weight, bean_brand, grinder_model) VALUES ('p2', 2000, 'D-Flow', 32.0, 40.0, 'SEY', 'DF64')");
-        });
-
-        ShotHistoryStorage storage;
-        QVERIFY(storage.initialize(path));
-        QCOMPARE(storage.totalShots(), 2);
-        storage.close();
-        QCoreApplication::processEvents();
-
-        withRawDb(path, "chain_verify", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            q.exec("SELECT profile_name, final_weight, bean_brand FROM shots WHERE uuid = 'p1'");
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QString("Blooming"));
-            QCOMPARE(q.value(1).toDouble(), 36.2);
-            QCOMPARE(q.value(2).toString(), QString("Onyx"));
-            // grinder_brand dropped by migration 23; equipment_id is the pointer.
-            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(hasColumn(db, "shots", "equipment_id"));
-            QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
-        });
-    }
-
-    // ==========================================
-    // Sample data survives full migration chain
-    // ==========================================
-
-    void sampleDataSurvivesChain() {
-        // Insert compressed sample data in v1 schema, run full chain, verify intact
-        QString path = freshDbPath();
-        withRawDb(path, "sample_create", [](QSqlDatabase& db) {
-            createV1Schema(db);
-            QSqlQuery q(db);
-            q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) VALUES ('sample-test', 1000, 'Test', 30.0)");
-            q.exec("SELECT id FROM shots WHERE uuid = 'sample-test'");
-            QVERIFY(q.next());
-            qint64 shotId = q.value(0).toLongLong();
-
-            // Create sample data with weightFlowRate
-            QJsonObject root;
-            QJsonObject wfrObj;
-            QJsonArray timeArr, valueArr;
-            for (int i = 0; i < 20; i++) {
-                timeArr.append(i * 0.2);
-                valueArr.append((i % 2 == 0) ? 2.0 : 0.0);
-            }
-            wfrObj["t"] = timeArr;
-            wfrObj["v"] = valueArr;
-            root["weightFlowRate"] = wfrObj;
-
-            QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
-            QByteArray blob = qCompress(json, 9);
-
-            q.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (?, 20, ?)");
-            q.addBindValue(shotId);
-            q.addBindValue(blob);
-            QVERIFY(q.exec());
-        });
-
-        ShotHistoryStorage storage;
-        initAndClose(path, storage);
-
-        withRawDb(path, "sample_verify", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            q.exec("SELECT data_blob FROM shot_samples");
-            QVERIFY(q.next());
-
-            QByteArray blob = q.value(0).toByteArray();
-            QByteArray json = qUncompress(blob);
-            QVERIFY2(!json.isEmpty(), "Sample data should decompress after migration");
-
-            QJsonDocument doc = QJsonDocument::fromJson(json);
-            QJsonArray vals = doc.object()["weightFlowRate"].toObject()["v"].toArray();
-            QCOMPARE(vals.size(), 20);
-
-            // v7 migration applies smoothing: values should be closer to mean (1.0)
-            for (int i = 3; i < 17; i++) {
-                double val = vals[i].toDouble();
-                QVERIFY2(val > 0.3 && val < 1.7,
-                         qPrintable(QString("Smoothed[%1]=%2, expected near 1.0").arg(i).arg(val)));
-            }
-        });
-    }
-
-    // Migration 16: drop enjoyment_source column. Layer 3's inferred
-    // auto-rating was rolled back as a failed experiment — migration 14
-    // added the column, migration 16 drops it after resetting any
-    // inferred rows to the user's configured default rating. Idempotency
-    // check: running ShotHistoryStorage::initialize twice on the same DB
-    // ends at the current schema_version and the column is GONE on both passes.
-    void v16_columnIsDropped()
-    {
-        const QString path = freshDbPath();
-        {
-            ShotHistoryStorage s1;
-            initAndClose(path, s1);
-        }
-        {
-            ShotHistoryStorage s2;
-            initAndClose(path, s2);
-        }
-
-        bool hasEnjoymentSource = false;
-        int versionFound = 0;
-        withRawDb(path, "v16_idem", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT version FROM schema_version"));
-            if (q.next()) versionFound = q.value(0).toInt();
-            QVERIFY(q.exec("PRAGMA table_info(shots)"));
-            while (q.next()) {
-                if (q.value(1).toString() == "enjoyment_source") {
-                    hasEnjoymentSource = true;
-                    break;
-                }
-            }
-        });
-        QCOMPARE(versionFound, ShotHistoryStorage::kCurrentSchemaVersion);  // latest after full chain
-        QVERIFY2(!hasEnjoymentSource,
-                 "enjoyment_source column must be absent after migration 16");
-    }
-
-    // ==========================================================
-    // crossedSchemaVersion() — the one-time gate behind the
-    // equipment/recipes idle-button injection (issue #1586)
-    // ==========================================================
-
-    // THE regression assertion for #1586. The equipment button used to be
-    // injected whenever it was absent, evaluated on every launch, so removing it
-    // brought it back on the next start. Injection is now gated on the DB
-    // actually crossing the schema version that introduced the feature, which
-    // can only happen once. This pins the "and not on the next launch" half:
-    // pass one crosses 22/25, pass two on the same file must report neither.
-    //
-    // If someone were to capture the start version AFTER migrations run (making
-    // it permanently equal to the end version, so every gate reads true forever),
-    // every other test in the suite would still pass and the bug would be back.
-    // This is the test that fails.
-    void crossedSchemaVersion_firesOnceThenNeverAgain()
-    {
-        const QString path = freshDbPath();
-
-        // Pass one: a brand-new DB is seeded at version 1 and climbs the whole
-        // chain, so it genuinely crosses both feature versions.
-        {
-            ShotHistoryStorage s1;
-            initAndClose(path, s1);
-            QVERIFY2(s1.crossedSchemaVersion(22),
-                     "a fresh DB climbs from 1 and must report crossing schema 22 (equipment)");
-            QVERIFY2(s1.crossedSchemaVersion(25),
-                     "a fresh DB climbs from 1 and must report crossing schema 25 (recipes)");
-        }
-
-        // Pass two: same file, already fully migrated. Nothing is crossed, so a
-        // deliberately removed button is never re-injected.
-        {
-            ShotHistoryStorage s2;
-            initAndClose(path, s2);
-            QVERIFY2(!s2.crossedSchemaVersion(22),
-                     "an already-migrated DB must NOT re-report crossing 22 — that is issue #1586");
-            QVERIFY2(!s2.crossedSchemaVersion(25),
-                     "an already-migrated DB must NOT re-report crossing 25 — that is issue #1586");
-        }
-    }
-
-    // The two gates are independent: a DB parked between them must report only
-    // the one it actually crosses. Pins that the numbers are not interchangeable.
-    void crossedSchemaVersion_gatesAreIndependent()
-    {
-        const QString path = freshDbPath();
-        {
-            ShotHistoryStorage s1;
-            initAndClose(path, s1);
-        }
-
-        // Rewind to 24 — past equipment (22), short of recipes (25).
-        withRawDb(path, "crossed_rewind24", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (24)"));
-        });
-
-        ShotHistoryStorage s2;
-        initAndClose(path, s2);
-        QVERIFY2(!s2.crossedSchemaVersion(22),
-                 "starting at 24 is already past equipment's 22 — must not report a crossing");
-        QVERIFY2(s2.crossedSchemaVersion(25),
-                 "starting at 24 and migrating up must report crossing recipes' 25");
-    }
-
-    // A DB that never opened reports no crossing at all. Guards the inject
-    // callers against firing off default-initialised members when the DB is
-    // unavailable — silence is the safe answer, not "everything just crossed".
-    void crossedSchemaVersion_falseWhenNeverInitialised()
-    {
-        ShotHistoryStorage storage;  // no initialize() call
-        QVERIFY(!storage.crossedSchemaVersion(22));
-        QVERIFY(!storage.crossedSchemaVersion(25));
-    }
-
-    // A DEFERRED migration must not consume the crossing. Migrations gate their
-    // version bump on a post-condition and log "will retry next launch" when it
-    // is unmet, and 22 is chained (>= 21 && < 22) so a stalled 21 holds the whole
-    // chain below the equipment gate. The launch that stalls must report no
-    // crossing, and the launch that finally completes must report it — otherwise
-    // a user whose first upgrade attempt hit a failed migration would lose the
-    // button permanently, with the gate spent on a launch that did nothing.
-    void crossedSchemaVersion_deferredMigrationDoesNotConsumeTheGate()
-    {
-        const QString path = freshDbPath();
-        // Full init first so every table exists, then wind back to 20 — the
-        // v21_renameFailureRetriesCleanly pattern. Seeding a bare v1 schema and
-        // stamping version 20 would SKIP migrations 3-20, leaving no coffee_bags
-        // table for migration 22 to work with.
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        withRawDb(path, "crossed_defer_seed", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            // Undo the rename so migration 21 has work to do AND its
-            // post-condition is unmet while faulted — otherwise
-            // yield_override_g already exists, the gate passes anyway, and the
-            // chain would sail past 22 without ever stalling.
-            QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
-            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
-            QVERIFY(q.exec("DELETE FROM schema_version"));
-            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (20)"));
-        });
-
-        // Launch one: migration 21 "fails", so the chain never reaches 22.
-        ShotHistoryStorage::s_faultInjectMigration = 21;
-        {
-            ShotHistoryStorage s1;
-            QTest::ignoreMessage(QtWarningMsg,
-                                 QRegularExpression("migration 21 column rename failed"));
-            QVERIFY(s1.initialize(path));
-            QVERIFY2(!s1.crossedSchemaVersion(22),
-                     "a stalled chain must not report crossing 22 — the gate is not spent");
-            QVERIFY2(!s1.crossedSchemaVersion(25),
-                     "a stalled chain must not report crossing 25 either");
-            s1.close();
-            QTRY_VERIFY(s1.isDbWorkIdle());
-        }
-
-        // Launch two: the fault is one-shot and cleared itself, so the chain
-        // completes and the crossing is reported on the launch that earned it.
-        {
-            ShotHistoryStorage s2;
-            initAndClose(path, s2);
-            QVERIFY2(s2.crossedSchemaVersion(22),
-                     "the launch that completes the chain must report crossing 22");
-            QVERIFY2(s2.crossedSchemaVersion(25),
-                     "the launch that completes the chain must report crossing 25");
-        }
-    }
-
-    // Migration 16 contract: rows with enjoyment_source = 'inferred' have
-    // their enjoyment reset to 0 (unrated) — unconditionally, NOT to any
-    // configured default; the default-shot-rating setting that once supplied
-    // that value no longer exists. Rows uploaded to Visualizer (visualizer_id
-    // non-empty) are stashed in the pending sync list for MainController to
-    // re-PATCH after boot, which clears them to Unrated there too.
-    void v16_resetsInferredAndDropsColumn()
-    {
-        const QString path = freshDbPath();
-
-        // First init creates the current schema (column already absent).
-        // Re-add the column with v14 semantics, insert representative
-        // rows, then rewind schema_version to 15 so the next init runs
-        // migration 16 in isolation.
-        {
-            ShotHistoryStorage s1;
-            initAndClose(path, s1);
-        }
-
-        const qint64 now = QDateTime::currentSecsSinceEpoch();
-        withRawDb(path, "v16_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN enjoyment_source TEXT NOT NULL DEFAULT 'none'"));
-
-            // (u1) inferred + visualizer-uploaded — must be reset AND queued
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                      "enjoyment, enjoyment_source, visualizer_id) "
-                      "VALUES (?, ?, 'P', 30, 75, 'inferred', 'V1')");
-            q.addBindValue("u1"); q.addBindValue(now - 3600);
-            QVERIFY(q.exec());
-            // (u2) inferred + not uploaded — reset but not queued
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                      "enjoyment, enjoyment_source, visualizer_id) "
-                      "VALUES (?, ?, 'P', 30, 75, 'inferred', NULL)");
-            q.addBindValue("u2"); q.addBindValue(now - 7200);
-            QVERIFY(q.exec());
-            // (u3) user-rated — untouched
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                      "enjoyment, enjoyment_source, visualizer_id) "
-                      "VALUES (?, ?, 'P', 30, 90, 'user', 'V2')");
-            q.addBindValue("u3"); q.addBindValue(now - 10800);
-            QVERIFY(q.exec());
-            // (u4) unrated — untouched
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                      "enjoyment, enjoyment_source, visualizer_id) "
-                      "VALUES (?, ?, 'P', 30, 0, 'none', NULL)");
-            q.addBindValue("u4"); q.addBindValue(now - 14400);
-            QVERIFY(q.exec());
-
-            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
-            QVERIFY(q.exec("UPDATE schema_version SET version = 15"));
-        });
-
-        // Seed a stale shot/defaultRating. Migration 16 used to read it to
-        // decide what to reset inferred rows to; it now resets them to 0
-        // unconditionally, so this value must have no effect on the outcome —
-        // that is what the enjoy1/enjoy2 assertions below pin.
-        //
-        // Must use the SAME scope production reads — the app's Settings owns
-        // QSettings("DecentEspresso","DE1Qt"). A bare QSettings() here is the
-        // scope-mismatch bug this still regression-tests for the pending-sync
-        // list, which MainController reads back from that exact scope.
-        QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
-        appSettings.setValue("shot/defaultRating", 50);
-        appSettings.remove("migration16/pendingVisualizerSync");
-
-        // Run migration 16.
-        {
-            ShotHistoryStorage s2;
-            initAndClose(path, s2);
-        }
-
-        bool columnGone = true;
-        int versionFound = 0;
-        int enjoy1 = -1, enjoy2 = -1, enjoy3 = -1, enjoy4 = -1;
-        withRawDb(path, "v16_verify", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT version FROM schema_version"));
-            if (q.next()) versionFound = q.value(0).toInt();
-
-            QVERIFY(q.exec("PRAGMA table_info(shots)"));
-            while (q.next()) {
-                if (q.value(1).toString() == "enjoyment_source") {
-                    columnGone = false;
-                    break;
-                }
-            }
-
-            QVERIFY(q.exec("SELECT uuid, enjoyment FROM shots ORDER BY uuid"));
-            while (q.next()) {
-                const QString u = q.value(0).toString();
-                const int e = q.value(1).toInt();
-                if      (u == "u1") enjoy1 = e;
-                else if (u == "u2") enjoy2 = e;
-                else if (u == "u3") enjoy3 = e;
-                else if (u == "u4") enjoy4 = e;
-            }
-        });
-
-        QCOMPARE(versionFound, ShotHistoryStorage::kCurrentSchemaVersion);  // latest after full chain
-        QVERIFY2(columnGone, "enjoyment_source column must be dropped");
-        // Inferred rows reset to 0 (unrated), NOT to the stale 50 seeded
-        // above — an app-invented rating becomes unrated, and the back-sync
-        // PATCHes those shots to Unrated on Visualizer.
-        QCOMPARE(enjoy1, 0);
-        QCOMPARE(enjoy2, 0);
-        QCOMPARE(enjoy3, 90);  // user-rated, untouched
-        QCOMPARE(enjoy4, 0);   // already unrated, untouched
-
-        // Visualizer back-sync queue: exactly one entry (V1 — V2 belongs to
-        // a user-rated row that we never auto-stamped, so it's not queued).
-        const QByteArray pendingJson = appSettings.value(
-            "migration16/pendingVisualizerSync").toByteArray();
-        const QJsonArray pending = QJsonDocument::fromJson(pendingJson).array();
-        QCOMPARE(pending.size(), 1);
-        QCOMPARE(pending.first().toObject().value("visualizerId").toString(),
-                 QStringLiteral("V1"));
-
-        // Restore QSettings so we don't leak test state. shot/defaultRating is
-        // simply removed rather than restored: nothing reads it any more, and
-        // this test exists to prove its value is irrelevant.
-        appSettings.remove("shot/defaultRating");
-        if (priorPending.isValid())
-            appSettings.setValue("migration16/pendingVisualizerSync", priorPending);
-        else appSettings.remove("migration16/pendingVisualizerSync");
-    }
-
-    // OpenSpec persist-visualizer-id-in-controller: the reconciliation
-    // matcher links empty-visualizer_id rows to cloud shots by start
-    // time (±2s), strict 1:1, never reusing an id already on a row,
-    // skipping ambiguous and out-of-window rows; and is idempotent.
-    void reconcileVisualizerLinks_matchingContract()
-    {
-        const QString path = freshDbPath();
-        {
-            ShotHistoryStorage s;
-            initAndClose(path, s);
-        }
-
-        auto insertShot = [](QSqlDatabase& db, const QString& uuid, qint64 ts,
-                             const QString& vizId) -> qint64 {
-            QSqlQuery q(db);
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, "
-                      "duration_seconds, visualizer_id) "
-                      "VALUES (?, ?, 'P', 30, ?)");
-            q.addBindValue(uuid);
-            q.addBindValue(ts);
-            q.addBindValue(vizId);
-            if (!q.exec()) {
-                qWarning() << "insertShot failed:" << q.lastError().text();
-                return -1;
-            }
-            return q.lastInsertId().toLongLong();
-        };
-
-        const qint64 windowStart = 900;
-        qint64 idA = 0, idB = 0, idC = 0, idD = 0, idE = 0;
-        withRawDb(path, "recon_seed", [&](QSqlDatabase& db) {
-            idA = insertShot(db, "A", 1000, QString());         // in-window, empty
-            idB = insertShot(db, "B", 2000, "V-EXIST");         // already linked
-            idC = insertShot(db, "C", 500,  QString());         // before window
-            idD = insertShot(db, "D", 3000, QString());         // ambiguous (two cloud @ ~3000)
-            idE = insertShot(db, "E", 4000, QString());         // only candidate id already used
-        });
-        QVERIFY(idA > 0 && idB > 0 && idC > 0 && idD > 0 && idE > 0);
-
-        // Cloud list. clockEpoch within 2s of A's 1000 → link.
-        // V-EXIST is already on row B → must never be reused (E).
-        // Two cloud shots within tol of D's 3000 → ambiguous → skip.
-        auto cloud = [](const QString& id, qint64 clk) {
-            QVariantMap m;
-            m["visualizerId"] = id;
-            m["url"] = "https://visualizer.coffee/shots/" + id;
-            m["clockEpoch"] = clk;
-            return QVariant(m);
-        };
-        QVariantList cloudShots{
-            cloud("V-A", 1001),       // matches A (Δ1s)
-            cloud("V-EXIST", 4000),   // would match E but id already on B
-            cloud("V-D1", 3000),      // \_ both within tol of D → ambiguous
-            cloud("V-D2", 3001),      // /
-            cloud("V-C", 500),        // matches C by time but C is out of window
-        };
-
-        QVariantList linked;
-        bool ok = false;
-        withRawDb(path, "recon_run", [&](QSqlDatabase& db) {
-            ok = ShotHistoryStorage::reconcileVisualizerLinksStatic(
-                db, cloudShots, windowStart, linked);
-        });
-
-        QVERIFY2(ok, "healthy DB must report success");
-        QCOMPARE(linked.size(), 1);
-        QCOMPARE(linked.first().toMap().value("shotId").toLongLong(), idA);
-        QCOMPARE(linked.first().toMap().value("visualizerId").toString(),
-                 QStringLiteral("V-A"));
-
-        // Verify persisted state + non-targets untouched.
-        withRawDb(path, "recon_verify", [&](QSqlDatabase& db) {
-            auto vizId = [&](qint64 id) {
-                QSqlQuery q(db);
-                q.prepare("SELECT COALESCE(visualizer_id,'') FROM shots WHERE id = ?");
-                q.addBindValue(id);
-                q.exec(); q.next();
-                return q.value(0).toString();
-            };
-            QCOMPARE(vizId(idA), QStringLiteral("V-A"));
-            QCOMPARE(vizId(idB), QStringLiteral("V-EXIST"));  // unchanged
-            QCOMPARE(vizId(idC), QString());                  // out of window
-            QCOMPARE(vizId(idD), QString());                  // ambiguous
-            QCOMPARE(vizId(idE), QString());                  // id already used
-        });
-
-        // Idempotent: A now has an id, nothing left to link.
-        QVariantList second;
-        bool secondOk = false;
-        withRawDb(path, "recon_again", [&](QSqlDatabase& db) {
-            secondOk = ShotHistoryStorage::reconcileVisualizerLinksStatic(
-                db, cloudShots, windowStart, second);
-        });
-        QVERIFY2(secondOk, "idempotent re-run still reports success");
-        QVERIFY2(second.isEmpty(), "re-run must be a no-op");
-    }
-
-    // ±2 s tolerance is the load-bearing line (local save-time vs cloud
-    // shot-epoch skew is absorbed by it). Pin the inclusive boundary on
-    // both sides and that +3 s is excluded — an off-by-one here silently
-    // orphans real shots.
-    void reconcileVisualizerLinks_toleranceBoundary()
-    {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        auto ins = [](QSqlDatabase& db, const QString& uuid, qint64 ts) -> qint64 {
-            QSqlQuery q(db);
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, "
-                      "duration_seconds) VALUES (?, ?, 'P', 30)");
-            q.addBindValue(uuid); q.addBindValue(ts);
-            return q.exec() ? q.lastInsertId().toLongLong() : -1;
-        };
-        qint64 idPlus2 = 0, idMinus2 = 0, idPlus3 = 0;
-        withRawDb(path, "tol_seed", [&](QSqlDatabase& db) {
-            idPlus2  = ins(db, "P2", 10000);   // cloud @ 10002 → Δ+2 (inclusive)
-            idMinus2 = ins(db, "M2", 20000);   // cloud @ 19998 → Δ-2 (inclusive)
-            idPlus3  = ins(db, "P3", 30000);   // cloud @ 30003 → Δ+3 (excluded)
-        });
-        QVERIFY(idPlus2 > 0 && idMinus2 > 0 && idPlus3 > 0);
-
-        auto cloud = [](const QString& id, qint64 clk) {
-            QVariantMap m; m["visualizerId"] = id;
-            m["url"] = "u/" + id; m["clockEpoch"] = clk; return QVariant(m);
-        };
-        QVariantList cloudShots{
-            cloud("V-P2", 10002), cloud("V-M2", 19998), cloud("V-P3", 30003),
-        };
-
-        QVariantList linked;
-        bool ok = false;
-        withRawDb(path, "tol_run", [&](QSqlDatabase& db) {
-            ok = ShotHistoryStorage::reconcileVisualizerLinksStatic(
-                db, cloudShots, /*windowStart*/0, linked);
-        });
-        QVERIFY(ok);
-
-        QSet<qint64> linkedIds;
-        for (const QVariant& v : linked)
-            linkedIds.insert(v.toMap().value("shotId").toLongLong());
-        QVERIFY2(linkedIds.contains(idPlus2),  "+2 s must link (inclusive)");
-        QVERIFY2(linkedIds.contains(idMinus2), "-2 s must link (inclusive)");
-        QVERIFY2(!linkedIds.contains(idPlus3), "+3 s must NOT link");
-        QCOMPARE(linked.size(), 2);
-    }
-
-    // The real production scenario is MANY orphaned rows reconciled in
-    // one pass (shots ~901-923). Pin: distinct rows each claim their
-    // own distinct cloud id, cross-row consumption never reuses an id,
-    // and a row with ≥2 in-tolerance candidates is skipped (not guessed)
-    // even amid other successful links. Also covers empty inputs.
-    void reconcileVisualizerLinks_multiRowAndEmpty()
-    {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        auto ins = [](QSqlDatabase& db, const QString& uuid, qint64 ts) -> qint64 {
-            QSqlQuery q(db);
-            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, "
-                      "duration_seconds) VALUES (?, ?, 'P', 30)");
-            q.addBindValue(uuid); q.addBindValue(ts);
-            return q.exec() ? q.lastInsertId().toLongLong() : -1;
-        };
-        auto cloud = [](const QString& id, qint64 clk) {
-            QVariantMap m; m["visualizerId"] = id;
-            m["url"] = "u/" + id; m["clockEpoch"] = clk; return QVariant(m);
-        };
-
-        // Empty cloud list against eligible rows → ok, nothing linked,
-        // rows untouched (must not throw / mislink / report failure).
-        qint64 e1 = 0;
-        withRawDb(path, "mr_seed", [&](QSqlDatabase& db) {
-            e1 = ins(db, "E1", 5000);
-        });
-        QVERIFY(e1 > 0);
-        {
-            QVariantList linked; bool ok = false;
-            withRawDb(path, "mr_empty", [&](QSqlDatabase& db) {
-                ok = ShotHistoryStorage::reconcileVisualizerLinksStatic(
-                    db, QVariantList(), 0, linked);
-            });
-            QVERIFY2(ok, "empty cloud list is a successful no-op");
-            QVERIFY(linked.isEmpty());
-        }
-
-        // Two distinct in-window rows + one ambiguous row, all in one
-        // pass. X→V-X, Y→V-Y (distinct), Z has two candidates → skip.
-        qint64 idX = 0, idY = 0, idZ = 0;
-        withRawDb(path, "mr_seed2", [&](QSqlDatabase& db) {
-            idX = ins(db, "X", 5000);
-            idY = ins(db, "Y", 8000);
-            idZ = ins(db, "Z", 9000);
-        });
-        QVERIFY(idX > 0 && idY > 0 && idZ > 0);
-        QVariantList cloudShots{
-            cloud("V-X", 5001),
-            cloud("V-Y", 7999),
-            cloud("V-Z1", 9000), cloud("V-Z2", 9001),  // ambiguous for Z
-        };
-        QVariantList linked;
-        bool ok = false;
-        withRawDb(path, "mr_run", [&](QSqlDatabase& db) {
-            ok = ShotHistoryStorage::reconcileVisualizerLinksStatic(
-                db, cloudShots, 0, linked);
-        });
-        QVERIFY(ok);
-        QCOMPARE(linked.size(), 2);
-        QHash<qint64, QString> got;
-        for (const QVariant& v : linked) {
-            const QVariantMap m = v.toMap();
-            got.insert(m.value("shotId").toLongLong(),
-                       m.value("visualizerId").toString());
-        }
-        QCOMPARE(got.value(idX), QStringLiteral("V-X"));
-        QCOMPARE(got.value(idY), QStringLiteral("V-Y"));
-        QVERIFY2(!got.contains(idZ), "ambiguous row Z must be skipped, not guessed");
-        QVERIFY2(got.value(idX) != got.value(idY), "distinct rows get distinct ids");
-
-        // E1 (seeded earlier, no matching cloud shot) stays unlinked.
-        withRawDb(path, "mr_verify", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            q.prepare("SELECT COALESCE(visualizer_id,'') FROM shots WHERE id = ?");
-            q.addBindValue(e1); q.exec(); q.next();
-            QCOMPARE(q.value(0).toString(), QString());
         });
     }
 
@@ -2131,270 +934,6 @@ private slots:
         }
     }
 
-    // ==========================================
-    // Migration 21: coffee_bags.yield_target_g -> yield_override_g
-    // ==========================================
-    // The bag yield column was renamed when the yield-override model landed
-    // (bean-bag-inventory). Fresh DBs get yield_override_g from CREATE TABLE;
-    // dev DBs already at v19/v20 carry the old name and are repaired by
-    // migration 21. Simulate the old state by renaming the column back and
-    // resetting the version, then re-initialize and verify the rename plus
-    // that the stored value survived the ALTER.
-    void v21_renamesYieldColumn() {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        // Force the pre-rename schema: new name -> old name, version 20.
-        withRawDb(path, "v21_setup", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_target_g, in_inventory) "
-                           "VALUES ('Onyx', 'Geometry', 42.0, 1)"));
-            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
-            q.exec("DELETE FROM schema_version");
-            q.exec("INSERT INTO schema_version (version) VALUES (20)");
-        });
-
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        withRawDb(path, "v21_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT yield_override_g FROM coffee_bags WHERE coffee_name = 'Geometry'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toDouble(), 42.0);
-        });
-    }
-
-    // Migration 28: recipes.drink_type + coffee_bags.kind (add-recipe-wizard-tea).
-    // Force the pre-28 schema (columns dropped, version 27), insert a legacy
-    // bag + recipe, re-run the chain: both columns exist, the legacy bag reads
-    // 'coffee' via the column default, and the legacy recipe's drink_type is
-    // empty (= derive-at-read).
-    void v28_addsDrinkTypeAndBagKind() {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        withRawDb(path, "v28_setup", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN drink_type"));
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN kind"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, in_inventory) "
-                           "VALUES ('Onyx', 'Geometry', 1)"));
-            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title) "
-                           "VALUES ('Legacy espresso', 'Default')"));
-            q.exec("DELETE FROM schema_version");
-            q.exec("INSERT INTO schema_version (version) VALUES (27)");
-        });
-
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        withRawDb(path, "v28_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QVERIFY(hasColumn(db, "recipes", "drink_type"));
-            QVERIFY(hasColumn(db, "coffee_bags", "kind"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT kind FROM coffee_bags WHERE coffee_name = 'Geometry'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QString("coffee"));
-            QVERIFY(q.exec("SELECT drink_type FROM recipes WHERE name = 'Legacy espresso'"));
-            QVERIFY(q.next());
-            QVERIFY(q.value(0).toString().isEmpty());
-        });
-    }
-
-    // ==========================================
-    // Migration failure / retry branches (follow-up to PR Kulitorum/Decenza#1327, bean bags)
-    // ==========================================
-
-    // The producer behind migration 20's gate: linkOrphanShotsStatic returns
-    // -1 (not 0) when its UPDATE can't run. createV1Schema gives a shots table
-    // with no bag_id column and no coffee_bags table, so pass-1 fails to
-    // prepare. This is the SQL-failure signal the migration relies on to know
-    // it must NOT bump the schema version.
-    void linkOrphanShotsStatic_returnsMinusOneOnSqlFailure() {
-        const QString path = freshDbPath();
-        int result = 0;
-        withRawDb(path, "orphan_minus1", [&](QSqlDatabase& db) {
-            createV1Schema(db);  // shots without bag_id; no coffee_bags table
-            QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression("orphan-shot link pass 1 failed"));
-            result = CoffeeBagStorage::linkOrphanShotsStatic(db);
-        });
-        QCOMPARE(result, -1);
-    }
-
-    // Migration 20 gate + retry. A transient failure (modelled with the
-    // fault-injection seam) must leave the schema version UNbumped so the
-    // whole chain retries cleanly next launch — bumping past it would strand
-    // the orphan shots forever. First init: orphan-link "fails", version stays
-    // at 19, the orphan shot is untouched. Second init (fault auto-cleared):
-    // the chain runs to completion, reaching v21 and linking the shot to its
-    // bag — proving migration 20 actually did its work on the retry, not just
-    // bumped the counter.
-    void v20_orphanLinkFailureRetriesCleanly() {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        // Seed a bag and a pre-bag orphan shot (bag_id NULL) that identity-
-        // matches it, then rewind to v19 so migrations 20+21 re-run next init.
-        qint64 bagId = -1, shotId = -1;
-        withRawDb(path, "v20_seed", [&](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, in_inventory) "
-                           "VALUES ('Onyx', 'Geometry', 1)"));
-            bagId = q.lastInsertId().toLongLong();
-            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                           "bean_brand, bean_type) "
-                           "VALUES ('orphan-1', 1000, 'P', 30.0, 'Onyx', 'Geometry')"));
-            shotId = q.lastInsertId().toLongLong();
-            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
-            q.exec("DELETE FROM schema_version");
-            q.exec("INSERT INTO schema_version (version) VALUES (19)");
-        });
-        QVERIFY(bagId > 0 && shotId > 0);
-
-        // First launch: orphan-link fails -> version NOT bumped, shot stays orphan.
-        ShotHistoryStorage::s_faultInjectMigration = 20;
-        initExpectingMigrationWarning(path, "migration 20 orphan-link failed");
-
-        withRawDb(path, "v20_after_fail", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 19);  // gated: stayed put for a retry
-            QSqlQuery q(db);
-            q.exec("SELECT bag_id FROM shots WHERE uuid = 'orphan-1'");
-            QVERIFY(q.next());
-            QVERIFY2(q.value(0).isNull(), "orphan shot must remain unlinked after the failed pass");
-        });
-
-        // Second launch: fault auto-cleared -> full chain runs, shot is linked.
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            // The retry ran the WHOLE deferred chain, not just migration 20:
-            // migration 21's rename landed too (post-condition column present).
-            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
-            QSqlQuery q(db);
-            q.exec("SELECT bag_id FROM shots WHERE uuid = 'orphan-1'");
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toLongLong(), bagId);
-        });
-    }
-
-    // Migration 21 gate + retry. The yield column rename is gated on its
-    // post-condition (the new column exists). A transient failure of the
-    // RENAME (modelled with the seam) must leave the version at 20 with the
-    // OLD column name intact, so the next launch retries. Second init renames
-    // for real, preserves the stored value, and reaches v21.
-    void v21_renameFailureRetriesCleanly() {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        // Force the pre-rename schema: new name -> old name, a stored value,
-        // version 20.
-        withRawDb(path, "v21_fail_setup", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
-            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_target_g, in_inventory) "
-                           "VALUES ('Onyx', 'Geometry', 42.0, 1)"));
-            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
-            q.exec("DELETE FROM schema_version");
-            q.exec("INSERT INTO schema_version (version) VALUES (20)");
-        });
-
-        // First launch: rename "fails" -> version NOT bumped, old column kept.
-        ShotHistoryStorage::s_faultInjectMigration = 21;
-        initExpectingMigrationWarning(path, "migration 21 column rename failed");
-
-        withRawDb(path, "v21_after_fail", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 20);  // gated: stayed put for a retry
-            QVERIFY(hasColumn(db, "coffee_bags", "yield_target_g"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "yield_override_g"));
-        });
-
-        // Second launch: fault auto-cleared -> rename succeeds, value survives.
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        withRawDb(path, "v21_after_retry", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
-            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("SELECT yield_override_g FROM coffee_bags WHERE coffee_name = 'Geometry'"));
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toDouble(), 42.0);
-        });
-    }
-
-    // Migration 21 guard edge: coffee_bags has NEITHER yield_target_g (nothing
-    // to rename) NOR yield_override_g (post-condition unmet). The guard must
-    // refuse to bump rather than recording v21 over a table that lacks the
-    // column production code reads. Contrived (a fresh DB always has the
-    // column), but it pins the both-absent branch of the post-condition check.
-    void v21_neitherYieldColumnLeavesVersionUnbumped() {
-        const QString path = freshDbPath();
-        { ShotHistoryStorage s; initAndClose(path, s); }
-
-        // Drop the new column without adding the old one, then rewind to v20.
-        withRawDb(path, "v21_neither_setup", [](QSqlDatabase& db) {
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_override_g"));
-            q.exec("DELETE FROM schema_version");
-            q.exec("INSERT INTO schema_version (version) VALUES (20)");
-        });
-
-        // Neither column present -> rename skipped, post-condition unmet,
-        // version held at 20 with the "column rename failed" warning.
-        initExpectingMigrationWarning(path, "migration 21 column rename failed");
-
-        withRawDb(path, "v21_neither_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 20);
-            QVERIFY(!hasColumn(db, "coffee_bags", "yield_override_g"));
-            QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
-        });
-    }
-
-    // ==========================================
-    // Migration 22: equipment packages (add-equipment-packages)
-    // ==========================================
-
-    // The migration-22 data step is NOT idempotent (it creates packages); only
-    // the version gate stops it re-running. Prove that re-initializing does not
-    // duplicate the default package created from the live grinder settings — the
-    // single most dangerous regression in this migration.
-    void v22_reinitDoesNotDuplicatePackages() {
-        const QString path = freshDbPath();
-        QSettings app(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant pB = app.value("dye/grinderBrand"), pM = app.value("dye/grinderModel"),
-                       pBu = app.value("dye/grinderBurrs"), pS = app.value("dye/grinderSetting");
-        app.setValue("dye/grinderBrand", "Niche");
-        app.setValue("dye/grinderModel", "Zero");
-        app.setValue("dye/grinderBurrs", "63mm conical");
-        app.setValue("dye/grinderSetting", "12");
-
-        auto packageCount = [&]() {
-            int n = -1;
-            withRawDb(path, "v22_count", [&](QSqlDatabase& db) {
-                QSqlQuery q(db);
-                if (q.exec("SELECT COUNT(*) FROM equipment_packages") && q.next())
-                    n = q.value(0).toInt();
-            });
-            return n;
-        };
-
-        { ShotHistoryStorage s; initAndClose(path, s); }
-        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion); });
-        QCOMPARE(packageCount(), 1);             // default package created from current settings
-        { ShotHistoryStorage s; initAndClose(path, s); }
-        QCOMPARE(packageCount(), 1);             // gate prevented a duplicate on re-init
-
-        auto restore = [&](const char* k, const QVariant& v) { if (v.isValid()) app.setValue(k, v); else app.remove(k); };
-        restore("dye/grinderBrand", pB); restore("dye/grinderModel", pM);
-        restore("dye/grinderBurrs", pBu); restore("dye/grinderSetting", pS);
-    }
-
     // loadShotRecordStatic reads equipment_id/rpm by positional index (39/40);
     // guard the round-trip and the NULL→0 mapping so a future SELECT-list edit
     // that shifts those columns fails loudly.
@@ -2430,8 +969,7 @@ private slots:
     // add-shot-flow-calibration: the same guard v22 and v33 established for
     // their positionally-read columns. flow_calibration is read as
     // query.value(56) in loadShotRecordStatic(), so a future SELECT-list edit
-    // that shifts it would silently load the wrong field — v38ToV39 above
-    // covers the migration with raw SQL and would not notice. This walks the
+    // that shifts it would silently load the wrong field. This walks the
     // production path: write, load into a ShotRecord, project. It also pins the
     // 0-means-unrecorded contract, which is the reason the column is nullable.
     void v39_flowCalibrationReadRoundTrip() {

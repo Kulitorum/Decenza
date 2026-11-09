@@ -111,16 +111,4 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     return fields;
 }
 
-bool milkPreselectedFromSteamJson(const QString& steamJson) {
-    if (steamJson.isEmpty())
-        return false;
-    const QJsonObject steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
-    return steam.value("hasMilk").toBool() || steam.value("milkWeightG").toDouble() > 0;
-}
-
-bool isEligibleForStarterRecipe(bool recipeCountOk, qint64 recipeCount,
-                                 qint64 latestShotId, qint64 loadedRecordId) {
-    return recipeCountOk && recipeCount == 0 && latestShotId > 0 && loadedRecordId > 0;
-}
-
 } // namespace RecipePromotion

@@ -13,11 +13,9 @@
 #include "settings_theme.h"
 #include "settings_visualizer.h"
 #include "settings_calibration.h"
-#include "history/coffeebagstorage.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSettings>
-#include <QStandardPaths>
 #include <QDebug>
 
 QStringList SettingsSerializer::sensitiveKeys()
@@ -164,8 +162,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // device unless the referenced row was itself transferred. The profile
     // side of auto-load (autoLoadFilename below) is portable because a
     // profile is identified by a stable filename, not a local id.
-    // importFromJson still understands the legacy "beans" section from
-    // old-version exports.
 
     // Profile favorites
     QJsonObject profile;
@@ -254,15 +250,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     theme["backgroundShotAdvanced"] = settings->theme()->backgroundShotAdvanced();
     theme["glassChrome"] = settings->theme()->glassChrome();
 
-    // Export active palette as customColors (backward compat) plus both palettes
-    QJsonObject customColors;
-    QVariantMap colors = settings->theme()->customThemeColors();
-    for (auto it = colors.begin(); it != colors.end(); ++it) {
-        customColors[it.key()] = it.value().toString();
-    }
-    theme["customColors"] = customColors;
-
-    // Also export raw dark/light storage for full dual-palette backup
+    // The stored palettes only: a device that never customised one exports
+    // nothing, so a restore leaves the destination's own palette alone.
     QByteArray darkData = settings->value("theme/customColorsDark").toByteArray();
     if (!darkData.isEmpty()) {
         theme["customColorsDark"] = QJsonDocument::fromJson(darkData).object();
@@ -503,11 +492,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("temperature")) settings->brew()->setSteamTemperature(steam["temperature"].toDouble());
         if (steam.contains("timeout")) settings->brew()->setSteamTimeout(steam["timeout"].toInt());
         if (steam.contains("flow")) settings->brew()->setSteamFlow(steam["flow"].toInt());
-        // `keepHeaterOn` is the pre-split key: it means exactly what
-        // keepWarmWhenIdle means now, so an older backup restores that half and
-        // leaves letRecipeDecide at its default.
         if (steam.contains("keepWarmWhenIdle")) settings->brew()->setKeepWarmWhenIdle(steam["keepWarmWhenIdle"].toBool());
-        else if (steam.contains("keepHeaterOn")) settings->brew()->setKeepWarmWhenIdle(steam["keepHeaterOn"].toBool());
         if (steam.contains("letRecipeDecide")) settings->brew()->setLetRecipeDecide(steam["letRecipeDecide"].toBool());
         if (steam.contains("disabled")) settings->brew()->setSteamDisabled(steam["disabled"].toBool());
         if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
@@ -526,25 +511,18 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                // A `disabled` preset in the backup is a user-created "Off"
-                // pitcher from before the built-in entry existed. It is dropped:
-                // every install now has the built-in, and re-creating it would
-                // put back the duplicate this change removes.
-                const bool disabled = p["disabled"].toBool();
                 const int before = settings->brew()->steamPitcherCount();
-                if (!disabled) {
-                    // Legacy presets predate the per-pitcher temperature field; fall
-                    // back to the device's current global steam temperature.
-                    const double presetTemp = p.contains("temperature") ? p["temperature"].toDouble()
-                                                                        : settings->brew()->steamTemperature();
-                    settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(),
-                                                            p["flow"].toInt(), presetTemp);
-                }
-                // Restore weight + milk calibration ONLY for an enabled preset whose
-                // add actually appended one entry — never onto a disabled preset, nor
-                // (if a corrupt store no-ops the add) onto the wrong/previous one.
+                // Legacy presets predate the per-pitcher temperature field; fall
+                // back to the device's current global steam temperature.
+                const double presetTemp = p.contains("temperature") ? p["temperature"].toDouble()
+                                                                    : settings->brew()->steamTemperature();
+                settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(),
+                                                        p["flow"].toInt(), presetTemp);
+                // Restore weight + milk calibration ONLY when the add actually
+                // appended one entry — if a corrupt store no-ops the add, never
+                // onto the wrong/previous one.
                 const int after = settings->brew()->steamPitcherCount();
-                if (!disabled && after == before + 1) {
+                if (after == before + 1) {
                     const int idx = after - 1;
                     if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
                     if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
@@ -556,43 +534,13 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // calibrated preset clobber a backup where the user had the feature OFF.
         // The serialized value must win.
         if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
-        if (steam.contains("steamSecondsPerGram")) {
+        if (steam.contains("steamSecondsPerGram"))
             settings->brew()->setSteamSecondsPerGram(steam["steamSecondsPerGram"].toDouble());
-        } else {
-            // Pre-migration backup: no global rate stored, but restored presets may
-            // carry the old per-pitcher (calibMilkG, duration). Re-derive the rate the
-            // same way the one-time ctor migration does, so weight-timed steaming
-            // survives a cross-version restore instead of silently reverting to base
-            // duration with milkAutoCapture still shown ON. Positive-only, so a backup
-            // with no calibrated preset leaves the rate untouched.
-            settings->brew()->seedSteamRateFromLegacyPresets();
-        }
         // Apply the selected pitcher AFTER any preset rebuild (and regardless of
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.
         if (steam.contains("selectedPitcher")) {
-            int sel = steam["selectedPitcher"].toInt();
-            // REMAP, don't just range-check. The import above drops every
-            // `disabled` preset, so the surviving rows renumber underneath a
-            // stored index — the same hazard the constructor migration exists to
-            // handle, and a bare range check reintroduced it here. A backup of
-            // [Off, Small, Large] with selection 0 restored as "Small" and turned
-            // the heater on, silently, for a user whose whole intent was to keep
-            // it off.
-            if (sel >= 0 && steam.contains("pitcherPresets")) {
-                const QJsonArray imported = steam["pitcherPresets"].toArray();
-                int survivorsBefore = 0;
-                bool selectionWasDropped = false;
-                for (int i = 0; i < imported.size() && i <= sel; ++i) {
-                    const bool dropped = imported.at(i).toObject()["disabled"].toBool();
-                    if (i == sel)
-                        selectionWasDropped = dropped;
-                    else if (!dropped)
-                        ++survivorsBefore;
-                }
-                sel = selectionWasDropped ? SettingsBrew::HeaterOffPitcherIndex
-                                          : survivorsBefore;
-            }
+            const int sel = steam["selectedPitcher"].toInt();
             if (sel == SettingsBrew::HeaterOffPitcherIndex
                 || (sel >= 0 && sel < settings->brew()->steamPitcherCount()))
                 settings->brew()->setSelectedSteamCup(sel);
@@ -605,23 +553,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 DIAG_WARN(STORAGE, "SettingsSerializer") << "imported selectedPitcher" << sel
                            << "out of range after import; leaving current selection";
             }
-        }
-    }
-
-    // Back-compat: a JSON exported by an older version may carry the legacy
-    // "headless.skipPurgeConfirm" field. The current writer emits the unified
-    // setting under "steam.twoTapStop"; if the new key was already imported
-    // above, it takes precedence (it's the more deliberate choice). Otherwise
-    // map the legacy field through the same polarity inversion used by the
-    // in-process migration in Settings::Settings(). Skip if the caller asked
-    // to exclude either the "headless" source or the "steam" target.
-    const QJsonObject steamObj = json["steam"].toObject();
-    if (json.contains("headless") && !excludeKeys.contains("headless")
-            && !excludeKeys.contains("steam")
-            && !steamObj.contains("twoTapStop")) {
-        QJsonObject headless = json["headless"].toObject();
-        if (headless.contains("skipPurgeConfirm")) {
-            settings->hardware()->setSteamTwoTapStop(!headless["skipPurgeConfirm"].toBool());
         }
     }
 
@@ -680,30 +611,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
     }
 
-    // Legacy bean presets (exports from pre-bag app versions). Presets were
-    // replaced by coffee bags in the shot history database — re-materialize
-    // the raw QSettings keys and run the shared merge-import conversion
-    // immediately (this import runs mid-session; the launch-time path in
-    // ShotHistoryStorage would otherwise only pick the keys up on restart).
-    if (json.contains("beans") && !excludeKeys.contains("beans")) {
-        QJsonObject beans = json["beans"].toObject();
-        if (beans.contains("presets")) {
-            AppSettings rawSettings;
-            rawSettings.setValue(QStringLiteral("bean/presets"),
-                                 QJsonDocument(beans["presets"].toArray()).toJson());
-            if (beans.contains("selectedPreset"))
-                rawSettings.setValue(QStringLiteral("bean/selectedPreset"),
-                                     beans["selectedPreset"].toInt());
-
-            // Same default path as ShotHistoryStorage::initialize().
-            const QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                                   + QStringLiteral("/shots.db");
-            const qint64 selectedBagId = CoffeeBagStorage::convertLegacyPresetSettings(dbPath);
-            if (selectedBagId > 0)
-                settings->dye()->setActiveBagId(static_cast<int>(selectedBagId));
-        }
-    }
-
     // Profile favorites
     if (json.contains("profile") && !excludeKeys.contains("profile")) {
         QJsonObject profile = json["profile"].toObject();
@@ -736,11 +643,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (profile.contains("favoriteOrder")) {
             settings->app()->setFavoriteProfileOrder(profile["favoriteOrder"].toString());
         }
-
-        // selectedBuiltIns/hiddenProfiles: an old backup may still carry these
-        // (the removed Selected list) — deliberately ignored, not migrated.
-        // The one-time startup merge (takeLegacySelectedLists) reads the live
-        // keys once; a backup import has no such hook.
 
         if (profile.contains("autoLoadFilename")) {
             settings->app()->setAutoLoadProfileFilename(profile["autoLoadFilename"].toString());
@@ -856,11 +758,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             settings->setValue("theme/customColorsLight",
                 QJsonDocument(theme["customColorsLight"].toObject()).toJson());
         }
-        // Backward compat: old single-palette backup (always dark — light mode didn't exist)
-        if (theme.contains("customColors") && !theme.contains("customColorsDark")) {
-            settings->setValue("theme/customColorsDark",
-                QJsonDocument(theme["customColors"].toObject()).toJson());
-        }
 
         if (theme.contains("colorGroups")) {
             QVariantList groups;
@@ -933,9 +830,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (dye.contains("drinkWeight")) settings->dye()->setDyeDrinkWeight(dye["drinkWeight"].toDouble());
         // drinkTds/drinkEy are session-scratch (not persisted); ignore on restore.
         // espressoEnjoyment in an older backup is ignored — see settings_dye.h.
-        // Shot notes: try new key first, fall back to old key
         if (dye.contains("shotNotes")) settings->dye()->setDyeShotNotes(dye["shotNotes"].toString());
-        else if (dye.contains("espressoNotes")) settings->dye()->setDyeShotNotes(dye["espressoNotes"].toString());
         if (dye.contains("barista")) settings->dye()->setDyeBarista(dye["barista"].toString());
         if (dye.contains("shotDateTime")) settings->dye()->setDyeShotDateTime(dye["shotDateTime"].toString());
     }

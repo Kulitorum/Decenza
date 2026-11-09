@@ -830,8 +830,7 @@ QJsonObject AIConversation::changesFromPreviousShot(const QString& shotLabel,
     if (prev.content.isEmpty() || prev.shotLabel.isEmpty()) return QJsonObject();
 
     // Both turns are one JSON object — the prose envelope and the regex fallback
-    // that read it are gone, and the key change wipes anything stored in the old
-    // shape (clearAllConversationsOnce("equipment_scoped_conversations_v2")).
+    // that read it are gone, and stored turns in the old shape were cleared in 2.0.4.
     //
     // Equipment never shows as a change here: the conversation key holds the
     // package id, so both turns share it. The grinder identity is read only so the
@@ -905,7 +904,7 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
     // counter (skipping string literals and escapes) to find the envelope
     // between a "## Shot (date)" header and a trailing question, because "Qt's
     // JSON parser rejects trailing prose". Nothing writes that shape any more,
-    // and clearAllConversationsOnce drops the turns that did.
+    // and the turns that did were cleared in 2.0.4.
     ShotFields fields;
 
     QJsonParseError err{};

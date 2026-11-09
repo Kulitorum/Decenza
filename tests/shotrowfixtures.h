@@ -28,6 +28,7 @@
 #include "history/shothistorystorage.h"
 #include "history/shotprojection.h"
 #include "history/equipmentstorage.h"
+#include "history/upgradefloor.h"
 
 namespace ShotRowFixtures {
 
@@ -301,6 +302,24 @@ inline bool restoreLegacyBagColumns(QSqlDatabase& db)
         }
     }
     return true;
+}
+
+// Write the schema-41 fixture to `path` rewound one version below the upgrade
+// floor. Returns the file's bytes, empty on any failure.
+inline QByteArray writeBelowFloorDatabase(const QString& path)
+{
+    if (!QFile::copy(QStringLiteral(DECENZA_SOURCE_DIR "/tests/data/db/schema41.db"), path)
+        || !QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner))
+        return {};
+    bool rewound = false;
+    withRawDb(path, QStringLiteral("below_floor_rewind"), [&rewound](QSqlDatabase& db) {
+        rewound = QSqlQuery(db).exec(QStringLiteral("UPDATE schema_version SET version = %1")
+                                         .arg(UpgradeFloor::kSchemaVersion - 1));
+    });
+    QFile file(path);
+    if (!rewound || !file.open(QIODevice::ReadOnly))
+        return {};
+    return file.readAll();
 }
 
 // Initialize, close, and let background DB work drain.

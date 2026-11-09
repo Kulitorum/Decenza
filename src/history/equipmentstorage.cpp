@@ -1498,8 +1498,7 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
     // bug, and that judgement is already made and written down next door.
     //
     // Trimming is the other half and was missing entirely on the stored side.
-    // ShotHistoryStorage::grinderModelMatchSql folds case AND whitespace, and
-    // so does the enrichment-heal query further down THIS file, so a model
+    // ShotHistoryStorage::grinderModelMatchSql folds case AND whitespace, so a model
     // stored as " Niche Zero" was two grinders to this matcher and one to
     // every query that reads dial history. Forking a package is precisely what
     // detaches that history — #1713's mechanism — so two matchers disagreeing
@@ -1703,7 +1702,7 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     // because a THIRD package replaced it is still genuinely retired, and
     // reviving it puts a stale duplicate back in the inventory — with the same
     // derived name as its own successor, since a fork copies the name. That is
-    // reachable from the heal on a real database: A retired into B, then B
+    // reachable when a retired package is merged: A retired into B, then B
     // retired into C, and the heal folds A into B. loadInventoryStatic and
     // findPackageByGrinderIdentityStatic both key on in_inventory alone, so the
     // zombie would read as live gear to the Equipment page AND become a merge
@@ -1761,7 +1760,7 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     result.ok = true;
     // DEBUG, and worded as staged rather than done: this body writes inside SOMEONE
     // ELSE'S transaction and has committed nothing. The outcome line belongs to
-    // whoever commits — mergePackagesStatic below, or migration 35 for the heal.
+    // whoever commits — mergePackagesStatic below.
     EQUIP_LOG_STDERR("Merge",
                      QString("staged fold of package %1 into %2 - %3 shots, %4 recipes")
                          .arg(sourceId)
@@ -1805,204 +1804,6 @@ bool EquipmentStorage::isEnrichmentOf(const PackageIdentity& before, const Packa
         && filledIn(before.basketBrand, after.basketBrand)
         && filledIn(before.basketModel, after.basketModel)
         && (before.puckPrep.isEmpty() || before.puckPrep == after.puckPrep);  // both canonical
-}
-
-PackageIdentity EquipmentStorage::identityOfStatic(QSqlDatabase& db, qint64 packageId)
-{
-    const EquipmentItem grinder = loadGrinderItemStatic(db, packageId);
-    const EquipmentItem basket  = loadBasketItemStatic(db, packageId);
-    const EquipmentItem puck    = loadPuckPrepItemStatic(db, packageId);
-
-    PackageIdentity id;
-    // isValid(), not "are the fields blank": the loaders return a
-    // default-constructed item when there is no row, and no-row is the case that
-    // means "deliberately grinder-less" rather than "nobody typed it in".
-    id.hasGrinder   = grinder.isValid();
-    id.grinderBrand = grinder.brand;
-    id.grinderModel = grinder.model;
-    id.burrs        = grinder.burrs;
-    id.basketBrand  = basket.brand;
-    id.basketModel  = basket.model;
-    id.puckPrep     = puck.model;   // stored canonical
-    return id;
-}
-
-bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap,
-                                                 qsizetype* healedOut)
-{
-    // One-time repair for forks that the enrichment rule would no longer create.
-    //
-    // Three conditions:
-    //   - the two packages are in a LINEAGE (older.superseded_by = newer.id), which
-    //     is what proves the app forked them rather than the user owning two
-    //     packages that happen to look alike;
-    //   - isEnrichmentOf(older, newer) — the SAME test the live edit rule applies,
-    //     shared rather than restated. Anything the rule calls enrichment is healed
-    //     here, whichever component was the one nobody had written down;
-    //   - at least one component ACTUALLY went empty -> named. isEnrichmentOf is
-    //     vacuously true for two packages that differ in nothing, and a database can
-    //     hold such a pair because device transfer imports every superseded package
-    //     as a new row. That is a duplicate, not a fork. See the filled list below.
-    //
-    // It used to restate the test, and got it wrong: it checked the BURRS going
-    // empty -> named and required all FIVE other components — grinder brand, grinder
-    // model, basket brand, basket model and the puck-prep string — to be EQUAL. "Equal" is not a stricter form of
-    // "empty -> named"; for a component that was absent it is the inverse. So a
-    // fork caused by recording a BASKET — the common one, since baskets arrived
-    // after grinders did — was skipped while the migration logged
-    // "merged 0 package(s)", which reads as nothing to fix. Verified on two real
-    // databases before this was changed.
-    //
-    // Anything the shared rule rejects is still left alone: a burr swap between
-    // two named sets, a changed basket, a cleared field, a grinder-less package
-    // gaining a grinder, and two similar packages with no lineage. A user who
-    // really did swap a component on the same edit that first named it is
-    // indistinguishable here and is healed too — the same trade the live rule
-    // makes.
-    //
-    // The newer package survives: it is the one in inventory, the one carrying the
-    // components the user just recorded, and the one new shots already point at.
-    //
-    // Runs INSIDE the caller's transaction (it uses the unlocked merge), so the
-    // whole heal commits or rolls back with the migration that calls it.
-    if (healedOut)
-        *healedOut = 0;
-    if (!db.tables().contains(QStringLiteral("equipment_packages")))
-        return true;
-
-    qsizetype healed = 0;
-    // A chain (A -> B -> C, burrs named twice) collapses one link per pass, and
-    // each pass re-reads the lineage the previous one rewrote. Bounded so a
-    // cycle in superseded_by — which nothing should create, but which would
-    // otherwise spin forever inside a migration — cannot hang startup.
-    constexpr int kMaxHealPasses = 10;
-    for (int pass = 0; pass < kMaxHealPasses; ++pass) {
-        // Every lineage pair, unfiltered. The test is isEnrichmentOf, in C++, on
-        // loaded packages — NOT a SQL predicate rebuilt here. Rebuilding it is
-        // what made this heal disagree with the live rule it retro-applies: it
-        // tested burrs alone and demanded the other five components be EQUAL (see
-        // this function's header), which is the inverse of enrichment for a
-        // component that was absent. An inventory
-        // is tens of rows, so loading both sides costs nothing worth optimising,
-        // and C++ also gets the Unicode-correct folding SQLite's ASCII-only
-        // LOWER() cannot do (see findPackageByGrinderIdentityStatic).
-        struct Fold {
-            qint64 older = 0;    // to remove
-            qint64 newer = 0;    // survivor
-            QString filled;      // which components the newer one named first
-        };
-        QVector<Fold> pairs;
-        QSqlQuery q(db);
-        if (!q.exec("SELECT older.id, newer.id FROM equipment_packages older "
-                    "JOIN equipment_packages newer ON newer.id = older.superseded_by "
-                    "ORDER BY older.id")) {
-            EQUIP_WARN_STDERR("Heal",
-                              QString("enrichment-fork scan failed: %1")
-                                  .arg(q.lastError().text()));
-            return false;
-        }
-        QVector<QPair<qint64, qint64>> lineage;
-        while (q.next())
-            lineage.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
-        for (const auto& [older, newer] : lineage) {
-            // Belt-and-braces, and deliberately not claimed as load-bearing: the
-            // lineage scan is re-executed at the top of every pass and a folded
-            // package is DELETED, so it cannot reappear here. The merge loop below
-            // has its own guard for the within-pass case, which is the one that can
-            // actually fire. Kept because it is free; do not write a mechanism for
-            // it without finding one first.
-            if (!loadPackageStatic(db, older).isValid() || !loadPackageStatic(db, newer).isValid())
-                continue;
-            const PackageIdentity a = identityOfStatic(db, older);
-            const PackageIdentity b = identityOfStatic(db, newer);
-            if (!isEnrichmentOf(a, b))
-                continue;
-            // Name the components, not just the ids. "merged 0" was undiagnosable
-            // precisely because the log never said WHICH component the heal was
-            // looking at, and the answer turned out to be "only the burrs".
-            //
-            // This list is also a CONDITION, not just narration: isEnrichmentOf is
-            // vacuously true for two packages that differ in nothing, because no
-            // component fails the filled-in test. The live rule never sees that
-            // case — it returns early on `unchanged` — but a database can hold one,
-            // since device transfer imports every superseded package as a new row.
-            // Two byte-identical packages are a DUPLICATE, not a fork, and folding
-            // one silently is not this migration's call; merge is the user's to run.
-            QStringList filled;
-            const auto gained = [](const QString& before, const QString& after) {
-                return before.trimmed().isEmpty() && !after.trimmed().isEmpty();
-            };
-            if (gained(a.grinderBrand, b.grinderBrand)) filled << QStringLiteral("grinder brand");
-            if (gained(a.grinderModel, b.grinderModel)) filled << QStringLiteral("grinder model");
-            if (gained(a.burrs, b.burrs))               filled << QStringLiteral("burrs");
-            if (gained(a.basketBrand, b.basketBrand))   filled << QStringLiteral("basket brand");
-            if (gained(a.basketModel, b.basketModel))   filled << QStringLiteral("basket model");
-            if (gained(a.puckPrep, b.puckPrep))         filled << QStringLiteral("puck prep");
-            if (filled.isEmpty())
-                continue;   // identical pair — a duplicate, not a fork
-            pairs.append({older, newer, filled.join(QStringLiteral(", "))});
-        }
-        // Defensive only, and deliberately not justified by a mechanism. The loop
-        // above steps the scan to exhaustion, and Qt resets the statement itself
-        // the moment sqlite3_step returns SQLITE_DONE
-        // (qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp:326-332), so there
-        // is no live cursor left to block the merges below — QSqlQuery::finish()'s
-        // own documentation says there is normally no need to call it.
-        //
-        // Two WRONG explanations have been attached to this call already: the
-        // DbWriteTxn precondition (which is about a SELECT left mid-iteration, and
-        // this path opens no transaction of its own), and SQLite refusing a write
-        // under an unfinalized cursor (measured against libsqlite3 — it does not).
-        // Kept because it is free and makes the read/write boundary explicit; if
-        // you need it to be load-bearing, find the mechanism first.
-        q.finish();
-        if (pairs.isEmpty())
-            return true;   // nothing left to match — the normal exit
-
-        for (const auto& [older, newer, filled] : pairs) {
-            // A previous iteration of THIS pass may have already merged one side
-            // away (a chain seen from both ends); skip rather than fail.
-            if (!loadPackageStatic(db, older).isValid() || !loadPackageStatic(db, newer).isValid())
-                continue;
-            const EquipmentMergeResult r = mergePackagesUnlockedStatic(db, older, newer);
-            if (!r.ok) {
-                EQUIP_WARN_STDERR("Heal",
-                                  QString("enrichment-fork heal failed for %1 -> %2 : %3")
-                                      .arg(older)
-                                      .arg(newer)
-                                      .arg(r.error));
-                return false;   // caller rolls back
-            }
-            ++healed;
-            if (healedOut)
-                *healedOut = healed;
-            if (remap) {
-                // Anything that already pointed at `older` now points at `newer`,
-                // including an earlier heal in this same run.
-                for (auto it = remap->begin(); it != remap->end(); ++it)
-                    if (it.value() == older)
-                        it.value() = newer;
-                remap->insert(older, newer);
-            }
-            // DEBUG: still inside the migration's transaction, which has not
-            // committed. The INFO outcome is migration 35's post-commit total.
-            EQUIP_LOG_STDERR("Heal",
-                             QString("package %1 is an enrichment fork of %2 (same gear; %3 recorded "
-                                     "on the newer one only) - reuniting them")
-                                 .arg(older)
-                                 .arg(newer)
-                                 .arg(filled));
-        }
-    }
-    // Falling out of the loop with pairs still matching means a chain deeper than
-    // the bound. Nothing should build one, but silence here would look exactly
-    // like "nothing to heal" while the version bumps and the remaining forks are
-    // never revisited.
-    EQUIP_WARN_STDERR("Heal",
-                      QString("stopped after %1 passes with enrichment forks still unmerged - "
-                              "repair the rest with the equipment_merge MCP tool")
-                          .arg(kMaxHealPasses));
-    return true;
 }
 
 qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
@@ -2073,8 +1874,6 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // physical rather than tidy: there is no espresso pulled without a basket, so
     // an absent basket is a basket nobody wrote down, exactly like absent burrs.
     // Tea genuinely has no grinder.
-    // The test itself lives in isEnrichmentOf, shared with the one-time heal —
-    // see its declaration for why that sharing is load-bearing.
     PackageIdentity before;
     before.hasGrinder   = cur.isValid();
     before.grinderBrand = cur.brand;
@@ -2311,188 +2110,12 @@ bool EquipmentStorage::deriveRpmCapable(const QString& brand, const QString& mod
     return entry ? entry->variableRpm : true;
 }
 
-void EquipmentStorage::splitGrindAndRpm(const QString& combined, QString& outGrind, qint64& outRpm)
-{
-    outGrind = combined.trimmed();
-    outRpm = 0;
-    // Only split on an explicit trailing rpm marker, so compound ("1+4") and
-    // other annotated ("24 clicks") settings are left verbatim.
-    static const QRegularExpression rx(QStringLiteral(R"(\s*(\d+)\s*rpm\s*$)"),
-                                       QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch m = rx.match(outGrind);
-    if (m.hasMatch()) {
-        outRpm = m.captured(1).toLongLong();
-        outGrind = outGrind.left(m.capturedStart(0)).trimmed();
-    }
-}
-
-bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
-                                                       const QString& currentBrand,
-                                                       const QString& currentModel,
-                                                       const QString& currentBurrs,
-                                                       const QString& currentSetting)
-{
-    auto trimmed = [](const QString& s) { return s.trimmed(); };
-    auto isEmptyIdentity = [&](const QString& b, const QString& m, const QString& bu) {
-        return trimmed(b).isEmpty() && trimmed(m).isEmpty() && trimmed(bu).isEmpty();
-    };
-    auto identityKey = [&](const QString& b, const QString& m, const QString& bu) {
-        return trimmed(b).toLower() + QChar(0x1f) + trimmed(m).toLower()
-             + QChar(0x1f) + trimmed(bu).toLower();
-    };
-
-    QHash<QString, qint64> idToPackage;                                  // identityKey -> package id
-    QVector<std::tuple<QString, QString, QString, qint64>> allPackages;  // brand, model, burrs, id
-
-    auto registerPackage = [&](const QString& b, const QString& m, const QString& bu, qint64 id) {
-        idToPackage.insert(identityKey(b, m, bu), id);
-        allPackages.append(std::make_tuple(trimmed(b), trimmed(m), trimmed(bu), id));
-    };
-
-    // 1. Default package from the user's current grinder settings.
-    if (!isEmptyIdentity(currentBrand, currentModel, currentBurrs)) {
-        QString grind; qint64 rpm = 0;
-        splitGrindAndRpm(currentSetting, grind, rpm);
-        EquipmentPackage pkg;
-        pkg.lastGrindSetting = grind;
-        pkg.lastRpm = rpm;
-        pkg.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
-        const qint64 id = createPackageWithGrinderStatic(db, pkg, trimmed(currentBrand),
-                                                         trimmed(currentModel), trimmed(currentBurrs));
-        if (id > 0)
-            registerPackage(currentBrand, currentModel, currentBurrs, id);
-    }
-
-    // 2. One package per remaining distinct historical identity (bags ∪ shots).
-    QSqlQuery distinctQ(db);
-    if (!distinctQ.exec(
-            "SELECT DISTINCT grinder_brand, grinder_model, grinder_burrs FROM ("
-            "  SELECT grinder_brand, grinder_model, grinder_burrs FROM coffee_bags "
-            "  UNION ALL "
-            "  SELECT grinder_brand, grinder_model, grinder_burrs FROM shots)")) {
-        EQUIP_WARN_STDERR("Migration",
-                          QString("migration distinct-identity query failed: %1")
-                              .arg(distinctQ.lastError().text()));
-        return false;
-    }
-    struct Identity { QString brand, model, burrs; };
-    QVector<Identity> newIdentities;
-    while (distinctQ.next()) {
-        const Identity id{ distinctQ.value(0).toString(), distinctQ.value(1).toString(),
-                           distinctQ.value(2).toString() };
-        if (isEmptyIdentity(id.brand, id.model, id.burrs))
-            continue;
-        if (idToPackage.contains(identityKey(id.brand, id.model, id.burrs)))
-            continue;
-        newIdentities.append(id);
-    }
-    for (const Identity& id : newIdentities) {
-        // Seed the package's last dial from that grinder's most-recent shot
-        // (fall back to a bag), so a switch pre-fills a real value.
-        QString grind; qint64 rpm = 0;
-        QSqlQuery seedQ(db);
-        seedQ.prepare("SELECT grinder_setting FROM shots "
-                      "WHERE LOWER(IFNULL(grinder_brand,''))=:b AND LOWER(IFNULL(grinder_model,''))=:m "
-                      "AND LOWER(IFNULL(grinder_burrs,''))=:bu AND grinder_setting IS NOT NULL "
-                      "ORDER BY id DESC LIMIT 1");
-        seedQ.bindValue(":b", id.brand.trimmed().toLower());
-        seedQ.bindValue(":m", id.model.trimmed().toLower());
-        seedQ.bindValue(":bu", id.burrs.trimmed().toLower());
-        if (seedQ.exec() && seedQ.next())
-            splitGrindAndRpm(seedQ.value(0).toString(), grind, rpm);
-
-        EquipmentPackage pkg;
-        pkg.lastGrindSetting = grind;
-        pkg.lastRpm = rpm;
-        pkg.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
-        const qint64 pid = createPackageWithGrinderStatic(db, pkg, id.brand.trimmed(),
-                                                          id.model.trimmed(), id.burrs.trimmed());
-        if (pid > 0)
-            registerPackage(id.brand, id.model, id.burrs, pid);
-    }
-
-    // 3. Link every bag/shot to its package by identity (bulk per identity).
-    qint64 linkedRows = 0;
-    for (const auto& [b, m, bu, pid] : allPackages) {
-        for (const char* table : { "coffee_bags", "shots" }) {
-            QSqlQuery linkQ(db);
-            linkQ.prepare(QString("UPDATE %1 SET equipment_id = :pid "
-                                  "WHERE LOWER(IFNULL(grinder_brand,'')) = :b "
-                                  "AND LOWER(IFNULL(grinder_model,'')) = :m "
-                                  "AND LOWER(IFNULL(grinder_burrs,'')) = :bu").arg(QLatin1String(table)));
-            linkQ.bindValue(":pid", pid);
-            linkQ.bindValue(":b", b.toLower());
-            linkQ.bindValue(":m", m.toLower());
-            linkQ.bindValue(":bu", bu.toLower());
-            if (!linkQ.exec())
-                EQUIP_WARN_STDERR("Migration",
-                                  QString("migration link failed on %1 : %2")
-                                      .arg(table)
-                                      .arg(linkQ.lastError().text()));
-            else
-                linkedRows += linkQ.numRowsAffected();
-        }
-    }
-
-    // 4. Split combined grind+rpm settings into grinder_setting + rpm. Only rows
-    //    carrying an explicit rpm marker need touching.
-    qint64 splitRows = 0;
-    for (const char* table : { "coffee_bags", "shots" }) {
-        QSqlQuery scanQ(db);
-        if (!scanQ.exec(QString("SELECT id, grinder_setting FROM %1 "
-                                "WHERE grinder_setting LIKE '%rpm%'").arg(QLatin1String(table)))) {
-            EQUIP_WARN_STDERR("Migration",
-                              QString("migration rpm-scan failed on %1 : %2")
-                                  .arg(table)
-                                  .arg(scanQ.lastError().text()));
-            continue;
-        }
-        QVector<std::tuple<qint64, QString, qint64>> updates;  // id, grind, rpm
-        while (scanQ.next()) {
-            const qint64 rowId = scanQ.value(0).toLongLong();
-            QString grind; qint64 rpm = 0;
-            splitGrindAndRpm(scanQ.value(1).toString(), grind, rpm);
-            if (rpm > 0)
-                updates.append(std::make_tuple(rowId, grind, rpm));
-        }
-        for (const auto& [rowId, grind, rpm] : updates) {
-            QSqlQuery upd(db);
-            upd.prepare(QString("UPDATE %1 SET grinder_setting = :g, rpm = :r WHERE id = :id")
-                            .arg(QLatin1String(table)));
-            upd.bindValue(":g", nullIfEmpty(grind));
-            upd.bindValue(":r", rpm);
-            upd.bindValue(":id", rowId);
-            if (!upd.exec())
-                EQUIP_WARN_STDERR("Migration",
-                                  QString("migration rpm-split update failed on %1 : %2")
-                                      .arg(table)
-                                      .arg(upd.lastError().text()));
-            else
-                ++splitRows;
-        }
-    }
-
-    // Success summary for the one-shot upgrade — the log is the only window into
-    // what migration 22 actually did on a user's device (created N packages,
-    // linked B+S bag/shot rows, split R combined settings). qInfo so it survives
-    // release log levels.
-    EQUIP_INFO_STDERR("Migration",
-                      QString("migration 22 data step complete - %1 packages created, %2 bag/shot rows linked, %3 grind+rpm settings split")
-                          .arg(allPackages.size())
-                          .arg(linkedRows)
-                          .arg(splitRows));
-    return true;
-}
-
 bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                              QHash<qint64, qint64>& outIdMap)
 {
     if (!merge) {
         // Replace mode: clear dest equipment first (items before packages — no
-        // FK cascade on these tables). Done BEFORE the source probe below so a
-        // replace from an older source that predates equipment tables still wipes
-        // the dest's inventory (otherwise the early return would leave it orphaned
-        // after importDatabaseStatic has already cleared the dest shots/bags).
+        // FK cascade on these tables).
         QSqlQuery clr(destDb);
         if (!clr.exec("DELETE FROM equipment_items") || !clr.exec("DELETE FROM equipment_packages")) {
             EQUIP_WARN_STDERR("Import",
@@ -2500,14 +2123,6 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
                                   .arg(clr.lastError().text()));
             return false;
         }
-    }
-
-    // Older source DB without equipment tables: nothing to import (in replace mode
-    // the dest was already cleared above).
-    {
-        QSqlQuery srcCheck(srcDb);
-        if (!srcCheck.exec("SELECT COUNT(*) FROM equipment_packages"))
-            return true;
     }
 
     QSqlQuery srcPkgs(srcDb);

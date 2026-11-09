@@ -2,7 +2,9 @@
 
 ## Purpose
 Governs the steam heater's standing state: the two Settings toggles (Keep warm when idle and Let the recipe decide), the permission and veto model that decides whether the heater is warm, the built-in "Heater off" pitcher entry, the single derivation of the steam target, the steam readout and wake behaviour, and the migration off user-created heater-off presets.
+
 ## Requirements
+
 ### Requirement: Two independent steam heater settings
 
 The system SHALL expose two independent boolean settings in Settings → Machine → Steam, replacing the single `keepSteamHeaterOn` boolean:
@@ -170,29 +172,3 @@ Its identity SHALL be an off marker, never its displayed name, so that a recipe 
 #### Scenario: It cannot be edited away
 - **WHEN** a user attempts to rename, delete, reorder or edit the built-in entry
 - **THEN** the operation is refused and the entry is unchanged
-
-### Requirement: Migration off user-created heater-off presets
-
-On first run, the system SHALL remove every disabled steam pitcher preset, remap `selectedSteamPitcher` so surviving presets keep their identity, and rewrite any recipe whose steam block names a removed preset to carry the off marker. A selection that was a removed preset SHALL end on the built-in "Heater off" entry. The migration SHALL be idempotent and SHALL NOT rewrite shot history.
-
-#### Scenario: The heater does not silently turn on at upgrade
-- **WHEN** a user's selected pitcher was their own Off preset
-- **THEN** after migration the selection is the built-in "Heater off" entry and the heater is still off
-
-#### Scenario: Surviving presets keep their identity
-- **WHEN** a disabled preset sat between two real presets and the user was selecting the later one
-- **THEN** after migration the same real preset is selected
-
-#### Scenario: Recipes are rewritten, not orphaned
-- **WHEN** a recipe's steam block named a removed disabled preset
-- **THEN** the recipe carries the off marker and activating it turns the heater off, creating no preset
-
-#### Scenario: History is preserved
-- **WHEN** a stored shot's steam snapshot names a removed preset
-- **THEN** the shot is unchanged, and promoting it to a recipe does not create a preset
-
-#### Scenario: A stored snapshot naming a removed preset is tolerated
-
-- **WHEN** a stored shot's steam snapshot names a preset that no longer exists
-- **THEN** the shot SHALL display without error and no preset SHALL be created
-

@@ -125,14 +125,6 @@ An advisor conversation thread SHALL be identified by the equipment package a sh
 - **WHEN** the user pulls another shot on package A and opens the advisor
 - **THEN** the package A thread SHALL resume with its existing turns
 
-### Requirement: Pre-upgrade threads are cleared once
-Threads saved before this requirement SHALL be cleared once, at the upgrade. They cannot be resumed, since their key carries no package, and cannot be read, since their prose-format turns have no reader.
-
-#### Scenario: Old thread is removed at upgrade
-
-- **WHEN** the app upgrades while a thread saved before this requirement exists
-- **THEN** that thread is cleared and the next advisor use starts a fresh thread
-
 ### Requirement: A thread keeps one equipment set for its life
 A saved conversation is replayed to the model on every request, so its equipment scope SHALL hold for its whole life. Scoping only the payload would leave older turns describing other equipment inside the transcript.
 

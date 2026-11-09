@@ -146,7 +146,6 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/emojiassets.cpp
     ${CMAKE_SOURCE_DIR}/src/core/markdownrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/appsettings.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/settingsstoremigration.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mqtt.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_autowake.cpp
@@ -703,14 +702,6 @@ target_link_libraries(tst_settings PRIVATE decenza_settingsserializerlib)
 # Deliberately links nothing: it tests Qt's own store naming plus the source tree.
 add_decenza_test(tst_appsettings
     tst_appsettings.cpp
-)
-
-# --- tst_settingsstoremigration: the one-time DE1Qt -> canonical store migration ---
-# Drives migrateLegacySettingsStore() over temp IniFormat stores. The source comes
-# from decenza_testlib; nothing here addresses a real store, which matters because
-# this migration destroys what it reads.
-add_decenza_test(tst_settingsstoremigration
-    tst_settingsstoremigration.cpp
 )
 
 # --- tst_backgroundpresets: background preset catalogue + Glass theme ---
@@ -1400,7 +1391,7 @@ add_decenza_test(tst_coffeebags
 target_link_libraries(tst_coffeebags PRIVATE decenza_beanbaselib decenza_shotlib)
 target_include_directories(tst_coffeebags PRIVATE ${CMAKE_BINARY_DIR})
 
-# --- tst_dbmigration: DB schema creation and migration chain ---
+# --- tst_dbmigration: DB schema baseline, upgrade floor, and migrations above it ---
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_decenza_test(tst_dbmigration
     tst_dbmigration.cpp
@@ -1410,7 +1401,7 @@ target_link_libraries(tst_dbmigration PRIVATE decenza_shotlib)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_equipment: equipment package storage statics — grind/rpm split,
-# rpmCapable derivation, package CRUD + identity dedup, migration-22 data step
+# rpmCapable derivation, package CRUD + identity dedup
 # (add-equipment-packages). Static helpers only, so a minimal source set. ---
 add_decenza_test(tst_equipment
     tst_equipment.cpp
@@ -1430,8 +1421,8 @@ target_link_libraries(tst_recipestorage PRIVATE decenza_shotlib)
 target_include_directories(tst_recipestorage PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_recipepromotion: RecipePromotion::fieldsFromShotRecord — the shared
-# promotion field-builder behind recipe_create_from_shot (MCP) and the
-# recipes-idle-layout-upgrade starter-recipe hook. Header-only dependency
+# promotion field-builder behind recipe_create_from_shot (MCP) and the web
+# promote endpoint. Header-only dependency
 # (beanbase_blob.h's canonicalId is inline), no DB needed. ---
 add_decenza_test(tst_recipepromotion
     tst_recipepromotion.cpp

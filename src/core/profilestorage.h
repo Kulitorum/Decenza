@@ -82,9 +82,4 @@ signals:
 private:
     bool m_setupSkipped = false;
 
-    // Moves history dir from AppDataLocation/profiles/history → AppDataLocation/history.
-    // Safe to call every startup — no-ops when the old path is absent (idempotent by design,
-    // no guard flag needed). Desktop-only: on Android with external storage the old broken
-    // path never existed under AppDataLocation.
-    void migrateHistoryToNewPath();
 };

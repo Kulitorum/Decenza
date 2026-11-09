@@ -10,6 +10,7 @@
 #include "ai/conversationkey.h"
 #include "history/shothistorystorage.h"
 #include "screensaver/screensavervideomanager.h"
+#include "shotrowfixtures.h"
 
 #include <QtTest>
 #include <QNetworkAccessManager>
@@ -156,6 +157,96 @@ private slots:
         QCOMPARE(saved.value(QStringLiteral("languageTranslation")).toObject()
                      .value(QStringLiteral("translations")).toObject()
                      .value(QStringLiteral("fixture.source")).toString(), QStringLiteral("Jug"));
+        storage.close();
+        QTRY_VERIFY(storage.isDbWorkIdle());
+    }
+
+    // A backup whose shot database predates the upgrade floor is refused before
+    // anything in it is applied, on both restore paths.
+    void restoresRefuseADatabaseBelowTheFloor_data()
+    {
+        QTest::addColumn<bool>("readable");
+        QTest::addColumn<QString>("shown");
+        QTest::addColumn<QString>("logged");
+        QTest::newRow("below floor") << true << QString::fromLatin1(UpgradeFloor::kSteppingStoneRelease)
+                                     << QStringLiteral("source is below the upgrade floor");
+        QTest::newRow("unconfirmed") << false << QStringLiteral("could not be read")
+                                     << QStringLiteral("shot database could not be read");
+    }
+
+    void restoresRefuseADatabaseBelowTheFloor()
+    {
+        QFETCH(bool, readable);
+        QFETCH(QString, shown);
+        QFETCH(QString, logged);
+        QStandardPaths::setTestModeEnabled(true);
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+             + QStringLiteral("/translations")).removeRecursively();
+        QTemporaryDir directory;
+        QByteArray oldBytes = ShotRowFixtures::writeBelowFloorDatabase(directory.filePath(QStringLiteral("old.db")));
+        QVERIFY(!oldBytes.isEmpty());
+        if (!readable) {
+            // A real SQLite file with no shots table: the probe cannot place it above the floor.
+            const QString other = directory.filePath(QStringLiteral("other.db"));
+            ShotRowFixtures::withRawDb(other, QStringLiteral("unconfirmed_db"), [](QSqlDatabase& db) {
+                QVERIFY(QSqlQuery(db).exec(QStringLiteral("CREATE TABLE notes (id INTEGER)")));
+            });
+            QFile file(other);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            oldBytes = file.readAll();
+        }
+
+        Settings settings;
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+        QNetworkAccessManager network;
+        TranslationManager translations(&network, &settings);
+        translations.registerString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher"));
+        const QJsonObject language{
+            {QStringLiteral("language"), QStringLiteral("en")},
+            {QStringLiteral("translations"), QJsonObject{{QStringLiteral("fixture.source"), QStringLiteral("Jug")}}}};
+
+        // .dcbackup: refused while the archive is parsed.
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("old.dcbackup")), {
+            {QByteArrayLiteral("extra_settings.json"), QJsonDocument(QJsonObject{
+                {QStringLiteral("language"), QStringLiteral("en")},
+                {QStringLiteral("languageTranslation"), language},
+                {QStringLiteral("languageOverrides"), QJsonArray{}}}).toJson()},
+            {QByteArrayLiteral("shots.db"), oldBytes}});
+        FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, &translations);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options withoutShots;
+        withoutShots.shots = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("old-db"), archive, withoutShots));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QVERIFY2(finished.first().at(3).toString().contains(shown), qPrintable(finished.first().at(3).toString()));
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
+                 QStringLiteral("Pitcher"));
+
+        // Zip with shots unchecked: the settings beside the old database are refused too.
+        const QString zipPath = directory.filePath(QStringLiteral("old.zip"));
+        QuaZip writer(zipPath);
+        QVERIFY(writer.open(QuaZip::mdCreate));
+        QVERIFY(ZipArchive::addFile(writer, QStringLiteral("settings.json"), QJsonDocument(QJsonObject{
+            {QStringLiteral("languageTranslation"), language},
+            {QStringLiteral("languageOverrides"), QJsonArray{}}}).toJson()));
+        QVERIFY(ZipArchive::addFile(writer, QStringLiteral("shots_backup_20260920.db"), oldBytes));
+        writer.close();
+        QCOMPARE(writer.getZipError(), UNZ_OK);
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(directory.filePath(QStringLiteral("shots.db"))));
+        DatabaseBackupManager manager(&settings, &storage);
+        manager.setTranslationManager(&translations);
+        QSignalSpy completed(&manager, &DatabaseBackupManager::restoreCompleted);
+        QSignalSpy failed(&manager, &DatabaseBackupManager::restoreFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(logged));
+        QVERIFY(manager.restoreBackupFile(zipPath, true, false, true, false, false));
+        QTRY_VERIFY_WITH_TIMEOUT(completed.count() + failed.count() == 1, 10000);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(failed.first().first().toString().contains(shown), qPrintable(failed.first().first().toString()));
+        QCOMPARE(storage.totalShots(), 0);
+        QCOMPARE(translations.translateString(QStringLiteral("fixture.source"), QStringLiteral("Pitcher")),
+                 QStringLiteral("Pitcher"));
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());
     }

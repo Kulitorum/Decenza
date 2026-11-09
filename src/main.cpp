@@ -175,7 +175,6 @@ extern "C" const char* __ubsan_default_options()
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QScreen>
-#include <QSettings>
 #include <QIcon>
 #include <QTimer>
 #include <QEventLoop>
@@ -189,10 +188,8 @@ extern "C" const char* __ubsan_default_options()
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QSet>
 #include <QStandardPaths>
 #include <QPixmapCache>
 #ifdef Q_OS_MACOS
@@ -227,7 +224,6 @@ extern "C" const char* __ubsan_default_options()
 #include "core/themeeditoroptions.h"
 #include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
 #include "core/contextsingletons_qml.h"  // *Foreign — singletons replacing setContextProperty()
-#include "core/settingsstoremigration.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
 #include "core/settings_hardware.h"
@@ -302,6 +298,7 @@ extern "C" const char* __ubsan_default_options()
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
 #include "history/shothistoryexporter.h"
+#include "history/shothistorystorage.h"
 #include "history/shotprojection.h"
 #include "mcp/mcpserver.h"
 #include "network/remoteaccess.h"
@@ -390,198 +387,16 @@ void wireWifiScaleDriver(DecentScaleWifi* wifi, Settings& settings, BLEManager& 
     });
 }
 
-constexpr const char* kAppNameOld = "Decenza DE1";
-constexpr const char* kAppNameNew = "Decenza";
-constexpr const char* kMigrationKey = "migration/app_name_decenza_de1_to_decenza_done";
-
-struct MergeResult {
-    int moved = 0;
-    int copiedFallback = 0;
-    int skipped = 0;
-    int failed = 0;
-};
-
-QString appScopedPathForName(QStandardPaths::StandardLocation location, const QString& appName)
+// A desktop install last run before 1.5.6 keeps its data under the old app
+// name. Read as a fresh install, it would get a new database here, and that
+// database stops 2.1.0's app-name move from ever recovering the old one.
+bool hasPreRenameShotDatabase()
 {
-    const QString originalName = QCoreApplication::applicationName();
-    QCoreApplication::setApplicationName(appName);
-    const QString path = QDir::cleanPath(QStandardPaths::writableLocation(location));
-    QCoreApplication::setApplicationName(originalName);
-    return path;
-}
-
-MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& destRoot)
-{
-    MergeResult result;
-    QDir sourceDir(sourceRoot);
-    if (!sourceDir.exists()) {
-        return result;
-    }
-
-    // Fast path: move whole directory when destination doesn't exist yet.
-    if (!QDir(destRoot).exists()) {
-        const QString destParent = QFileInfo(destRoot).absolutePath();
-        if (!QDir().mkpath(destParent)) {
-            DIAG_WARN(APP, "AppNameMigration") << "Failed to create destination parent directory:" << destParent;
-            result.failed++;
-            return result;
-        }
-        if (QDir().rename(sourceRoot, destRoot)) {
-            result.moved++;
-            return result;
-        }
-    }
-
-    if (!QDir().mkpath(destRoot)) {
-        DIAG_WARN(APP, "AppNameMigration") << "Failed to create destination directory:" << destRoot;
-        result.failed++;
-        return result;
-    }
-
-    QDirIterator it(sourceRoot, QDir::NoDotAndDotDot | QDir::AllEntries, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-        const QFileInfo sourceInfo = it.fileInfo();
-        const QString relativePath = sourceDir.relativeFilePath(sourceInfo.absoluteFilePath());
-        const QString destPath = QDir(destRoot).filePath(relativePath);
-
-        if (sourceInfo.isDir()) {
-            if (!QDir().mkpath(destPath)) {
-                DIAG_WARN(APP, "AppNameMigration") << "Failed to create subdirectory:" << destPath;
-                result.failed++;
-            }
-            continue;
-        }
-
-        if (QFileInfo::exists(destPath)) {
-            result.skipped++;
-            continue;
-        }
-
-        const QString destParent = QFileInfo(destPath).absolutePath();
-        if (!QDir().mkpath(destParent)) {
-            DIAG_WARN(APP, "AppNameMigration") << "Failed to create parent directory:" << destParent;
-            result.failed++;
-            continue;
-        }
-
-        QFile sourceFile(sourceInfo.absoluteFilePath());
-        if (sourceFile.rename(destPath)) {
-            result.moved++;
-            continue;
-        }
-
-        // Fallback for edge cases where rename isn't possible.
-        if (QFile::copy(sourceInfo.absoluteFilePath(), destPath)) {
-            QFile::remove(sourceInfo.absoluteFilePath());
-            result.copiedFallback++;
-        } else {
-            DIAG_WARN(APP, "AppNameMigration") << "Failed to copy file:" << sourceInfo.absoluteFilePath()
-                       << "->" << destPath;
-            result.failed++;
-        }
-    }
-
-    // Best-effort cleanup of empty source directories.
-    QStringList subdirs;
-    QDirIterator dirIt(sourceRoot, QDir::NoDotAndDotDot | QDir::Dirs, QDirIterator::Subdirectories);
-    while (dirIt.hasNext()) {
-        dirIt.next();
-        subdirs.prepend(dirIt.filePath());
-    }
-    for (const QString& subdir : subdirs) {
-        QDir().rmdir(subdir);
-    }
-    QDir().rmdir(sourceRoot);
-
-    return result;
-}
-
-void migrateDefaultQSettingsFromOldAppName(int& copied, int& skipped)
-{
-    const QString originalName = QCoreApplication::applicationName();
-
-    QCoreApplication::setApplicationName(kAppNameOld);
-    QSettings oldSettings;
-    const QStringList oldKeys = oldSettings.allKeys();
-
-    QCoreApplication::setApplicationName(kAppNameNew);
-    QSettings newSettings;
-    for (const QString& key : oldKeys) {
-        if (newSettings.contains(key)) {
-            skipped++;
-            continue;
-        }
-        newSettings.setValue(key, oldSettings.value(key));
-        copied++;
-    }
-    newSettings.sync();
-
-    QCoreApplication::setApplicationName(originalName);
-}
-
-void runAppNameMigrationOnce()
-{
-    if (QCoreApplication::applicationName() != QLatin1String(kAppNameNew)) {
-        return;
-    }
-
-    // Guard lives in the canonical store. It used to live in the legacy DE1Qt
-    // store, which runSettingsStoreMigrationOnce() destroys — leaving the flag
-    // there would re-run this migration on every launch forever.
-    AppSettings migrationSettings;
-    if (migrationSettings.value(kMigrationKey, false).toBool()) {
-        return;
-    }
-
-    int settingsCopied = 0;
-    int settingsSkipped = 0;
-    migrateDefaultQSettingsFromOldAppName(settingsCopied, settingsSkipped);
-
-    int filesMoved = 0;
-    int filesCopiedFallback = 0;
-    int filesSkipped = 0;
-    int filesFailed = 0;
-    const std::vector<QStandardPaths::StandardLocation> locations = {
-        QStandardPaths::AppDataLocation,
-        QStandardPaths::AppLocalDataLocation,
-        QStandardPaths::CacheLocation
-    };
-    QSet<QString> migratedPairs;
-    for (QStandardPaths::StandardLocation location : locations) {
-        const QString oldPath = appScopedPathForName(location, kAppNameOld);
-        const QString newPath = appScopedPathForName(location, kAppNameNew);
-        if (oldPath.isEmpty() || newPath.isEmpty() || oldPath == newPath) {
-            continue;
-        }
-
-        const QString migrationPair = oldPath + "->" + newPath;
-        if (migratedPairs.contains(migrationPair)) {
-            continue;
-        }
-        migratedPairs.insert(migrationPair);
-
-        if (!QDir(oldPath).exists()) {
-            continue;
-        }
-
-        const MergeResult merge = mergeDirectoryContents(oldPath, newPath);
-        filesMoved += merge.moved;
-        filesCopiedFallback += merge.copiedFallback;
-        filesSkipped += merge.skipped;
-        filesFailed += merge.failed;
-    }
-
-    migrationSettings.setValue(kMigrationKey, true);
-    migrationSettings.sync();
-
-    DIAG_INFO(APP, "AppNameMigration") << "completed"
-            << "settingsCopied=" << settingsCopied
-            << "settingsSkipped=" << settingsSkipped
-            << "filesMoved=" << filesMoved
-            << "filesCopiedFallback=" << filesCopiedFallback
-            << "filesSkipped=" << filesSkipped
-            << "filesFailed=" << filesFailed;
+    const QString currentName = QCoreApplication::applicationName();
+    QCoreApplication::setApplicationName(QStringLiteral("Decenza DE1"));
+    const QString oldDatabase = ShotHistoryStorage::defaultDatabasePath();
+    QCoreApplication::setApplicationName(currentName);
+    return QFileInfo::exists(oldDatabase);
 }
 
 }  // namespace
@@ -1092,17 +907,34 @@ int main(int argc, char *argv[])
     app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
 
-    // Both migrations must complete here — before Settings and
-    // AccessibilityManager are constructed, since both read the store these
-    // populate. (Deliberately no line numbers: the two this carried had drifted
-    // by ~130 and ~360 lines respectively.)
-    //
-    // Store migration runs FIRST so that the app-name migration below finds its
-    // own done-flag: that flag used to live in the legacy DE1Qt store, and this
-    // migration is what carries it into the canonical one. Reversed, the
-    // app-name migration would see an unstamped flag and redundantly re-run.
-    runSettingsStoreMigrationOnce();
-    runAppNameMigrationOnce();
+    // Before any settings or database migration runs: data older than the
+    // upgrade floor is refused and left exactly as it is.
+    auto floorProbe = ShotHistoryStorage::probeUpgradeFloor(ShotHistoryStorage::defaultDatabasePath());
+    if (floorProbe == ShotHistoryStorage::UpgradeFloorProbe::NoDatabase && hasPreRenameShotDatabase()) {
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "shot database found only under the pre-1.5.6 app name";
+        floorProbe = ShotHistoryStorage::UpgradeFloorProbe::BelowFloor;
+    }
+    switch (floorProbe) {
+    case ShotHistoryStorage::UpgradeFloorProbe::BelowFloor: {
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "shot database is below schema"
+            << UpgradeFloor::kSchemaVersion << "- showing the install-"
+            << UpgradeFloor::kSteppingStoneRelease << "notice and exiting without changes";
+        QQmlApplicationEngine notice;
+        notice.setInitialProperties({{QStringLiteral("steppingStoneRelease"),
+                                      QString::fromLatin1(UpgradeFloor::kSteppingStoneRelease)}});
+        notice.load(QUrl(u"qrc:/qt/qml/Decenza/qml/UpgradeFloorNotice.qml"_s));
+        if (notice.rootObjects().isEmpty())
+            return 1;
+        return app.exec();
+    }
+    case ShotHistoryStorage::UpgradeFloorProbe::Unknown:
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "could not read the shot database's schema version -"
+            << "continuing; the database layer refuses it before writing if it is below the floor";
+        break;
+    case ShotHistoryStorage::UpgradeFloorProbe::NoDatabase:
+    case ShotHistoryStorage::UpgradeFloorProbe::Supported:
+        break;
+    }
 
     // Limit Qt's pixmap cache to 32 MB (default is 10 MB on desktop but unbounded
     // growth via QML Image elements can reach 100+ MB on devices with many emoji/icon SVGs).

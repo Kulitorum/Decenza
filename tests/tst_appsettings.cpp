@@ -75,21 +75,6 @@ private slots:
     // is enforced rather than documented.
     void noSourceFileConstructsItsOwnSettingsHandle()
     {
-        // Where a handle on the legacy store is legitimate: the migration that
-        // drains it, and factoryReset() which must clear it. Prose mentioning
-        // the old name is fine and deliberately not matched — the hazard is a
-        // live handle, not a comment recording why the name is gone.
-        static const QStringList allowedLegacyNaming = {
-            QStringLiteral("core/settingsstoremigration.cpp"),
-            QStringLiteral("core/settings.cpp"),
-        };
-        // main.cpp's app-name migration deliberately default-constructs QSettings
-        // while it has applicationName reassigned — that is the mechanism, not a
-        // mistake, and it addresses the OLD app name on purpose.
-        static const QStringList allowedBareConstruction = {
-            QStringLiteral("main.cpp"),
-        };
-
         const QDir srcRoot(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/src"));
         QVERIFY(srcRoot.exists());
 
@@ -97,7 +82,7 @@ private slots:
             QStringLiteral(R"(^\s*(?:mutable\s+)?QSettings\s+\w+\s*;)"),
             QRegularExpression::MultilineOption);
         static const QRegularExpression bareTemporary(QStringLiteral(R"(QSettings\s*\(\s*\)\s*\.)"));
-        // A constructed handle naming the legacy store, e.g.
+        // A constructed handle naming the legacy store (prose naming it is fine), e.g.
         // QSettings legacy(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
         static const QRegularExpression legacyHandle(QStringLiteral(R"(QSettings\s+\w+\s*\([^;]*DE1Qt)"));
 
@@ -114,18 +99,18 @@ private slots:
             QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(path));
             const QString content = QString::fromUtf8(file.readAll());
 
-            if (legacyHandle.match(content).hasMatch() && !allowedLegacyNaming.contains(relative))
+            if (legacyHandle.match(content).hasMatch())
                 legacyOffenders.append(relative);
 
             const bool constructsBare = bareDeclaration.match(content).hasMatch()
                                         || bareTemporary.match(content).hasMatch();
-            if (constructsBare && !allowedBareConstruction.contains(relative))
+            if (constructsBare)
                 bareOffenders.append(relative);
         }
 
         QVERIFY2(legacyOffenders.isEmpty(),
                  qPrintable(QStringLiteral("these name the legacy DE1Qt store, which no longer "
-                                           "exists after migration: %1")
+                                           "exists: %1")
                                 .arg(legacyOffenders.join(QStringLiteral(", ")))));
         QVERIFY2(bareOffenders.isEmpty(),
                  qPrintable(QStringLiteral("these construct a bare QSettings, escaping test "

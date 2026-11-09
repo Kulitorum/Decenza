@@ -70,29 +70,6 @@ The temperature offset and the yield SHALL be stored as set, never recomputed in
 - **WHEN** a recipe stores `{2.0, ratio}` with a `doseG` of 18 and the live dose becomes 17.5
 - **THEN** the recipe still stores `1:2`, and its effective target becomes 35 g
 
-### Requirement: Legacy absolute yields migrate to yield specs
-A one-time forward migration SHALL convert each legacy `yield_g` into `yield_value` and `yield_mode`: a value above 0 becomes `absolute`, and 0 or NULL becomes `none`. `yield_g` SHALL be left dead in place and no longer read or written. Transfer and backup import SHALL convert only rows lacking `yield_mode`; a row carrying `yield_mode` SHALL import verbatim and ignore its dead `yield_g`.
-
-#### Scenario: Legacy absolute yield migrates to an absolute spec
-- **WHEN** a recipe row predating this change holds `yield_g` = 36
-- **THEN** after migration it holds `yield_value` = 36, `yield_mode` = `absolute`, and behaves exactly as before
-
-#### Scenario: Legacy unset yield migrates to none
-- **WHEN** a recipe row predating this change holds `yield_g` = 0 or NULL
-- **THEN** after migration it holds `yield_mode` = `none` and falls through the ladder exactly as an unset yield does today
-
-#### Scenario: Import from a legacy-version device converts
-- **WHEN** recipes are imported from a source database that has `yield_g` but no `yield_mode` column
-- **THEN** the conversion runs on the imported rows, producing the same specs the local migration would have
-
-#### Scenario: Import from a current-version device never reconverts
-- **WHEN** a recipe is imported from a source that has `yield_mode` (its dead `yield_g` still holding a pre-migration absolute), including a recipe the user has since changed to a ratio
-- **THEN** the imported recipe keeps its ratio — the dead column is ignored
-
-#### Scenario: Migration is a relabel
-- **WHEN** the yield migration runs on any recipe
-- **THEN** no profile is resolved, the migration cannot fail, and every migrated recipe behaves as it did before
-
 ### Requirement: Recipe surfaces expose the yield spec
 Every recipe surface (wizard, MCP, web editor) SHALL present yield as none, an absolute yield, or a ratio. The last written of ratio and yield is the anchor; the other is shown derived, never blank. JSON surfaces SHALL expose `yieldG` and `yieldRatio` as sparse, mutually exclusive keys, reject a request carrying both with an error naming the conflict, and clear the other when one is written. Tool descriptions SHALL say so.
 
@@ -114,7 +91,7 @@ Every recipe surface (wizard, MCP, web editor) SHALL present yield as none, an a
 - **THEN** it posts `yieldRatio` and omits `yieldG` — it SHALL NOT coerce a blank yield input to `0` and clear the anchor
 
 ### Requirement: Steam block with pitcher snapshot
-A recipe's steam block SHALL contain `hasMilk`, milk weight (g), steam temperature, flow and timeout, and either a pitcher snapshot (name and volume, by value) or an off marker. The off marker SHALL be a stable field, and SHALL NOT carry a pitcher name. A block with neither SHALL be treated as the off marker. A missing pitcher SHALL NOT block activation; a real one MAY be re-created, but an off-marker block SHALL NOT create a preset.
+A recipe's steam block SHALL contain `hasMilk`, milk weight (g), steam temperature, flow and timeout, and either a pitcher snapshot (name and volume, by value) or an off marker. A missing pitcher SHALL NOT block activation, and a real one MAY be re-created.
 
 An espresso recipe SHALL NOT inherit a shot's or the currently selected pitcher's steam settings when milk was not included.
 
@@ -125,6 +102,9 @@ An espresso recipe SHALL NOT inherit a shot's or the currently selected pitcher'
 #### Scenario: Pitcher preset edited after recipe creation
 - **WHEN** the user reorders, edits, or deletes entries in the global steam pitcher presets after a recipe was saved
 - **THEN** the recipe's steam behavior is unchanged, because the pitcher was snapshotted by value
+
+### Requirement: Steam off marker
+The off marker SHALL be a stable field, and SHALL NOT carry a pitcher name. A block with neither a pitcher snapshot nor the off marker SHALL be treated as the off marker. An off-marker block SHALL NOT create a preset.
 
 #### Scenario: The off marker survives a language change
 - **WHEN** a recipe carrying the off marker is activated in a different app language from the one it was saved in
@@ -230,17 +210,6 @@ A recipe SHALL link a specific bag via a `bag_id` column, riding transfer and ba
 #### Scenario: Bean-less recipe unaffected
 - **WHEN** a recipe with no bag link is activated
 - **THEN** the active bag is unchanged and recipe-local grind applies, exactly as before
-
-### Requirement: Existing recipes migrate to bag links
-A one-time forward migration SHALL populate `bag_id` for existing recipes by resolving each recipe's bean identity to the current open bag (canonical id first, else case-insensitive roaster+coffee, most recently used first — the previous resolver's logic, run once). Recipes whose bean has no open bag SHALL migrate with no bag link and present as stale.
-
-#### Scenario: Migration resolves the open bag
-- **WHEN** the database migrates with a recipe whose bean has one open bag
-- **THEN** the recipe's `bag_id` points at that bag and behavior is unchanged from the user's perspective
-
-#### Scenario: Migration with no open bag
-- **WHEN** the database migrates with a recipe whose bean has no open bag
-- **THEN** the recipe migrates without a bag link and shows the bag-finished state until relinked
 
 ### Requirement: Promote-from-shot grind comes from the shot
 Promote-from-shot, in the wizard and in MCP `recipe_create_from_shot`, SHALL default grind and rpm from the shot's own recorded values, the dial that produced the shot, and SHALL NOT use the bag's current dial.

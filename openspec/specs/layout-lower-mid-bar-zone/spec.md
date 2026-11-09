@@ -4,15 +4,10 @@
 Defines the optional `lowerMidBar` layout zone, a general-purpose full-width band rendered above the bottom action bar on the idle/home screen: it accepts any palette widget, collapses to zero height when empty so existing layouts are visually unaffected, and is shown or hidden at runtime based on available viewport height rather than a hardcoded device list.
 
 ## Requirements
+
 ### Requirement: Optional lower-mid-bar layout zone
 
-The layout system SHALL provide a general-purpose, full-width layout zone named `lowerMidBar` that renders directly above the existing bottom action bar on the idle/home screen. The zone SHALL accept any widget the layout system supports (it is location-named, not content-specific). It SHALL be registered everywhere existing zones are registered: the default layout JSON, the layout-migration path, the in-app layout editor, and the web layout editor.
-
-#### Scenario: Zone is empty by default
-
-- **WHEN** a user has no saved layout, or an existing layout that predates this change
-- **THEN** the `lowerMidBar` zone SHALL exist and contain zero widgets
-- **AND** the rendered home screen SHALL be visually identical to before this change (no reserved space, no visible bar)
+The layout system SHALL provide a general-purpose, full-width layout zone named `lowerMidBar` that renders directly above the existing bottom action bar on the idle/home screen. The zone SHALL accept any widget the layout system supports (it is location-named, not content-specific). It SHALL be registered everywhere existing zones are registered: the default layout JSON, the in-app layout editor, and the web layout editor.
 
 #### Scenario: Zone accepts any widget type
 
@@ -24,6 +19,16 @@ The layout system SHALL provide a general-purpose, full-width layout zone named 
 - **WHEN** a user opens the in-app layout editor or the web layout editor
 - **THEN** `lowerMidBar` SHALL appear as a selectable zone
 - **AND** the user SHALL be able to add, remove, and reorder widgets in it using the same controls as every other zone
+
+### Requirement: A layout without the zone reads it as empty
+
+A saved layout without a `lowerMidBar` entry SHALL behave as one whose zone is empty.
+
+#### Scenario: Zone is empty by default
+
+- **WHEN** a user has no saved layout, or an existing layout that predates this change
+- **THEN** the `lowerMidBar` zone SHALL behave as present and containing zero widgets
+- **AND** the rendered home screen SHALL be visually identical to before this change (no reserved space, no visible bar)
 
 ### Requirement: Lower-mid-bar zone collapses when empty
 
@@ -62,4 +67,3 @@ The `lowerMidBar` zone SHALL render only when the viewport has enough vertical r
 - **THEN** the configured widgets SHALL remain saved
 - **AND** the zone SHALL reappear with the same widgets when the viewport is tall enough again
 - **AND** the layout editor SHALL still expose the zone for configuration regardless of runtime fit
-
