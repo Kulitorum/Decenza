@@ -1582,8 +1582,9 @@ T.Page {
                 ColumnLayout {
                     id: editorColumn
                     enabled: steamPage.editorReady
-                    // Ends before the scrollbar, which is drawn over the Flickable's right edge. Reserved
-                    // even while the bar is hidden so the controls never shift sideways.
+                    // The attached scrollbar sits over the Flickable's right edge (qtquicktemplates
+                    // qquickscrollbar.cpp:1139-1146), so end before it. Reserved even while the bar is
+                    // hidden, so the controls never shift sideways.
                     width: editorFlick.width - editorFlick.ScrollBar.vertical.width - Theme.scaled(8)
                     spacing: Theme.scaled(8)
 
@@ -1614,7 +1615,7 @@ T.Page {
                         Tr { id: durationFallbackHint; key: "steam.hint.durationFallback"; fallback: "Used when milk isn't weighed"; visible: false }
 
                         Column {
-                            // Fills the row up to the value box, so a long translation elides instead of running under it.
+                            // Fills the row up to the value box, so the hint line elides instead of running under it.
                             Layout.fillWidth: true
                             spacing: Theme.scaled(4)
                             Tr {
@@ -1789,21 +1790,17 @@ T.Page {
                                 lineHeightMode: Text.FixedHeight
                                 lineHeight: Math.ceil(Theme.labelFont.pixelSize * 1.5)
                                 text: {
-                                    // Preview the weight-timed steam at your last measured milk, under
-                                    // the current global rate. Tracks preset + global-rate + last-milk
-                                    // changes so it recomputes. Only shown while weight-timing is actually
-                                    // active (auto-capture enabled AND a global rate calibrated) and there IS a
-                                    // last measured milk — in that regime effectiveSteamDurationSec returns
-                                    // the weight-scaled time, so the hint matches real behaviour. Driven by
-                                    // the live lastSteamMilkG (not the retired per-preset calibMilkG, which
-                                    // has no UI left to edit and would freeze on a stale value).
+                                    // Preview of the weight-timed steam at the last measured milk. Gated on
+                                    // weightTimingActive, since effectiveSteamDurationSec returns the preset's
+                                    // fixed duration otherwise. Uses the live lastSteamMilkG, not the retired
+                                    // per-preset calibMilkG, which has no UI left to edit.
                                     var milk = SteamService.state.lastSteamMilkG
                                     var duration = SteamService.state.lastSteamEffectiveDurationSec
                                     if (steamPage.weightTimingActive && milk > 0 && duration > 0)
                                         return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + milk.toFixed(0) + "g → " + duration + "s"
-                                    // Not "": the empty line collapsed in the Wasm client (observed, 22px, although
-                                    // qquicktext.cpp:469-471 gives an empty Text an implicit height), and the controls
-                                    // below moved when weight timing was toggled. A no-break space keeps the line.
+                                    // Not "": with "" this line collapsed in the Wasm client (observed: the rows
+                                    // below moved up 22px when weight timing was toggled), although
+                                    // qquicktext.cpp:457-470 gives an empty Text an implicit height. Cause unknown.
                                     return "\u00a0"
                                 }
                                 Accessible.ignored: true
