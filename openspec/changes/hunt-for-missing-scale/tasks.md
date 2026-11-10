@@ -14,6 +14,7 @@
 ## 3. Verification
 
 - [x] 3.1 Real-scale check on the Mac (Bluetooth Decent Scale, machine idle): first attempt timed out at 134.0 s, "scanning back-to-back" logged, next attempt 10 ms later, connected 69 s after the drop.
+- [x] 3.1b Real-scale check on the Mac, build of 9d57c1867 (WiFi primary `hdstest.local` off, a second Decent Scale on over Bluetooth): fallback connected the saved Bluetooth scale; after it was forgotten, the next timeout logged "no saved Bluetooth scale to fall back to" and "scanning back-to-back", it was not connected or re-saved, and the WiFi scale connected 14 s later when switched on. A second WiFi scale (`hds.local`) seen by the browse was correctly ignored.
 - [x] 3.2 Build and full suite through Qt Creator (ask first). Verify: `succeeded: true`, no failures.
 - [ ] 3.3 Device check, rides the next beta: tablet, scale off then on while idle and during a shot; log volume with an attempt every 20 s.
 
