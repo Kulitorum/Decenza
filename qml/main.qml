@@ -1559,8 +1559,6 @@ T.ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: {
                     flowScaleDialog.close()
-                    BLEManager.requestScaleReconnectRampRestart(
-                        "No-scale notice dismissed")
                 }
             }
         }
@@ -1618,8 +1616,6 @@ T.ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: {
                     scaleDisconnectedDialog.close()
-                    BLEManager.requestScaleReconnectRampRestart(
-                        "Scale-disconnected notice dismissed")
                 }
             }
         }

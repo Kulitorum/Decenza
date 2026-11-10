@@ -1599,14 +1599,26 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         }
 
         // WiFi-to-BLE fallback: when the saved scale is a WiFi address but
-        // we've timed out reaching it, accept the first matching-family
-        // (Decent) BLE scale found as a substitute. This is the only path
+        // we've timed out reaching it, accept a matching-family (Decent) BLE
+        // scale as a substitute, but only one in the user's saved list. A
+        // scale never connected, or forgotten, is not taken: it may be someone
+        // else's, and connecting it would save it again. This is the only path
         // that intentionally violates the #440 "primary-only auto-reconnect"
-        // guarantee — explicitly user-visible via the toast emitted from
-        // beginWifiFallbackToBleScan().
-        const bool isFallbackCandidate = m_wifiFallbackToBleActive
+        // guarantee.
+        const bool isFallbackFamily = m_wifiFallbackToBleActive
             && m_savedScaleType == ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi)
             && scaleType == QStringLiteral("decent");
+        const bool isFallbackCandidate = isFallbackFamily
+            && isSavedScale(getDeviceIdentifier(device));
+        if (isFallbackFamily && !isFallbackCandidate) {
+            // INFO, collapsed per device: without it the log reads "found X" then
+            // "not found" with the reason hidden.
+            scaleRepeatFailure(QString("WiFi fallback: found %1 (%2) but it is not a saved scale — "
+                                       "connect it once in Settings → Connections to use it as a backup")
+                                   .arg(device.name(), getDeviceIdentifier(device)),
+                               RepeatTier::Info, QStringLiteral("BLEManager"));
+            return;
+        }
 
         // Auto-connect rules (BLE path — WiFi has its own handler in
         // the WifiScaleDiscovery::resultFound lambda further down):
@@ -1628,8 +1640,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         //     through to the list-only branch. The WiFi handler below mirrors
         //     this rule for the WiFi-primary case.
         //   • WiFi→BLE fallback candidate → auto-connect (the #440-violating
-        //     "accept a Decent BLE scale as a substitute" path; opt-in via the
-        //     m_wifiFallbackToBleActive gate).
+        //     "accept a saved Decent BLE scale as a substitute" path, above).
         //   • Anything else during a user-initiated scan → list only, don't
         //     hijack the user's pick. The user explicitly selects via the UI
         //     (connectToScale()).
@@ -2079,7 +2090,7 @@ void BLEManager::onScaleConnectionTimeout() {
     m_directConnectAddress.clear();
     if (notConnected) {
         auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr;
-        // Gate on the transport actually holding something — the perpetual 60s
+        // Gate on the transport actually holding something — the perpetual
         // retry ladder hits this timeout on every cycle while the scale is
         // simply absent, and must not log/churn a teardown of nothing.
         //
@@ -2164,8 +2175,15 @@ void BLEManager::onScaleConnectionTimeout() {
         m_wifiDirectAttemptFailed = true;
         startReconnectBrowseIfNeeded();
         if (!m_wifiFallbackToBleActive) {
-            beginWifiFallbackToBleScan();
-            return;
+            // With no BLE scale saved the fallback scan could connect nothing; it
+            // would only delay the next WiFi attempt by its 20 s.
+            if (hasSavedBleScale()) {
+                beginWifiFallbackToBleScan();
+                return;
+            }
+            scaleRepeatFailure(QString("WiFi scale %1 unreachable — no saved Bluetooth scale to fall back to")
+                                   .arg(m_savedScaleAddress.mid(QStringLiteral("wifi:").size())),
+                               RepeatTier::Info, QStringLiteral("BLEManager"));
         }
     }
 
@@ -2189,6 +2207,22 @@ void BLEManager::onScaleConnectionTimeout() {
     emit scaleRetryNeeded();
 }
 
+bool BLEManager::isSavedScale(const QString& deviceId) const {
+    if (!m_savedScaleAddresses || deviceId.isEmpty()) return false;
+    return m_savedScaleAddresses().contains(deviceId, Qt::CaseInsensitive);
+}
+
+bool BLEManager::hasSavedBleScale() const {
+    if (!m_savedScaleAddresses) return false;
+    const QStringList addresses = m_savedScaleAddresses();
+    return std::any_of(addresses.cbegin(), addresses.cend(), [](const QString& address) {
+        return !address.isEmpty()
+            && !address.startsWith(QLatin1String("wifi:"), Qt::CaseInsensitive)
+            && !address.startsWith(QLatin1String("usb:"), Qt::CaseInsensitive)
+            && !address.startsWith(QLatin1String("sim:"), Qt::CaseInsensitive);
+    });
+}
+
 void BLEManager::beginWifiFallbackToBleScan() {
     if (m_firmwareUpdateActive) return;
     const QString hostname = m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
@@ -2198,7 +2232,7 @@ void BLEManager::beginWifiFallbackToBleScan() {
     // Bail BEFORE arming the fallback state if Bluetooth is unavailable —
     // otherwise m_wifiFallbackToBleActive would stay true and the next
     // user-initiated scan could trip the isFallbackCandidate gate in
-    // onDeviceDiscovered, auto-connecting to any Decent BLE scale found.
+    // onDeviceDiscovered, auto-connecting to a saved Decent BLE scale.
     if (!isBluetoothAvailable()) {
         // One line, marked. The bare qWarning that used to sit here said the same
         // thing in different words AND carried no [Scale] marker, so it was
@@ -2233,9 +2267,9 @@ void BLEManager::beginWifiFallbackToBleScan() {
     // looping back into another WiFi-fallback cycle).
     startScaleConnectionTimer();
 
-    // Start scanning for BLE devices. onDeviceDiscovered sees a Decent BLE
-    // scale, observes m_wifiFallbackToBleActive, and emits scaleDiscovered
-    // even though the saved address (wifi:...) doesn't match this BLE device.
+    // Start scanning for BLE devices. onDeviceDiscovered sees a saved Decent
+    // BLE scale, observes m_wifiFallbackToBleActive, and emits scaleDiscovered
+    // even though the saved primary (wifi:...) doesn't match this BLE device.
     m_scanningForScales = true;
     if (!m_scanning) {
         startScan();
@@ -3192,7 +3226,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // WiFi saved-scale path: hand off to the scale driver's connect (cached IP
     // first, mDNS only as fallback) — see the detailed note inside the branch.
     // If the connection doesn't establish before m_scaleConnectionTimer fires
-    // (~20 s), we fall back to a BLE scan that auto-connects to a discovered
+    // (~20 s), we fall back to a BLE scan that auto-connects to a saved
     // Decent scale (see onScaleConnectionTimeout and beginWifiFallbackToBleScan).
     if (m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
