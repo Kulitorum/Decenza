@@ -138,5 +138,6 @@ private:
     quint64 m_milkBaselineTareSequence = 0;
     bool m_milkRemovalPending = false;
     bool m_milkAwaitingEmpty = false;
-    bool m_milkCapturedThisOffer = false;
+    std::optional<double> m_offerMilkG; // what the open offer has captured
+    bool m_dropMilkCapture = false;
 };

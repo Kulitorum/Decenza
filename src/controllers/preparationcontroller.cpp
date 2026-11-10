@@ -76,8 +76,7 @@ PreparationController::PreparationController(Settings* settings, MachineState* m
     milkConfig.minNet = 50.0;
     milkConfig.maxNet = 1500.0;
     milkConfig.tolerance = 1.5;
-    // An offer follows the pitcher until it is lifted, so a top-up re-captures. 2 g is
-    // about half a second of steam at a typical rate, and above the 1.5 g tolerance.
+    // A top-up re-captures once the net moves more than this from the capture.
     milkConfig.rearmDelta = 2.0;
     const bool configured = m_milkCapture.setConfig(milkConfig);
     Q_ASSERT(configured);
@@ -239,8 +238,7 @@ bool PreparationController::startMilkAttempt(const QString& owner)
 
 bool PreparationController::cancelMilkAttempt(const QString& owner)
 {
-    // A lift after a capture, or an operation, has already closed the offer;
-    // withdrawing it then is not a failure.
+    // The host may already have closed the offer; withdrawing it then is not a failure.
     if (!m_milkOwners.remove(owner))
         return true;
     DIAG_DEBUG(STEAM, "PreparationController") << "Milk sample withdrawn by" << owner;
@@ -267,7 +265,7 @@ void PreparationController::closeMilkAttempt()
 {
     m_milkOwners.clear();
     m_snapshot.milkAttemptOpen = false;
-    m_milkCapturedThisOffer = false;
+    m_offerMilkG.reset();
 }
 
 bool PreparationController::setMilkTimeLocked(bool locked)
@@ -359,7 +357,15 @@ void PreparationController::refreshPass(bool resetDetectors)
 
     StableWeightCapture::Result beanResult;
     StableWeightCapture::Result milkResult;
+    if (m_dropMilkCapture) {
+        // A Tracking pass forgets the standing capture and keeps the empty reading.
+        m_milkCapture.update(rawWeight, milkCupWeight,
+                             scaleUsable ? Arming::Tracking : Arming::Off, nowMs);
+        m_dropMilkCapture = false;
+    }
     if (resetDetectors) {
+        // The pitcher was not lifted, so the offer stays; what it weighed is void.
+        m_offerMilkG.reset();
         // Disarm first so a tare/device swap cannot emit a capture from the old
         // baseline before the new input starts its baseline dwell.
         m_beanCapture.update(rawWeight, beanCupWeight, Arming::Off, nowMs);
@@ -383,9 +389,13 @@ void PreparationController::refreshPass(bool resetDetectors)
         m_milkBaselineTareSequence = m_tareSequence;
     if (m_milkAwaitingEmpty && wasMilkLoadPresent && !milkResult.loadPresent)
         m_milkRemovalPending = true;
-    // The offer follows the pitcher: milk poured after a capture replaces it, and
-    // lifting the pitcher is what ends the offer (#2058).
-    if (m_milkCapturedThisOffer && wasMilkLoadPresent && !milkResult.loadPresent) {
+    // After a capture, the load leaving ends the offer, so a cup set down next is
+    // not taken for milk. A tare or a scale dropout is not a lift (#2058).
+    if (m_offerMilkG && !resetDetectors && milkArming != Arming::Off && validWeight
+        && wasMilkLoadPresent && !milkResult.loadPresent) {
+        DIAG_INFO(STEAM, "PreparationController")
+            << QStringLiteral("Milk sample ended: pitcher lifted, %1 g stands")
+                   .arg(formatGrams(*m_offerMilkG));
         closeMilkAttempt();
         milkActive = false;
     }
@@ -409,6 +419,7 @@ void PreparationController::refreshPass(bool resetDetectors)
     if (!resetDetectors && realScaleSample && milkArming != Arming::Off && validWeight
         && !m_snapshot.milkTimeLocked && wasMilkLoadPresent && !milkResult.loadPresent
         && m_snapshot.mode == QLatin1String("steam") && preparationPhase) {
+        DIAG_DEBUG(STEAM, "PreparationController") << "Manual steam time cleared: pitcher lifted";
         m_snapshot.milkTimeLocked = true;
     }
 
@@ -488,6 +499,8 @@ void PreparationController::onPitcherChanged()
 {
     // A captured net is the old pitcher's. An open attempt stays open, now waiting
     // for the new pitcher's sample.
+    m_offerMilkG.reset();
+    m_dropMilkCapture = true;
     m_snapshot.sessionMeasuredMilkG = 0.0;
     m_snapshot.steamTimeoutScaled = false;
     m_snapshot.milkTimeLocked = true;
@@ -843,11 +856,14 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
 
     const double grams = *result.capturedGrams;
     m_milkAwaitingEmpty = true;
+    // The same milk settling again (after a wand purge, or scale noise) is not news.
+    if (m_offerMilkG && std::abs(grams - *m_offerMilkG) <= m_milkCapture.config().rearmDelta)
+        return;
     int seconds = 0;
     m_snapshot.sessionMeasuredMilkG = grams;
     QStringList owners(m_milkOwners.cbegin(), m_milkOwners.cend());
     owners.sort();
-    m_milkCapturedThisOffer = true;
+    m_offerMilkG = grams;
     if (m_snapshot.milkTimeLocked) {
         seconds = m_brew->scaledSteamTime(m_brew->selectedSteamPitcher(), grams);
         if (seconds > 0) {

@@ -644,43 +644,21 @@ T.Page {
 
     // The host owns milk capture and steam-time learning. This page offers a sample
     // when the user opens the Steam row and shows the confirmation.
-    property bool milkCaptureShown: false
-    property string milkCaptureText: ""
-    Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
+    // Window-level, so it sits where the app's other toasts do.
+    StatusToast { id: milkCaptureToast; parent: Overlay.overlay; durationMs: 3500 }
     MilkCapture {
         id: idleMilkCapture
-        // Banner only while this page is the active page.
+        // Toast only while this page is the active page.
         onMilkCaptured: function(milk, t) {
             if (idlePage.StackView.status !== StackView.Active
                     || PreparationService.state.mode !== "steam")
                 return
-            idlePage.milkCaptureText = t > 0
+            const text = t > 0
                 ? TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
                 : TranslationManager.translate("scale.milkCaptured", "Milk captured: %1 g").arg(milk.toFixed(0))
-            idlePage.milkCaptureShown = true
-            idleMilkCaptureTimer.restart()
+            milkCaptureToast.show(text)
             if (AccessibilityManager.enabled)
-                AccessibilityManager.announce(idlePage.milkCaptureText)
-        }
-    }
-
-    // Transient confirmation banner for the milk-weight capture (auto-dismiss).
-    Rectangle {
-        visible: idlePage.milkCaptureShown
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        anchors.topMargin: Theme.scaled(12)
-        z: 2000
-        width: milkBannerLabel.implicitWidth + Theme.scaled(32)
-        height: milkBannerLabel.implicitHeight + Theme.scaled(20)
-        radius: Theme.cardRadius
-        color: Theme.primaryColor
-        Text {
-            id: milkBannerLabel
-            anchors.centerIn: parent
-            text: idlePage.milkCaptureText
-            color: Theme.primaryContrastColor
-            font: Theme.bodyFont
+                AccessibilityManager.announce(text)
         }
     }
 

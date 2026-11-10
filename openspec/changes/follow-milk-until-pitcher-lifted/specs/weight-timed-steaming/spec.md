@@ -4,7 +4,7 @@
 
 ### Requirement: Automatic milk capture before steaming
 
-The system SHALL capture milk only for a sample the user requests, from the review-page milk button or the idle-screen steam pitchers (Steam row or compact Steam popup). The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL confirm a settled sample and lock the scaled time, and SHALL replace it when the reading moves by at least 2 g and settles again while the pitcher stays on the scale. It SHALL end when the pitcher is lifted after a capture, when its surface closes, or when any operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
+The system SHALL capture milk only for a sample the user requests, from the review-page milk button or the idle-screen steam pitchers (Steam row or compact Steam popup). The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL confirm a settled sample and lock the scaled time, and SHALL replace it when the reading moves by more than 2 g and settles again while the pitcher stays on the scale. It SHALL end when the pitcher is lifted after a capture (a tare or a scale disconnect is not a lift), when its surface closes, or when any operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
 
 #### Scenario: Milk settles and the time locks
 - **WHEN** the user opens the idle pitchers and the pitcher with milk holds steady within tolerance for the dwell
@@ -28,7 +28,7 @@ The system SHALL capture milk only for a sample the user requests, from the revi
 
 #### Scenario: Top-up after a manual adjustment
 - **WHEN** the user tapped ±5 after a capture and then pours more into the pitcher on the scale
-- **THEN** the new weight is recorded and the adjusted time is kept
+- **THEN** the new weight is recorded and the adjusted time is kept until the pitcher is lifted
 
 #### Scenario: Steam start ends the request
 - **WHEN** a sample is requested and steam starts from the group head before anything is captured

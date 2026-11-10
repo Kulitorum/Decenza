@@ -6,10 +6,13 @@ A milk capture ends its request on the first reading that holds for the dwell. A
 
 ## What Changes
 
-- A request stays open after a capture while the pitcher is on the scale. A reading that moves at least 2 g and settles again replaces the earlier capture.
-- Lifting the pitcher after a capture ends the request, so a cup set down afterwards is still never taken for milk.
-- A manual ±5 is still kept: a later top-up is weighed but does not re-time the steam.
+- A request stays open after a capture while the pitcher is on the scale. A reading that moves more than 2 g and settles again replaces the earlier capture.
+- Lifting the pitcher after a capture ends the request, so a cup set down afterwards is still never taken for milk. A tare or a scale dropout does not end it.
+- Choosing another pitcher with a request open weighs again, also when the two pitchers weigh the same.
+- The same milk settling again (after a wand purge) is not announced twice.
+- A manual ±5 is still kept until the pitcher is lifted: a later top-up is weighed but does not re-time the steam.
 - The review-page button shows the captured weight while the pitcher is still on the scale.
+- Home's milk-captured message moves from a banner under the top bar to the app's bottom toast.
 
 ## Capabilities
 
