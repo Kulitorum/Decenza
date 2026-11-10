@@ -31,7 +31,7 @@ Builds and tests run through the Qt Creator MCP only; ask before each build or t
 
 - [x] 5.1 In the Steam rate section of `qml/pages/SteamPage.qml`, bind the value and the "calibrated" checks to the selected preset's `secondsPerGram`, name the pitcher in the value line, and send `set-preset-seconds-per-gram`; delete `steam.rate.note`; verify the build's QML lint gate passes
 - [x] 5.2 Enable "Use last steam" only when `lastSteamPitcherName` matches the selected preset; otherwise show which pitcher the last steam was with; reword the uncalibrated text and the button's accessible name for "this pitcher"; verify the build passes the settings-search index check (the indexed title is unchanged, so `SettingsSearchEntries.js` did not need regenerating)
-- [ ] 5.3 Ask Jeff to start the app with two pitchers staged at different rates and confirm: the rate box follows the selected pitcher, editing one leaves the other, the idle "Weight-timed: Ng → Ns" preview differs between them, and "Use last steam" is offered only for the pitcher last steamed
+- [ ] 5.3 Live check. Confirmed 2026-11-10 in the Wasm client against the dev app: the rate line follows the selected pitcher, and editing one pitcher's rate leaves the other. HELD for the next beta, not passed: "Use last steam" offered only for the pitcher last steamed (needs a real scale; the simulator cannot weigh a pitcher at idle), the idle "Weight-timed: Ng → Ns" preview differing between pitchers, and the rate stepper on a measured rate above 2.0
 
 ## 6. MCP
 
