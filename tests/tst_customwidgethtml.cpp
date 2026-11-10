@@ -1465,7 +1465,7 @@ void TestCustomWidgetHtml::recipeDraftKeepsOptionalBlocksAndClonesSavedSettings(
         var _loadedSteamJson = '', _steamChoiceEdited = false, _loadedSteamHasDetails = false, _steamRemoved = false;
         var _loadedWaterJson = '', _waterChoiceEdited = false, _loadedWaterHasDetails = false, _waterRemoved = false;
         var fHasMilk = false, fMilkWeightG = 0, fHeaterOff = false, fPitcherName = '';
-        var fPitcherDurationSec = 0, fPitcherFlow = 0, fPitcherTemperatureC = 0;
+        var fPitcherDurationSec = 0, fPitcherFlow = 0, fPitcherTemperatureC = 0, fPitcherWeightG = 0;
         var fHasWater = false, fVesselName = '', fVesselVolume = 0, fVesselMode = 'weight';
         var fVesselFlowRate = 40, fVesselTemperatureC = 0, fWaterOrder = 'after';
         var fWaterAmountMode = 'fixed', fWaterRatio = 2.5;
@@ -1474,7 +1474,7 @@ void TestCustomWidgetHtml::recipeDraftKeepsOptionalBlocksAndClonesSavedSettings(
             temperatureC: fVesselTemperatureC, waterToEspressoRatio: fWaterRatio}; }
         var WebDebugLogger = {warn: function() {}};
         %1
-        var oldSteam = '{"hasMilk":false,"pitcherName":"Small","durationSec":30,"milkWeightG":125}';
+        var oldSteam = '{"hasMilk":false,"pitcherName":"Small","durationSec":30,"milkWeightG":125,"pitcherWeightG":350}';
         var oldWater = '{"hasWater":false,"vesselName":"Cup","volume":150}';
         applySteamJson(oldSteam); applyHotWaterJson(oldWater);
         var cloneKeeps = buildSteamJson() === oldSteam && buildHotWaterJson() === oldWater;
@@ -1484,7 +1484,7 @@ void TestCustomWidgetHtml::recipeDraftKeepsOptionalBlocksAndClonesSavedSettings(
         setMilkIncluded(true); setWaterIncluded(true);
         var steam = JSON.parse(buildSteamJson()), water = JSON.parse(buildHotWaterJson());
         var restored = steam.pitcherName === 'Small' && steam.durationSec === 30
-            && steam.milkWeightG === 125 && water.vesselName === 'Cup' && water.volume === 150;
+            && steam.milkWeightG === 125 && steam.pitcherWeightG === 350 && water.vesselName === 'Cup' && water.volume === 150;
         _fromSavedRecipe = false;
         applySteamJson(oldSteam); applyHotWaterJson(oldWater);
         var fresh = buildSteamJson() === '' && buildHotWaterJson() === '';

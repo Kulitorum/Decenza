@@ -65,7 +65,7 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 52;
+    static constexpr int kCurrentSchemaVersion = 53;
 
     enum class UpgradeFloorProbe { NoDatabase, Supported, BelowFloor, Unknown };
     // Reads the schema version at `path` through its own connection and writes

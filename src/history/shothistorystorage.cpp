@@ -859,6 +859,18 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 53 (#2185): recipes saved without milk before #2186 kept the
+    // ambient pitcher, which activation recreated after the user deleted it.
+    // The pre-#2186 wizard offered a pitcher only with milk, so none was a
+    // choice. A deliberate "Heater off" stays.
+    if (currentVersion == 52) {
+        addColumns(53, "migration 53 milk-free recipe pitcher", {},
+                   "Until it completes, milk-free recipes can recreate a deleted pitcher", {QStringLiteral(
+            "UPDATE recipes SET steam_json = json_remove(steam_json, '$.pitcherName', '$.durationSec', "
+            "'$.flow', '$.temperatureC', '$.milkWeightG') "
+            "WHERE json_valid(steam_json) AND COALESCE(json_extract(steam_json, '$.hasMilk'), 0) = 0")});
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
