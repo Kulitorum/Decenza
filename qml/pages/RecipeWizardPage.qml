@@ -813,6 +813,8 @@ T.Page {
             s.durationSec = current.duration || 0
             s.flow = current.flow || 0
             s.temperatureC = current.temperature || 0
+            if ((current.pitcherWeightG || 0) > 0)
+                s.pitcherWeightG = current.pitcherWeightG
         }
         if (SteamService.state.lastSteamMilkG > 0)
             s.milkWeightG = SteamService.state.lastSteamMilkG
