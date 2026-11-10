@@ -1197,8 +1197,8 @@ private slots:
         // The host gets the request still in the socket: ShotServer's parser
         // and the WebSocket upgrade both read it from there.
         QTcpSocket client;
-        QVERIFY(sentAndAdopted(port, webGet("/api/session/ws", cookie), host, client));
-        QVERIFY(host.firstAdoptedPeek.startsWith("GET /api/session/ws HTTP/1.1"));
+        QVERIFY(sentAndAdopted(port, webGet("/api/session/objects", cookie), host, client));
+        QVERIFY(host.firstAdoptedPeek.startsWith("GET /api/session/objects HTTP/1.1"));
         QVERIFY(!remote.m_sockets.contains(host.adopted.constFirst().data()));
     }
 
@@ -1383,7 +1383,7 @@ private slots:
         QTest::newRow("client asset") << "/wasm/qtloader.js" << true;
         QTest::newRow("emoji image") << "/wasm/emoji/" + QString(64, QLatin1Char('a')) + "/2615.svg" << true;
         QTest::newRow("map texture") << "/wasm/maps/" + QString(64, QLatin1Char('a')) + "/earth_day.jpg" << true;
-        QTest::newRow("session socket") << "/api/session/ws" << true;
+        QTest::newRow("session socket") << "/api/session/objects" << true;
         QTest::newRow("bean image") << "/api/session/bean-image/abc" << true;
         QTest::newRow("thumbnail") << "/api/library/thumbnail?id=3" << true;
         QTest::newRow("retired community thumbnail") << "/api/community/thumbnail?id=c4a1dc4a-930b-4f8d-9491-6f3aa9c2bca2&compact=1" << false;

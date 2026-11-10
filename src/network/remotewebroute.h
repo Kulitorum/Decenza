@@ -31,9 +31,7 @@ inline QString pathOnly(const QString& rawPath)
 
 // The routes the current web interface calls, taken from its request sites
 // (src/webclient, the shared src/remote facades). Deny by default: a path not
-// named here is not served remotely, which is what keeps every legacy HTML page,
-// asset, bookmark redirect (/index.html, /shots, ...) and legacy-only API off the
-// public host. Checked on the RAW path, before ShotServer resolves /legacy/.
+// named here is not served remotely. Checked on the raw path before routing.
 inline bool isAllowedPath(const QString& rawPath)
 {
     const QString path = pathOnly(rawPath);
@@ -44,6 +42,7 @@ inline bool isAllowedPath(const QString& rawPath)
         // Authenticator sign-in, shown when "Require authenticator code" is on.
         QLatin1String("/auth/login"), QLatin1String("/auth/setup-required"),
         QLatin1String("/api/auth/login"),
+        QLatin1String("/api/session/objects"),
         QLatin1String("/api/library/thumbnail"),
         // Diagnostic ZIP downloads.
         QLatin1String("/api/debug/file/zip"),
@@ -54,7 +53,9 @@ inline bool isAllowedPath(const QString& rawPath)
     }
     static const QList<QLatin1String> prefixes = {
         QLatin1String("/wasm/"),           // packaged client assets
-        QLatin1String("/api/session/"),    // remote session transport and images
+        QLatin1String("/api/session/bean-image/"),
+        QLatin1String("/api/session/background-image/"),
+        QLatin1String("/api/session/background-preview/"),
         QLatin1String("/api/screensaver/media/"),
     };
     for (const QLatin1String& prefix : prefixes) {

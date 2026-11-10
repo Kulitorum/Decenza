@@ -1201,7 +1201,6 @@ palette/chip lists this plan referenced were unified into one catalog table):
 - `qml/components/layout/LayoutItemDelegate.qml` — add "discuss" case
 - `qml/components/layout/LayoutEditorZone.qml` — add to palette + chip label
 - `qml/components/layout/LayoutCenterZone.qml` — ensure "discuss" gets fixed action-button sizing
-- `src/network/shotserver_layout.cpp` — add to web editor widget list
 
 ### Key Files to Create (Discuss Feature)
 

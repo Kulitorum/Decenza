@@ -1021,10 +1021,6 @@ void SettingsTheme::resetThemeToDefault() {
 
 // Font size customization
 //
-// Canonical defaults live here and nowhere else. They were previously duplicated in
-// qml/Theme.qml (as `|| 32` style fallbacks) and in shotserver_theme.cpp (as its own
-// QMap) — two tables free to drift, where the size the UI renders at and the size the
-// web editor reports could silently disagree.
 namespace {
 // Set from main.cpp before the QML engine is created; read-only thereafter.
 QString g_bundledFontFamily;

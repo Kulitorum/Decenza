@@ -81,7 +81,7 @@ Nothing retries a failed upload on its own after its 3 attempts. Each destinatio
   when the destination comes back on, the run resumes, leaving out shots that failed since it started. A history
   that cannot be read starts nothing and keeps the run for later.
 - **Counts:** `ShotUploads.missing`, recounted on the DB worker after any outcome, save, edit or account change.
-  The web page reads `GET /api/settings/upload-missing` and starts a run with `POST /api/settings/{dest}/upload-missing`.
+  The shared native/browser settings UI uses the upload service.
 
 ## Cleaning up test uploads
 

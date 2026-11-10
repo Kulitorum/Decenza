@@ -1334,10 +1334,6 @@ int main(int argc, char *argv[])
 #endif
     checkpoint("Core objects");
     MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
-#ifndef Q_OS_IOS
-    if (mainController.shotServer())
-        mainController.shotServer()->setUsbScaleManager(&usbScaleManager);
-#endif
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
     mainController.setTranslationManager(&translationManager);  // for LiveSteamCoach cue i18n
@@ -1995,7 +1991,6 @@ int main(int argc, char *argv[])
     // Connect screensaver manager and AI manager to shot server
     mainController.shotServer()->setScreensaverVideoManager(&screensaverManager);
     mainController.shotServer()->setAIManager(&aiManager);
-    mainController.shotServer()->setMqttClient(mainController.mqttClient());
     // Connect screensaver manager to data migration client for media import
     mainController.dataMigration()->setScreensaverVideoManager(&screensaverManager);
 
@@ -2088,8 +2083,6 @@ int main(int argc, char *argv[])
         relayClient.shutdown();
     };
     QObject::connect(mainController.updateChecker(), &UpdateChecker::aboutToDispatchInstall,
-                     &mainController, quietNetworkForApkInstall);
-    QObject::connect(mainController.shotServer(), &ShotServer::aboutToDispatchInstall,
                      &mainController, quietNetworkForApkInstall);
 #endif
 
@@ -2221,8 +2214,6 @@ int main(int argc, char *argv[])
     QObject::connect(mainController.preparation(), &PreparationController::captureDingRequested,
                      &accessibilityManager, &AccessibilityManager::playCaptureDing);
     accessibilityManager.setTranslationManager(&translationManager);
-    if (mainController.shotServer())
-        mainController.shotServer()->setAccessibilityManager(&accessibilityManager);
 
     // Steam-coach voice: the coach emits speakRequested only when its own audio
     // setting is on; route it via announceCoaching, which bypasses BOTH
@@ -2251,8 +2242,6 @@ int main(int argc, char *argv[])
     // a separate connect because crashReporter is constructed after that
     // lambda's call site.
     QObject::connect(mainController.updateChecker(), &UpdateChecker::aboutToDispatchInstall,
-                     &crashReporter, &CrashReporter::clearConnectionCache);
-    QObject::connect(mainController.shotServer(), &ShotServer::aboutToDispatchInstall,
                      &crashReporter, &CrashReporter::clearConnectionCache);
 #endif
 
@@ -2303,8 +2292,6 @@ int main(int argc, char *argv[])
         bleManager.setFirmwareUpdateActive(transferring);
         belkaPortal.setFirmwareUpdateActive(transferring);
     });
-    if (mainController.shotServer())
-        mainController.shotServer()->setBelkaPortalDevice(&belkaPortal);
     connectPortalDiscovery(&bleManager, &belkaPortal);
     PortalController portalController(&belkaPortal, settings.hardware(), &machineState,
                                      &timingController, &shotDataModel);
@@ -2466,7 +2453,6 @@ int main(int argc, char *argv[])
     QObject::connect(&fullBackupRestore, &FullBackupRestore::mediaRestored,
                      &screensaverManager, &ScreensaverVideoManager::reloadPersonalMedia);
     backupServiceSource.setRestoreAllowed([&machineState] { return !machineState.isOperating(); });
-    mainController.shotServer()->setFullBackupRestore(&fullBackupRestore);
     backupServiceSource.openClient(nativeConversationId);
     if (auto* server = mainController.shotServer()) {
         QObject::connect(server, &ShotServer::remoteObjectClientOpened,

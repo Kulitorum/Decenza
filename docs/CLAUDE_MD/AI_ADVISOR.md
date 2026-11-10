@@ -10,7 +10,6 @@
 | `src/ai/aiprovider.h/cpp` | Abstract base + 5 provider implementations (OpenAI, Anthropic, Gemini, OpenRouter, Ollama) |
 | `src/ai/aiconversation.h/cpp` | Multi-turn conversation with persistent storage (QSettings). Follow-ups, shot context injection, history trimming |
 | `src/ai/shotsummarizer.h/cpp` | Extracts structured shot data (phases, curves, anomalies) and builds text prompts. Separate system prompts for espresso vs filter |
-| `src/network/shotserver_ai.cpp` | Web API endpoints for AI assistant |
 | `qml/components/TastePicker.qml` | Tap-only taste intake (add-ai-taste-intake): Extraction / Body / Overall rows, shared by the AI intake dialog and the review page |
 
 ### Taste intake (tap-only) — add-ai-taste-intake

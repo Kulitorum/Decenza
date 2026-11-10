@@ -9,10 +9,8 @@ struct ShotRecord;
 // Shared field-building for the recipe promotion path ("that shot was great —
 // save it as a drink"): turns a ShotRecord into the QVariantMap
 // RecipeStorage::requestCreateRecipe expects (profile, bag link, equipment,
-// dose/yield/temp, the shot's own grind, steam block). Shared by the
-// recipe_create_from_shot MCP tool (src/mcp/mcptools_recipes.cpp) and the web
-// server's promote endpoint (src/network/shotserver_recipes.cpp) so there is
-// exactly one implementation of the promotion semantics.
+// dose/yield/temp, the shot's own grind, steam block). Used by the
+// recipe_create_from_shot MCP tool.
 namespace RecipePromotion {
 
 // hasMilkOverride: unset = leave the shot's steam snapshot's hasMilk as-is;

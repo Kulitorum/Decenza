@@ -31,7 +31,7 @@ The Wasm caches always save, with no repository-budget check: every native packa
 
 QML inventory validation uses each target's own generated manifest: the Wasm job checks its manifest before uploading, and native tests always check the native manifest. Local paired builds also check the adjacent Wasm manifest when present. The deployment artifact contains runtime assets only, so native CI does not require another job's build-tree metadata.
 
-This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. The existing `/legacy/` HTML interface remains available. Manual dispatch retains the existing test-only defaults and does not bump the version code.
+This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. Manual dispatch retains the existing test-only defaults and does not bump the version code.
 
 On tag push: the producer and all native jobs use the same bumped version code and build. All upload to the GitHub Release; iOS also uploads to App Store Connect, and its release `.ipa` is App Store-signed, so it installs only through TestFlight. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 

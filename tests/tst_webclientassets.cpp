@@ -17,7 +17,6 @@
 
 #include "../src/network/webclientassets.h"
 #include "../src/network/shotserver_webroute.h"
-#include "../src/network/shotserveruploadroute.h"
 #include "../src/network/webtemplates/auth_page.h"
 #include "decenza_image_sets.h"
 
@@ -255,18 +254,6 @@ private slots:
 
     void legacyPrefixAliasesExistingPagesAndUploads()
     {
-        QVERIFY(ShotServerWebRoute::isLegacyPath(QStringLiteral("/legacy")));
-        QVERIFY(ShotServerWebRoute::isLegacyPath(QStringLiteral("/legacy/recipes?q=coffee")));
-        QVERIFY(!ShotServerWebRoute::isLegacyPath(QStringLiteral("/legacy-tools")));
-        QCOMPARE(ShotServerWebRoute::legacyTarget(QStringLiteral("/legacy")), QStringLiteral("/"));
-        QCOMPARE(ShotServerWebRoute::legacyTarget(QStringLiteral("/legacy/?q=coffee")),
-                 QStringLiteral("/?q=coffee"));
-        QCOMPARE(ShotServerWebRoute::legacyTarget(QStringLiteral("/legacy/recipes?q=coffee")),
-                 QStringLiteral("/recipes?q=coffee"));
-        QCOMPARE(ShotServerWebRoute::legacyTarget(QStringLiteral("/legacy/shot/123/profile.json")),
-                 QStringLiteral("/shot/123/profile.json"));
-        QCOMPARE(ShotServerWebRoute::legacyTarget(QStringLiteral("/recipes")),
-                 QStringLiteral("/recipes"));
         QCOMPARE(ShotServerWebRoute::wasmRootTarget(QStringLiteral("/")),
                  QStringLiteral("/wasm/"));
         QCOMPARE(ShotServerWebRoute::wasmRootTarget(QStringLiteral("/?source=bookmark")),
@@ -274,19 +261,13 @@ private slots:
         QCOMPARE(ShotServerWebRoute::wasmRootTarget(QStringLiteral("/wasm/")),
                  QStringLiteral("/wasm/"));
 
-        QCOMPARE(int(streamedUploadKind(QStringLiteral("POST /legacy/upload HTTP/1.1"))),
-                 int(StreamedUpload::Apk));
-        QCOMPARE(int(streamedUploadKind(QStringLiteral("POST /legacy/upload/media HTTP/1.1"))),
-                 int(StreamedUpload::Media));
-        QCOMPARE(int(streamedUploadKind(QStringLiteral("POST /legacy/api/backup/restore HTTP/1.1"))),
-                 int(StreamedUpload::BackupRestore));
+
     }
 
     void authLoginReturnsToTheSameLegacyRequest()
     {
         const QByteArray loginPage(WEB_AUTH_LOGIN_PAGE);
         QVERIFY(loginPage.contains("window.location.reload()"));
-        QVERIFY(loginPage.contains("path === '/legacy/auth/login'"));
         QVERIFY(loginPage.contains("window.location.assign('/')"));
     }
 
@@ -358,10 +339,6 @@ private slots:
         else
             QVERIFY(root.body.contains("Packaged web client"));
 
-        const Response oldIndex = get(QStringLiteral("/index.html?route_probe=1"));
-        QCOMPARE(oldIndex.status, 302);
-        QCOMPARE(oldIndex.location, QByteArrayLiteral("/legacy/?route_probe=1"));
-
         const Response wasmAlias = get(QStringLiteral("/wasm"));
         QCOMPARE(wasmAlias.status, 302);
         QCOMPARE(wasmAlias.location, QByteArrayLiteral("/wasm/"));
@@ -377,79 +354,7 @@ private slots:
         if (root.status == 200 && wasmEntry.status == 200)
             QCOMPARE(root.body, wasmEntry.body);
 
-        const Response legacyList = get(QStringLiteral("/legacy/"));
-        QCOMPARE(legacyList.status, 200);
-        QVERIFY(legacyList.contentType.startsWith("text/html"));
-        QVERIFY(legacyList.body.contains("Shot History"));
 
-        const Response legacySettings = get(QStringLiteral("/legacy/settings?route_probe=1"));
-        QCOMPARE(legacySettings.status, 200);
-        QVERIFY(legacySettings.contentType.startsWith("text/html"));
-        QVERIFY(legacySettings.location.isEmpty());
-
-        const Response legacyUpload = get(QStringLiteral("/legacy/upload"));
-        QCOMPARE(legacyUpload.status, 200);
-        QVERIFY(legacyUpload.contentType.startsWith("text/html"));
-        QVERIFY(legacyUpload.location.isEmpty());
-
-        const Response legacyMediaUpload = get(QStringLiteral("/legacy/upload/media"));
-        QCOMPARE(legacyMediaUpload.status, 200);
-        QVERIFY(legacyMediaUpload.contentType.startsWith("text/html"));
-        QVERIFY(legacyMediaUpload.location.isEmpty());
-
-        // Old page bookmarks remain usable as aliases; API reads stay at the
-        // original root and are never redirected into either UI namespace.
-        const Response oldRecipeBookmark = get(QStringLiteral("/recipes?restock=1&recipe=2"));
-        QCOMPARE(oldRecipeBookmark.status, 200);
-        QVERIFY(oldRecipeBookmark.contentType.startsWith("text/html"));
-        QVERIFY(oldRecipeBookmark.location.isEmpty());
-
-        const Response legacyRecipeBookmark = get(QStringLiteral("/legacy/recipes?restock=1&recipe=2"));
-        QCOMPARE(legacyRecipeBookmark.status, 200);
-        QVERIFY(legacyRecipeBookmark.contentType.startsWith("text/html"));
-        QVERIFY(legacyRecipeBookmark.location.isEmpty());
-
-        const Response legacyBeanBookmark = get(QStringLiteral("/legacy/beans?restock=1&recipe=2"));
-        QCOMPARE(legacyBeanBookmark.status, 200);
-        QVERIFY(legacyBeanBookmark.contentType.startsWith("text/html"));
-        QVERIFY(legacyBeanBookmark.location.isEmpty());
-
-        const Response api = get(QStringLiteral("/api/shots"));
-        QCOMPARE(api.status, 200);
-        QVERIFY(api.contentType.startsWith("application/json"));
-        QVERIFY(api.location.isEmpty());
-
-        const Response missingShot = get(QStringLiteral("/legacy/shot/9223372036854775807"));
-        QCOMPARE(missingShot.status, 404);
-        QVERIFY(missingShot.contentType.startsWith("text/html"));
-        QVERIFY(missingShot.body.contains("href=\"/legacy/\""));
-
-        const QJsonDocument shotsDocument = QJsonDocument::fromJson(api.body);
-        QVERIFY(shotsDocument.isArray());
-        const QJsonArray shots = shotsDocument.array();
-        if (shots.isEmpty())
-            QSKIP("The route probe needs one existing shot for read-only detail and download checks");
-        const QJsonObject firstShot = shots.first().toObject();
-        bool shotIdOk = false;
-        const qint64 shotId = firstShot.value(QStringLiteral("id")).toVariant().toLongLong(&shotIdOk);
-        QVERIFY(shotIdOk);
-        QVERIFY(shotId > 0);
-
-        const QString shotPath = QStringLiteral("/legacy/shot/%1").arg(shotId);
-        const Response detail = get(shotPath);
-        QCOMPARE(detail.status, 200);
-        QVERIFY(detail.contentType.startsWith("text/html"));
-        QVERIFY(detail.location.isEmpty());
-
-        // This small visualizer-format download is read-only and confirms the
-        // root-level file route remains outside the /legacy/ namespace.
-        const Response shotDownload = get(QStringLiteral("/shot/%1/shot.json?route_probe=1").arg(shotId));
-        QCOMPARE(shotDownload.status, 200);
-        QVERIFY(shotDownload.contentType.startsWith("application/json"));
-        QVERIFY(shotDownload.contentDisposition.startsWith("attachment; filename="));
-        QVERIFY(shotDownload.location.isEmpty());
-        QVERIFY(shotDownload.body.startsWith("{"));
-        QVERIFY(shotDownload.body.size() < 2 * 1024 * 1024);
     }
 
     void rejectsUnknownAndTraversalPaths()

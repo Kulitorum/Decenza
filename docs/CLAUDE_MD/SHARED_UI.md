@@ -83,7 +83,4 @@ An otherwise open browser session is not disconnected for lack of snapshot
 changes; socket errors and closes still invalidate it. Silent network-loss
 detection remains an open real-device acceptance check.
 
-HTML at `/legacy/` is temporary retained behavior. Preserve it until retirement;
-do not add abstractions or duplicate UI work to maintain new-feature HTML parity.
-HTTP/API and MCP routes still share the listener, so changes to routing, auth or
-packaging also need focused checks that those existing interfaces still work.
+The legacy HTML interface has been removed. HTTP/API and MCP routes still share the listener, so changes to routing, auth or packaging also need focused checks that the retained interfaces still work.

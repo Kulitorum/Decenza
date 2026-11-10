@@ -167,17 +167,12 @@ bool LayoutService::itemIsConfigured(const QString& itemId) const
 bool LayoutService::typeHasOptions(const QString& type) { return LayoutCatalog::typeHasOptions(type); }
 QStringList LayoutService::optionKeysForType(const QString& type) { return LayoutCatalog::optionKeysForType(type); }
 QStringList LayoutService::zoneOptionValues(const QString& key) { return LayoutCatalog::zoneOptionValues(key); }
-QJsonObject LayoutService::readoutCapabilitiesJson() { return LayoutCatalog::readoutCapabilitiesJson(); }
 QString LayoutService::defaultDisplayModeForType(const QString& type) { return LayoutCatalog::defaultDisplayModeForType(type); }
-QJsonObject LayoutService::displayModeDefaultsJson() { return LayoutCatalog::displayModeDefaultsJson(); }
 QVariantMap LayoutService::sleepOptionDefaults() { return LayoutCatalog::sleepOptionDefaults(); }
-QJsonObject LayoutService::sleepOptionDefaultsJson() { return LayoutCatalog::sleepOptionDefaultsJson(); }
 QVariantList LayoutService::widgetCatalog() { return LayoutCatalog::widgetCatalog(); }
 QVariantMap LayoutService::widgetChipNames() { return LayoutCatalog::widgetChipNames(); }
 QVariantList LayoutService::widgetCategoryNames() { return LayoutCatalog::widgetCategoryNames(); }
-QJsonObject LayoutService::widgetCatalogJson() { return LayoutCatalog::widgetCatalogJson(); }
 QVariantList LayoutService::layoutActionCatalog() { return LayoutCatalog::layoutActionCatalog(); }
 QVariantMap LayoutService::layoutActionLabels() { return LayoutCatalog::layoutActionLabels(); }
-QJsonObject LayoutService::layoutActionCatalogJson() { return LayoutCatalog::layoutActionCatalogJson(); }
 QString LayoutService::gestureReservedActionForType(const QString& type) { return LayoutCatalog::gestureReservedActionForType(type); }
 bool LayoutService::typeSupportsGestureOverrides(const QString& type) { return LayoutCatalog::typeSupportsGestureOverrides(type); }

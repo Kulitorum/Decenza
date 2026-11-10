@@ -8,7 +8,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include "filebundlepolicy.h"
-#include "network/shotserveruploadroute.h"
 
 namespace UpdateOperationPolicy {
 inline bool supported(const QString& operation)
@@ -54,7 +53,7 @@ inline QString validatedLocalApkPath(const QString& directoryPath, QString* reas
         *reason = QStringLiteral("invalidApk"); return {};
     }
     QFile file(info.filePath());
-    if (!file.open(QIODevice::ReadOnly) || !startsLikeApk(file.read(4))) {
+    if (!file.open(QIODevice::ReadOnly) || file.read(4) != QByteArrayLiteral("PK\x03\x04")) {
         *reason = QStringLiteral("invalidApk"); return {};
     }
     return info.filePath();

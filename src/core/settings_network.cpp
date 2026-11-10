@@ -592,20 +592,15 @@ void SettingsNetwork::resetLayoutToDefault() {
 
 bool SettingsNetwork::typeHasOptions(const QString& type) { return LayoutCatalog::typeHasOptions(type); }
 QStringList SettingsNetwork::optionKeysForType(const QString& type) { return LayoutCatalog::optionKeysForType(type); }
-QJsonObject SettingsNetwork::readoutCapabilitiesJson() { return LayoutCatalog::readoutCapabilitiesJson(); }
 QString SettingsNetwork::defaultDisplayModeForType(const QString& type) { return LayoutCatalog::defaultDisplayModeForType(type); }
-QJsonObject SettingsNetwork::displayModeDefaultsJson() { return LayoutCatalog::displayModeDefaultsJson(); }
 QVariantMap SettingsNetwork::sleepOptionDefaults() { return LayoutCatalog::sleepOptionDefaults(); }
-QJsonObject SettingsNetwork::sleepOptionDefaultsJson() { return LayoutCatalog::sleepOptionDefaultsJson(); }
 QVariantList SettingsNetwork::widgetCatalog() { return LayoutCatalog::widgetCatalog(); }
 QVariantMap SettingsNetwork::widgetChipNames() { return LayoutCatalog::widgetChipNames(); }
 QVariantList SettingsNetwork::widgetCategoryNames() { return LayoutCatalog::widgetCategoryNames(); }
-QJsonObject SettingsNetwork::widgetCatalogJson() { return LayoutCatalog::widgetCatalogJson(); }
 QVariantList SettingsNetwork::layoutActionCatalog() { return LayoutCatalog::layoutActionCatalog(); }
 QVariantMap SettingsNetwork::layoutActionLabels() { return LayoutCatalog::layoutActionLabels(); }
 QString SettingsNetwork::gestureReservedActionForType(const QString& type) { return LayoutCatalog::gestureReservedActionForType(type); }
 bool SettingsNetwork::typeSupportsGestureOverrides(const QString& type) { return LayoutCatalog::typeSupportsGestureOverrides(type); }
-QJsonObject SettingsNetwork::layoutActionCatalogJson() { return LayoutCatalog::layoutActionCatalogJson(); }
 
 QVector<QPair<QString, QString>> SettingsNetwork::layoutCatalogTranslationStrings() {
     QVector<QPair<QString, QString>> out = LayoutCatalog::translationStrings();

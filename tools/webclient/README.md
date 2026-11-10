@@ -1,6 +1,6 @@
 # Decenza web client
 
-The experimental Wasm interface mounts the shared app QML and reaches host-owned data and operations through typed services. The existing HTML interface remains intact. Whole-application acceptance is still being validated.
+The experimental Wasm interface mounts the shared app QML and reaches host-owned data and operations through typed services. Whole-application acceptance is still being validated.
 
 Production sources are in `src/webclient`, `src/remote`, `qml/webclient`, and `resources/webclient`. Diagnostic components, recorded traces and Qt reproductions remain development fixtures in this directory. Historical benchmark and acceptance evidence is recorded in the OpenSpec evaluation.
 
@@ -28,7 +28,7 @@ sets 11 (about 2 minutes, roughly 15% smaller).
 
 `DECENZA_WEB_BUNDLE_MODE=PREBUILT` verifies a supplied `DECENZA_WEB_BUNDLE_DIR` without a child build; `OFF` disables optional local packaging. Release CI's `DECENZA_REQUIRE_WEB_BUNDLE=ON` always uses PREBUILT and requires embedding; missing, corrupt or mismatched artifacts fail configuration. `DECENZA_EMBED_WEB_BUNDLE=OFF` retains the local macOS external resource-directory mode. The single `.github/workflows/release.yml` accepts `platforms=all` or a list. One Wasm producer and selected native jobs start in parallel. Ninja native jobs join the verified bundle for final linking/packaging; iOS performs setup in parallel and compiles once through its final archive. Cross-platform CI and installed-package behavior still require validation.
 
-The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface remains available at `/legacy/`. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
+The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface has been removed. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
 
 When a backgrounded browser loses its session, it attempts to reconnect on return. A changed host or bundle still requires reloading the interface; a failed reconnect leaves the manual control available.
 

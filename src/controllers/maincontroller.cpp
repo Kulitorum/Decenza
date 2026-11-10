@@ -126,8 +126,6 @@ void logDriftEnd(const LogCollapse& giveUpLog, const QString& text)
 void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
 {
     m_preparation->setScaleDeviceProxy(proxy);
-    if (m_shotServer)
-        m_shotServer->setScaleDeviceProxy(proxy);
     if (!m_hdsFirmwareUpdate)
         return;
     m_hdsFirmwareUpdate->setScaleDevice(proxy ? proxy->target() : nullptr);
@@ -141,8 +139,6 @@ void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
 void MainController::setBLEManager(BLEManager* bleManager)
 {
     m_bleManager = bleManager;
-    if (m_shotServer)
-        m_shotServer->setBLEManager(bleManager);
 }
 
 MainController::MainController(QNetworkAccessManager* networkManager,
@@ -868,11 +864,6 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Set MachineState on ShotServer for home automation API
     m_shotServer->setMachineState(m_machineState);
-    m_shotServer->setShotDataModel(m_shotDataModel);
-    connect(m_profileManager, &ProfileManager::targetWeightChanged,
-            m_shotServer, &ShotServer::notifySessionGraphChanged);
-    connect(m_machineState, &MachineState::targetWeightChanged,
-            m_shotServer, &ShotServer::notifySessionGraphChanged);
     // MainController for the recipes/bags/equipment web surfaces (add-recipes)
     m_shotServer->setMainController(this);
 

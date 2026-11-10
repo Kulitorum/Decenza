@@ -4,18 +4,14 @@
 #include "shotserver.h"
 #include "shotserver_webroute.h"
 #include "ble/belkaportaldevice.h"
-#include "sessionactionrequest.h"
 #include "steampitchersnapshot.h"
 #include "remotesessionserver.h"
 #include "shotuploads.h"
 #include "webrequestguard.h"
-#include "shotserveruploadroute.h"
 #include "visualizeruploader.h"
 #include "relayclient.h"
 #include "localnetworkaccess.h"
 #include "webdebuglogger.h"
-#include "webtemplates.h"
-#include "webtemplates/auth_page.h"
 #include "../history/shothistorystorage.h"
 #include "../history/equipmentstorage.h"
 #include "../ble/de1device.h"
@@ -24,7 +20,6 @@
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
-#include "grindcandidates.h"
 #include "../core/settings_network.h"
 #include "../core/settings_theme.h"
 #include "../core/settings_mcp.h"
@@ -141,14 +136,6 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["doseWeightG"] = query.value(6).toDouble();
         row["beanBrand"] = query.value(7).toString();
         row["beanType"] = query.value(8).toString();
-        // ShotProjection-ALIGNED key names. These three were `enjoyment`,
-        // `drinkTds` and `drinkEy` while ShotProjection::fromVariantMap has
-        // always read `enjoyment0to100`, `drinkTdsPct` and `drinkEyPct`, so
-        // generateShotListPage saw 0 for all three: the web card's rating chip
-        // never rendered, and the client-side `rating:`, `tds:` and `ey:`
-        // searches plus the rating sort matched nothing. Same defect class as
-        // the dateTime omission, but a key MISMATCH rather than an absence, so
-        // it survives even a "does every field appear in both functions" audit.
         row["enjoyment0to100"] = query.value(9).toDouble();
         row["hasVisualizerUpload"] = !query.value(10).toString().isEmpty();
         row["grinderSetting"] = query.value(11).toString();
@@ -178,10 +165,6 @@ ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* 
     , m_device(device)
 {
     m_sessionBackgroundImageRevision = QUuid::createUuid().toString(QUuid::Id128).toLower();
-    if (m_storage) {
-        connect(m_storage, &ShotHistoryStorage::historyDataChanged,
-                this, &ShotServer::notifySessionHistoryChanged);
-    }
     // Timer to cleanup stale connections
     m_cleanupTimer = new QTimer(this);
     m_cleanupTimer->setInterval(30000);  // Check every 30 seconds
@@ -206,31 +189,8 @@ ShotServer::~ShotServer()
 
 void ShotServer::setSettings(Settings* settings)
 {
-    for (const QMetaObject::Connection& connection : std::as_const(m_steamPitcherConnections))
-        disconnect(connection);
-    m_steamPitcherConnections.clear();
-    m_sessionSteamBrew.clear();
-    m_sessionSteamPitchers = QJsonObject();
-
     m_settings = settings;
     if (m_settings) {
-        if (SettingsBrew* brew = m_settings->brew()) {
-            m_sessionSteamBrew = brew;
-            m_steamPitcherConnections.append(connect(
-                brew, &SettingsBrew::steamPitcherPresetsChanged,
-                this, &ShotServer::refreshSessionSteamPitchers));
-            m_steamPitcherConnections.append(connect(
-                brew, &SettingsBrew::selectedSteamPitcherChanged,
-                this, &ShotServer::refreshSessionSteamPitchers));
-            m_steamPitcherConnections.append(connect(
-                brew, &QObject::destroyed, this, [this]() {
-                    m_sessionSteamBrew.clear();
-                    m_sessionSteamPitchers = QJsonObject();
-                }));
-            refreshSessionSteamPitchers();
-        }
-        connect(m_settings->network(), &SettingsNetwork::layoutConfigurationChanged,
-                this, &ShotServer::onLayoutChanged);
         auto* theme = m_settings->theme();
         const auto rotateBackgroundRevision = [this]() {
             m_sessionBackgroundImageRevision = QUuid::createUuid().toString(QUuid::Id128).toLower();
@@ -240,67 +200,12 @@ void ShotServer::setSettings(Settings* settings)
                 this, rotateBackgroundRevision);
         connect(theme, &SettingsTheme::backgroundSourceChanged,
                 this, rotateBackgroundRevision);
-        connect(theme, &SettingsTheme::customThemeColorsChanged,
-                this, &ShotServer::onThemeChanged);
-        connect(theme, &SettingsTheme::customFontSizesChanged,
-                this, &ShotServer::onThemeChanged);
-        connect(theme, &SettingsTheme::activeThemeNameChanged,
-                this, &ShotServer::onThemeChanged);
-        connect(theme, &SettingsTheme::currentPageColorsChanged,
-                this, &ShotServer::onThemeChanged);
-        connect(theme, &SettingsTheme::themeModeChanged,
-                this, &ShotServer::onThemeChanged);
-        connect(theme, &SettingsTheme::editingPaletteChanged,
-                this, &ShotServer::onThemeChanged);
     }
-    connectEquipmentRevisionSources();
-}
-
-void ShotServer::refreshSessionSteamPitchers()
-{
-    if (!m_sessionSteamBrew) {
-        m_sessionSteamPitchers = QJsonObject();
-        return;
-    }
-    m_sessionSteamPitchers = SteamPitcherSnapshot::project(
-        m_sessionSteamBrew->steamPitcherPresets(),
-        m_sessionSteamBrew->selectedSteamPitcher()).toJson();
 }
 
 void ShotServer::setMainController(MainController* mainController)
 {
     m_mainController = mainController;
-    connectEquipmentRevisionSources();
-}
-
-void ShotServer::setBelkaPortalDevice(BelkaPortalDevice* portal)
-{
-    m_belkaPortal = portal;
-}
-
-void ShotServer::connectEquipmentRevisionSources()
-{
-    for (const QMetaObject::Connection& connection : std::as_const(m_equipmentRevisionConnections))
-        disconnect(connection);
-    m_equipmentRevisionConnections.clear();
-
-    if (m_settings && m_settings->dye()) {
-        m_equipmentRevisionConnections.append(connect(
-            m_settings->dye(), &SettingsDye::activeEquipmentIdChanged,
-            this, &ShotServer::notifySessionEquipmentChanged));
-    }
-    if (m_mainController && m_mainController->equipmentStorage()) {
-        m_equipmentRevisionConnections.append(connect(
-            m_mainController->equipmentStorage(), &EquipmentStorage::packagesChanged,
-            this, &ShotServer::notifySessionEquipmentChanged));
-    }
-}
-
-void ShotServer::notifySessionEquipmentChanged()
-{
-    constexpr quint64 kMaximumExactJsonInteger = 9007199254740991ULL;
-    if (m_equipmentRevision < kMaximumExactJsonInteger)
-        ++m_equipmentRevision;
 }
 
 // Retire one socket: clear it out of every container that can hold it, then
@@ -319,9 +224,6 @@ void ShotServer::retireSocket(QTcpSocket* socket)
 
     m_clients.remove(socket);
     m_remoteWebClients.remove(socket);
-    m_sseLayoutClients.remove(socket);
-    if (m_sseThemeClients.remove(socket) && m_sseThemeClients.isEmpty())
-        emit themeEditorOpenChanged();
     m_uploadProgressLog.remove(socket);
     m_screensaverTransfers.remove(socket);
 
@@ -357,39 +259,6 @@ void ShotServer::noteConnectionLimitRecovery()
                    << m_refusedConnections << "connection(s)";
         m_refusedConnections = 0;
     }
-}
-
-void ShotServer::broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
-{
-    QList<QTcpSocket*> dead;
-    for (QTcpSocket* client : clients) {
-        if (client->state() != QAbstractSocket::ConnectedState || client->write(event) == -1) {
-            dead.append(client);
-            continue;
-        }
-        client->flush();
-    }
-    // A member, not the static free function this used to be. That version could
-    // not reach m_keepAliveTimers, so it carried a precondition its callers had
-    // to uphold by hand ("no socket in `clients` has a keep-alive timer") — and
-    // any new SSE endpoint that went through sendResponse would have broken it
-    // silently, deleting a socket whose timer lambda still held a raw pointer.
-    // retireSocket() enforces it instead of documenting it.
-    for (QTcpSocket* s : dead)
-        retireSocket(s);
-}
-
-void ShotServer::onLayoutChanged()
-{
-    constexpr quint64 kMaximumExactJsonInteger = 9007199254740991ULL;
-    if (m_layoutRevision < kMaximumExactJsonInteger)
-        ++m_layoutRevision;
-    broadcastSseEvent(m_sseLayoutClients, "event: layout-changed\ndata: {}\n\n");
-}
-
-void ShotServer::onThemeChanged()
-{
-    broadcastSseEvent(m_sseThemeClients, "event: theme-changed\ndata: {}\n\n");
 }
 
 QString ShotServer::url() const
@@ -475,11 +344,8 @@ bool ShotServer::start()
     DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
 
     m_sessionHostId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    m_recentSessionActionRequestIds.clear();
-    m_sessionActionRequestOrder.clear();
     delete m_remoteSessionServer;
     m_remoteSessionServer = new RemoteSessionServer(
-        [this](quint64 sequence) { return sessionSnapshot(sequence); },
         [this](const QByteArray& request) {
             return !isSecurityEnabled() || checkSession(request);
         },
@@ -574,11 +440,6 @@ void ShotServer::stop()
         // would be a bug elsewhere — drop it rather than carry it into the next
         // start().
         m_keepAliveTimers.clear();
-        m_sseLayoutClients.clear();
-        if (!m_sseThemeClients.isEmpty()) {
-            m_sseThemeClients.clear();
-            emit themeEditorOpenChanged();
-        }
         m_pendingRequests.clear();
         m_clients.clear();
         m_remoteWebClients.clear();
@@ -680,8 +541,6 @@ void ShotServer::onReadyRead()
     // SSE clients keep connections open — ignore further data from them.
     // MCP SSE sockets live in McpServer's set, not ours, so route the check
     // through the accessor.
-    if (m_sseLayoutClients.contains(socket)) return;
-    if (m_sseThemeClients.contains(socket)) return;
     if (m_mcpServer && m_mcpServer->isSseClient(socket)) return;
 
     // Stop keep-alive idle timer while processing incoming request data
@@ -792,68 +651,8 @@ void ShotServer::onReadyRead()
                 }
             }
 
-            const QStringList requestParts = requestLine.split(' ');
-            if (requestParts.size() >= 2
-                && SessionActionRequest::isPotentialTarget(requestParts.at(1))
-                && pending.contentLength > SessionActionRequest::MaximumBodyBytes) {
-                sendResponse(socket, 413, QStringLiteral("application/json"),
-                             R"({"error":"Action request exceeds 4 KiB"})",
-                             QByteArrayLiteral("Cache-Control: no-store\r\n"));
-                cleanupPendingRequest(socket);
-                m_pendingRequests.remove(socket);
-                socket->close();
-                return;
-            }
-
-            const StreamedUpload streamed = streamedUploadKind(requestLine);
-            pending.isMediaUpload = streamed == StreamedUpload::Media;
-            pending.isBackupRestore = streamed == StreamedUpload::BackupRestore;
-            pending.isApkUpload = streamed == StreamedUpload::Apk;
-
-            // Uploads stream to their handlers without reaching handleRequest(),
-            // so its plaintext-/mcp and sign-in gates apply here, before the body.
-            if (streamed != StreamedUpload::None) {
-                const QString target = requestParts.value(1);
-                if (ShotServerTls::refusesPlaintextRequest(socket, target.toUtf8())) {
-                    cleanupPendingRequest(socket);
-                    m_pendingRequests.remove(socket);
-                    socket->disconnectFromHost();
-                    return;
-                }
-                const QString uploadPath = ShotServerWebRoute::legacyTarget(target.section(QLatin1Char('?'), 0, 0));
-                if (!requestSignedIn(uploadPath, pending.headerData.left(pending.headerEnd))) {
-                    DIAG_WARN(NETWORK, "ShotServer") << "Refused upload while signed out:" << uploadPath;
-                    sendSignInRequired(socket);
-                    cleanupPendingRequest(socket);
-                    m_pendingRequests.remove(socket);
-                    socket->close();
-                    return;
-                }
-            }
-
-            // Check upload size limit for media and APK uploads
-            if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.contentLength > MAX_UPLOAD_SIZE) {
-                DIAG_WARN(NETWORK, "ShotServer") << "Upload too large:" << pending.contentLength << "bytes (max:" << MAX_UPLOAD_SIZE << ")";
-                sendResponse(socket, 413, "text/plain",
-                    QString("File too large. Maximum size is %1 MB").arg(MAX_UPLOAD_SIZE / (1024*1024)).toUtf8());
-                cleanupPendingRequest(socket);
-                m_pendingRequests.remove(socket);
-                socket->close();
-                return;
-            }
-
-            // Check concurrent upload limit
-            if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && m_activeMediaUploads >= MAX_CONCURRENT_UPLOADS) {
-                DIAG_WARN(NETWORK, "ShotServer") << "Too many concurrent uploads";
-                sendResponse(socket, 503, "text/plain", "Server busy. Please wait and try again.");
-                cleanupPendingRequest(socket);
-                m_pendingRequests.remove(socket);
-                socket->close();
-                return;
-            }
-
-            // For large uploads (> 1MB) and all APK uploads, stream to temp file instead of memory
-            if (pending.contentLength > MAX_SMALL_BODY_SIZE || pending.isApkUpload) {
+            // For large request bodies, stream to a temporary file instead of memory
+            if (pending.contentLength > MAX_SMALL_BODY_SIZE) {
                 QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
                 pending.tempFilePath = tempDir + "/upload_stream_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
                 pending.tempFile = new QFile(pending.tempFilePath);
@@ -864,9 +663,6 @@ void ShotServer::onReadyRead()
                     m_pendingRequests.remove(socket);
                     socket->close();
                     return;
-                }
-                if (pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) {
-                    m_activeMediaUploads++;
                 }
                 DIAG_DEBUG(NETWORK, "ShotServer") << "Streaming large upload to" << pending.tempFilePath;
             }
@@ -926,26 +722,8 @@ void ShotServer::onReadyRead()
         }
 
         // Handle the request
-        if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.tempFile) {
-            // Large upload with streamed body - pass temp file path
-            QString headers = QString::fromUtf8(pending.headerData);
-            QString tempPath = pending.tempFilePath;
-            bool wasBackupRestore = pending.isBackupRestore;
-            bool wasApkUpload = pending.isApkUpload;
-            delete pending.tempFile;
-            pending.tempFile = nullptr;
-            pending.tempFilePath.clear();
-            m_activeMediaUploads--;
-            m_pendingRequests.remove(socket);
-            if (wasBackupRestore) {
-                handleBackupRestore(socket, tempPath, headers);
-            } else if (wasApkUpload) {
-                handleUploadFromFile(socket, tempPath, headers);
-            } else {
-                handleMediaUpload(socket, tempPath, headers);
-            }
-        } else if (pending.tempFilePath.isEmpty()) {
-            // Small request or non-media — headerData contains the full
+        if (pending.tempFilePath.isEmpty()) {
+            // Small request — headerData contains the full
             // request (headers + \r\n\r\n + body), nothing on disk.
             QByteArray request = pending.headerData;
             cleanupPendingRequest(socket);
@@ -1043,14 +821,7 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
         connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
         cleanup->start();
     }
-    // Only decrement if this upload was actually counted. An upload is counted
-    // (m_activeMediaUploads++) when it streams to a temp file. APK uploads always
-    // stream regardless of size; media/backup uploads only stream when
-    // contentLength > MAX_SMALL_BODY_SIZE. Guarding on !tempFilePath.isEmpty()
-    // distinguishes the streaming path from small in-memory uploads.
-    if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && !pending.tempFilePath.isEmpty() && m_activeMediaUploads > 0) {
-        m_activeMediaUploads--;
-    }
+
 }
 
 void ShotServer::onCleanupTimerTick()
@@ -1099,18 +870,6 @@ void ShotServer::onCleanupTimerTick()
             DIAG_WARN(NETWORK, "ShotServer") << "Closing connection stalled mid-request from" << addr;
         retireSocket(socket);
     }
-
-    // Once subscribed, SSE clients no longer appear in m_pendingRequests — their
-    // entry is removed before handleRequest() runs — so the stale-connection loop
-    // above won't catch them. Probe each client with an SSE
-    // keepalive comment every 30 s to detect silently-dropped connections — which
-    // is exactly what broadcastSseEvent does, so send the probe through it rather
-    // than keeping a second copy of the write-flush-retire loop here. (This used
-    // to be inlined because the old static helper could not reach
-    // m_keepAliveTimers; now that both go through retireSocket, the reason is
-    // gone and the copies can only drift.)
-    broadcastSseEvent(m_sseLayoutClients, ": keepalive\n\n");
-    broadcastSseEvent(m_sseThemeClients, ": keepalive\n\n");
 
     // MCP SSE clients live in McpServer's set; have it run its own probe so
     // silently-dropped MCP connections are detected on the same 30 s cadence.
@@ -1182,8 +941,6 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
     QString method = requestLine[0];
     QString path = requestLine[1];
-    const bool legacyRoute = ShotServerWebRoute::isLegacyPath(path);
-    path = ShotServerWebRoute::legacyTarget(path);
     const QUrl requestUrl = QUrl::fromEncoded(path.toUtf8(), QUrl::StrictMode);
     const QString routePath = requestUrl.isValid()
         ? requestUrl.path(QUrl::FullyEncoded) : QString();
@@ -1742,253 +1499,15 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                      "Cache-Control: public, max-age=86400\r\nX-Content-Type-Options: nosniff\r\n");
         return;
     }
-    if (!legacyRoute && routePath == QStringLiteral("/")) {
+    if (routePath == QStringLiteral("/")) {
         handleWebClientAsset(socket, method, ShotServerWebRoute::wasmRootTarget(path), request);
-        return;
-    }
-    if (!legacyRoute && routePath == QStringLiteral("/index.html")
-        && method == QStringLiteral("GET")) {
-        QByteArray location = QByteArrayLiteral("Location: /legacy/");
-        if (requestUrl.hasQuery())
-            location += QByteArrayLiteral("?") + requestUrl.query(QUrl::FullyEncoded).toUtf8();
-        location += QByteArrayLiteral("\r\n");
-        sendResponse(socket, 302, QStringLiteral("text/plain"), {},
-                     QByteArrayLiteral("Cache-Control: no-store\r\n") + location);
         return;
     }
     if (routePath == "/wasm" || routePath.startsWith("/wasm/")) {
         handleWebClientAsset(socket, method, path, request);
         return;
     }
-    if (routePath == "/" || routePath == "/index.html" || routePath == "/shots" || routePath == "/shots/"
-        || (legacyRoute && (routePath == QStringLiteral("/")
-                            || routePath == QStringLiteral("/index.html")))) {
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, destroyed]() {
-            QVariantList shots;
-            bool success = false;
-            withTempDb(dbPath, "shs_web_list", [&](QSqlDatabase& db) {
-                success = queryShotList(db, shots);
-            });
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
-                                             ownedShots = std::move(shots)]() {
-                if (*destroyed || !socketGuard) return;
-                if (!success) {
-                    sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
-                } else {
-                    sendHtml(socketGuard, generateShotListPage(ownedShots));
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (routePath.startsWith("/compare/")) {
-        // /compare/1,2,3 - compare shots with IDs 1, 2, 3
-        QString idsStr = routePath.mid(9);
-        QStringList idParts = idsStr.split(",");
-        QList<qint64> ids;
-        for (const QString& p : std::as_const(idParts)) {
-            bool ok;
-            qint64 id = p.toLongLong(&ok);
-            if (ok) ids << id;
-        }
-        // Same 2-10 bound as the shots_compare MCP tool: below 2 there's nothing to
-        // compare, and above 10 this can now issue a self-heal DB write per id whose
-        // stored curves haven't been corrected yet (see
-        // ShotHistoryStorage::loadShotRecordStatic) — an unbounded list would turn a
-        // read endpoint into an unbounded write surface for anyone on the LAN.
-        if (ids.size() < 2 || ids.size() > 10) {
-            sendResponse(socket, 400, "text/plain", "Provide 2-10 shot IDs to compare");
-            return;
-        }
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, ids, destroyed]() {
-            QList<ShotRecord> shots;
-            bool dbOpened = withTempDb(dbPath, "shs_web_cmp", [&](QSqlDatabase& db) {
-                for (qint64 id : ids) {
-                    ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, id, nullptr, Q_FUNC_INFO);
-                    if (r.summary.id > 0) shots.append(std::move(r));
-                }
-            });
-
-            const QJsonObject pageData = dbOpened ? comparisonPageData(shots) : QJsonObject();
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, pageData]() {
-                if (*destroyed || !socketGuard) return;
-                if (!dbOpened) {
-                    sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
-                } else {
-                    sendHtml(socketGuard, generateComparisonPage(pageData));
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (routePath.startsWith("/shot/") && routePath.endsWith("/profile.json")) {
-        // /shot/123/profile.json - download profile JSON for a shot
-        QString idPart = routePath.mid(6);  // Remove "/shot/"
-        idPart = idPart.left(idPart.indexOf("/profile.json"));
-        bool ok;
-        qint64 shotId = idPart.toLongLong(&ok);
-        if (!ok) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
-            return;
-        }
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
-            ShotRecord record;
-            bool dbOpened = withTempDb(dbPath, "shs_web_prof", [&](QSqlDatabase& db) {
-                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
-            });
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, record]() {
-                if (*destroyed || !socketGuard) return;
-                if (!dbOpened) {
-                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                } else if (!record.profileJson.isEmpty()) {
-                    QJsonDocument doc = QJsonDocument::fromJson(record.profileJson.toUtf8());
-                    QByteArray prettyJson = doc.toJson(QJsonDocument::Indented);
-                    QString filename = record.summary.profileName.isEmpty() ? "profile" : record.summary.profileName;
-                    filename = filename.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
-                    QByteArray headers = QString("Content-Disposition: attachment; filename=\"%1.json\"\r\n").arg(filename).toUtf8();
-                    sendResponse(socketGuard, 200, "application/json", prettyJson, headers);
-                } else {
-                    sendResponse(socketGuard, 404, "application/json", R"({"error":"No profile data for this shot"})");
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (routePath.startsWith("/shot/") && routePath.endsWith("/shot.json")) {
-        // /shot/123/shot.json — download the shot as visualizer-format JSON
-        QString idPart = routePath.mid(6);
-        idPart = idPart.left(idPart.indexOf("/shot.json"));
-        bool ok;
-        qint64 shotId = idPart.toLongLong(&ok);
-        if (!ok) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
-            return;
-        }
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
-            ShotRecord record;
-            bool dbOpened = withTempDb(dbPath, "shs_web_shot", [&](QSqlDatabase& db) {
-                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
-            });
-
-            QByteArray payload;
-            bool found = dbOpened && record.summary.id != 0;
-            if (found) {
-                ShotProjection shotData = ShotHistoryStorage::convertShotRecord(record);
-                payload = VisualizerUploader::buildHistoryShotJson(shotData, true);
-            }
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, found,
-                                             ownedPayload = std::move(payload), shotId]() {
-                if (*destroyed || !socketGuard) return;
-                if (!dbOpened) {
-                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                } else if (!found) {
-                    sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
-                } else {
-                    QString filename = QString("shot%1.json").arg(shotId);
-                    QByteArray headers = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
-                    sendResponse(socketGuard, 200, "application/json", ownedPayload, headers);
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (routePath.startsWith("/shot/")) {
-        bool ok;
-        qint64 shotId = routePath.mid(6).toLongLong(&ok);
-        if (!ok) {
-            sendResponse(socket, 400, "text/plain", "Invalid shot ID");
-            return;
-        }
-        // Same as the app's shot pages: read it from Visualizer now, so the next
-        // view (the page reloads after a save) shows what Visualizer holds.
-        if (m_mainController && m_mainController->visualizerSync())
-            m_mainController->visualizerSync()->refreshShot(shotId);
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
-            ShotProjection shot;
-            QJsonObject pageData;
-            bool dbOpened = withTempDb(dbPath, "shs_web_det", [&](QSqlDatabase& db) {
-                ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
-                shot = ShotHistoryStorage::convertShotRecord(record);
-                if (record.summary.id != 0) pageData = shotPageData(db, record);
-
-                // Recipe identity for the detail page (history-recipe-identity).
-                // Resolved with a second PK lookup rather than by widening
-                // loadShotRecordStatic: that query is read POSITIONALLY into
-                // ShotRecord, so adding columns there would cost three struct
-                // fields and a serializer mapping to give one web page three
-                // strings. This is one row by primary key, on the thread that
-                // just loaded the shot, for a discrete user action — the case
-                // where an inline read is the right call.
-                if (shot.recipeId > 0) {
-                    QSqlQuery rq(db);
-                    // || short-circuits, so lastError() still holds the PREPARE
-                    // error rather than exec()'s replacement for it.
-                    if (!rq.prepare("SELECT name, drink_type, archived FROM recipes WHERE id = ?")
-                        || (rq.bindValue(0, shot.recipeId), !rq.exec())) {
-                        DIAG_WARN(NETWORK, "ShotServer") << "recipe lookup failed for shot" << shotId
-                                   << "-" << rq.lastError().text();
-                    } else if (rq.next()) {
-                        shot.recipeName = rq.value(0).toString();
-                        shot.recipeDrinkType = rq.value(1).toString();
-                        shot.recipeArchived = rq.value(2).toInt() != 0;
-                    } else {
-                        // The recipes row is GONE for an id the shot still carries.
-                        // Every surface degrades to showing no recipe, which looks
-                        // identical to a shot that never had one — leave a trace so
-                        // a submitted log can tell the two apart.
-                        DIAG_WARN(NETWORK, "ShotServer") << "shot" << shotId << "references recipe"
-                                   << shot.recipeId << "which no longer exists";
-                    }
-                }
-            });
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened,
-                                             ownedShot = std::move(shot), ownedPageData = std::move(pageData)]() {
-                if (*destroyed || !socketGuard) return;
-                if (!dbOpened) {
-                    sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
-                    return;
-                }
-                if (!ownedShot.isValid()) {
-                    sendResponse(socketGuard, 404, "text/html; charset=utf-8",
-                                 generateShotDetailPage(ownedShot, ownedPageData).toUtf8());
-                } else {
-                    sendHtml(socketGuard, generateShotDetailPage(ownedShot, ownedPageData));
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (path == "/api/shots") {
+    if (path == "/api/shots") {
         QPointer<QTcpSocket> socketGuard(socket);
         QString dbPath = m_storage->databasePath();
         auto destroyed = m_destroyed;
@@ -2015,103 +1534,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
-    }
-    else if (path.startsWith("/api/shot/") && path.endsWith("/metadata") && method == "POST") {
-        // POST /api/shot/123/metadata - update shot metadata
-        QString idPart = path.mid(10); // Remove "/api/shot/"
-        idPart = idPart.left(idPart.indexOf("/metadata"));
-        bool ok;
-        qint64 shotId = idPart.toLongLong(&ok);
-        if (!ok) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
-            return;
-        }
-        qsizetype bodyStart = request.indexOf("\r\n\r\n");
-        if (bodyStart == -1) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid request"})");
-            return;
-        }
-        QByteArray body = request.mid(bodyStart + 4);
-        QJsonDocument doc = QJsonDocument::fromJson(body);
-        if (!doc.isObject()) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid JSON"})");
-            return;
-        }
-        QVariantMap metadata = doc.object().toVariantMap();
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, metadata, destroyed]() {
-            bool success = false;
-            bool dbOpened = withTempDb(dbPath, "shs_web_upd", [&](QSqlDatabase& db) {
-                success = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
-            });
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, shotId, success, dbOpened]() {
-                if (*destroyed) return;
-                if (success) {
-                    // Direct metadata write — notify history-derived bindings.
-                    emit m_storage->historyDataChanged();
-                    emit m_storage->shotMetadataUpdated(shotId, true);
-                }
-                if (!socketGuard) return;
-                if (!dbOpened) {
-                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                } else if (success) {
-                    sendJson(socketGuard, R"({"success":true})");
-                } else {
-                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Failed to update metadata"})");
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (path.startsWith("/api/shot/") && path.endsWith("/outcome") && method == "GET") {
-        // GET /api/shot/123/outcome: the shot page's results after an edit saved.
-        bool ok;
-        qint64 shotId = path.mid(10).chopped(8).toLongLong(&ok);
-        if (!ok) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
-            return;
-        }
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, shotId, destroyed]() {
-            QVariantMap outcome;
-            bool dbOpened = withTempDb(dbPath, "shs_web_outc", [&](QSqlDatabase& db) {
-                outcome = ShotHistoryStorage::shotOutcomeStatic(db, shotId);
-            });
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, dbOpened, outcome]() {
-                if (*destroyed || !socketGuard) return;
-                if (!dbOpened) sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                else if (outcome.isEmpty()) sendResponse(socketGuard, 404, "application/json", R"({"error":"Shot not found"})");
-                else sendJson(socketGuard, QJsonDocument(QJsonObject::fromVariantMap(outcome)).toJson(QJsonDocument::Compact));
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (path.startsWith("/api/shot/") && path.endsWith("/upload") && method == "POST") {
-        // POST /api/shot/123/upload: the shot page's Upload button, the same path as the app's.
-        bool ok;
-        qint64 shotId = path.mid(10).chopped(7).toLongLong(&ok);
-        ShotUploads* uploads = m_mainController ? m_mainController->shotUploads() : nullptr;
-        if (!ok || shotId <= 0) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
-        } else if (!uploads) {
-            sendResponse(socket, 500, "application/json", R"({"error":"Uploads unavailable"})");
-        } else if (uploads->activeDestinations().isEmpty()) {
-            // enqueue() would drop it silently; the page's button was drawn when a
-            // destination was still signed in.
-            sendResponse(socket, 409, "application/json", R"({"error":"No upload destination is signed in"})");
-        } else {
-            uploads->uploadNow(shotId);
-            sendJson(socket, R"({"success":true})");
-        }
     }
     else if (path.startsWith("/api/shot/")) {
         bool ok;
@@ -2145,305 +1567,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
-    }
-    else if (path == "/api/shots/delete" && method == "POST") {
-        qsizetype bodyStart = request.indexOf("\r\n\r\n");
-        if (bodyStart == -1) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Invalid request"})");
-            return;
-        }
-        QByteArray body = request.mid(bodyStart + 4);
-        QJsonDocument doc = QJsonDocument::fromJson(body);
-        QJsonArray ids = doc.object().value("ids").toArray();
-        QList<qint64> shotIds;
-        for (const QJsonValue& v : std::as_const(ids)) {
-            qint64 id = v.toInteger();
-            if (id > 0) shotIds << id;
-        }
-        if (shotIds.isEmpty()) {
-            sendResponse(socket, 400, "application/json", R"({"error":"No valid shot IDs provided"})");
-            return;
-        }
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, shotIds, destroyed]() {
-            int deleted = 0;
-            QList<qint64> deletedIds;
-            bool dbOpened = withTempDb(dbPath, "shs_web_del", [&](QSqlDatabase& db) {
-                QSqlQuery query(db);
-                if (!query.prepare("DELETE FROM shots WHERE id = ?")) {
-                    DIAG_WARN(NETWORK, "ShotServer") << "Batch delete prepare failed:" << query.lastError().text();
-                    return;
-                }
-                for (qint64 id : shotIds) {
-                    query.bindValue(0, id);
-                    if (query.exec()) {
-                        if (query.numRowsAffected() > 0) {
-                            deleted++;
-                            deletedIds << id;
-                        }
-                    } else {
-                        DIAG_WARN(NETWORK, "ShotServer") << "Failed to delete shot" << id << ":" << query.lastError().text();
-                    }
-                }
-            });
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, deleted, deletedIds, dbOpened]() {
-                if (*destroyed) return;
-                if (deleted > 0) {
-                    m_storage->refreshTotalShots();
-                    for (qint64 id : deletedIds)
-                        emit m_storage->shotDeleted(id);
-                }
-                if (!socketGuard) return;
-                if (!dbOpened) {
-                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Database unavailable"})");
-                } else {
-                    sendJson(socketGuard, QString(R"({"deleted":%1})").arg(deleted).toUtf8());
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (path == "/api/database" || routePath == "/database.db") {
-        // Checkpoint WAL and send DB file from background thread
-        QPointer<QTcpSocket> socketGuard(socket);
-        QString dbPath = m_storage->databasePath();
-        auto destroyed = m_destroyed;
-        QThread* thread = QThread::create([this, socketGuard, dbPath, destroyed]() {
-            bool checkpointOk = false;
-            withTempDb(dbPath, "shs_web_db", [&](QSqlDatabase& db) {
-                QSqlQuery walQuery(db);
-                if (!walQuery.exec("PRAGMA wal_checkpoint(FULL)")) {
-                    DIAG_WARN(NETWORK, "ShotServer") << "WAL checkpoint failed:" << walQuery.lastError().text();
-                } else {
-                    checkpointOk = true;
-                }
-            });
-
-            QByteArray fileData;
-            if (checkpointOk) {
-                QFile dbFile(dbPath);
-                if (dbFile.open(QIODevice::ReadOnly)) {
-                    fileData = dbFile.readAll();
-                } else {
-                    DIAG_WARN(NETWORK, "ShotServer") << "Failed to read DB file for download:" << dbPath << dbFile.errorString();
-                }
-            }
-
-            if (*destroyed) return;
-            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
-                                             ownedFileData = std::move(fileData)]() {
-                if (*destroyed || !socketGuard) return;
-                if (!ownedFileData.isEmpty()) {
-                    sendResponse(socketGuard, 200, "application/x-sqlite3", ownedFileData);
-                } else {
-                    sendResponse(socketGuard, 500, "application/json", R"({"error":"Database checkpoint failed - download may be incomplete"})");
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-        thread->start();
-    }
-    else if (path == "/api/memory") {
-        if (m_memoryMonitor) {
-            QJsonDocument doc(m_memoryMonitor->toJson());
-            sendJson(socket, doc.toJson(QJsonDocument::Compact));
-        } else {
-            sendResponse(socket, 503, "application/json", R"({"error":"Memory monitor not available"})");
-        }
-    }
-    else if (routePath == "/debug") {
-        sendHtml(socket, generateDebugPage());
-    }
-    else if (routePath == "/remote") {
-        sendHtml(socket, QString(WEB_REMOTE_PAGE));
-    }
-    else if (routePath == "/settings") {
-        sendHtml(socket, generateSettingsPage());
-    }
-    else if ((path == "/api/settings/visualizer/connect" || path == "/api/settings/decent/connect") && method == "POST") {
-        const QString destination = path.section(QLatin1Char('/'), 3, 3);
-        qsizetype bodyStart = request.indexOf("\r\n\r\n");
-        if (bodyStart != -1) {
-            handleAccountConnect(socket, request.mid(bodyStart + 4), destination);
-        } else {
-            sendJson(socket, R"({"success": false, "message": "Invalid request"})");
-        }
-    }
-    else if ((path == "/api/settings/visualizer/disconnect" || path == "/api/settings/decent/disconnect") && method == "POST") {
-        handleAccountDisconnect(socket, path.section(QLatin1Char('/'), 3, 3));
-    }
-    else if ((path == "/api/settings/visualizer/upload-missing" || path == "/api/settings/decent/upload-missing")
-             && method == "POST") {
-        handleUploadMissing(socket, path.section(QLatin1Char('/'), 3, 3));
-    }
-    else if (path == "/api/settings/upload-missing") {
-        handleGetUploadMissing(socket);
-    }
-    else if (path == "/api/settings/ai/test" && method == "POST") {
-        qsizetype bodyStart = request.indexOf("\r\n\r\n");
-        if (bodyStart != -1) {
-            handleAiTest(socket, request.mid(bodyStart + 4));
-        } else {
-            sendJson(socket, R"({"success": false, "message": "Invalid request"})");
-        }
-    }
-    else if (path == "/api/settings/mqtt/connect" && method == "POST") {
-        qsizetype bodyStart = request.indexOf("\r\n\r\n");
-        QByteArray body = (bodyStart != -1) ? request.mid(bodyStart + 4) : QByteArray();
-        handleMqttConnect(socket, body);
-    }
-    else if (path == "/api/settings/mqtt/disconnect" && method == "POST") {
-        handleMqttDisconnect(socket);
-    }
-    else if (path == "/api/settings/mqtt/status") {
-        handleMqttStatus(socket);
-    }
-    else if (path == "/api/settings/mqtt/publish-discovery" && method == "POST") {
-        handleMqttPublishDiscovery(socket);
-    }
-    else if (path == "/api/settings/mqtt/new-device-id" && method == "POST") {
-        handleMqttNewDeviceId(socket);
-    }
-    else if (path == "/api/settings/mcp/rotate-token" && method == "POST") {
-        handleRotateRemoteMcpToken(socket);
-    }
-    else if (path == "/api/settings") {
-        if (method == "POST") {
-            // Extract body from request
-            qsizetype bodyStart = request.indexOf("\r\n\r\n");
-            if (bodyStart != -1) {
-                QByteArray body = request.mid(bodyStart + 4);
-                handleSaveSettings(socket, body);
-            } else {
-                sendJson(socket, R"({"error": "Invalid request"})");
-            }
-        } else {
-            handleGetSettings(socket);
-        }
-    }
-    else if (path.startsWith("/api/grind-candidates")) {
-        handleGrindCandidatesApi(socket, path);
-    }
-    else if (path == "/api/saved-searches") {
-        if (method == "GET") {
-            QJsonArray arr;
-            if (m_settings) {
-                for (const QString& s : m_settings->network()->savedSearches()) {
-                    arr.append(s);
-                }
-            }
-            QJsonObject result;
-            result["searches"] = arr;
-            sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
-        } else if (method == "POST") {
-            qsizetype bodyStart = request.indexOf("\r\n\r\n");
-            QJsonObject result;
-            bool hasError = false;
-            if (bodyStart != -1 && m_settings) {
-                QByteArray body = request.mid(bodyStart + 4);
-                QJsonObject obj = QJsonDocument::fromJson(body).object();
-                QString search = obj["search"].toString().trimmed();
-                if (!search.isEmpty()) {
-                    m_settings->network()->addSavedSearch(search);
-                    result["success"] = true;
-                } else {
-                    result["error"] = "Empty search";
-                    hasError = true;
-                }
-            } else {
-                result["error"] = "Invalid request";
-                hasError = true;
-            }
-            QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Compact);
-            if (hasError)
-                sendResponse(socket, 400, "application/json", json);
-            else
-                sendJson(socket, json);
-        } else if (method == "DELETE") {
-            qsizetype bodyStart = request.indexOf("\r\n\r\n");
-            QJsonObject result;
-            bool hasError = false;
-            if (bodyStart != -1 && m_settings) {
-                QByteArray body = request.mid(bodyStart + 4);
-                QJsonObject obj = QJsonDocument::fromJson(body).object();
-                QString search = obj["search"].toString().trimmed();
-                if (!search.isEmpty()) {
-                    m_settings->network()->removeSavedSearch(search);
-                    result["success"] = true;
-                } else {
-                    result["error"] = "Empty search";
-                    hasError = true;
-                }
-            } else {
-                result["error"] = "Invalid request";
-                hasError = true;
-            }
-            QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Compact);
-            if (hasError)
-                sendResponse(socket, 400, "application/json", json);
-            else
-                sendJson(socket, json);
-        }
-    }
-    else if (path == "/api/debug" || path.startsWith("/api/debug?")) {
-        // Get afterIndex from query string
-        int afterIndex = 0;
-        if (path.contains("?")) {
-            QUrlQuery query(path.mid(path.indexOf("?") + 1));
-            afterIndex = query.queryItemValue("after").toInt();
-        }
-
-        int lastIndex = 0;
-        QStringList bodyLines;
-        if (WebDebugLogger::instance()) {
-            bodyLines = WebDebugLogger::instance()->getLines(afterIndex, &lastIndex);
-        } else {
-            // No logger: say so rather than returning an empty success. An empty
-            // "lines" array is indistinguishable from "the log is empty".
-            sendJson(socket, QJsonDocument(QJsonObject{
-                {"error", "debug logger unavailable"}}).toJson(QJsonDocument::Compact));
-            return;
-        }
-
-        QJsonObject result;
-        result["lastIndex"] = lastIndex;
-        QJsonArray linesArray;
-        for (const QString& line : std::as_const(bodyLines)) {
-            linesArray.append(line);
-        }
-        result["lines"] = linesArray;
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
-    }
-    else if (path == "/api/debug/clear") {
-        if (WebDebugLogger::instance()) {
-            WebDebugLogger::instance()->clear(false);  // Don't clear file by default
-        }
-        QJsonObject result;
-        result["success"] = true;
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
-    }
-    else if (path == "/api/debug/clearall") {
-        if (WebDebugLogger::instance()) {
-            WebDebugLogger::instance()->clear(true);  // Clear memory and file
-        }
-        QJsonObject result;
-        result["success"] = true;
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
-    }
-    else if (path == "/api/debug/file") {
-        // Return persisted log file content (survives crashes), with memory snapshot appended
-        QJsonObject result;
-        QString log = WebDebugLogger::instance() ? WebDebugLogger::instance()->getPersistedLog() : QString();
-        if (m_memoryMonitor)
-            log += m_memoryMonitor->toSummaryString();
-        result["log"] = log;
-        result["path"] = WebDebugLogger::instance() ? WebDebugLogger::instance()->logFilePath() : QString();
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
     else if (path == "/api/debug/file/zip") {
         // Return persisted log as a ZIP file for smaller downloads
@@ -2515,40 +1638,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/telemetry") {
         sendJson(socket, QJsonDocument(sessionTelemetrySnapshot()).toJson(QJsonDocument::Compact));
     }
-    else if (path == "/api/session" && method == "GET") {
-        sendJson(socket, QJsonDocument(sessionSnapshot(0)).toJson(QJsonDocument::Compact));
-    }
-    else if (SessionActionRequest::isPotentialTarget(path)) {
-        handleSessionAction(socket, method, path, request);
-    }
-    else if (path == "/api/session/layout") {
-        handleSessionLayout(socket, method);
-    }
-    else if (path == "/api/session/translations") {
-        if (method == "GET") {
-            handleSessionTranslations(socket);
-        } else {
-            sendResponse(socket, 405, "application/json", R"({"error":"Use GET"})",
-                         "Allow: GET\r\n");
-        }
-    }
-    else if (path == "/api/session/steam-graph") {
-        if (method == "GET")
-            handleSessionGraph(socket, true);
-        else
-            sendResponse(socket, 405, "application/json", R"({"error":"Use GET"})", "Allow: GET\r\n");
-    }
-    else if (path == "/api/session/graph" && method == "GET") {
-        handleSessionGraph(socket);
-    }
-    else if (path == "/api/session/last-shot") {
-        if (method == "GET") {
-            handleSessionLastShot(socket);
-        } else {
-            sendResponse(socket, 405, "application/json", R"({"error":"Use GET"})",
-                         "Allow: GET\r\n");
-        }
-    }
     else if (path.startsWith("/api/session/bean-image/")) {
         handleSessionBeanImage(socket, method, path);
     }
@@ -2558,10 +1647,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
     else if (path.startsWith("/api/screensaver/media/")) {
         handleScreensaverMedia(socket, method, path, request);
-    }
-    else if (path == "/api/session/ws") {
-        sendResponse(socket, 400, "application/json",
-                     R"({"error":"WebSocket upgrade required"})");
     }
     else if (path == "/api/command" && method == "POST") {
         // Parse JSON body from request
@@ -2603,104 +1688,6 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/pocket/status") {
         handlePocketStatus(socket);
     }
-    else if (routePath == "/upload") {
-        if (method == "GET") {
-            sendHtml(socket, generateUploadPage());
-        } else if (method == "POST") {
-            // POST /upload is always streamed before handleRequest is called
-            // (isApkUpload forces temp-file streaming for all /upload POSTs).
-            sendResponse(socket, 400, "text/plain", "Upload must use streaming path");
-        }
-    }
-    else if (routePath == "/upload/media") {
-        if (method == "GET") {
-            sendHtml(socket, generateMediaUploadPage());
-        } else if (method == "POST") {
-            // For small uploads that weren't streamed, save body to temp file
-            qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-            if (headerEndPos < 0) {
-                sendResponse(socket, 400, "text/plain", "Invalid request");
-                return;
-            }
-            QString headers = QString::fromUtf8(request.left(headerEndPos));
-            QByteArray body = request.mid(headerEndPos + 4);
-
-            DIAG_DEBUG(NETWORK, "ShotServer") << "Small media upload - request size:" << request.size()
-                     << "headerEnd:" << headerEndPos << "body size:" << body.size();
-
-            // Save to temp file on a background thread (CLAUDE.md prohibits
-            // main-thread disk I/O). Dispatch handleMediaUpload back to the
-            // main thread once the write completes.
-            QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-            QString tempPath = tempDir + "/upload_small_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
-            QPointer<QTcpSocket> safeSocket = socket;
-            QPointer<ShotServer> safeThis = this;
-            QThread* t = QThread::create([safeThis, safeSocket, tempPath, body, headers]() {
-                QFile tempFile(tempPath);
-                if (!tempFile.open(QIODevice::WriteOnly) || tempFile.write(body) != body.size()) {
-                    tempFile.close();
-                    QFile::remove(tempPath);
-                    QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
-                        if (safeThis && safeSocket)
-                            safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to create temp file");
-                    }, Qt::QueuedConnection);
-                    return;
-                }
-                tempFile.close();
-                QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, tempPath, headers]() {
-                    if (safeThis && safeSocket) {
-                        safeThis->handleMediaUpload(safeSocket, tempPath, headers);
-                    } else {
-                        // Client disconnected or ShotServer torn down before the
-                        // handler could run. This callback runs on the main thread,
-                        // so dispatch the cleanup to a background thread to keep
-                        // main-thread disk I/O off the event loop (CLAUDE.md).
-                        QThread* cleanup = QThread::create([tempPath]() { QFile::remove(tempPath); });
-                        connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
-                        cleanup->start();
-                    }
-                }, Qt::QueuedConnection);
-            });
-            connect(t, &QThread::finished, t, &QThread::deleteLater);
-            t->start();
-        }
-    }
-    else if (path == "/api/media/personal" && method == "GET") {
-        if (!m_screensaverManager) {
-            sendJson(socket, R"({"error":"Screensaver manager not available"})");
-            return;
-        }
-        QVariantList media = m_screensaverManager->getPersonalMediaList();
-        QJsonArray arr;
-        for (const QVariant& v : std::as_const(media)) {
-            arr.append(QJsonObject::fromVariantMap(v.toMap()));
-        }
-        sendJson(socket, QJsonDocument(arr).toJson(QJsonDocument::Compact));
-    }
-    else if (path == "/api/media/personal" && method == "DELETE") {
-        // Delete ALL personal media
-        if (!m_screensaverManager) {
-            sendJson(socket, R"({"error":"Screensaver manager not available"})");
-            return;
-        }
-        m_screensaverManager->clearPersonalMedia();
-        sendJson(socket, R"({"success":true})");
-    }
-    else if (path.startsWith("/api/media/personal/") && method == "DELETE") {
-        // Delete single personal media by ID
-        if (!m_screensaverManager) {
-            sendJson(socket, R"({"error":"Screensaver manager not available"})");
-            return;
-        }
-        bool ok;
-        int mediaId = path.mid(20).toInt(&ok);
-        if (ok && m_screensaverManager->deletePersonalMedia(mediaId)) {
-            sendJson(socket, R"({"success":true})");
-        } else {
-            sendResponse(socket, 404, "application/json", R"({"error":"Media not found"})");
-        }
-    }
-    // Data migration backup API
     else if (path == "/api/backup/manifest") {
         handleBackupManifest(socket);
     }
@@ -2780,157 +1767,8 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/backup/full") {
         handleBackupFull(socket);
     }
-    else if (routePath == "/restore") {
-        sendHtml(socket, generateRestorePage());
-    }
-    else if (path == "/api/backup/restore" && method == "POST") {
-        // Small restore uploads (< 1MB) that were not streamed to temp file
-        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-        if (headerEndPos < 0) {
-            sendResponse(socket, 400, "text/plain", "Invalid request");
-            return;
-        }
-        QString headers = QString::fromUtf8(request.left(headerEndPos));
-        QByteArray body = request.mid(headerEndPos + 4);
-
-        QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-        QString tempPath = tempDir + "/restore_small_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
-        // Write the body on a background thread to keep main-thread disk I/O
-        // off the event loop (CLAUDE.md). Dispatch handleBackupRestore back
-        // to the main thread once the write completes.
-        QPointer<QTcpSocket> safeSocket = socket;
-        QPointer<ShotServer> safeThis = this;
-        QThread* t = QThread::create([safeThis, safeSocket, tempPath, body, headers]() {
-            QFile tempFile(tempPath);
-            if (!tempFile.open(QIODevice::WriteOnly) || tempFile.write(body) != body.size()) {
-                tempFile.close();
-                QFile::remove(tempPath);
-                QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
-                    if (safeThis && safeSocket)
-                        safeThis->sendResponse(safeSocket, 500, "text/plain", "Failed to create temp file");
-                }, Qt::QueuedConnection);
-                return;
-            }
-            tempFile.close();
-            QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, tempPath, headers]() {
-                if (safeThis && safeSocket) {
-                    safeThis->handleBackupRestore(safeSocket, tempPath, headers);
-                } else {
-                    // Client disconnected or ShotServer torn down before the
-                    // handler could run. This callback runs on the main thread,
-                    // so dispatch the cleanup to a background thread to keep
-                    // main-thread disk I/O off the event loop (CLAUDE.md).
-                    QThread* cleanup = QThread::create([tempPath]() { QFile::remove(tempPath); });
-                    connect(cleanup, &QThread::finished, cleanup, &QThread::deleteLater);
-                    cleanup->start();
-                }
-            }, Qt::QueuedConnection);
-        });
-        connect(t, &QThread::finished, t, &QThread::deleteLater);
-        t->start();
-    }
-    // Recipes / Beans / Equipment management pages (add-recipes)
-    else if (routePath == "/recipes") {
-        sendHtml(socket, generateRecipesPage());
-    }
-    else if (routePath == "/beans") {  // ?restock=<bag>&recipe=<id> from /recipes
-        // As the app's bean inventory: the bags as Visualizer holds them now.
-        if (m_mainController && m_mainController->visualizerSync())
-            m_mainController->visualizerSync()->refreshBags();
-        sendHtml(socket, generateBeansPage());
-    }
-    else if (routePath == "/equipment") {
-        sendHtml(socket, generateEquipmentPage());
-    }
-    // Recipes / bags / equipment REST APIs (add-recipes)
-    else if (path == "/api/recipes" || path.startsWith("/api/recipes/") || path.startsWith("/api/recipe/")) {
-        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
-        handleRecipesApi(socket, method, path, body);
-    }
-    else if (path == "/api/bags" || path == "/api/bags/finished" || path.startsWith("/api/bag/")
-             || path.startsWith("/api/beans/")) {
-        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
-        handleBagsApi(socket, method, path, body);
-    }
-    else if (path == "/api/equipment" || path.startsWith("/api/equipment/")) {
-        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
-        handleEquipmentApi(socket, method, path, body);
-    }
-    // Theme editor
-    else if (routePath == "/theme") {
-        sendHtml(socket, generateThemePage());
-    }
-    // SSE endpoint for theme change notifications
-    else if (path == "/api/theme/subscribe" && method == "GET") {
-        QByteArray sseHeaders = "HTTP/1.1 200 OK\r\n"
-                             "Content-Type: text/event-stream\r\n"
-                             "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n\r\n";
-        socket->write(sseHeaders);
-        socket->flush();
-        m_sseThemeClients.insert(socket);
-        if (m_sseThemeClients.size() == 1)
-            emit themeEditorOpenChanged();
-        if (QTimer* t = m_keepAliveTimers.take(socket))
-            t->stop();
-    }
-    // Theme API endpoints
-    else if (path == "/api/theme" || path.startsWith("/api/theme/")) {
-        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
-        handleThemeApi(socket, method, path, body);
-    }
-    // Layout editor
-    else if (routePath == "/layout") {
-        sendHtml(socket, generateLayoutPage());
-    }
-    // SSE endpoint for layout change notifications
-    else if (path == "/api/layout/events" && method == "GET") {
-        QByteArray headers = "HTTP/1.1 200 OK\r\n"
-                             "Content-Type: text/event-stream\r\n"
-                             "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n\r\n";
-        socket->write(headers);
-        socket->flush();
-        m_sseLayoutClients.insert(socket);
-        if (QTimer* t = m_keepAliveTimers.take(socket))
-            t->stop();
-    }
-    else if (path == "/api/layout" || path.startsWith("/api/layout/") || path.startsWith("/api/layout?")
-             || path.startsWith("/api/library")) {
-        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
-        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
-        handleLayoutApi(socket, method, path, body);
-    }
-    else if (routePath == "/ai-conversations") {
-        sendHtml(socket, generateAIConversationsPage());
-    }
-    else if (path.startsWith("/api/ai-conversation/")) {
-        // /api/ai-conversation/<key>/download?format=json|text
-        QString remainder = path.mid(QString("/api/ai-conversation/").length());
-        qsizetype slashIdx = remainder.indexOf('/');
-        QString key = (slashIdx >= 0) ? remainder.left(slashIdx) : remainder;
-        // Parse format from query string
-        QString format = "json";
-        if (path.contains("?")) {
-            QUrlQuery query(path.mid(path.indexOf("?") + 1));
-            if (query.queryItemValue("format") == "text") format = "text";
-        }
-        handleAIConversationDownload(socket, key, format);
-    }
-    else if (routePath.startsWith("/icons/") && routePath.endsWith(".svg")) {
-        // Serve SVG icons from Qt resources for web layout editor
-        QString resourcePath = ":/" + routePath.mid(1); // ":/icons/espresso.svg"
-        QFile iconFile(resourcePath);
-        if (iconFile.open(QIODevice::ReadOnly)) {
-            QByteArray svgData = iconFile.readAll();
-            sendResponse(socket, 200, "image/svg+xml", svgData);
-        } else {
-            sendResponse(socket, 404, "text/plain", "Icon not found");
-        }
+    else if (path.startsWith("/api/library/thumbnail")) {
+        handleLayoutApi(socket, method, path);
     }
     else {
         sendResponse(socket, 404, "text/plain", "Not Found");
@@ -3019,60 +1857,11 @@ void ShotServer::sendJson(QTcpSocket* socket, const QByteArray& json)
     sendResponse(socket, 200, "application/json", json);
 }
 
-void ShotServer::handleGrindCandidatesApi(QTcpSocket* socket, const QString& path)
-{
-    const QUrlQuery query(path.mid(path.indexOf(QLatin1Char('?')) + 1));
 
-    SettingsDye* dye = m_settings ? m_settings->dye() : nullptr;
-    if (!dye) {
-        // MUST be a non-2xx: sendJson would return 200, the helper's r.ok check
-        // would pass, and its empty "rpm" array would be read as the
-        // NOT-RPM-CAPABLE verdict — hiding the RPM field on a capable grinder.
-        // A real status lands in the .catch instead, where the documented
-        // fail-open behaviour (plain text inputs, field left as rendered)
-        // applies.
-        sendResponse(socket, 503, "application/json",
-                     QByteArrayLiteral(R"({"error": "Settings unavailable"})"));
-        return;
-    }
-
-    GrindCandidates::Inputs in;
-    in.brand = query.queryItemValue(QStringLiteral("brand"), QUrl::FullyDecoded);
-    in.model = query.queryItemValue(QStringLiteral("model"), QUrl::FullyDecoded);
-    in.current = query.queryItemValue(QStringLiteral("current"), QUrl::FullyDecoded).trimmed();
-    in.rpm = query.queryItemValue(QStringLiteral("rpm")).toLongLong();
-    if (m_storage) {
-        // History-derived steps + observed settings for THIS record's grinder.
-        //
-        // An empty model is not skipped, but nor is it passed straight through:
-        // it falls back to the ACTIVE grinder first. Empty here means the record
-        // names no grinder — a recipe with no package, a shot saved before it
-        // had one — and it reaches both forms this endpoint feeds (shots, recipes).
-        //
-        // Passing it through pools EVERY grinder's history, which reads as
-        // correct only to a one-grinder user, because the pool is their grinder.
-        // GrindRowSource.grindStep() resolves the same way for the in-app forms
-        // these mirror; the surfaces must not disagree about a step the
-        // user sees on both. Only a user with no grinder anywhere still pools,
-        // and for them every grinder is the only pool there is.
-        // `dye` is non-null here — the guard above 503s otherwise.
-        const QString model = in.model.isEmpty() ? dye->dyeGrinderModel() : in.model;
-        in.grindStep = m_storage->grindStepForGrinder(model);
-        in.rpmStep = m_storage->grindRpmStepForGrinder(model);
-        in.observed = m_storage->getDistinctGrinderSettingsForGrinder(model);
-    }
-
-    sendJson(socket, QJsonDocument(GrindCandidates::build(dye, in))
-                         .toJson(QJsonDocument::Compact));
-}
 
 void ShotServer::sendHtml(QTcpSocket* socket, const QString& html)
 {
-    // Inject vital stats (temperature, water level, connection) into the header of every page
-    QString finalHtml = html;
-    static const QString vitalScript = generateVitalStatsScript();
-    finalHtml.replace(QLatin1String("</body>"), vitalScript + QStringLiteral("</body>"));
-    sendResponse(socket, 200, "text/html; charset=utf-8", finalHtml.toUtf8());
+    sendResponse(socket, 200, "text/html; charset=utf-8", html.toUtf8());
 }
 
 void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QString& contentType)
@@ -3146,30 +1935,7 @@ void ShotServer::sendFile(QTcpSocket* rawSocket, const QString& path, const QStr
     }
 }
 
-void ShotServer::sendRedirect(QTcpSocket* rawSocket, const QString& location, const QString& setCookie)
-{
-    // Same lifetime trap as sendResponse — guard against the socket being
-    // destroyed under us while the response is being constructed.
-    QPointer<QTcpSocket> socket(rawSocket);
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
 
-    QByteArray response;
-    response.append("HTTP/1.1 302 Found\r\n");
-    response.append(QString("Location: %1\r\n").arg(location).toUtf8());
-    if (!setCookie.isEmpty()) {
-        response.append(QString("Set-Cookie: %1\r\n").arg(setCookie).toUtf8());
-    }
-    response.append("Content-Length: 0\r\n");
-    response.append("Connection: keep-alive\r\n");
-    response.append(QString("Keep-Alive: timeout=%1\r\n").arg(KEEPALIVE_TIMEOUT_S).toUtf8());
-    response.append("\r\n");
-    if (!socket) return;
-    socket->write(response);
-    if (!socket) return;
-    socket->flush();
-    if (!socket) return;
-    resetKeepAliveTimer(socket);
-}
 
 bool ShotServer::setupTls()
 {

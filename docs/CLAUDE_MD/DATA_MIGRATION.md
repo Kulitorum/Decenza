@@ -39,7 +39,6 @@ A source below the upgrade floor (`src/history/upgradefloor.h`: shot schema 41) 
 - `GET /api/backup/media/{filename}` - Download media file
 - `GET /api/backup/ai-conversations` - Export AI conversations
 - `GET /api/backup/full` - Download full backup archive
-- `POST /api/backup/restore` - Restore from backup archive
 
 ### Import Options
 - **Import All**: Settings, profiles, shots, media, AI conversations (merged with existing data)

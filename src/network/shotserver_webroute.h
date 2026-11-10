@@ -4,23 +4,6 @@
 
 namespace ShotServerWebRoute {
 
-inline bool isLegacyPath(const QString& path)
-{
-    return path == QLatin1String("/legacy")
-        || path.startsWith(QLatin1String("/legacy/"))
-        || path.startsWith(QLatin1String("/legacy?"));
-}
-
-inline QString legacyTarget(const QString& path)
-{
-    if (!isLegacyPath(path))
-        return path;
-    QString target = path.mid(7);
-    if (target.isEmpty() || target.startsWith(QLatin1Char('?')))
-        target.prepend(QLatin1Char('/'));
-    return target;
-}
-
 // The icons a browser asks for, as the resource that answers each path: the
 // favicon, and the home-screen icons the web interface declares (iOS 180 px,
 // Android 192 px). iOS also asks for the precomposed name on its own. Empty for

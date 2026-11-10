@@ -830,10 +830,7 @@ add_decenza_test(tst_textescaping
 )
 target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 
-# --- tst_customwidgethtml: the two segmentsToHtml implementations, and DocumentFormatter ---
-# Differential: runs the web editor's JS copy (lifted out of src/network/shotserver_layout.cpp)
-# in a QJSEngine and diffs it against the C++ one, so the app and ShotServer surfaces cannot
-# drift again. Also covers DocumentFormatter's colour round trip.
+# --- tst_customwidgethtml: shared widget behavior and DocumentFormatter ---
 add_decenza_test(tst_customwidgethtml
     tst_customwidgethtml.cpp
     ${CMAKE_SOURCE_DIR}/src/core/uiworkprobe.h
@@ -2369,7 +2366,6 @@ add_library(decenza_webclienttestlib STATIC
     ${CMAKE_SOURCE_DIR}/src/webclient/remotemachinestate.cpp
     ${CMAKE_SOURCE_DIR}/src/webclient/remotemaincontroller.h
     ${CMAKE_SOURCE_DIR}/src/webclient/remotemaincontroller.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/sessionactionrequest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/steameditrequest.cpp
     ${CMAKE_SOURCE_DIR}/src/webclient/remotesessionbackend.h
     ${CMAKE_SOURCE_DIR}/src/webclient/remotesessionbackend.cpp
@@ -2659,8 +2655,6 @@ target_include_directories(tst_steamservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}
 target_link_libraries(tst_steamservice PRIVATE Qt6::RemoteObjects Qt6::Qml decenza_steamgraphtestlib)
 set_tests_properties(tst_steamservice PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-add_decenza_test(tst_sessionactionrequest tst_sessionactionrequest.cpp)
-target_link_libraries(tst_sessionactionrequest PRIVATE decenza_webclienttestlib)
 
 add_decenza_test(tst_remotesessionserver
     tst_remotesessionserver.cpp
@@ -2672,17 +2666,6 @@ if(NOT ANDROID AND NOT APPLE)
     target_link_libraries(tst_remotesessionserver PRIVATE OpenSSL::Crypto)
     target_compile_definitions(tst_remotesessionserver PRIVATE DECENZA_TEST_OPENSSL_PEM)
 endif()
-
-add_decenza_test(tst_remotelastshotsnapshot
-    tst_remotelastshotsnapshot.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/remotelastshotsnapshot.cpp
-)
-
-add_decenza_test(tst_remoteshotgraphsnapshot
-    tst_remoteshotgraphsnapshot.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/remoteshotgraphsnapshot.h
-    ${CMAKE_SOURCE_DIR}/src/network/remoteshotgraphsnapshot.cpp
-)
 
 add_decenza_test(tst_sessionbackgroundimage
     tst_sessionbackgroundimage.cpp
