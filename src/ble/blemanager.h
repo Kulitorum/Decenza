@@ -12,6 +12,8 @@
 #include <QFile>
 #include <QDateTime>
 #include <QElapsedTimer>
+
+#include <functional>
 #include <QMutex>
 #include <QPointer>
 #include <atomic>
@@ -156,6 +158,11 @@ public:
     // (the BLE connect is treated as a temporary substitute, not a permanent
     // primary-scale change).
     bool isWifiFallbackToBleActive() const { return m_wifiFallbackToBleActive; }
+    // The addresses of the user's saved scales, which live in Settings (not held
+    // here). The WiFi->BLE fallback only takes a scale on this list; unset, the
+    // fallback never runs.
+    void setSavedScaleAddresses(std::function<QStringList()> addresses)
+    { m_savedScaleAddresses = std::move(addresses); }
 
     // Proactive WiFi-primary switch-back. TWO drivers, and only one of them
     // probes: main.cpp's idle poll (which calls probeWifiPrimaryReachable below),
@@ -662,7 +669,7 @@ public slots:
     // allowDirectConnect=true (foreground triggers: device-picker switch, app
     // startup, DE1 wake) issues a single direct connectToDevice() to the saved
     // address for a fast connect, alongside a scan. allowDirectConnect=false
-    // (the 60s background reconnect ladder) scans only — it never parks a direct
+    // (the background reconnect ladder) scans only — it never parks a direct
     // connect against an absent scale, which on Android holds the BLE stack in
     // Connecting for ~30s and starves the DE1 link (issue #1303). A saved scale
     // still auto-connects via onDeviceDiscovered when it's seen advertising.
@@ -670,9 +677,7 @@ public slots:
 
     // Ask main.cpp, which owns the reconnect ladder, to restart it from the top.
     // firstDelayMs < 0 means the ramp's own first step.
-    Q_INVOKABLE void requestScaleReconnectRampRestart(
-        const QString& reason = QStringLiteral("Scale notice dismissed"),
-        int firstDelayMs = -1);
+    void requestScaleReconnectRampRestart(const QString& reason, int firstDelayMs = -1);
     /**
      * The DE1's connect attempt started or ended. OBSERVABILITY ONLY.
      *
@@ -776,10 +781,6 @@ signals:
     void scaleConnected();     // Emitted when a physical scale (re)connects — lets the UI dismiss the scale-disconnect / no-scale notice
     void scaleReconnectRampRestartRequested(const QString& reason, int firstDelayMs);
     void scanStarted();  // Emitted when BLE scan actually begins
-    // Emitted when a saved WiFi scale fails to connect within the connection
-    // timeout and BLEManager has started a BLE scan as a fallback. UI binds
-    // this to a toast/banner so the user knows what's happening.
-    void wifiUnreachableFallingBackToBle(const QString& hostname);
     // Emitted when a manual "Add WiFi Scale" connect attempt fails to verify
     // (timeout without HDS recognition, or socket error before any frame).
     // The QML layer binds this to a user-visible dialog so a typo / wrong IP
@@ -978,9 +979,8 @@ private:
     // direct attempt has already failed (m_wifiDirectAttemptFailed).
     void startReconnectBrowseIfNeeded();
     // WiFi-saved-scale fallback: when the WiFi connection timer fires without
-    // a successful connect, kick off a BLE scan that auto-connects to the
-    // first Decent-family scale found. Toast surfaces the fallback to the
-    // user. Cleared on the next successful scale connect.
+    // a successful connect, kick off a BLE scan that auto-connects to a saved
+    // Decent-family scale. Cleared on the next successful scale connect.
     void beginWifiFallbackToBleScan();
     // Abort a foreground scale direct-connect that hasn't completed, tearing
     // down the parked QLowEnergyController so it can't hold the Android BLE
@@ -1191,7 +1191,7 @@ private:
     // a USB transport arriving. A chain that ends without stopScan() (the agent
     // finishing with nothing to restart it) holds its tally until the next
     // burst — accepted rather than papered over with gap-detection machinery,
-    // because the ladder's 30 s pauses are the SAME burst to a reader and
+    // because the ladder's pauses are the SAME burst to a reader and
     // splitting them would report a story that did not happen.
     LogCollapse m_scanCycleLog{LogCollapse::kChangesOnly};
     // Separate instance, not another key on m_scanCycleLog, because its run ends
@@ -1295,6 +1295,9 @@ private:
     // Null until setSettings() is wired (and on platforms/tests that don't
     // wire it — then the classification is in-memory-only, as before D9).
     SettingsHardware* m_settings = nullptr;
+    std::function<QStringList()> m_savedScaleAddresses;
+    bool isSavedScale(const QString& deviceId) const;
+    bool hasSavedBleScale() const;
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;

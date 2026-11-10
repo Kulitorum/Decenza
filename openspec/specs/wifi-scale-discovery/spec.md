@@ -2,7 +2,9 @@
 
 ## Purpose
 Covers on-demand mDNS discovery of the Half Decent Scale (HDS) over WiFi alongside the existing BLE scan, the WebSocket-based `DecentScaleWifi` driver that implements the `ScaleDevice` interface (weight, tare, timer, LED, status/battery/charging, button and power events), the `"wifi:<hostname>"` saved-address scheme that lets the same physical scale be selected on either transport, and the cached-IP-with-hostname-fallback and app-owned reconnect behavior that keep the WiFi connection resilient.
+
 ## Requirements
+
 ### Requirement: On-demand WiFi scale discovery
 
 The app SHALL probe for Half Decent Scales (HDS) on the local network only when the user starts a device scan from the Connections page, or for the reconnect browse of a saved WiFi primary. A user-initiated probe SHALL always run both a DNS-SD browse for `_decentscale._tcp.local` and an A-record fallback for `hds.local`, `hds-2.local` and `hds-3.local`. With no WiFi scale saved as primary, no WiFi discovery SHALL run outside a user scan.
@@ -66,14 +68,12 @@ The app SHALL probe for Half Decent Scales (HDS) on the local network only when 
 ### Requirement: Scan covers every transport for the whole cycle
 A single "Scan for Devices" press SHALL search Bluetooth, WiFi and USB concurrently. The A-record fallback SHALL complete within about 5 seconds. The browse SHALL run for the whole scan cycle, delivering rows incrementally, and SHALL end only when its window elapses, a new scan supersedes it, or teardown occurs.
 
-
 #### Scenario: Auto-connect does not end the browse
 - **WHEN** the saved scale is rediscovered and auto-connected during a scan
 - **THEN** the browse continues until its window elapses
 
 ### Requirement: Scanning indicator spans all transports
 The scanning indicator SHALL remain active until all three transports have finished. The reconnect browse SHALL NOT contribute to that indicator.
-
 
 #### Scenario: Reconnect browse leaves the indicator off
 - **WHEN** a reconnect browse runs while no user scan is active
@@ -203,7 +203,7 @@ The WiFi driver SHALL NOT schedule reconnect attempts internally. On WebSocket d
 
 #### Scenario: Connect attempt fails transiently before connecting
 - **WHEN** a connect attempt fails with a transient socket-layer error before the WebSocket upgrade completes
-- **THEN** the driver ends the attempt without an internal retry, and the app-level `scaleReconnectTimer` schedules the next attempt on its existing backoff schedule
+- **THEN** the driver ends the attempt without an internal retry, and the app-level `scaleReconnectTimer` schedules the next attempt
 
 #### Scenario: Retry re-resolves the hostname
 - **WHEN** the app-level reconnect loop retries a saved `.local` WiFi scale hostname after a transient failure
@@ -219,7 +219,7 @@ The WiFi driver SHALL NOT schedule reconnect attempts internally. On WebSocket d
 
 #### Scenario: Reconnect also fails
 - **WHEN** the app-level reconnect re-fires `connectToHost()` and that attempt also disconnects
-- **THEN** the driver again propagates `setConnected(false)`; the app-level retry loop applies its exponential-backoff schedule (5 s / 30 s / 60 s) before the next attempt
+- **THEN** the driver again propagates `setConnected(false)`; the app-level retry loop starts the next attempt immediately when no operation is running, and otherwise applies its backoff schedule (5 s / 30 s / 60 s)
 
 ### Requirement: Weight pipeline auto-adapts to WiFi cadence
 
@@ -370,7 +370,6 @@ The WiFi driver SHALL cache the resolved peer IP after each successful connectio
 ### Requirement: Wrong-host failure evicts the cached IP
 A wrong-host failure, where a peer answered but is not an HDS (a refused connection, a WebSocket handshake rejected, or an upgrade completed with no recognizable HDS frame), SHALL evict the cached IP and fall back to the hostname.
 
-
 #### Scenario: Refused connection evicts the cache
 - **WHEN** the cached IP refuses the TCP connection
 - **THEN** the driver evicts the cached IP and falls back to the hostname
@@ -378,14 +377,12 @@ A wrong-host failure, where a peer answered but is not an HDS (a refused connect
 ### Requirement: Transient failure preserves the cached IP
 A transient transport failure, where nothing answered (host or network unreachable, or connect timeout before the upgrade), SHALL preserve the cached IP, SHALL NOT consume the hostname fallback, and SHALL end the attempt so the app-level reconnect loop owns the retry.
 
-
 #### Scenario: Unreachable cached IP keeps the cache
 - **WHEN** the cached IP is unreachable before the WebSocket upgrade
 - **THEN** the cache is kept, the hostname fallback is not used, and the reconnect loop retries
 
 ### Requirement: Silent recognition keeps the cached IP
 A recognition timeout where the WebSocket upgrade never completed SHALL be treated as a transient failure, not a wrong-host failure: the cached IP SHALL be kept, and the driver SHALL still fall back to the hostname within that connect cycle.
-
 
 #### Scenario: Silent cached IP still falls back
 - **WHEN** the cached IP never completes the upgrade and never answers recognition
@@ -617,14 +614,12 @@ When a WiFi scale is the saved primary and a reconnect attempt fails to connect,
 ### Requirement: Reconnect browse is isolated from user scans
 The reconnect browse SHALL NOT cancel, supersede or shorten a user-initiated scan browse, SHALL NOT set the scanning indicator or change the "Scan for Devices" control, and SHALL NOT clear the discovered-devices list. It SHALL use a deadline shorter than the user-scan browse.
 
-
 #### Scenario: Reconnect browse uses a shorter deadline
 - **WHEN** a reconnect browse starts
 - **THEN** its deadline is shorter than the user-scan browse deadline
 
 ### Requirement: A connect to the saved primary disarms the reconnect browse
 A connect to the saved WiFi primary SHALL disarm the reconnect browse, whatever route produced it, including a connect the browse itself produced while a WiFi-to-BLE fallback scan is still running.
-
 
 #### Scenario: Fallback in flight does not keep the browse armed
 - **WHEN** the browse connects the saved primary while the fallback scan is still running
@@ -633,14 +628,12 @@ A connect to the saved WiFi primary SHALL disarm the reconnect browse, whatever 
 ### Requirement: A matching browse hit is a no-op while connected
 While the saved WiFi primary is the connected scale, a browse or probe hit matching it SHALL be a no-op: no switch-back request and no log line asserting that a backup scale is connected.
 
-
 #### Scenario: Switch-back is not requested
 - **WHEN** a browse hit matches the connected saved primary
 - **THEN** no switch-back request is made
 
 ### Requirement: A browsed address does not outlive its request
 An address obtained from a browse SHALL NOT outlive the request it was obtained for. A later reachability check SHALL discard a previously browsed address rather than let it outrank the address that check verified.
-
 
 #### Scenario: Later check discards a stale browse address
 - **WHEN** a declined switch-back left a browsed address behind and a later reachability check runs
@@ -677,7 +670,6 @@ On Android the app SHALL run a second DNS-SD browse for `_decentscale._tcp` thro
 ### Requirement: NsdManager results need an exposable hostname
 A resolved instance whose SRV target this Android version does not expose SHALL be dropped, with a log line naming the device's API level, and SHALL NOT be reported under a synthesized name, because the hostname is the identity key of the saved "wifi:<hostname>" primary.
 
-
 #### Scenario: Unexposed hostname is dropped loudly
 - **WHEN** an NsdManager instance resolves without an exposable hostname
 - **THEN** the instance is dropped and a log line names the API level
@@ -685,14 +677,12 @@ A resolved instance whose SRV target this Android version does not expose SHALL 
 ### Requirement: NsdManager browses are keyed per instance
 The NsdManager browse SHALL be keyed per browse instance, SHALL deliver results incrementally rather than in one batch at its deadline, and SHALL stop within one poll interval of cancellation. Concurrent WifiScaleDiscovery instances SHALL NOT cancel each other's NsdManager browse.
 
-
 #### Scenario: Results arrive incrementally
 - **WHEN** an NsdManager browse resolves a scale before its deadline
 - **THEN** the result is delivered at once rather than at the deadline
 
 ### Requirement: The NsdManager path is provisional
 The NsdManager path's value for finding a scale this device has never contacted is unproven. This requirement SHALL be revisited, including removal, once a fair test of that case exists.
-
 
 #### Scenario: Fair test decides the path
 - **WHEN** a fair test is run with the app's own socket not bound to port 5353
@@ -721,14 +711,12 @@ On Android the app SHALL hold a `WifiManager.MulticastLock` for the duration of 
 ### Requirement: Multicast lock failure does not block discovery
 Failure to take the multicast lock SHALL NOT prevent discovery from running. It SHALL be logged once rather than per attempt, since discovery repeats on a reconnect ladder.
 
-
 #### Scenario: Lock failure is logged once
 - **WHEN** the multicast lock cannot be taken on repeated discovery attempts
 - **THEN** the failure is logged once and discovery still runs
 
 ### Requirement: The multicast lock is scoped to discovery
 The lock SHALL be scoped to the operations that need it, not taken once at startup, because it disables a hardware filter and wakes the CPU for LAN-wide multicast traffic.
-
 
 #### Scenario: No lock when idle
 - **WHEN** no mDNS lookup or browse is running
@@ -757,7 +745,6 @@ The app's own mDNS queries SHALL be sent from a socket bound to port 5353, falli
 ### Requirement: The Android port split is asserted by a test
 The Android exclusion SHALL be asserted by a test rather than left to a comment. The query-port policy SHALL be forceable to either extreme from the diagnostic surface so the question can be re-checked.
 
-
 #### Scenario: Test pins the Android split
 - **WHEN** the test suite runs
 - **THEN** it fails if the Android build binds port 5353 by default
@@ -785,7 +772,6 @@ On macOS the default browse backend SHALL be the mjansson implementation, not Bo
 ### Requirement: Bonjour is exercised before iOS release
 A Bonjour browse SHALL be run on macOS before an iOS release, because macOS is where a Bonjour regression surfaces before users see it.
 
-
 #### Scenario: iOS release preparation
 - **WHEN** an iOS release is being prepared
 - **THEN** a Bonjour browse is run on macOS first
@@ -793,7 +779,38 @@ A Bonjour browse SHALL be run on macOS before an iOS release, because macOS is w
 ### Requirement: The hostname resolver default is independent
 The hostname-resolver default SHALL NOT follow the browse backend default: the mjansson resolver is Android-only and QHostInfo is what iOS ships.
 
-
 #### Scenario: Browse default change leaves the resolver
 - **WHEN** the macOS browse backend default is changed
 - **THEN** the hostname-resolver default does not change
+
+### Requirement: A missing saved scale is retried without slowing down
+
+While a saved scale is disconnected the app SHALL keep retrying for as long as the screensaver is off. Outside an operation, with Bluetooth available and the app not suspended, each failed attempt SHALL start the next one immediately. During an operation the 5 s / 30 s / 60 s schedule SHALL apply. The schedule SHALL NOT slow beyond 60 s. Each change of cadence SHALL be logged at INFO.
+
+#### Scenario: Scale switched on while the machine is idle
+- **WHEN** the saved scale has been off for several minutes with the machine idle and is switched on
+- **THEN** it is connected within one attempt, with no wait between attempts
+
+#### Scenario: Scale missing during a shot
+- **WHEN** an attempt fails while a shot is running
+- **THEN** the next attempt waits out the backoff schedule
+
+#### Scenario: Screensaver
+- **WHEN** the screensaver is showing
+- **THEN** no attempt is made, and closing it restarts the schedule
+
+### Requirement: WiFi-to-Bluetooth fallback takes only a saved scale
+
+When the saved WiFi scale cannot be reached, the app SHALL fall back only to a Bluetooth scale that is in the saved-scales list. A scale never connected, or forgotten, SHALL NOT be connected or saved, and the log SHALL say at INFO that it was seen and declined. With no Bluetooth scale saved, the fallback scan SHALL NOT run.
+
+#### Scenario: Forgotten scale in range
+- **WHEN** the WiFi scale is unreachable and a Decent Bluetooth scale the user forgot is advertising
+- **THEN** it is not connected and does not reappear in the saved list
+
+#### Scenario: Saved Bluetooth backup
+- **WHEN** the WiFi scale is unreachable and a saved Decent Bluetooth scale is advertising
+- **THEN** it is connected and the WiFi scale stays the primary
+
+#### Scenario: Only the WiFi scale is saved
+- **WHEN** the WiFi scale is unreachable and no Bluetooth scale is saved
+- **THEN** no fallback scan runs and the next WiFi attempt follows directly

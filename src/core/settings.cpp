@@ -327,6 +327,14 @@ QVariantList Settings::knownScales() const {
     return result;
 }
 
+QStringList Settings::knownScaleAddresses() const {
+    QStringList addresses;
+    const QVariantList scales = knownScales();
+    for (const QVariant& scale : scales)
+        addresses << scale.toMap().value(QStringLiteral("address")).toString();
+    return addresses;
+}
+
 void Settings::addKnownScale(const QString& address, const QString& type, const QString& name) {
     if (address.isEmpty()) return;
 

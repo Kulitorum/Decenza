@@ -1229,7 +1229,7 @@ void DecentScaleWifi::onError() {
                  m_targetSource.isEmpty() ? QStringLiteral("source unrecorded") : m_targetSource,
                  localIp.isEmpty() ? QStringLiteral("<unbound>") : localIp);
     // Through the shared budget: this is THE line a dead reconnect ladder repeats
-    // forever, once per 60 s cycle. The first few say what is wrong; the rest say
+    // forever, once per retry cycle. The first few say what is wrong; the rest say
     // only "still wrong", which the ladder's own lines already establish.
     if (m_repeatFailureSink)
         m_repeatFailureSink(errorLine, /*warn=*/true);
