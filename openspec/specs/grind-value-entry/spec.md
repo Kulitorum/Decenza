@@ -274,56 +274,6 @@ Observed grind settings SHALL be offered as picker candidates via the observed-h
 - **WHEN** two surfaces own different grinders
 - **THEN** their suggestions may differ, and that difference is correct
 
-### Requirement: Web grind and RPM inputs SHALL offer the same stepped candidates
-The ShotServer shot and recipe edit forms SHALL offer stepped candidate values through a native `<input list>` and `<datalist>` pair, not a free-standing text input. Free text SHALL remain accepted, so values outside the candidate list, including non-numeric notations, SHALL still be enterable and saved. The markup SHALL be produced by a shared helper, not inlined per page.
-
-#### Scenario: RPM field hidden for a non-RPM grinder on the web
-- **WHEN** a web recipe uses a grinder without RPM support
-- **THEN** its RPM control is hidden
-
-#### Scenario: Candidates offered on the web
-
-- **GIVEN** a grind value with a derivable step
-- **WHEN** the shot or recipe edit form is rendered
-- **THEN** the grind input SHALL offer the stepped candidates as a `<datalist>`
-
-#### Scenario: Web candidates resolve against the record's grinder
-
-- **GIVEN** a shot recorded on a different grinder than the currently active one
-- **WHEN** its web edit form is rendered
-- **THEN** the offered candidates SHALL derive from the shot's grinder, not the active one
-
-#### Scenario: Free text still accepted on the web
-
-- **WHEN** the user types a grind value absent from the candidate list
-- **THEN** the form SHALL accept and save it unchanged
-
-#### Scenario: Shared helper, not per-page markup
-
-- **WHEN** the two forms render their grind inputs
-- **THEN** the markup SHALL come from one shared helper in the common ShotServer layer
-
-### Requirement: Candidates come from a dedicated endpoint
-Candidates SHALL be served by a dedicated `GET /api/grind-candidates` endpoint taking the grinder identity as parameters, not embedded per record in list payloads. The page SHALL re-request when the selected equipment changes, so candidates follow the grinder the value will be ground on.
-
-#### Scenario: Changing equipment refreshes candidates
-- **WHEN** the user changes the selected equipment in a recipe dialog
-- **THEN** the page re-requests candidates for the new grinder
-
-### Requirement: The web does not reproduce the wheel
-The web surfaces SHALL NOT reproduce the wheel. The wheel is a touch-first affordance, and the web forms are used with a keyboard, where a text input with candidates is the better control.
-
-#### Scenario: Web grind input is a text input with candidates
-- **WHEN** a grind value is edited on the web
-- **THEN** a text input with candidates is used instead of a wheel
-
-### Requirement: The web RPM input follows the capability gate
-The web RPM input SHALL follow the same capability gate as the app forms, sourced from `grinderRpmCapable()`. The candidates endpoint SHALL fill RPM candidates only when that gate holds for the record's grinder. An empty RPM candidate list SHALL hide the RPM field's row, while the input stays in the DOM, loaded and saved, so a stale stored RPM is never silently cleared.
-
-#### Scenario: Stale stored RPM survives a hidden row
-- **WHEN** the RPM row is hidden because the grinder is not RPM-capable
-- **THEN** the stored RPM value is still loaded and saved
-
 ### Requirement: The picker's text mode SHALL be accessible and usable on touch devices
 
 The header toggle SHALL expose a Button role, an accessible name reflecting its
@@ -434,10 +384,3 @@ Blank SHALL remain a valid recipe or shot grind value and SHALL NOT inherit a ba
 #### Scenario: Explicitly empty recipe grind stays empty
 - **WHEN** a recipe is saved with an explicitly empty grind
 - **THEN** its grind stays empty
-
-### Requirement: Web candidates use the edited record grinder
-Candidates SHALL be computed server-side by the existing C++ stepping machinery, resolved against each record's own grinder (the shot's and the recipe's selected package), never the active one. The stepping logic SHALL NOT be reimplemented in JavaScript.
-
-#### Scenario: Candidates for a recipe follow its equipment
-- **WHEN** a recipe's candidates are requested
-- **THEN** they are computed against its selected package

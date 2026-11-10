@@ -49,8 +49,7 @@ currently being edited.
 ### Requirement: Enforcement covers non-form creation paths
 
 The system SHALL enforce the active-name-uniqueness rule at the storage layer for each
-entity, so that programmatic creation and rename paths (MCP tools and ShotServer REST
-endpoints) cannot introduce a duplicate active name. On a collision the storage
+entity, so that programmatic creation and rename paths (MCP tools) cannot introduce a duplicate active name. On a collision the storage
 operation SHALL fail and report the failure to its caller; it SHALL NOT auto-rename
 the item and SHALL NOT silently succeed.
 
@@ -62,15 +61,15 @@ the item and SHALL NOT silently succeed.
 
 ### Requirement: The app, MCP, and ShotServer behave identically
 
-The in-app forms, the MCP tools, and the ShotServer REST endpoints SHALL apply the
+The in-app forms and the MCP tools SHALL apply the
 same active-name-uniqueness rule with the same scope and the same normalization, and
 SHALL each report a name collision as an explicit, identifiable name conflict rather
 than a generic failure. This SHALL hold for renames as well as creations.
 
 #### Scenario: The same collision is reported the same way on every surface
-- **WHEN** the same duplicate name is submitted through the in-app form, an MCP tool,
-  and the ShotServer REST endpoint — whether creating or renaming
-- **THEN** all three reject the write, none creates or renames anything, and each
+- **WHEN** the same duplicate name is submitted through the in-app form or an MCP tool,
+  whether creating or renaming
+- **THEN** both reject the write, neither creates or renames anything, and each
   reports a conflict that identifies the name as the cause
 
 ### Requirement: Only a name change can collide

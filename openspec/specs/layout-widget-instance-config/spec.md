@@ -6,7 +6,7 @@ Defines how individual layout widget instances hold their own persistent, per-in
 ## Requirements
 
 ### Requirement: Per-instance widget configuration in the editors
-The layout editors SHALL allow a configurable widget instance to be opened for editing and SHALL persist per-instance settings using the existing item-property mechanism (`setItemProperty` / `getItemProperties` and the `/api/layout/item` endpoints). Two instances of the same widget type SHALL be able to hold different settings.
+The layout editors SHALL allow a configurable widget instance to be opened for editing and SHALL persist per-instance settings using the existing item-property mechanism (through the shared layout service). Two instances of the same widget type SHALL be able to hold different settings.
 
 #### Scenario: Visible affordance opens the instance editor in-app
 

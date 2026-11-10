@@ -207,18 +207,6 @@ updated status.
 - **WHEN** the user marks the shot as the fine anchor
 - **THEN** the edit is saved, and the anchor eligibility uses the saved setting
 
-### Requirement: ShotServer SHALL mirror the calibration section and mark actions
-
-The ShotServer `/equipment` page SHALL show the same Grind calibration section on each
-package card, with clear actions, and the web shot page SHALL offer the same mark
-actions with the same refusal reasons. Both SHALL use the same calibration
-computation and the same mark validation as the app.
-
-#### Scenario: Mark from the web shot page
-
-- **WHEN** the user marks a shot as the coarse anchor from the web shot page
-- **THEN** the package's coarse anchor is set exactly as marking in the app would
-
 ### Requirement: The calibration section SHALL link the original UGS guide
 
 The calibration section SHALL offer a button that opens the original Universal

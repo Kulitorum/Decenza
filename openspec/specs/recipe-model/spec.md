@@ -269,7 +269,7 @@ Portafilter-tea recipes SHALL store temperature in `temp_offset_c` with the same
 - **THEN** it targets 80°, the same as the absolute the user entered, with no tea-specific branch
 
 ### Requirement: Recipe surfaces expose the offset
-The MCP recipe tools and the ShotServer recipe endpoints, including the web editor, SHALL expose the temperature as `tempOffsetC`, a signed °C delta present only when non-zero on read, and SHALL accept it as the only temperature field. The legacy `temperatureOverrideC` SHALL NOT appear in responses. A create or update carrying it SHALL be rejected with an error naming `tempOffsetC` and its delta semantics, never silently dropped.
+The MCP recipe tools and shared native/browser editor SHALL expose the temperature as `tempOffsetC`, a signed °C delta present only when non-zero on read, and SHALL accept it as the only temperature field. The legacy `temperatureOverrideC` SHALL NOT appear in responses. A create or update carrying it SHALL be rejected with an error naming `tempOffsetC` and its delta semantics, never silently dropped.
 
 #### Scenario: MCP reads a recipe with an offset
 - **WHEN** an MCP client fetches a recipe holding a −3° offset
@@ -280,11 +280,11 @@ The MCP recipe tools and the ShotServer recipe endpoints, including the web edit
 - **THEN** the stored recipe holds offset 2 and re-reading it returns `tempOffsetC: 2`
 
 #### Scenario: Legacy field is rejected loudly
-- **WHEN** an MCP or web client sends `temperatureOverrideC` on recipe create or update
+- **WHEN** an MCP client sends `temperatureOverrideC` on recipe create or update
 - **THEN** the request fails with an error naming `tempOffsetC` and its signed-delta semantics, and no field is written
 
 ### Requirement: Water amount specifications round-trip across recipe surfaces
-Recipe storage, native/browser editing, MCP and HTTP recipe JSON SHALL preserve the fixed-or-ratio discriminator and the ratio value. Existing blocks without an amount discriminator SHALL retain fixed semantics. A name-only legacy block SHALL continue resolving its fixed settings from the named preset. Saving an unrelated field SHALL NOT flatten or discard a water ratio.
+Recipe storage, native/browser editing and MCP SHALL preserve the fixed-or-ratio discriminator and the ratio value. Existing blocks without an amount discriminator SHALL retain fixed semantics. A name-only legacy block SHALL continue resolving its fixed settings from the named preset. Saving an unrelated field SHALL NOT flatten or discard a water ratio.
 
 #### Scenario: Existing fixed-volume recipe
 - **WHEN** a legacy hot-water block stores 150 ml in volume mode and no amount discriminator
@@ -295,7 +295,7 @@ Recipe storage, native/browser editing, MCP and HTTP recipe JSON SHALL preserve 
 - **THEN** the returned hot-water block retains ratio mode and 2.7, with no fixed amount treated as authoritative
 
 #### Scenario: Edit an unrelated field through an older form
-- **WHEN** the retained legacy web form changes the name of a recipe carrying ratio water
+- **WHEN** the shared editor changes only the name of a recipe carrying ratio water
 - **THEN** the saved recipe retains its ratio amount specification
 
 ### Requirement: Water ratios are validated consistently
