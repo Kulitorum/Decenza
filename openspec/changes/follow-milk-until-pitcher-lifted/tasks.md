@@ -12,6 +12,7 @@
 - [x] 1.3d Shared `StatusToast`: sits above the bottom bar, uses the body font, and takes the selected-pill colours; error toasts keep red on neutral. Seen on Home by Jeff with a milk capture.
 - [x] 1.3e Replace the five hand-drawn toasts (profile picker, library panel, Steam page, Recipes page, translation errors) with `StatusToast`; `show(text, isError)` styles each showing. The Brew dialog's recipe error is an inline banner and stays.
 - [x] 1.3f Codex review: the lift is judged from the raw reading against the captured load, so a tare or dropout between capture and lift cannot leave the request open for a cup; the capture-sound switch sends one write at a time and reports a refusal.
+- [x] 1.3g Codex review: after a tare or dropout with the captured pitcher on, the capture stands and nothing more is weighed until the lift (the detector's zero is then the loaded pitcher).
 - [ ] 1.5 Device check, rides the next beta: pour with the pitcher on the scale, pause, pour more, lift. Verify: two captures, the second weight is the one steamed, and the message shows bottom-centre clear of the bars.
 
 ## Workflow follow-up

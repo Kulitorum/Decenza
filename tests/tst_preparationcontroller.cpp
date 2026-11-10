@@ -360,6 +360,13 @@ private slots:
         f.advance(1000);
         QVERIFY(f.preparation.milkAttemptOpen());
 
+        // A top-up now would be weighed from the pitcher-on zero: 120 g read as 70 g.
+        f.setWeight(120.0);
+        f.advance(2500);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+        f.setWeight(0.0);
+
         f.setWeight(-150.0); // lifted
         QVERIFY(!f.preparation.milkAttemptOpen());
         f.advance(1000);

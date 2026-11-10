@@ -269,6 +269,7 @@ void PreparationController::closeMilkAttempt()
     m_milkOwners.clear();
     m_snapshot.milkAttemptOpen = false;
     m_offerMilkG.reset();
+    m_offerBaselineLost = false;
 }
 
 bool PreparationController::setMilkTimeLocked(bool locked)
@@ -384,6 +385,16 @@ void PreparationController::refreshPass(bool resetDetectors)
         milkResult = m_milkCapture.update(0.0, milkCupWeight, Arming::Off, nowMs);
     }
 
+    // A reset with the captured pitcher still on makes the detector take it for the
+    // empty scale, so a later top-up would be weighed as the added milk less the
+    // pitcher. The capture stands; nothing more is weighed until the lift.
+    if (m_offerMilkG && !m_offerBaselineLost
+        && (resetDetectors || milkArming == Arming::Off || !milkResult.valid)) {
+        m_offerBaselineLost = true;
+        DIAG_DEBUG(STEAM, "PreparationController")
+            << QStringLiteral("Milk top-ups off until the pitcher is lifted: scale reset, %1 g stands")
+                   .arg(formatGrams(*m_offerMilkG));
+    }
     logMilkTransitions(milkResult, milkArming, milkGateReason, rawWeight, milkCupWeight);
     const bool wasMilkLoadPresent = m_snapshot.milk.loadPresent;
     if (milkResult.baselineSettled)
@@ -503,6 +514,7 @@ void PreparationController::onPitcherChanged()
     // A captured net is the old pitcher's. An open attempt stays open, now waiting
     // for the new pitcher's sample.
     m_offerMilkG.reset();
+    m_offerBaselineLost = false;
     m_dropMilkCapture = true;
     m_snapshot.sessionMeasuredMilkG = 0.0;
     m_snapshot.steamTimeoutScaled = false;
@@ -842,6 +854,8 @@ QString PreparationController::milkSampleDiagnostics(const StableWeightCapture::
 void PreparationController::handleMilkResult(const StableWeightCapture::Result& result,
                                              double rawWeight)
 {
+    if (m_offerBaselineLost)
+        return;
     if (result.rejectedGrams) {
         // The event is raised for the current raw sample; retain that exact value
         // to match MilkCapture's rejected-load hold tolerance.
