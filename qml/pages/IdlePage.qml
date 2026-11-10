@@ -645,7 +645,7 @@ T.Page {
     // The host owns milk capture and steam-time learning. This page offers a sample
     // when the user opens the Steam row and shows the confirmation.
     // Window-level, so it sits where the app's other toasts do.
-    StatusToast { id: milkCaptureToast; parent: Overlay.overlay; durationMs: 3500 }
+    StatusToast { id: milkCaptureToast; parent: idlePage.Overlay.overlay; durationMs: 3500 }
     MilkCapture {
         id: idleMilkCapture
         // Toast only while this page is the active page.

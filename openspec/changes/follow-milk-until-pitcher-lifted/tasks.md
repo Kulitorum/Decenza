@@ -9,6 +9,7 @@
 - [x] 1.4 Build and run the full suite through Qt Creator (ask first). Verify: `succeeded: true`, `QML diagnostics gate passed`, no failures.
 - [x] 1.3b Home's milk-captured message uses the shared `StatusToast` at window level instead of a banner pinned under the top bar.
 - [x] 1.3c Steam page: a "Play a sound when a weight is captured" switch under the weight-timed toggle, writing the Brew dialog bell's preference.
+- [x] 1.3d Shared `StatusToast`: sits above the bottom bar, uses the body font, and takes the selected-pill colours; error toasts keep red on neutral. Seen on Home by Jeff with a milk capture.
 - [ ] 1.5 Device check, rides the next beta: pour with the pitcher on the scale, pause, pour more, lift. Verify: two captures, the second weight is the one steamed, and the message shows bottom-centre clear of the bars.
 
 ## Workflow follow-up
