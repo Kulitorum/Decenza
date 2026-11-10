@@ -1962,10 +1962,24 @@ T.Page {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("steam.weightTimed.captureSound", "Play a sound when a weight is captured")
                         accessibleName: text
-                        enabled: RecipeContext.ready
+                        // One write at a time: a second sent on the same revision is refused as stale.
+                        property string pendingId: ""
+                        enabled: RecipeContext.ready && pendingId === ""
                         checked: RecipeContext.preferences.doseCaptureSoundEnabled === true
+                        Connections {
+                            target: RecipeContext
+                            function onPreferenceCompleted(requestId, name, success, preferences, reason) {
+                                if (requestId !== captureSoundSwitch.pendingId)
+                                    return
+                                captureSoundSwitch.pendingId = ""
+                                if (!success)
+                                    steamPage.showPitcherToast(TranslationManager.translate(
+                                        "steam.weightTimed.captureSoundFailed", "The capture sound setting was not saved."), true)
+                            }
+                        }
                         onToggled: {
-                            RecipeContext.setPreference(RecipeContext.newRequestId(), "doseCaptureSoundEnabled",
+                            pendingId = RecipeContext.newRequestId()
+                            RecipeContext.setPreference(pendingId, "doseCaptureSoundEnabled",
                                                         checked, RecipeContext.revision)
                             // The toggle replaced the binding; the host's answer sets the value.
                             checked = Qt.binding(function() {

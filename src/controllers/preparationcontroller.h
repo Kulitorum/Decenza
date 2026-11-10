@@ -139,5 +139,7 @@ private:
     bool m_milkRemovalPending = false;
     bool m_milkAwaitingEmpty = false;
     std::optional<double> m_offerMilkG; // what the open offer has captured
+    double m_offerRefRaw = 0.0;         // scale reading with that load on
+    double m_offerGrossG = 0.0;         // pitcher plus milk
     bool m_dropMilkCapture = false;
 };

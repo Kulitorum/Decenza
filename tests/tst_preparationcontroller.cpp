@@ -348,6 +348,26 @@ private slots:
         QVERIFY(!f.preparation.milk()->active());
     }
 
+    // A tare resets the detector with the pitcher still on, so the detector never sees
+    // the lift; the cup set down afterwards must still not be taken for milk.
+    void liftAfterATareStillEndsTheOffer()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.captureMilk();
+        emit f.machine.tareCompleted();
+        f.setWeight(0.0); // tared with the pitcher on
+        f.advance(1000);
+        QVERIFY(f.preparation.milkAttemptOpen());
+
+        f.setWeight(-150.0); // lifted
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        f.advance(1000);
+        f.setWeight(0.0);
+        f.advance(5000);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+    }
+
     // The host holds one attempt for every surface and client that offered it.
     void milkOfferIsHeldPerOwnerAndReleasedWithItsClient()
     {

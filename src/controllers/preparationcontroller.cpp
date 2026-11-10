@@ -174,6 +174,9 @@ void PreparationController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
             m_lastMilkSample.reset();
             m_milkRemovalPending = false;
             m_milkAwaitingEmpty = false;
+            // Another scale's readings say nothing about the captured load.
+            if (m_offerMilkG)
+                closeMilkAttempt();
             DIAG_DEBUG(STEAM, "PreparationController")
                 << "Scale target changed — capture reset, waiting for its first sample";
             refresh(true);
@@ -364,8 +367,6 @@ void PreparationController::refreshPass(bool resetDetectors)
         m_dropMilkCapture = false;
     }
     if (resetDetectors) {
-        // The pitcher was not lifted, so the offer stays; what it weighed is void.
-        m_offerMilkG.reset();
         // Disarm first so a tare/device swap cannot emit a capture from the old
         // baseline before the new input starts its baseline dwell.
         m_beanCapture.update(rawWeight, beanCupWeight, Arming::Off, nowMs);
@@ -390,9 +391,10 @@ void PreparationController::refreshPass(bool resetDetectors)
     if (m_milkAwaitingEmpty && wasMilkLoadPresent && !milkResult.loadPresent)
         m_milkRemovalPending = true;
     // After a capture, the load leaving ends the offer, so a cup set down next is
-    // not taken for milk. A tare or a scale dropout is not a lift (#2058).
-    if (m_offerMilkG && !resetDetectors && milkArming != Arming::Off && validWeight
-        && wasMilkLoadPresent && !milkResult.loadPresent) {
+    // not taken for milk (#2058). Judged from the raw reading, not the detector: a
+    // tare or a scale dropout resets the detector with the pitcher still on, and it
+    // would then never see the lift.
+    if (m_offerMilkG && scaleUsable && rawWeight < m_offerRefRaw - m_offerGrossG / 2.0) {
         DIAG_INFO(STEAM, "PreparationController")
             << QStringLiteral("Milk sample ended: pitcher lifted, %1 g stands")
                    .arg(formatGrams(*m_offerMilkG));
@@ -486,6 +488,7 @@ void PreparationController::onTareCompleted()
 {
     DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — capture reset";
     ++m_tareSequence;
+    m_offerRefRaw = 0.0; // the captured load now reads zero
     m_milkSamples.clear();
     m_lastMilkSample.reset();
     m_milkRemovalPending = false;
@@ -864,6 +867,8 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
     QStringList owners(m_milkOwners.cbegin(), m_milkOwners.cend());
     owners.sort();
     m_offerMilkG = grams;
+    m_offerRefRaw = rawWeight;
+    m_offerGrossG = rawWeight - result.virtualZero;
     if (m_snapshot.milkTimeLocked) {
         seconds = m_brew->scaledSteamTime(m_brew->selectedSteamPitcher(), grams);
         if (seconds > 0) {
