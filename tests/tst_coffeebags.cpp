@@ -1491,7 +1491,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(initAndClose(path, storage));
         withRawDb(path, "m52_check", [&](QSqlDatabase& db) {
-            QCOMPARE(schemaVersion(db), 52);
+            QCOMPARE(schemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
             for (const char* column : {"grinder_setting", "equipment_id", "rpm"})
                 QVERIFY2(!hasColumn(db, "coffee_bags", column), column);
             const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
@@ -1538,7 +1538,7 @@ private slots:
             QVERIFY(storage.bagGrindNoticePending());
         }
         withRawDb(path, "m52_retried", [&](QSqlDatabase& db) {
-            QCOMPARE(schemaVersion(db), 52);
+            QCOMPARE(schemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
             QVERIFY(!hasColumn(db, "coffee_bags", "rpm"));
         });
     }
@@ -1593,7 +1593,7 @@ private slots:
         QVERIFY(initAndClose(path, storage));
         QVERIFY(!storage.bagGrindNoticePending());
         withRawDb(path, "m52_fresh", [&](QSqlDatabase& db) {
-            QCOMPARE(schemaVersion(db), 52);
+            QCOMPARE(schemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT COUNT(*) FROM equipment_packages"));
             QVERIFY(q.next());

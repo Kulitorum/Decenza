@@ -861,6 +861,52 @@ private slots:
         });
     }
 
+    // Migration 53 (#2185): a milk-free recipe stops naming a pitcher, so
+    // activating it cannot recreate a deleted one. Milk recipes and a
+    // deliberate Heater off are untouched; an absent hasMilk reads as no milk.
+    void v52ToV53ClearsPitcherFromMilkFreeRecipes() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        const QString pitcher = QStringLiteral(
+            "\"pitcherName\":\"Large Jug\",\"durationSec\":40,\"flow\":150,\"temperatureC\":160");
+        const QList<QPair<QString, QString>> recipes = {
+            {"m53-espresso", "{\"hasMilk\":false,\"milkWeightG\":220," + pitcher + "}"},
+            {"m53-latte", "{\"hasMilk\":true,\"milkWeightG\":220," + pitcher + "}"},
+            {"m53-heater-off", "{\"hasMilk\":false,\"heaterOff\":true}"},
+            {"m53-no-flag", "{" + pitcher + "}"},
+        };
+        withRawDb(path, "v53_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (52)"));
+            for (const auto& [name, steam] : recipes) {
+                q.prepare("INSERT INTO recipes (name, profile_title, steam_json) VALUES (?, 'P', ?)");
+                q.addBindValue(name);
+                q.addBindValue(steam);
+                QVERIFY(q.exec());
+            }
+        });
+
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v53_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), ShotHistoryStorage::kCurrentSchemaVersion);
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT name, steam_json FROM recipes WHERE name LIKE 'm53-%'"));
+            // Re-serialised through QJsonObject (sorted keys) so the comparison prints on failure.
+            QHash<QString, QByteArray> steam;
+            while (q.next())
+                steam.insert(q.value(0).toString(), QJsonDocument(QJsonDocument::fromJson(
+                    q.value(1).toString().toUtf8()).object()).toJson(QJsonDocument::Compact));
+            QCOMPARE(steam.value("m53-espresso"), QByteArray(R"({"hasMilk":false})"));
+            QCOMPARE(steam.value("m53-no-flag"), QByteArray("{}"));
+            QCOMPARE(steam.value("m53-heater-off"), QByteArray(R"({"hasMilk":false,"heaterOff":true})"));
+            QCOMPARE(steam.value("m53-latte"), QByteArray(
+                R"({"durationSec":40,"flow":150,"hasMilk":true,"milkWeightG":220,"pitcherName":"Large Jug","temperatureC":160})"));
+        });
+    }
+
     // ==========================================
     // Schema version has exactly one row
     // ==========================================
