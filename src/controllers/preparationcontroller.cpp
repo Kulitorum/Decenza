@@ -411,6 +411,11 @@ void PreparationController::refreshPass(bool resetDetectors)
                    .arg(formatGrams(*m_offerMilkG));
         closeMilkAttempt();
         milkActive = false;
+        // The relock below follows the detector's load, which a reset has cleared.
+        if (!m_snapshot.milkTimeLocked && m_snapshot.mode == QLatin1String("steam") && preparationPhase) {
+            DIAG_DEBUG(STEAM, "PreparationController") << "Manual steam time cleared: pitcher lifted";
+            m_snapshot.milkTimeLocked = true;
+        }
     }
     if (m_milkRemovalPending && milkResult.baselineSettled && !milkResult.loadPresent) {
         DIAG_DEBUG(STEAM, "PreparationController")

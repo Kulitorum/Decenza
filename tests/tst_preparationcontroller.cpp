@@ -367,8 +367,11 @@ private slots:
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
         f.setWeight(0.0);
 
+        // The detector sees no load to lose here, so only the raw lift can clear a +/-5.
+        QVERIFY(f.preparation.setMilkTimeLocked(false));
         f.setWeight(-150.0); // lifted
         QVERIFY(!f.preparation.milkAttemptOpen());
+        QVERIFY(f.preparation.milkTimeLocked());
         f.advance(1000);
         f.setWeight(0.0);
         f.advance(5000);
