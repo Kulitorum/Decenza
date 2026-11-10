@@ -96,6 +96,9 @@ T.Page {
 
     property bool isSteaming: SteamService.state.isSteaming || AppShell.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
+    // Weight timing sets the steam time from weighed milk, so a preset Duration is only the fallback.
+    readonly property bool weightTimingActive: SteamService.state.milkAutoCaptureEnabled
+                                              && SteamService.state.steamSecondsPerGram > 0
     property string pendingNavigationAction: ""
     property string pendingNavigationRequestId: ""
     property string pendingEditorRequestId: ""
@@ -1291,8 +1294,8 @@ T.Page {
                     spacing: Theme.scaled(20)
 
                     Tr {
-                        key: "steam.label.pitcherPreset"
-                        fallback: "Pitcher Preset"
+                        key: "steam.label.presets"
+                        fallback: "Presets"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(24)
                     }
@@ -1579,7 +1582,9 @@ T.Page {
                 ColumnLayout {
                     id: editorColumn
                     enabled: steamPage.editorReady
-                    width: editorFlick.width
+                    // Ends before the scrollbar, which is drawn over the Flickable's right edge. Reserved
+                    // even while the bar is hidden so the controls never shift sideways.
+                    width: editorFlick.width - editorFlick.ScrollBar.vertical.width - Theme.scaled(8)
                     spacing: Theme.scaled(8)
 
                     // Centered placeholder when the selected preset is an "Off" pill —
@@ -1606,11 +1611,23 @@ T.Page {
                         spacing: Theme.scaled(16)
                         visible: !steamPage.currentPitcherDisabled
 
-                        Tr {
-                            key: "steam.label.duration"
-                            fallback: "Duration"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(24)
+                        Column {
+                            spacing: Theme.scaled(4)
+                            Tr {
+                                key: "steam.label.duration"
+                                fallback: "Duration"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(24)
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                // Opacity, not visible: the line stays reserved so toggling never shifts the layout.
+                                opacity: steamPage.weightTimingActive ? 1 : 0
+                                text: TranslationManager.translate("steam.hint.durationFallback", "Used when milk isn't weighed")
+                                color: Theme.textSecondaryColor
+                                font: Theme.labelFont
+                                Accessible.ignored: true
+                            }
                         }
 
                         Item { Layout.fillWidth: true }
@@ -1629,6 +1646,9 @@ T.Page {
                             value: steamPage.getCurrentPitcherDuration()
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
+                                + (steamPage.weightTimingActive
+                                   ? ", " + TranslationManager.translate("steam.hint.durationFallback", "Used when milk isn't weighed")
+                                   : "")
                             KeyNavigation.tab: flowSlider
                             KeyNavigation.backtab: addPitcherButton
                             onValueCommitted: function(newValue) {
@@ -1761,7 +1781,10 @@ T.Page {
                             Text {
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
-                                visible: text.length > 0
+                                // Fixed line height: the "→" below comes from the symbol fallback font, whose line is
+                                // taller than the primary font's, so a natural-height line changed size with the text.
+                                lineHeightMode: Text.FixedHeight
+                                lineHeight: Math.ceil(Theme.labelFont.pixelSize * 1.5)
                                 text: {
                                     // Preview the weight-timed steam at your last measured milk, under
                                     // the current global rate. Tracks preset + global-rate + last-milk
@@ -1773,9 +1796,11 @@ T.Page {
                                     // has no UI left to edit and would freeze on a stale value).
                                     var milk = SteamService.state.lastSteamMilkG
                                     var duration = SteamService.state.lastSteamEffectiveDurationSec
-                                    if (milk > 0 && duration > 0)
+                                    if (steamPage.weightTimingActive && milk > 0 && duration > 0)
                                         return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + milk.toFixed(0) + "g → " + duration + "s"
-                                    return ""
+                                    // A no-break space, not "": an empty Text has no height, and the line must stay
+                                    // so toggling weight timing never moves the controls below.
+                                    return "\u00a0"
                                 }
                                 Accessible.ignored: true
                             }
@@ -2362,13 +2387,14 @@ T.Page {
             spacing: Theme.scaled(15)
 
             Tr {
-                key: "steam.popup.editPitcher"
-                fallback: "Edit Pitcher"
+                id: editPresetTitle
+                key: "steam.popup.editPreset"
+                fallback: "Edit Preset"
                 color: Theme.textColor
                 font: Theme.subtitleFont
             }
 
-            Tr { id: pitcherNamePlaceholder; key: "steam.placeholder.pitcherName"; fallback: "Pitcher name"; visible: false }
+            Tr { id: pitcherNamePlaceholder; key: "steam.placeholder.presetName"; fallback: "Preset name"; visible: false }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -2389,7 +2415,7 @@ T.Page {
                     inputMethodHints: Qt.ImhNoPredictiveText
                     activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("steam.accessible.renamePitcher", "Rename pitcher preset")
+                    Accessible.name: editPresetTitle.text + ", " + pitcherNamePlaceholder.text
                     Accessible.description: text
                     Accessible.focusable: true
                     KeyNavigation.tab: editDeleteButton
@@ -2407,18 +2433,14 @@ T.Page {
                 }
             }
 
-            Tr { id: deleteButtonText; key: "steam.button.delete"; fallback: "Delete"; visible: false }
-            Tr { id: cancelButtonText; key: "steam.button.cancel"; fallback: "Cancel"; visible: false }
-            Tr { id: saveButtonText; key: "steam.button.save"; fallback: "Save"; visible: false }
-
             RowLayout {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
                     id: editDeleteButton
                     enabled: steamPage.editorReady
-                    text: deleteButtonText.text
-                    accessibleName: TranslationManager.translate("steam.deletePitcherPreset", "Delete this pitcher preset")
+                    text: TranslationManager.translate("common.button.delete", "Delete")
+                    accessibleName: TranslationManager.translate("steam.deletePreset", "Delete this preset")
                     destructive: true
                     KeyNavigation.tab: editCancelButton
                     KeyNavigation.backtab: editPitcherNameInput
@@ -2437,8 +2459,8 @@ T.Page {
                 AccessibleButton {
                     id: editCancelButton
                     enabled: steamPage.pendingEditorRequestId.length === 0
-                    text: cancelButtonText.text
-                    accessibleName: TranslationManager.translate("steam.cancelEditingPitcher", "Cancel editing pitcher preset")
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: text
                     KeyNavigation.tab: editSaveButton
                     KeyNavigation.backtab: editDeleteButton
                     onClicked: editPitcherPopup.close()
@@ -2447,8 +2469,8 @@ T.Page {
                 AccessibleButton {
                     id: editSaveButton
                     primary: true
-                    text: saveButtonText.text
-                    accessibleName: TranslationManager.translate("steam.savePitcherChanges", "Save changes to pitcher preset")
+                    text: TranslationManager.translate("common.button.save", "Save")
+                    accessibleName: text
                     // Recipes snapshot the pitcher BY NAME, so a blank name is
                     // one nothing can refer to and a duplicate makes two
                     // pitchers indistinguishable. ignoreIndex is this preset —
@@ -2514,15 +2536,14 @@ T.Page {
             spacing: Theme.scaled(15)
 
             Tr {
-                key: "steam.popup.addPitcherPreset"
-                fallback: "Add Pitcher Preset"
+                id: addPresetTitle
+                key: "steam.popup.addPreset"
+                fallback: "Add Preset"
                 color: Theme.textColor
                 font: Theme.subtitleFont
             }
 
-            Tr { id: addPitcherNamePlaceholder; key: "steam.placeholder.pitcherName"; fallback: "Pitcher name"; visible: false }
-            Tr { id: addCancelButtonText; key: "steam.button.cancel"; fallback: "Cancel"; visible: false }
-            Tr { id: addButtonText; key: "steam.button.add"; fallback: "Add"; visible: false }
+            Tr { id: addPitcherNamePlaceholder; key: "steam.placeholder.presetName"; fallback: "Preset name"; visible: false }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -2543,7 +2564,7 @@ T.Page {
                     inputMethodHints: Qt.ImhNoPredictiveText
                     activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("steam.accessible.newPitcherName", "New pitcher preset name")
+                    Accessible.name: addPresetTitle.text + ", " + addPitcherNamePlaceholder.text
                     Accessible.description: text
                     Accessible.focusable: true
                     KeyNavigation.tab: addCancelPitcherButton
@@ -2572,8 +2593,8 @@ T.Page {
                 AccessibleButton {
                     id: addCancelPitcherButton
                     enabled: steamPage.pendingEditorRequestId.length === 0
-                    text: addCancelButtonText.text
-                    accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: text
                     KeyNavigation.tab: addPitcherConfirmButton
                     KeyNavigation.backtab: newPitcherName
                     onClicked: addPitcherDialog.close()
@@ -2582,8 +2603,8 @@ T.Page {
                 AccessibleButton {
                     id: addPitcherConfirmButton
                     primary: true
-                    text: addButtonText.text
-                    accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
+                    text: TranslationManager.translate("common.button.add", "Add")
+                    accessibleName: text
                     enabled: steamPage.editorReady && newPitcherName.text.trim().length > 0
                         && !SteamService.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: newPitcherName
