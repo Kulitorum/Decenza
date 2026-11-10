@@ -148,6 +148,10 @@ The system SHALL record the actual elapsed steam time, that session's measured m
 - **WHEN** the pitcher the last pour was steamed with is deleted
 - **THEN** "Use last steam" is not available for any pitcher until the next weighed steam
 
+#### Scenario: Two pitchers share a name
+- **WHEN** a weighed steam ends with a pitcher whose name another stored pitcher also has
+- **THEN** no pitcher is recorded with the pour, and "Use last steam" is not available for either
+
 #### Scenario: A recipe is activated after the pour
 - **WHEN** a pour of `250 g → 35 s` was recorded with "Oat" and a recipe with a planned milk weight of 180 g is then activated
 - **THEN** "Use last steam" still shows `250 g → 35 s` and calibrates "Oat" from it

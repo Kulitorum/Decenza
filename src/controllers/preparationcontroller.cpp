@@ -636,8 +636,13 @@ void PreparationController::finishSteamSession()
         m_brew->setLastSteamMilkG(m_snapshot.sessionMeasuredMilkG);
         m_brew->setLastSteamTimeS(m_steamElapsedTracker);
         m_brew->setLastSteamPourMilkG(m_snapshot.sessionMeasuredMilkG);
-        const QString pitcherName = m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher())
-                                        .value(QStringLiteral("name")).toString();
+        const int selected = m_brew->selectedSteamPitcher();
+        QString pitcherName = m_brew->getSteamPitcherPreset(selected)
+                                  .value(QStringLiteral("name")).toString();
+        // Duplicate names from before names had to be unique are left in
+        // storage; a shared name cannot say which pitcher the pour was with.
+        if (m_brew->steamPitcherNameTaken(pitcherName, selected))
+            pitcherName.clear();
         m_brew->setLastSteamPitcherName(pitcherName);
         DIAG_INFO(STEAM, "PreparationController").noquote()
             << QStringLiteral("Steam pour recorded: %1 g milk, %2 s, pitcher=%3")

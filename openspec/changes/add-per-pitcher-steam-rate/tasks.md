@@ -40,7 +40,7 @@ Builds and tests run through the Qt Creator MCP only; ask before each build or t
 
 ## 7. Manual and integration
 
-- [ ] 7.1 Update the steam section of the wiki manual: the rate belongs to the pitcher, make a pitcher per fluid or preference; keep it to a few sentences, and ask Jeff whether to push now or hold for the release
+- [x] 7.1 Update the steam section of the wiki manual: the rate belongs to the pitcher, make a pitcher per fluid or preference; keep it to a few sentences, and ask Jeff whether to push now or hold for the release
 - [x] 7.2 Run the full suite (`mcp__qtcreator__run_tests`, scope `all`) and confirm it is green with the QML diagnostics gate passed
 
 ## Workflow follow-up
