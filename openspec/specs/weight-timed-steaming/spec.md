@@ -67,7 +67,7 @@ The system SHALL record the actual elapsed steam time and that session's measure
 
 ### Requirement: Automatic milk capture before steaming
 
-The system SHALL capture milk only for a sample the user requests, from the review-page milk button or the idle-screen steam pitchers (Steam row or compact Steam popup). The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL collect one sample, confirm it and lock the scaled time. It SHALL end on capture, when its surface closes, or when any operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
+The system SHALL capture milk only for a sample the user requests, from the review milk button or the idle steam pitchers. The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL confirm a settled sample, lock the scaled time, and replace it once the reading moves over 2 g and settles. It SHALL end on a lift after a capture, when its surface closes, or when an operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
 
 #### Scenario: Milk settles and the time locks
 - **WHEN** the user opens the idle pitchers and the pitcher with milk holds steady within tolerance for the dwell
@@ -82,8 +82,20 @@ The system SHALL capture milk only for a sample the user requests, from the revi
 - **THEN** nothing is captured and the steam time is unchanged
 
 #### Scenario: One sample per request
-- **WHEN** milk was captured from the idle pitchers and the user then sets a different load on the scale with the pitchers still showing
+- **WHEN** milk was captured from the idle pitchers, the pitcher is lifted, and the user then sets a different load on the scale with the pitchers still showing
 - **THEN** nothing further is captured until the pitchers are opened again
+
+#### Scenario: Milk added after a capture replaces it
+- **WHEN** milk was captured, and the user pours more into the pitcher on the scale and the reading settles
+- **THEN** the new weight replaces the capture and the steam time is scaled to it
+
+#### Scenario: Tare or scale dropout with the pitcher on
+- **WHEN** milk was captured and the scale tares or disconnects while the pitcher is still on it
+- **THEN** the request stays open, the capture stands, nothing more is weighed, and lifting the pitcher still ends the request
+
+#### Scenario: Top-up after a manual adjustment
+- **WHEN** the user tapped ±5 after a capture and then pours more into the pitcher on the scale
+- **THEN** the new weight is recorded and the adjusted time is kept until the pitcher is lifted
 
 #### Scenario: Steam start ends the request
 - **WHEN** a sample is requested and steam starts from the group head before anything is captured
@@ -314,3 +326,47 @@ Selecting a different pitcher from the idle pitchers SHALL request a new sample.
 #### Scenario: A purge keeps the request
 - **WHEN** a sample is requested from the idle Steam row and the user taps Purge
 - **THEN** the row stays open, and the milk set on the scale after the purge is captured
+
+### Requirement: Preset Duration states its fallback role while weight timing is active
+
+While weight-timed steaming is on, the steam rate is calibrated, and the selected pitcher preset has its heater on, the Steam page's Duration setting SHALL carry a short hint that the value is used when milk is not weighed. The hint SHALL be part of the Duration control's accessible name. Duration SHALL remain editable in every state. In any other state the hint SHALL NOT appear.
+
+#### Scenario: Weight timing active
+
+- **WHEN** weight-timed steaming is on, the steam rate is calibrated, and a heater-on pitcher is selected
+- **THEN** the Duration row shows the hint, and the value can still be changed
+
+#### Scenario: Toggle off
+
+- **WHEN** weight-timed steaming is off
+- **THEN** the Duration row shows no hint
+
+#### Scenario: Rate not calibrated
+
+- **WHEN** weight-timed steaming is on but the steam rate is uncalibrated
+- **THEN** the Duration row shows no hint, because the fixed duration is what runs
+
+#### Scenario: Hint follows the toggle without reopening the page
+
+- **WHEN** the user turns weight-timed steaming on or off, or calibrates the rate, with the Steam page open
+- **THEN** the hint appears or disappears immediately
+
+#### Scenario: Screen reader
+
+- **WHEN** weight timing is active and a screen-reader user focuses the Duration control
+- **THEN** the spoken name includes that the value is used when milk is not weighed
+
+#### Scenario: Toggling does not move the controls
+
+- **WHEN** the user clicks the weight-timed steaming switch
+- **THEN** the controls on the Steam page keep their positions, because each hint holds its line whether or not it is showing
+
+#### Scenario: Pitcher row preview only while active
+
+- **WHEN** weight-timed steaming is off or the steam rate is uncalibrated
+- **THEN** the pitcher row shows no "Weight-timed: Ng → Ns" preview
+
+#### Scenario: Scrollbar stays clear of the controls
+
+- **WHEN** the Steam page content is taller than its viewport
+- **THEN** the scrollbar is drawn beside the controls and does not cover the switch or any value box

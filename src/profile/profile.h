@@ -394,10 +394,9 @@ public:
     // deriving cases itself; ProfileManager::upgradeStoredEncoding does that with
     // Profile::espressoTemperatureHealed().
     //
-    // Callers: profile_sync's rewrite audit, the built-in parity tests,
-    // ProfileManager::upgradeStoredEncoding and ProfileManager::migrateProfileFormat
-    // — the last two run against real user profiles, so a format change that
-    // silently drops data fails all four.
+    // Callers: profile_sync's rewrite audit, the built-in parity tests and
+    // ProfileManager::upgradeStoredEncoding — the last runs against real user
+    // profiles, so a format change that silently drops data fails all three.
     static QStringList jsonParityErrors(const QJsonObject& before, const QJsonObject& after);
 
     // === File I/O ===

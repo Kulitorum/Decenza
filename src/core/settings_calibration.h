@@ -140,14 +140,6 @@ public:
     void noteFlowCalRejection(const QString& profileFilename, const QString& reason);
     void clearFlowCalRejections(const QString& profileFilename);
 
-    // Reset all per-profile flow calibrations to empty (used by one-shot migrations).
-    void resetAllProfileFlowCalibrations();
-
-    // Clear every profile's pending batch accumulator without touching stored
-    // multipliers (used by one-shot migrations that change how an ideal is
-    // computed, so no batch median mixes ideals from before and after the change).
-    void clearAllFlowCalPendingIdeals();
-
     // SAW (Stop-at-Weight) learning
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
     double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
@@ -247,29 +239,6 @@ public:
     // Drop all in-memory caches so the next read pulls from QSettings. Called
     // by Settings::factoryReset() after clearing the underlying store.
     void invalidateCache();
-
-    // One-time migration: rewrite SAW storage (global pool, per-pair history +
-    // batch, global bootstrap) keyed on legacy display-name scale types to
-    // canonical type-ids, merging colliding buckets without data loss. Invoked
-    // once from Settings init under the scale/typeIdsMigrated flag.
-    void migrateScaleTypeIds();
-
-    // Upgrade path for stores written before the basket was part of the key: copy each
-    // pre-basket "<profile>::<scale>" bucket into "<profile>::<scale>::<basket>" for every
-    // basket THAT PROFILE was actually pulled with, so each such combination keeps predicting
-    // what the single shared model predicted and then diverges as it earns its own medians.
-    //
-    // basketsByProfile maps profile FILENAME -> already-normalized basket keys, built from the
-    // shot history by MainController (shots record the profile title, so it maps them through
-    // ProfileManager::titleToFilename first). A profile absent from the map is left alone —
-    // untried combinations are not seeded.
-    //
-    // Additive: a basket that already has a bucket is never overwritten, and the two-segment
-    // keys are left in place (inert, but readable by an older build, so rollback is lossless).
-    // Pass historyComplete=false for a partial run — the guard flag is only set on a complete
-    // one, so an early partial run cannot foreclose the rest.
-    void seedSawBucketsFromPreBasketKeys(const QHash<QString, QStringList>& basketsByProfile,
-                                         bool historyComplete);
 
     // Returns SAW learning entries filtered by scale type (most recent first).
     // Used by WeightProcessor to snapshot learning data at shot start.

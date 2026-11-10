@@ -459,7 +459,7 @@ Rectangle {
         const entry = findEntry(LibraryService.localEntries, entryId)
         if (!entry || !entry.type) return
         if (entry.type !== "layout" && entry.type !== "theme" && !selectedZoneName) {
-            showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), Theme.warningColor)
+            showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), true)
             return
         }
         applyEntry(entryId, entry.type, selectedZoneName)
@@ -494,14 +494,14 @@ Rectangle {
             libraryPanel.pendingOperations = updated
             const context = pending.context || ({})
             if (!success) {
-                libraryPanel.showToast(libraryPanel.operationError(reason), Theme.errorColor)
+                libraryPanel.showToast(libraryPanel.operationError(reason), true)
                 return
             }
             if (context.action === "apply") {
-                libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
+                libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"))
             } else if (context.action === "deleteLocal") {
                 libraryPanel.selectedEntryId = ""
-                libraryPanel.showToast(TranslationManager.translate("library.toast.deleted", "Deleted"), Theme.successColor)
+                libraryPanel.showToast(TranslationManager.translate("library.toast.deleted", "Deleted"))
             }
         }
     }
@@ -517,42 +517,11 @@ Rectangle {
         return TranslationManager.translate("common.operationFailed", "Operation failed")
     }
 
-    function showToast(message, color) {
-        toastText.text = message
-        toastBg.border.color = color || Theme.borderColor
-        toastBg.visible = true
-        toastTimer.restart()
+    function showToast(message, isError) {
+        libraryToast.show(message, isError === true)
     }
 
-    Rectangle {
-        id: toastBg
-        visible: false
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(8)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(toastText.implicitWidth + Theme.scaled(24), libraryPanel.width - Theme.scaled(16))
-        height: Theme.scaled(32)
-        radius: Theme.scaled(16)
-        color: Theme.surfaceColor
-        border.width: 1
-        z: 10
-
-        Text {
-            id: toastText
-            anchors.centerIn: parent
-            color: Theme.textColor
-            font: Theme.captionFont
-            elide: Text.ElideRight
-            width: parent.width - Theme.scaled(16)
-            horizontalAlignment: Text.AlignHCenter
-        }
-    }
-
-    Timer {
-        id: toastTimer
-        interval: 3000
-        onTriggered: toastBg.visible = false
-    }
+    StatusToast { id: libraryToast; parent: Overlay.overlay; durationMs: 3000 }
 
     // Delete confirmation dialog
     DecenzaDialog {

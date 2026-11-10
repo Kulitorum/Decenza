@@ -175,7 +175,7 @@ T.Page {
             recipesPage._restockAwaitingBag = false
             if (!bag || bag.id === undefined) {
                 recipesPage._restockRecipe = null
-                recipesPage.showToast(trRestockFailed.text)
+                recipesPage.showToast(trRestockFailed.text, true)
                 return
             }
             restockDialog.openRestock(bag)
@@ -184,7 +184,7 @@ T.Page {
             if (!recipesPage._restockAwaitingBag || bagId !== recipesPage._restockRecipe.bagId) return
             recipesPage._restockAwaitingBag = false
             recipesPage._restockRecipe = null
-            recipesPage.showToast(trRestockFailed.text)
+            recipesPage.showToast(trRestockFailed.text, true)
         }
         function onBagsChanged() { BagService.requestInventory() }
     }
@@ -206,7 +206,7 @@ T.Page {
                     // taken this name while it was archived. Say which fix works.
                     recipesPage.showToast(
                         recipesPage._restoreFailReason === "nameInUse"
-                            ? trRestoreNameInUse.text : trRestoreFailed.text)
+                            ? trRestoreNameInUse.text : trRestoreFailed.text, true)
                 }
                 recipesPage._restoreFailReason = ""
                 return
@@ -215,7 +215,7 @@ T.Page {
                 return
             recipesPage._repointPendingId = -1
             if (!success)
-                recipesPage.showToast(trRepointFailed.text)
+                recipesPage.showToast(trRepointFailed.text, true)
         }
         function onRecipeUpdateFailed(recipeId, reason) {
             // Lands just before recipeUpdated(false) and names the cause.
@@ -227,10 +227,10 @@ T.Page {
                 return
             if (operation === "archive") {
                 recipesPage.showToast(reason === "conflict"
-                    ? trArchiveConflict.text : trArchiveFailed.text)
+                    ? trArchiveConflict.text : trArchiveFailed.text, true)
             } else if (operation === "delete") {
                 recipesPage.showToast(reason === "hasShots"
-                    ? trDeleteHasShots.text : trDeleteFailed.text)
+                    ? trDeleteHasShots.text : trDeleteFailed.text, true)
             }
         }
     }
@@ -244,7 +244,7 @@ T.Page {
             recipesPage._preferenceMetadata = ({})
             if (!success) {
                 recipesPage.showToast(TranslationManager.translate(
-                    "recipes.preferences.failed", "Couldn't save recipe settings"))
+                    "recipes.preferences.failed", "Couldn't save recipe settings"), true)
                 return
             }
             if (name === "autoLoadRecipeId") {
@@ -262,17 +262,13 @@ T.Page {
         }
     }
     property int _repointPendingId: -1
-    // Text currently shown in the toast (see showToast).
-    property string _toastMessage: ""
     // Restore is fire-and-forget from the archived card; these track the one in
     // flight so a refusal can be explained instead of looking like a dead button.
     property int _restorePendingId: -1
     property string _restoreFailReason: ""
 
-    function showToast(message) {
-        recipesPage._toastMessage = message
-        repointFailedToast.opacity = 1
-        repointFailedToastTimer.restart()
+    function showToast(message, isError) {
+        recipesToast.show(message, isError === true)
         if (AccessibilityManager.enabled)
             AccessibilityManager.announce(message, true)
     }
@@ -319,36 +315,7 @@ T.Page {
         fallback: "Couldn't delete this recipe"
         visible: false
     }
-    Rectangle {
-        id: repointFailedToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: repointFailedLabel.implicitWidth + Theme.scaled(32)
-        height: repointFailedLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        border.color: Theme.borderColor
-        border.width: 1
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-        Behavior on opacity { NumberAnimation { duration: 300 } }
-        Text {
-            id: repointFailedLabel
-            anchors.centerIn: parent
-            text: recipesPage._toastMessage
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-    Timer {
-        id: repointFailedToastTimer
-        interval: 4000
-        onTriggered: repointFailedToast.opacity = 0
-    }
+    StatusToast { id: recipesToast }
 
     Tr { id: trCopyOf; key: "recipes.list.copyOf"; fallback: "Copy of %1"; visible: false }
 

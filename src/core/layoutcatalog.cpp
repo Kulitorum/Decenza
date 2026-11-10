@@ -6,14 +6,7 @@
 #include <QVector>
 #include <cstring>
 
-// Capability schema: the single source of truth for which per-instance option
-// keys each widget type supports. Readout types list the sections the unified
-// readout options editor shows; types with a dedicated editor (custom, sleep,
-// shot plan, last shot, screensavers) are configurable but carry no readout
-// keys. The web editor receives this same table as JSON (see
-// readoutCapabilitiesJson), so adding a type or key here is the only
-// editor-side registration step — the widget's QML item must still read and
-// render the keys it declares (modelData.displayMode / modelData.color).
+// Shared widget option schema, used by the native and browser editors.
 namespace {
 const QHash<QString, QStringList>& readoutOptionSchema() {
     static const QHash<QString, QStringList> schema = {
@@ -220,21 +213,11 @@ const QVector<WidgetCategoryName>& widgetCategoryTable() {
 // `command:scanScale` (both call BLEManager::scanForDevices()), so offering both
 // would be two rows that do the same thing, but a widget saved with it must not
 // render as its raw id. Same role as `inPalette` in the widget catalog above,
-// and note how that one delivers on the label half — widgetChipNames() and
-// widgetCatalogJson()'s chipNames iterate the WHOLE table before the inPalette
-// skip. layoutActionLabels() below is the analogue.
+// widgetChipNames() retains labels for entries excluded from the palette.
 //
 // `expandsToSubmenu=true` — selecting it opens a second list rather than
 // committing, because the stored form carries an argument
-// (`command:loadProfile:<filename>`). Two things DERIVE from that one fact: the
-// in-app picker appends "..." to the label, and the web editor omits the action
-// entirely, because it has no submenu and its pickAction() would store the bare
-// id, which CustomItem then rejects. Centralizing the catalog is what put such
-// an action in reach of that surface; deriving the exclusion is what keeps the
-// fix from creating a dead button. An earlier draft stored this inverted, as
-// `webCapable`, and published `!webCapable` under this name — one fact, two
-// names, negated between them, so an action that was web-incapable for any
-// OTHER reason would have silently grown an ellipsis.
+// (`command:loadProfile:<filename>`). The picker appends an ellipsis to the label.
 //
 // The picker's "None" entry is NOT here: it is an absence of an action, not an
 // action, and each surface renders it its own way.
@@ -244,7 +227,7 @@ const QVector<WidgetCategoryName>& widgetCategoryTable() {
 struct LayoutActionEntry {
     const char* id;
     const char* labelKey;  // translation key, resolved in-app
-    const char* label;     // English fallback; what the web editor shows
+    const char* label;     // English fallback
     const char* contexts;  // space-separated page contexts; "all" means every page
     bool inPicker;
     bool expandsToSubmenu;
@@ -310,19 +293,6 @@ QStringList LayoutCatalog::optionKeysForType(const QString& type) {
     return readoutOptionSchema().value(type);
 }
 
-QJsonObject LayoutCatalog::readoutCapabilitiesJson() {
-    QJsonObject caps;
-    const auto& schema = readoutOptionSchema();
-    for (auto it = schema.constBegin(); it != schema.constEnd(); ++it)
-        caps[it.key()] = QJsonArray::fromStringList(it.value());
-    // Bespoke-editor types are configurable but carry no readout keys; the web
-    // editor only needs their presence for its has-options behaviour.
-    // (Screensavers stay a prefix rule on both sides.)
-    for (const QString& type : bespokeEditorTypes())
-        caps[type] = QJsonArray();
-    return caps;
-}
-
 QString LayoutCatalog::defaultDisplayModeForType(const QString& type) {
     return displayModeDefaults().value(type, QStringLiteral("text"));
 }
@@ -337,14 +307,6 @@ QStringList LayoutCatalog::zoneOptionValues(const QString& key) {
     return values.value(key);
 }
 
-QJsonObject LayoutCatalog::displayModeDefaultsJson() {
-    QJsonObject defaults;
-    const auto& map = displayModeDefaults();
-    for (auto it = map.constBegin(); it != map.constEnd(); ++it)
-        defaults[it.key()] = it.value();
-    return defaults;
-}
-
 QVariantMap LayoutCatalog::sleepOptionDefaults() {
     // allowQuit stays on: the default layout (defaultLayoutJson) has no Quit widget, so
     // Sleep's long-press is its only in-app exit.
@@ -353,10 +315,6 @@ QVariantMap LayoutCatalog::sleepOptionDefaults() {
         {QStringLiteral("confirmQuit"), false},
         {QStringLiteral("showIcon"), true},
     };
-}
-
-QJsonObject LayoutCatalog::sleepOptionDefaultsJson() {
-    return QJsonObject::fromVariantMap(sleepOptionDefaults());
 }
 
 QVariantList LayoutCatalog::widgetCatalog() {
@@ -395,39 +353,6 @@ QVariantList LayoutCatalog::widgetCategoryNames() {
         });
     }
     return list;
-}
-
-QJsonObject LayoutCatalog::widgetCatalogJson() {
-    // Shape consumed by the web layout editor: `types` mirrors the old
-    // WIDGET_TYPES entries verbatim (English labels, special/screensaver
-    // flags); `chipNames` replaces the old DISPLAY_NAMES with the in-app chip
-    // labels (which renamed a few drifted web short names); `catNames` the
-    // old CAT_NAMES verbatim.
-    QJsonArray types;
-    QJsonObject chipNames;
-    for (const auto& e : widgetCatalogTable()) {
-        chipNames[QString::fromLatin1(e.type)] = QString::fromLatin1(e.chip);
-        if (!e.inPalette)
-            continue;
-        QJsonObject t{
-            { QStringLiteral("type"), QString::fromLatin1(e.type) },
-            { QStringLiteral("cat"), e.cat },
-            { QStringLiteral("label"), QString::fromLatin1(e.label) },
-        };
-        if (qstrcmp(e.flag, "special") == 0)
-            t[QStringLiteral("special")] = true;
-        else if (qstrcmp(e.flag, "screensaver") == 0)
-            t[QStringLiteral("screensaver")] = true;
-        types.append(t);
-    }
-    QJsonArray catNames;
-    for (const auto& c : widgetCategoryTable())
-        catNames.append(QString::fromLatin1(c.fallback));
-    return QJsonObject{
-        { QStringLiteral("types"), types },
-        { QStringLiteral("chipNames"), chipNames },
-        { QStringLiteral("catNames"), catNames },
-    };
 }
 
 namespace {
@@ -478,46 +403,6 @@ QString LayoutCatalog::gestureReservedActionForType(const QString& type) {
 bool LayoutCatalog::typeSupportsGestureOverrides(const QString& type) {
     return readoutOptionSchema().value(type).contains(QStringLiteral("longPressAction"));
 }
-
-QJsonObject LayoutCatalog::layoutActionCatalogJson() {
-    // Shape consumed by the web layout editor: English labels only, since that
-    // editor has no translation layer. Two channels, for the same reason the
-    // widget catalog has `types` and `chipNames`:
-    //   actions — what this editor may OFFER (inPicker, minus parameterized)
-    //   labels  — what any stored id RESOLVES to (every entry)
-    // The "None" entry the picker prepends is not an action and stays on that
-    // side.
-    QJsonArray actions;
-    QJsonObject labels;
-    for (const auto& e : layoutActionTable()) {
-        labels[QString::fromLatin1(e.id)] = QString::fromLatin1(e.label);
-        // A parameterized action is omitted here rather than flagged: this editor
-        // has no submenu to expand it with.
-        if (!e.inPicker || e.expandsToSubmenu)
-            continue;
-        actions.append(QJsonObject{
-            { QStringLiteral("id"), QString::fromLatin1(e.id) },
-            { QStringLiteral("label"), QString::fromLatin1(e.label) },
-            { QStringLiteral("contexts"),
-              QJsonArray::fromStringList(splitActionContexts(e.contexts)) },
-        });
-    }
-    // Gesture-override rule per widget type, so the web editor derives the reserved
-    // slot exactly as the in-app one does: { type: reservedActionId }, with an empty
-    // string meaning "both gestures free".
-    QJsonObject gestures;
-    for (auto it = readoutOptionSchema().constBegin(); it != readoutOptionSchema().constEnd(); ++it) {
-        if (!it.value().contains(QStringLiteral("longPressAction")))
-            continue;
-        gestures[it.key()] = gestureReservedDestination().value(it.key());
-    }
-    return QJsonObject{
-        { QStringLiteral("actions"), actions },
-        { QStringLiteral("labels"), labels },
-        { QStringLiteral("gestureTypes"), gestures },
-    };
-}
-
 
 QVector<QPair<QString, QString>> LayoutCatalog::translationStrings() {
     QVector<QPair<QString, QString>> out;

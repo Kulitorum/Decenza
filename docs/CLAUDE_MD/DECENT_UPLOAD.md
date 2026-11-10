@@ -43,7 +43,7 @@ linked before the list existed has none, so the remedy for a stuck upload is to 
 - 429 → recorded as failed after its one attempt, and every send to that destination waits 10 minutes
   (`SettingsUpload::noteRateLimited`, stored so a restart keeps it; a 429 during the wait does not extend it). For
   Visualizer, a 429 to any request starts the same wait; the pacer waits it out, and the unpaced background senders
-  (pull pass, page refreshes, parked-bag retries, the migration-16 back-sync) skip their turn
+  (pull pass, page refreshes, parked-bag retries) skip their turn
   (`VisualizerUploader::rateLimitWait`).
 - 401 → needs sign-in; credentials are not sent again until the account is signed in again.
 - 403 → the serial is not in the account.
@@ -81,7 +81,7 @@ Nothing retries a failed upload on its own after its 3 attempts. Each destinatio
   when the destination comes back on, the run resumes, leaving out shots that failed since it started. A history
   that cannot be read starts nothing and keeps the run for later.
 - **Counts:** `ShotUploads.missing`, recounted on the DB worker after any outcome, save, edit or account change.
-  The web page reads `GET /api/settings/upload-missing` and starts a run with `POST /api/settings/{dest}/upload-missing`.
+  The shared native/browser settings UI uses the upload service.
 
 ## Cleaning up test uploads
 

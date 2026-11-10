@@ -105,8 +105,7 @@ struct EquipmentPackageView {
     QVariantMap toVariantMap() const;
 };
 
-// The six identity components an edit can enrich, flattened so the live edit rule
-// and the one-time heal can ask the SAME question of them. See
+// The six identity components an edit can enrich. See
 // EquipmentStorage::isEnrichmentOf.
 //
 // `hasGrinder` is the presence of a grinder ROW, not whether its fields are set:
@@ -346,7 +345,7 @@ public:
     static EquipmentMergeResult mergePackagesStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
 
     // The merge body without a transaction of its own, for a caller that already
-    // owns one (the migration heal below — DbWriteTxn refuses to nest, and
+    // owns one (mergePackagesStatic — DbWriteTxn refuses to nest, and
     // adopting an outer transaction would let a rejection leave partial writes
     // staged in it). Returns with `ok` false and the writes NOT undone; the
     // caller's rollback is what cleans up.
@@ -356,51 +355,13 @@ public:
     // whose `error` is empty when the pair is mergeable.
     static EquipmentMergeResult validateMergeStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
 
-    // One-time repair of packages split by a pre-enrichment fork: for each pair
-    // where a package is superseded by one that only ADDED information — every
-    // component whose value differs was empty on the older and named on the newer,
-    // whichever component that is — fold the older into the newer. The test is
-    // isEnrichmentOf, shared with the live edit rule; see its definition for why
-    // sharing rather than restating is load-bearing. Fills `remap` (old id ->
-    // surviving id) so the caller can repoint anything holding an id outside this
-    // database — the active-equipment selection lives in QSettings, not here — and
-    // `healedOut` with the number of pairs merged.
-    //
-    // Returns false on a SQL failure, with its writes STAGED, not undone: it runs
-    // inside the CALLER's transaction (see mergePackagesUnlockedStatic) and the
-    // caller's rollback is what cleans up. A run that finds nothing to heal
-    // returns true with a count of 0.
-    //
-    // Left untouched: a component CHANGED between two named values (a burr swap, a
-    // different basket), a component cleared, a grinder-less package gaining a
-    // grinder, two lookalike packages with no lineage, and a pair that differs in
-    // nothing at all (a duplicate, not a fork).
-    static bool healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap = nullptr,
-                                          qsizetype* healedOut = nullptr);
-
     // Did `after` only ADD information to `before`? True when every component
     // whose value differs was EMPTY on `before` and carries a value on `after`.
-    //
-    // ONE definition, called by both the live edit rule (supersedeOrEditStatic —
-    // NOT its thin wrapper supersedeOrEditGrinderStatic, which is where an earlier
-    // draft of this comment pointed) and the one-time heal, because they are the
-    // same question asked at
-    // two moments — an edit deciding whether to fork, and a migration deciding
-    // whether a past fork should not have happened. They were written separately
-    // and drifted: the heal tested BURRS only and required all five other
-    // components — grinder brand, grinder model, basket brand, basket model and the
-    // puck-prep string — to be EQUAL, which is the inverse of enrichment for a
-    // component that was absent. So a user who forked by recording a basket
-    // was never healed, and the log said "merged 0 package(s)" — which reads as
-    // nothing to fix. Keep this shared; a second copy is how that recurs.
     //
     // Deliberately asymmetric: empty -> value is enrichment, value -> different
     // value and value -> empty are real identity changes. Puck prep compares whole
     // canonical strings, so adding a technique to an existing routine is a change.
     static bool isEnrichmentOf(const PackageIdentity& before, const PackageIdentity& after);
-
-    // Load a package's six identity components, for isEnrichmentOf.
-    static PackageIdentity identityOfStatic(QSqlDatabase& db, qint64 packageId);
 
     // Find an existing in-inventory package whose full identity matches
     // (case-insensitive grinder brand+model+burrs AND basket brand+model AND
@@ -427,27 +388,6 @@ public:
     // field). Applied on every grinder-item read so the rule lives in one place.
     static bool deriveRpmCapable(const QString& brand, const QString& model);
 
-    // Best-effort, marker-gated split of a combined grind+rpm string. A trailing
-    // `(\d+)\s*rpm` token (case-insensitive) moves the number into outRpm and the
-    // remainder (trimmed) into outGrind; anything without an explicit `rpm`
-    // marker leaves outGrind == combined and outRpm == 0 (e.g. "1+4", "24 clicks").
-    static void splitGrindAndRpm(const QString& combined, QString& outGrind, qint64& outRpm);
-
-    // Migration 22 data step (shared with tests): create equipment packages from
-    // the distinct grinder identities on coffee_bags + shots (deduped on
-    // brand/model/burrs only — NOT grind/rpm), link each row via equipment_id,
-    // and split each row's grinder_setting into grinder_setting + rpm. The
-    // current* args are the user's live grinder settings (read from QSettings by
-    // the caller) — they seed the default package so the active grinder always
-    // has one even when no row carries that identity. Assumes the equipment
-    // tables exist and coffee_bags/shots already have equipment_id + rpm columns.
-    // Does NOT drop the legacy grinder identity columns (the schema owner does).
-    static bool migrateFromGrinderColumnsStatic(QSqlDatabase& db,
-                                                const QString& currentBrand,
-                                                const QString& currentModel,
-                                                const QString& currentBurrs,
-                                                const QString& currentSetting);
-
     // Device-transfer import (add-equipment-packages task 2.8). Imports
     // equipment_packages + equipment_items from srcDb into destDb with new ids,
     // filling outIdMap[srcPackageId] = destPackageId so the caller can remap
@@ -463,8 +403,7 @@ public:
 
     // Calibration anchors. `side` is "fine" or "coarse"; a shotId of 0 clears it.
     // Callers run at the current schema. Merge and import are the two paths that can
-    // meet a database without the columns (the migration-35 heal merges before
-    // migration 46; an old backup), and they check.
+    // meet a database without the columns (an imported database), and they check.
     static CalibrationAnchors loadCalibrationAnchorsStatic(QSqlDatabase& db, qint64 packageId);
     static bool setCalibrationAnchorStatic(QSqlDatabase& db, qint64 packageId,
                                            const QString& side, qint64 shotId);

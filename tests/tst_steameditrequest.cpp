@@ -4,14 +4,9 @@
 #include <QJsonObject>
 #include <QJsonValue>
 
-#include "network/sessionactionrequest.h"
 #include "network/steameditrequest.h"
 
 namespace {
-constexpr auto kPackageId = "package-17";
-constexpr auto kHostId = "host-abc";
-constexpr auto kRequestId = "123e4567-e89b-12d3-a456-426614174000";
-constexpr auto kContextId = "f7f63b52-2f01-4d1f-aea9-9f53660cf1b3";
 
 SteamPitcherSnapshot pitchers()
 {
@@ -65,20 +60,6 @@ QJsonObject validFields(const QString& operation)
     return {};
 }
 
-QByteArray actionBody(const QString& operation, const QJsonObject& fields)
-{
-    QJsonObject object{
-        {QStringLiteral("packageId"), QString::fromLatin1(kPackageId)},
-        {QStringLiteral("hostId"), QString::fromLatin1(kHostId)},
-        {QStringLiteral("requestId"), QString::fromLatin1(kRequestId)},
-        {QStringLiteral("operation"), operation},
-        {QStringLiteral("expectedRevision"), QString(64, QLatin1Char('a'))},
-        {QStringLiteral("controlContextId"), QString::fromLatin1(kContextId)}
-    };
-    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
-        object.insert(it.key(), it.value());
-    return QJsonDocument(object).toJson(QJsonDocument::Compact);
-}
 } // namespace
 
 class tst_SteamEditRequest : public QObject
@@ -180,34 +161,7 @@ private slots:
         QVERIFY(!SteamEditRequest::validateFields(QStringLiteral("unknown"), {}).valid);
     }
 
-    void sessionActionUsesTheSameStrictEditorSchema()
-    {
-        const QString path = QStringLiteral("/api/session/steam/editor");
-        const QString operation = QStringLiteral("set-preset-flow");
-        const auto parsed = SessionActionRequest::validate(
-            QStringLiteral("POST"), path, actionBody(operation, validFields(operation)),
-            QString::fromLatin1(kPackageId), QString::fromLatin1(kHostId));
-        QVERIFY2(parsed.valid, qPrintable(parsed.error));
-        QCOMPARE(parsed.action, SessionActionRequest::Action::SteamEditor);
-        QCOMPARE(parsed.actionName, QStringLiteral("steam-editor"));
-        QCOMPARE(parsed.expectedRevision, QString(64, QLatin1Char('a')));
-        QCOMPARE(parsed.controlContextId, QString::fromLatin1(kContextId));
-        QCOMPARE(parsed.steamEditor.operation, SteamEditRequest::Operation::SetPresetFlow);
-        QCOMPARE(parsed.steamEditor.command.flow, 150);
 
-        QJsonObject invalidFields = validFields(operation);
-        invalidFields.insert(QStringLiteral("expectedRevision"), QStringLiteral("extra"));
-        const auto invalid = SessionActionRequest::validate(
-            QStringLiteral("POST"), path, actionBody(operation, invalidFields),
-            QString::fromLatin1(kPackageId), QString::fromLatin1(kHostId));
-        QVERIFY(!invalid.valid);
-
-        const auto wrongMethod = SessionActionRequest::validate(
-            QStringLiteral("GET"), path, actionBody(operation, validFields(operation)),
-            QString::fromLatin1(kPackageId), QString::fromLatin1(kHostId));
-        QVERIFY(!wrongMethod.valid);
-        QCOMPARE(wrongMethod.httpStatus, 405);
-    }
 };
 
 QTEST_GUILESS_MAIN(tst_SteamEditRequest)

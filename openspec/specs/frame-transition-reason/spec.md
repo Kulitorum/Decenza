@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the `transitionReason` vocabulary recorded on each shot phase marker to distinguish a frame exit confirmed by a sensor threshold from one merely inferred (`pressure`/`flow`/`weight` vs. `pressure_unconfirmed`/`flow_unconfirmed`) or driven by time expiry, and how that value is rendered consistently across the live transition pill, shot graph markers, and ShotServer, and passed through unchanged by history persistence and AI-summary consumers.
+
 ## Requirements
+
 ### Requirement: Transition reason vocabulary distinguishes confirmed from unconfirmed exits
 
 Each phase marker's `transitionReason` SHALL record why the preceding frame exited, using exactly one of: `weight`, `pressure`, `flow` (confirmed exits), `pressure_unconfirmed`, `flow_unconfirmed` (likely but unconfirmed sensor exits), `time` (time-based exit), or empty (unknown or pre-feature data). `weight` SHALL be recorded only for an app-initiated weight skip. Consumers MAY treat confirmed values as ground truth.
@@ -45,7 +47,6 @@ Each phase marker's `transitionReason` SHALL record why the preceding frame exit
 ### Requirement: A confirmed sensor exit meets its threshold within the measured change
 A confirmed `pressure` or `flow` value SHALL be recorded when the sensor reading satisfied the frame's exit threshold at the transition sample, OR when the reading was moving toward the threshold and the threshold lies within one sample interval of the observed change. That tolerance SHALL be the measured sample-to-sample delta, never a constant.
 
-
 #### Scenario: Flat or receding reading gets no tolerance
 - **WHEN** the reading is flat or moving away from the threshold
 - **THEN** no tolerance is applied and the exit is not confirmed
@@ -56,7 +57,7 @@ A confirmed `pressure` or `flow` value SHALL be recorded when the sensor reading
 
 ### Requirement: Unconfirmed reasons render as their sensor equivalent in displays
 
-The live frame-transition pill, the shot graph marker suffixes (in-app and history), and the ShotServer web graph marker suffixes SHALL render `pressure_unconfirmed` identically to `pressure` and `flow_unconfirmed` identically to `flow` (same text, letter, and color). Display surfaces SHALL degrade gracefully on unknown reason values (no suffix / generic transition label), never blank or broken markers.
+The live frame-transition pill, the shot graph marker suffixes (in-app and history), and the browser graph marker suffixes SHALL render `pressure_unconfirmed` identically to `pressure` and `flow_unconfirmed` identically to `flow` (same text, letter, and color). Display surfaces SHALL degrade gracefully on unknown reason values (no suffix / generic transition label), never blank or broken markers.
 
 #### Scenario: Pill on an unconfirmed pressure exit
 
@@ -81,4 +82,3 @@ Shot history persistence, serialization, comparison, and AI-summary consumers SH
 
 - **WHEN** a shot recorded before this capability is loaded from history
 - **THEN** its markers SHALL expose the originally recorded `transitionReason` values unchanged
-

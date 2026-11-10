@@ -308,6 +308,7 @@ var entries = [
     {"externalRoute": "steam", "kind": "external", "key": "steam.label.temperature.accessible", "fallback": "Steam Temperature", "keywords": ["steam", "temperature", "pitcher"], "availability": []},
     {"externalRoute": "steam", "kind": "external", "key": "steam.label.pitcherWeight.accessible", "fallback": "Milk pitcher weight", "keywords": ["steam", "empty", "jug", "tare"], "availability": []},
     {"externalRoute": "steam", "kind": "external", "key": "steam.weightTimed.enable", "fallback": "Enable weight-timed steaming", "keywords": ["steam", "milk", "weight", "timed", "jug"], "availability": []},
+    {"externalRoute": "steam", "kind": "external", "key": "steam.weightTimed.captureSound", "fallback": "Play a sound when a weight is captured", "keywords": ["steam", "milk", "sound", "bell", "beep", "ding"], "availability": []},
     {"externalRoute": "steam", "kind": "external", "key": "steam.rate.title.accessible", "fallback": "Steam rate seconds per gram", "keywords": ["steam", "calibration", "milk", "weight", "time"], "availability": []},
     {"externalRoute": "steam", "kind": "external", "key": "settings.search.steamView", "fallback": "Steam timer or chart view", "keywords": ["steam", "timer", "chart", "graph", "view"], "availability": []},
     {"externalRoute": "steam", "kind": "external", "key": "steam.coaching.banner", "fallback": "Show coaching banner", "keywords": ["steam", "coaching", "milk"], "availability": []},

@@ -101,11 +101,11 @@ QtObject {
         }
     }
 
-    // Milk is weighed only for one sample offered by the idle pitcher row, the compact
-    // steam popup on the idle page, or the review-page milk button. The surface that
-    // made the offer withdraws it when it closes, so a load set down later (an
-    // espresso cup) is never taken for milk. A withdraw needs no bookkeeping: the host
-    // ignores one for a surface with no open offer.
+    // Milk is weighed only while a sample is offered by the idle pitcher row, the compact
+    // steam popup on the idle page, or the review-page milk button. Lifting the weighed
+    // pitcher ends the offer and the surface withdraws it when it closes, so a load
+    // set down later (an espresso cup) is never taken for milk. A withdraw needs no
+    // bookkeeping: the host ignores one for a surface with no open offer.
     function offerMilkSample(surface: string): bool {
         return PreparationService.state.startMilkAttempt(surface)
     }

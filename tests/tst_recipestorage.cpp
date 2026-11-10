@@ -432,7 +432,7 @@ private slots:
     // A grinder edit that forks the package must carry recipes with it, like
     // bags: activation reads recipe.equipmentId and would otherwise select the
     // retired package. A write naming the retired id (promotion from an older
-    // shot) stores the fork, and migration 41 repairs rows the old fork missed.
+    // shot) stores the fork.
     void recipeFollowsGrinderFork() {
         withRawDb(freshDbPath(), "recipe_fork", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
@@ -445,9 +445,7 @@ private slots:
             Recipe r = sampleRecipe();
             r.equipmentId = P;
             const qint64 linked = RecipeStorage::insertRecipeStatic(db, r);
-            r.name = "Stale link";
-            const qint64 stale = RecipeStorage::insertRecipeStatic(db, r);
-            QVERIFY(linked > 0 && stale > 0);
+            QVERIFY(linked > 0);
 
             const qint64 fork = EquipmentStorage::supersedeOrEditGrinderStatic(db, P, "Turin", "DF83V", "83mm DLC flat");
             QVERIFY(fork > 0 && fork != P);
@@ -463,14 +461,6 @@ private slots:
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, promoted).equipmentId, fork);
             QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, promoted, {{"equipmentId", P}}));
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, promoted).equipmentId, fork);
-
-            // A row left on the retired package by the old fork: the heal moves it.
-            QVERIFY(QSqlQuery(db).exec(QString("UPDATE recipes SET equipment_id = %1 WHERE id = %2").arg(P).arg(stale)));
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, stale).equipmentId, P);
-            qsizetype healed = -1;
-            QVERIFY(RecipeStorage::healRetiredEquipmentLinksStatic(db, &healed));
-            QCOMPARE(healed, qsizetype(1));
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, stale).equipmentId, fork);
         });
     }
 
@@ -1926,246 +1916,6 @@ private slots:
         });
     }
 
-    // --- migration-29 data pass: bean identity -> open bag, once ---
-
-    void migrateBagLinks() {
-        withRawDb(freshDbPath(), "mig29", [](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-
-            CoffeeBag open; open.roasterName = "Roaster"; open.coffeeName = "Guji";
-            open.beanBaseId = "bb-uuid-1"; open.inInventory = true;
-            const qint64 openId = CoffeeBagStorage::insertBagStatic(db, open);
-            CoffeeBag finished = open; finished.inInventory = false;
-            const qint64 finishedId = CoffeeBagStorage::insertBagStatic(db, finished);
-            QVERIFY(openId > 0 && finishedId > 0);
-
-            // Resolves to the open bag of its bean.
-            Recipe resolvable = sampleRecipe();
-            const qint64 resolvableId = RecipeStorage::insertRecipeStatic(db, resolvable);
-            // No open bag of this bean -> stays unlinked (stale).
-            Recipe orphan = sampleRecipe();
-            orphan.beanBaseId = "bb-none"; orphan.roasterName = "Else"; orphan.coffeeName = "Where";
-            const qint64 orphanId = RecipeStorage::insertRecipeStatic(db, orphan);
-            // Already linked (idempotence): the pass must not touch it, even
-            // though the resolver would pick the open bag.
-            Recipe already = sampleRecipe();
-            already.bagId = finishedId;
-            const qint64 alreadyId = RecipeStorage::insertRecipeStatic(db, already);
-            QVERIFY(resolvableId > 0 && orphanId > 0 && alreadyId > 0);
-
-            RecipeStorage::migrateBagLinksStatic(db);
-
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, resolvableId).bagId, openId);
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, orphanId).bagId, (qint64)0);
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, alreadyId).bagId, finishedId);
-
-            // Running it again changes nothing (idempotent).
-            RecipeStorage::migrateBagLinksStatic(db);
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, resolvableId).bagId, openId);
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, alreadyId).bagId, finishedId);
-        });
-    }
-
-    // --- migration 30: recipe-owned grind (fix-recipe-grind-integrity) ---
-
-    // Inherit-mode rows (empty grind_pinned + a bag link) adopt their bag's
-    // current dial once; rows whose bag has no dial (tea bags, never-dialed)
-    // are skipped, not stamped with empty strings; already-pinned and
-    // bag-less rows stay untouched. Idempotent.
-    void migrateGrindOwnership() {
-        withRawDb(freshDbPath(), "mig30", [](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-
-            CoffeeBag dialed; dialed.roasterName = "Roaster"; dialed.coffeeName = "Guji";
-            dialed.inInventory = true;
-            const qint64 dialedId = CoffeeBagStorage::insertBagStatic(db, dialed);
-            QSqlQuery legacyDial(db);
-            QVERIFY(legacyDial.exec(QString("UPDATE coffee_bags SET grinder_setting = '18', rpm = 1200 WHERE id = %1").arg(dialedId)));
-            CoffeeBag undialed; undialed.roasterName = "T"; undialed.coffeeName = "Sencha";
-            undialed.inInventory = true;  // no grinderSetting (tea / never dialed)
-            const qint64 undialedId = CoffeeBagStorage::insertBagStatic(db, undialed);
-            QVERIFY(dialedId > 0 && undialedId > 0);
-
-            Recipe inheriting = sampleRecipe();
-            inheriting.bagId = dialedId;
-            const qint64 inheritingId = RecipeStorage::insertRecipeStatic(db, inheriting);
-            Recipe teaLike = sampleRecipe();
-            teaLike.name = "Sencha"; teaLike.bagId = undialedId; teaLike.rpmPinned = 0;
-            const qint64 teaLikeId = RecipeStorage::insertRecipeStatic(db, teaLike);
-            Recipe pinned = sampleRecipe();
-            pinned.name = "Pinned"; pinned.bagId = dialedId;
-            pinned.grindPinned = "2.4"; pinned.rpmPinned = 90;
-            const qint64 pinnedId = RecipeStorage::insertRecipeStatic(db, pinned);
-            Recipe bagless = sampleRecipe();
-            bagless.name = "Bagless"; bagless.beanBaseId.clear();
-            bagless.roasterName.clear(); bagless.coffeeName.clear();
-            const qint64 baglessId = RecipeStorage::insertRecipeStatic(db, bagless);
-            QVERIFY(inheritingId > 0 && teaLikeId > 0 && pinnedId > 0 && baglessId > 0);
-
-            QVERIFY(RecipeStorage::migrateGrindOwnershipStatic(db));
-
-            const Recipe adopted = RecipeStorage::loadRecipeStatic(db, inheritingId);
-            QCOMPARE(adopted.grindPinned, QString("18"));
-            QCOMPARE(adopted.rpmPinned, (qint64)1200);
-            QVERIFY(RecipeStorage::loadRecipeStatic(db, teaLikeId).grindPinned.isEmpty());
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, pinnedId).grindPinned, QString("2.4"));
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, pinnedId).rpmPinned, (qint64)90);
-            QVERIFY(RecipeStorage::loadRecipeStatic(db, baglessId).grindPinned.isEmpty());
-
-            // Idempotent: a second pass changes nothing (re-dial the bag first
-            // to prove the adopted value is not re-copied).
-            QSqlQuery redial(db);
-            redial.prepare("UPDATE coffee_bags SET grinder_setting = '20' WHERE id = ?");
-            redial.addBindValue(dialedId);
-            QVERIFY(redial.exec());
-            QVERIFY(RecipeStorage::migrateGrindOwnershipStatic(db));
-            QCOMPARE(RecipeStorage::loadRecipeStatic(db, inheritingId).grindPinned, QString("18"));
-        });
-    }
-
-    // rpm edges of the migration-30 pass: a bag with NO dial but a recorded
-    // rpm is skipped entirely (grind gates the copy); a dialed bag with NULL
-    // rpm zeroes a leftover rpm_pinned (rpm rides with the dial — intended).
-    void migrateGrindOwnershipRpmEdges() {
-        withRawDb(freshDbPath(), "mig30_rpm", [](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-
-            CoffeeBag rpmOnly; rpmOnly.roasterName = "R"; rpmOnly.coffeeName = "A";
-            rpmOnly.inInventory = true;
-            const qint64 rpmOnlyId = CoffeeBagStorage::insertBagStatic(db, rpmOnly);
-            CoffeeBag noRpm; noRpm.roasterName = "R"; noRpm.coffeeName = "B";
-            noRpm.inInventory = true;
-            const qint64 noRpmId = CoffeeBagStorage::insertBagStatic(db, noRpm);
-            QVERIFY(rpmOnlyId > 0 && noRpmId > 0);
-            QSqlQuery legacyDial(db);
-            QVERIFY(legacyDial.exec(QString("UPDATE coffee_bags SET rpm = 1400 WHERE id = %1").arg(rpmOnlyId)));
-            QVERIFY(legacyDial.exec(QString("UPDATE coffee_bags SET grinder_setting = '18' WHERE id = %1").arg(noRpmId)));
-
-            Recipe skipped = sampleRecipe();
-            skipped.name = "RpmOnlyBag"; skipped.bagId = rpmOnlyId;  // rpmPinned 90 leftover
-            const qint64 skippedId = RecipeStorage::insertRecipeStatic(db, skipped);
-            Recipe zeroed = sampleRecipe();
-            zeroed.name = "NoRpmBag"; zeroed.bagId = noRpmId;  // rpmPinned 90 leftover
-            const qint64 zeroedId = RecipeStorage::insertRecipeStatic(db, zeroed);
-            QVERIFY(skippedId > 0 && zeroedId > 0);
-
-            QVERIFY(RecipeStorage::migrateGrindOwnershipStatic(db));
-
-            const Recipe s = RecipeStorage::loadRecipeStatic(db, skippedId);
-            QVERIFY(s.grindPinned.isEmpty());               // no dial to copy
-            QCOMPARE(s.rpmPinned, (qint64)90);              // untouched
-            const Recipe z = RecipeStorage::loadRecipeStatic(db, zeroedId);
-            QCOMPARE(z.grindPinned, QString("18"));
-            QCOMPARE(z.rpmPinned, (qint64)0);               // rpm rides with the dial
-        });
-    }
-
-    // A pre-migration-30 source's inherit-mode rows adopt their SOURCE bag's
-    // dial on arrival; the destination bag's dial is never read.
-    void importBackfillsInheritModeGrind() {
-        const QString srcPath = freshDbPath();
-        const QString destPath = freshDbPath();
-        qint64 srcRecipeId = 0;
-        withRawDb(srcPath, "mig30_imp_src", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-            QSqlQuery setup(db);
-            QVERIFY(setup.exec("CREATE TABLE schema_version (version INTEGER)"));
-            QVERIFY(setup.exec("INSERT INTO schema_version VALUES (29)"));
-            QVERIFY(setup.exec("INSERT INTO coffee_bags (id, roaster_name, coffee_name, "
-                               "grinder_setting, rpm) VALUES (40, 'Roaster', 'Guji', '18', 1200)"));
-            Recipe inheriting = sampleRecipe();
-            inheriting.bagId = 40;  // source-side id; remapped below
-            srcRecipeId = RecipeStorage::insertRecipeStatic(db, inheriting);
-            QVERIFY(srcRecipeId > 0);
-        });
-        qint64 destBagId = 0;
-        withRawDb(destPath, "mig30_imp_dest", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
-            // The destination bag's dial must never determine the import.
-            bag.inInventory = true;
-            destBagId = CoffeeBagStorage::insertBagStatic(db, bag);
-            QVERIFY(destBagId > 0);
-            QSqlQuery legacyDial(db);
-            QVERIFY(legacyDial.exec(QString("UPDATE coffee_bags SET grinder_setting = '99', rpm = 300 WHERE id = %1").arg(destBagId)));
-        });
-        withRawDb(srcPath, "mig30_imp_src2", [&](QSqlDatabase& srcDb) {
-            withRawDb(destPath, "mig30_imp_dest2", [&](QSqlDatabase& destDb) {
-                QHash<qint64, qint64> idMap;
-                const QHash<qint64, qint64> bagIdMap{{40, destBagId}};
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
-                                                           idMap, {}, bagIdMap));
-                const Recipe imported =
-                    RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcRecipeId));
-                QCOMPARE(imported.grindPinned, QString("18"));
-                QCOMPARE(imported.rpmPinned, (qint64)1200);
-                QSqlQuery version(srcDb);
-                QVERIFY(version.exec("UPDATE schema_version SET version = 30"));
-                idMap.clear();
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, false,
-                                                           idMap, {}, bagIdMap));
-                const Recipe current = RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcRecipeId));
-                QVERIFY(current.grindPinned.isEmpty());
-                // A legacy import matching that existing recipe must not
-                // replace its intentionally empty grind.
-                QVERIFY(version.exec("UPDATE schema_version SET version = 29"));
-                idMap.clear();
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, true,
-                                                           idMap, {}, bagIdMap));
-                const Recipe matched = RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcRecipeId));
-                QVERIFY(matched.grindPinned.isEmpty());
-            });
-        });
-    }
-
-    void importLegacyGrindBeforeBagLinks() {
-        const QString srcPath = freshDbPath();
-        const QString destPath = freshDbPath();
-        qint64 sourceRecipe = 0, missingRecipe = 0, sourceBag = 0, destBag = 0;
-        withRawDb(srcPath, "pre29_src", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
-            bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true;
-            sourceBag = CoffeeBagStorage::insertBagStatic(db, bag);
-            QSqlQuery legacyDial(db);
-            QVERIFY(legacyDial.exec(QString("UPDATE coffee_bags SET grinder_setting = '18', rpm = 1200 WHERE id = %1").arg(sourceBag)));
-            Recipe recipe = sampleRecipe();
-            sourceRecipe = RecipeStorage::insertRecipeStatic(db, recipe);
-            recipe.name = "Unknown bean"; recipe.beanBaseId = "missing";
-            recipe.roasterName = "Other"; recipe.coffeeName = "Unknown";
-            missingRecipe = RecipeStorage::insertRecipeStatic(db, recipe);
-            QVERIFY(sourceBag > 0 && sourceRecipe > 0 && missingRecipe > 0);
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN bag_id"));
-            QVERIFY(q.exec("CREATE TABLE schema_version (version INTEGER)"));
-            QVERIFY(q.exec("INSERT INTO schema_version VALUES (28)"));
-        });
-        withRawDb(destPath, "pre29_dest", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
-            destBag = CoffeeBagStorage::insertBagStatic(db, bag);
-            QVERIFY(destBag > 0);
-        });
-        withRawDb(srcPath, "pre29_source", [&](QSqlDatabase& srcDb) {
-            withRawDb(destPath, "pre29_destination", [&](QSqlDatabase& destDb) {
-                QHash<qint64, qint64> map;
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, false, map, {}, {{sourceBag, destBag}}));
-                const Recipe recipe = RecipeStorage::loadRecipeStatic(destDb, map.value(sourceRecipe));
-                QCOMPARE(recipe.bagId, destBag);
-                QCOMPARE(recipe.grindPinned, QString("18"));
-                QCOMPARE(recipe.rpmPinned, qint64(1200));
-                QVERIFY(RecipeStorage::loadRecipeStatic(destDb, map.value(missingRecipe)).grindPinned.isEmpty());
-            });
-        });
-    }
-
     // Import must preserve the source's original created_at (recipe-list-
     // organization): "Date created" ordering has to survive transfer / backup
     // restore. created_at is read-only, so the INSERT lets the DEFAULT stamp
@@ -2212,75 +1962,6 @@ private slots:
         });
     }
 
-    // Yield-spec import conversion (add-yield-ratio-anchor): a pre-34 source
-    // (yield_g but no yield_mode) converts on import — yield_g > 0 becomes
-    // {value, absolute}, else "none" — producing the same specs the local
-    // migration would have.
-    void importConvertsLegacyYieldG() {
-        const QString srcPath = freshDbPath();
-        const QString destPath = freshDbPath();
-        withRawDb(srcPath, "y34_src", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN yield_value"));
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN yield_mode"));
-            QVERIFY(q.exec("INSERT INTO recipes (name, yield_g) VALUES ('LegacyYield', 40.0)"));
-            QVERIFY(q.exec("INSERT INTO recipes (name) VALUES ('LegacyNone')"));
-        });
-        withRawDb(destPath, "y34_dest", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-        });
-        withRawDb(srcPath, "y34_src2", [&](QSqlDatabase& srcDb) {
-            withRawDb(destPath, "y34_dest2", [&](QSqlDatabase& destDb) {
-                QHash<qint64, qint64> idMap;
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
-                                                           idMap, {}, {}));
-                QSqlQuery q(destDb);
-                QVERIFY(q.exec("SELECT yield_value, yield_mode FROM recipes WHERE name = 'LegacyYield'"));
-                QVERIFY(q.next());
-                QCOMPARE(q.value(0).toDouble(), 40.0);
-                QCOMPARE(q.value(1).toString(), QStringLiteral("absolute"));
-                QVERIFY(q.exec("SELECT yield_mode FROM recipes WHERE name = 'LegacyNone'"));
-                QVERIFY(q.next());
-                QCOMPARE(q.value(1).isValid() ? q.value(0).toString() : q.value(0).toString(),
-                         QStringLiteral("none"));
-            });
-        });
-    }
-
-    // A ≥34 source imports its spec VERBATIM and its dead yield_g is ignored
-    // — reconverting would resurrect a yield the user has since changed to a
-    // ratio (the staged-conversion discipline of the temperature migration).
-    void importNeverReconvertsFromDeadYieldG() {
-        const QString srcPath = freshDbPath();
-        const QString destPath = freshDbPath();
-        withRawDb(srcPath, "y34v_src", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            // A recipe migrated from yield_g 40 then changed to a 1:2 ratio:
-            // the dead column still holds 40.
-            QSqlQuery q(db);
-            QVERIFY(q.exec("INSERT INTO recipes (name, yield_g, yield_value, yield_mode) "
-                           "VALUES ('NowRatio', 40.0, 2.0, 'ratio')"));
-        });
-        withRawDb(destPath, "y34v_dest", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-        });
-        withRawDb(srcPath, "y34v_src2", [&](QSqlDatabase& srcDb) {
-            withRawDb(destPath, "y34v_dest2", [&](QSqlDatabase& destDb) {
-                QHash<qint64, qint64> idMap;
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
-                                                           idMap, {}, {}));
-                QSqlQuery q(destDb);
-                QVERIFY(q.exec("SELECT yield_value, yield_mode FROM recipes WHERE name = 'NowRatio'"));
-                QVERIFY(q.next());
-                QCOMPARE(q.value(0).toDouble(), 2.0);
-                QCOMPARE(q.value(1).toString(), QStringLiteral("ratio"));
-            });
-        });
-    }
-
     // A bag-linked create never adopts the bag's dial.
     void createDoesNotDefaultGrindFromBag() {
         const QString path = freshDbPath();
@@ -2291,15 +1972,13 @@ private slots:
             CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
             bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true;
             bagId = CoffeeBagStorage::insertBagStatic(db, bag);
-            QSqlQuery legacyDial(db);
-            QVERIFY(legacyDial.exec(QString("UPDATE coffee_bags SET grinder_setting = '18', rpm = 1200 WHERE id = %1").arg(bagId)));
         });
         QVERIFY(bagId > 0);
 
         RecipeStorage storage;
         storage.initialize(path);
 
-        // Omitted grind stays empty, even when the bag has a dial.
+        // Omitted grind stays empty.
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
             QVariantMap map{{"name", "Adopts"}, {"profileTitle", "P"}, {"bagId", bagId}};
@@ -2385,44 +2064,6 @@ private slots:
         });
     }
 
-    // A legacy-version source (no temp_offset_c column) stages its absolute
-    // into the dest's dead column and marks the row unconverted; the deferred
-    // pass then produces the same offset the local migration would have.
-    void importLegacyTempSourceStagesAndConverts() {
-        const QString srcPath = freshDbPath();
-        const QString destPath = freshDbPath();
-        withRawDb(srcPath, "lts_src", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN temp_offset_c"));  // pre-31 schema
-            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, temp_override_c) "
-                           "VALUES ('Legacy', 'Known', 87.0)"));
-        });
-        withRawDb(destPath, "lts_dest", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-        });
-        withRawDb(srcPath, "lts_src2", [&](QSqlDatabase& srcDb) {
-            withRawDb(destPath, "lts_dest2", [&](QSqlDatabase& destDb) {
-                QHash<qint64, qint64> idMap;
-                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
-                                                           idMap, {}, {}));
-                // Staged: unconverted marker + the absolute in the dead column.
-                QSqlQuery r(destDb);
-                QVERIFY(r.exec("SELECT temp_offset_c, temp_override_c FROM recipes"));
-                QVERIFY(r.next());
-                QVERIFY(r.value(0).isNull());
-                QCOMPARE(r.value(1).toDouble(), 87.0);
-
-                const QHash<QString, double> temps{{QStringLiteral("Known"), 90.0}};
-                QVERIFY(RecipeStorage::convertLegacyTempOffsetsStatic(destDb, temps));
-                QSqlQuery r2(destDb);
-                QVERIFY(r2.exec("SELECT temp_offset_c FROM recipes"));
-                QVERIFY(r2.next());
-                QCOMPARE(r2.value(0).toDouble(), -3.0);
-            });
-        });
-    }
-
     // Clearing an offset through the normal update path must write an
     // EXPLICIT 0, never NULL — NULL is the migration's "unconverted" marker,
     // and a NULL here would let the conversion pass resurrect the dead
@@ -2455,7 +2096,7 @@ private slots:
         });
     }
 
-    // Merge-mode import: a legacy-source row that dedup-matches an existing
+    // Merge-mode import: an unconverted source row that dedup-matches an existing
     // dest recipe maps to the existing row WITHOUT staging — the local
     // recipe's (possibly deliberately cleared) offset must survive. Staging
     // belongs to inserted rows only.
@@ -2465,7 +2106,7 @@ private slots:
         withRawDb(srcPath, "mrg_src", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
             QSqlQuery q(db);
-            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN temp_offset_c"));  // pre-31 schema
+            // temp_offset_c left NULL: unconverted.
             QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, roaster_name, coffee_name, "
                            "temp_override_c) VALUES ('Twin', 'P', 'R', 'C', 87.0)"));
         });
@@ -3440,82 +3081,7 @@ private slots:
                 QVERIFY(e.recipe.id != usedId);
         });
     }
-    // steam-heater-policy: recipes that named a user-created "Off" pitcher must
-    // be rewritten to the {"heaterOff": true} marker when that preset is removed.
-    // Leaving the NAME behind is not harmless — activation's resurrect path would
-    // recreate it as a real preset, putting a second "Heater off" row in every
-    // picker and turning a deliberate off-choice into a pitcher nobody made.
-    void heaterOffRewriteReplacesRemovedPitcherNamesWithTheMarker() {
-        const QString path = freshDbPath();
-        qint64 offId = 0, realId = 0, bareId = 0;
-        withRawDb(path, "heateroff_seed", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            Recipe off = sampleRecipe();
-            off.name = "No steam latte";
-            off.steamJson = R"({"hasMilk":true,"milkWeightG":120,"pitcherName":"Off",)"
-                            R"("durationSec":30,"flow":150,"temperatureC":140})";
-            offId = RecipeStorage::insertRecipeStatic(db, off);
 
-            Recipe real = sampleRecipe();
-            real.name = "Real latte";
-            real.steamJson = R"({"hasMilk":true,"pitcherName":"Small","durationSec":30})";
-            realId = RecipeStorage::insertRecipeStatic(db, real);
-
-            Recipe bare = sampleRecipe();
-            bare.name = "Plain espresso";
-            bare.steamJson = "";
-            bareId = RecipeStorage::insertRecipeStatic(db, bare);
-        });
-        QVERIFY(offId > 0 && realId > 0 && bareId > 0);
-
-        int rewritten = 0;
-        withRawDb(path, "heateroff_run", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(
-                        db, {QStringLiteral("off")}, &rewritten));   // matched case-insensitively
-        });
-        QCOMPARE(rewritten, 1);
-
-        withRawDb(path, "heateroff_verify", [&](QSqlDatabase& db) {
-            const QJsonObject steam = QJsonDocument::fromJson(
-                RecipeStorage::loadRecipeStatic(db, offId).steamJson.toUtf8()).object();
-            QVERIFY(steam.value("heaterOff").toBool());
-            // The declared intent survives; the pitcher fields do not — the
-            // built-in carries no values, so keeping them would describe a
-            // pitcher that is not being used.
-            QVERIFY(steam.value("hasMilk").toBool());
-            QCOMPARE(steam.value("milkWeightG").toDouble(), 120.0);
-            QVERIFY(!steam.contains("pitcherName"));
-            QVERIFY(!steam.contains("durationSec"));
-            QVERIFY(!steam.contains("flow"));
-            QVERIFY(!steam.contains("temperatureC"));
-
-            // Untouched: a recipe naming a surviving pitcher, and one with no
-            // steam block at all.
-            const QJsonObject realSteam = QJsonDocument::fromJson(
-                RecipeStorage::loadRecipeStatic(db, realId).steamJson.toUtf8()).object();
-            QCOMPARE(realSteam.value("pitcherName").toString(), QStringLiteral("Small"));
-            QVERIFY(!realSteam.contains("heaterOff"));
-            QVERIFY(RecipeStorage::loadRecipeStatic(db, bareId).steamJson.isEmpty());
-        });
-
-        // Idempotent: re-running finds nothing, because the name is gone.
-        withRawDb(path, "heateroff_rerun", [&](QSqlDatabase& db) {
-            int again = -1;
-            QVERIFY(RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(
-                        db, {QStringLiteral("Off")}, &again));
-            QCOMPARE(again, 0);
-        });
-    }
-
-    void heaterOffRewriteWithNoRemovedNamesIsANoOp() {
-        const QString path = freshDbPath();
-        withRawDb(path, "heateroff_none", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            int count = -1;
-            QVERIFY(RecipeStorage::rewriteHeaterOffPitcherRecipesStatic(db, {}, &count));
-            QCOMPARE(count, 0);
-        });
-    }
 };
 
 QTEST_MAIN(tst_RecipeStorage)

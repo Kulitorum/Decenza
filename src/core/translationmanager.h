@@ -437,6 +437,12 @@ private:
     // Placeholders a string carries, e.g. {1, 2} for "%1 of %2". A translation must carry the
     // same set: reordering is fine and expected, losing or inventing one is not.
     static QSet<int> placeholderSet(const QString& text);
+    // Why `translation` cannot stand in for `source`, or empty when it can (or either is empty).
+    // Checked on the AI, download and cached-AI paths, and again on upload, which is where a
+    // manual edit (setTranslation, unchecked) is caught. Import checks placeholders only.
+    static QString translationDefect(const QString& source, const QString& translation);
+    // The language file as saved and uploaded: metadata for the current language plus `translations`.
+    QJsonObject currentLanguageDocument(const QJsonObject& translations) const;
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
     [[nodiscard]] bool saveAiTranslations();
@@ -477,6 +483,9 @@ private:
     // retry used to re-derive the language from m_currentLanguage at fire time, so switching
     // language during the wait published one language's strings under another's name.
     QString m_uploadingLangCode;
+    // Strings the pending upload left out because translationDefect refused them; the server
+    // copy loses them, so the success message says how many.
+    int m_uploadWithheld = 0;
 
     // translations[key] = translated_text
     QMap<QString, QString> m_translations;
@@ -522,7 +531,7 @@ private:
     // from uploading an untranslated file.
     int m_autoTranslateParseFailures = 0;
 
-    // Translations discarded this run because they did not preserve their placeholders.
+    // Translations discarded this run because translationDefect refused them.
     int m_autoTranslateRejected = 0;
 
     // True when a run failed for a reason that would recur for EVERY remaining language — the

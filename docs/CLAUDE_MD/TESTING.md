@@ -404,7 +404,7 @@ So, in order:
 1. **Add to an EXISTING target whose fixtures already fit.** This is the default and
    it is nearly free — one TU recompiles, and only when you touch it. Look for a
    binary that already links what you need and already has the setup: `tst_dbmigration`
-   (schema/migration chain), `tst_dialing_blocks` (DB-backed reads, and it copies a
+   (schema baseline, upgrade floor, migrations), `tst_dialing_blocks` (DB-backed reads, and it copies a
    prebuilt schema template per test instead of re-running migrations), `tst_coffeebags`,
    `tst_equipment`, `tst_recipestorage`.
 2. **Only create a new target when no existing one fits** — a genuinely new subsystem,

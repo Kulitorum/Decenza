@@ -18,19 +18,9 @@
 #include <utility>
 
 namespace {
-constexpr int kSnapshotIntervalMs = 250;
+constexpr int kSessionValidationIntervalMs = 250;
 constexpr qint64 kMaximumSocketReadBuffer = 8 * 1024;
-// Retain a small fixed output budget (roughly two maximum snapshots) so a
-// client that stops reading cannot accumulate an unbounded write queue.
-constexpr qint64 kMaximumQueuedOutput = 64 * 1024;
-// Bound each complete state/telemetry snapshot, including appearance inputs.
-constexpr qsizetype kMaximumSnapshotBytes = 32 * 1024;
-constexpr qint64 kMaximumTextFrameOverhead = 16;
 constexpr quint64 kMaximumIncomingMessageBytes = 4 * 1024;
-// JSON encodes sequence as a number. Keep it within the exact integer range
-// shared by Qt's JSON double and JavaScript's Number.
-constexpr quint64 kMaximumExactJsonInteger = 9'007'199'254'740'991ULL;
-constexpr auto kSessionUpgradePath = "/api/session/ws";
 constexpr auto kRemoteObjectsUpgradePath = "/api/session/objects";
 
 RemoteSessionServer::UpgradeInspection inspection(
@@ -47,7 +37,6 @@ RemoteSessionServer::UpgradeInspection inspection(
 bool isPotentialSessionUpgradePrefix(const QByteArray& bytes)
 {
     static const QList<QByteArray> routePaths{
-        QByteArrayLiteral("/api/session/ws"),
         QByteArrayLiteral("/api/session/objects")
     };
     if (bytes.isEmpty())
@@ -233,13 +222,9 @@ RemoteSessionServer::UpgradeInspection RemoteSessionServer::inspectUpgradeBuffer
     const QByteArray& method = parts.at(0);
     const QByteArray& target = parts.at(1);
     const QByteArray& version = parts.at(2);
-    if (target.startsWith(QByteArrayLiteral("/api/session/ws?")))
-        return inspection(UpgradeDisposition::Rejected, 400,
-                          QByteArrayLiteral("{\"error\":\"Invalid WebSocket route\"}"));
-    const bool snapshotRoute = target == kSessionUpgradePath;
     const bool objectsRoute = target == kRemoteObjectsUpgradePath
         || target.startsWith(QByteArrayLiteral("/api/session/objects?"));
-    if (!snapshotRoute && !objectsRoute) {
+    if (!objectsRoute) {
         return inspection(UpgradeDisposition::NotTarget);
     }
     if (method != QByteArrayLiteral("GET")) {
@@ -315,16 +300,14 @@ RemoteSessionServer::UpgradeInspection RemoteSessionServer::inspectUpgradeBuffer
     return result;
 }
 
-RemoteSessionServer::RemoteSessionServer(SnapshotProvider snapshotProvider,
-                                         SessionValidator sessionValidator,
+RemoteSessionServer::RemoteSessionServer(SessionValidator sessionValidator,
                                          bool secureOrigin,
                                          QObject* parent)
     : QObject(parent)
     , m_server(new QWebSocketServer(
-          QStringLiteral("Decenza read-only session"),
+          QStringLiteral("Decenza browser session"),
           secureOrigin ? QWebSocketServer::SecureMode : QWebSocketServer::NonSecureMode,
           this))
-    , m_snapshotProvider(std::move(snapshotProvider))
     , m_sessionValidator(std::move(sessionValidator))
 {
     m_server->setMaxPendingConnections(64);
@@ -343,9 +326,9 @@ RemoteSessionServer::RemoteSessionServer(SnapshotProvider snapshotProvider,
                 authenticator->setAllowed(true);
             });
 
-    m_publishTimer.setInterval(kSnapshotIntervalMs);
-    connect(&m_publishTimer, &QTimer::timeout,
-            this, &RemoteSessionServer::publishSnapshots);
+    m_sessionValidationTimer.setInterval(kSessionValidationIntervalMs);
+    connect(&m_sessionValidationTimer, &QTimer::timeout,
+            this, &RemoteSessionServer::revalidateSessions);
 }
 
 RemoteSessionServer::~RemoteSessionServer()
@@ -428,16 +411,7 @@ void RemoteSessionServer::forgetSocket(QTcpSocket* socket)
 
 void RemoteSessionServer::closeAll()
 {
-    m_publishTimer.stop();
-
-    const auto clients = m_clients.keys();
-    for (QWebSocket* socket : clients) {
-        if (!socket)
-            continue;
-        socket->abort();
-        socket->deleteLater();
-    }
-    m_clients.clear();
+    m_sessionValidationTimer.stop();
 
     const auto remoteClients = m_remoteObjectClients.keys();
     for (QWebSocket* socket : remoteClients) {
@@ -521,44 +495,11 @@ void RemoteSessionServer::takePendingConnections()
             acceptRemoteObjectClient(socket, socketIdentity);
             continue;
         }
-        if (requestUrl.path() != QString::fromLatin1(kSessionUpgradePath)) {
-            if (socketIdentity)
-                emit connectionClosed(socketIdentity);
-            socket->close(QWebSocketProtocol::CloseCodePolicyViolated,
-                          QStringLiteral("Unknown session WebSocket route"));
-            socket->deleteLater();
-            continue;
-        }
-
-        Client client;
-        client.socket = socket;
-        client.socketIdentity = socketIdentity;
-        client.authenticatedRequest = std::move(authenticatedRequest);
-        m_clients.insert(socket, std::move(client));
-
-        connect(socket, &QWebSocket::textMessageReceived, this,
-                [this, socket](const QString&) {
-                    closeClient(socket, QWebSocketProtocol::CloseCodePolicyViolated,
-                                QStringLiteral("This session is read-only"));
-                });
-        connect(socket, &QWebSocket::binaryMessageReceived, this,
-                [this, socket](const QByteArray&) {
-                    closeClient(socket, QWebSocketProtocol::CloseCodePolicyViolated,
-                                QStringLiteral("This session is read-only"));
-                });
-        connect(socket, &QWebSocket::disconnected, this, [this, socket] {
-            removeClient(socket);
-            socket->deleteLater();
-        });
-        connect(socket, &QObject::destroyed, this, [this, socket] {
-            removeClient(socket);
-        });
-
-        Client& acceptedClient = m_clients[socket];
-        if (!sendSnapshot(socket, acceptedClient))
-            continue;
-        if (!m_publishTimer.isActive())
-            m_publishTimer.start();
+        if (socketIdentity)
+            emit connectionClosed(socketIdentity);
+        socket->close(QWebSocketProtocol::CloseCodePolicyViolated,
+                      QStringLiteral("Unknown session WebSocket route"));
+        socket->deleteLater();
     }
 }
 
@@ -609,8 +550,8 @@ bool RemoteSessionServer::acceptRemoteObjectClient(QWebSocket* socket,
 
     emit remoteObjectClientOpened(client.clientId);
     m_remoteObjectHandler(client.device.data());
-    if (!m_publishTimer.isActive())
-        m_publishTimer.start();
+    if (!m_sessionValidationTimer.isActive())
+        m_sessionValidationTimer.start();
     return true;
 }
 
@@ -628,8 +569,8 @@ void RemoteSessionServer::removeRemoteObjectClient(QWebSocket* socket)
         device->deleteLater();
     if (socketIdentity)
         emit connectionClosed(socketIdentity);
-    if (m_clients.isEmpty() && m_remoteObjectClients.isEmpty())
-        m_publishTimer.stop();
+    if (m_remoteObjectClients.isEmpty())
+        m_sessionValidationTimer.stop();
 }
 
 bool RemoteSessionServer::validateRemoteObjectClient(RemoteObjectClient& client)
@@ -646,48 +587,13 @@ bool RemoteSessionServer::validateRemoteObjectClient(RemoteObjectClient& client)
     return true;
 }
 
-void RemoteSessionServer::removeClient(QWebSocket* socket)
-{
-    const auto it = m_clients.find(socket);
-    if (it == m_clients.end())
-        return;
-
-    QTcpSocket* socketIdentity = it->socketIdentity;
-    m_clients.erase(it);
-    if (socketIdentity)
-        emit connectionClosed(socketIdentity);
-    if (m_clients.isEmpty() && m_remoteObjectClients.isEmpty())
-        m_publishTimer.stop();
-}
-
-void RemoteSessionServer::publishSnapshots()
+void RemoteSessionServer::revalidateSessions()
 {
     for (auto it = m_handedOffSockets.begin(); it != m_handedOffSockets.end();) {
         if (it.value().isNull())
             it = m_handedOffSockets.erase(it);
         else
             ++it;
-    }
-
-    const auto sockets = m_clients.keys();
-    for (QWebSocket* socket : sockets) {
-        auto it = m_clients.find(socket);
-        if (it == m_clients.end())
-            continue;
-        QWebSocket* liveSocket = it->socket.data();
-        if (!liveSocket) {
-            removeClient(socket);
-            continue;
-        }
-        if (liveSocket->state() == QAbstractSocket::UnconnectedState) {
-            removeClient(socket);
-            continue;
-        }
-        // ClosingState (and any brief non-connected transition) is still an
-        // accounted connection. Keep its entry until disconnected.
-        if (liveSocket->state() != QAbstractSocket::ConnectedState)
-            continue;
-        sendSnapshot(liveSocket, it.value());
     }
 
     const auto remoteSockets = m_remoteObjectClients.keys();
@@ -699,50 +605,8 @@ void RemoteSessionServer::publishSnapshots()
             removeRemoteObjectClient(socket);
     }
 
-    if (m_clients.isEmpty() && m_remoteObjectClients.isEmpty())
-        m_publishTimer.stop();
-}
-
-bool RemoteSessionServer::sendSnapshot(QWebSocket* socket, Client& client)
-{
-    if (!socket || socket->state() != QAbstractSocket::ConnectedState)
-        return false;
-
-    if (m_sessionValidator && !m_sessionValidator(client.authenticatedRequest)) {
-        closeClient(socket, QWebSocketProtocol::CloseCodePolicyViolated,
-                    QStringLiteral("Session expired"));
-        return false;
-    }
-
-    if (client.sequence >= kMaximumExactJsonInteger || !m_snapshotProvider) {
-        closeClient(socket, QWebSocketProtocol::CloseCodeBadOperation,
-                    QStringLiteral("Session snapshot unavailable"));
-        return false;
-    }
-    const quint64 nextSequence = client.sequence + 1;
-
-    const QByteArray json = QJsonDocument(m_snapshotProvider(nextSequence))
-                                .toJson(QJsonDocument::Compact);
-    if (json.isEmpty() || json.size() > kMaximumSnapshotBytes) {
-        closeClient(socket, QWebSocketProtocol::CloseCodeBadOperation,
-                    QStringLiteral("Session snapshot exceeds limit"));
-        return false;
-    }
-    if (socket->bytesToWrite() + json.size() + kMaximumTextFrameOverhead
-        > kMaximumQueuedOutput) {
-        // A close frame could sit behind the same full write queue. Abort to
-        // release this bounded connection immediately.
-        socket->abort();
-        return false;
-    }
-
-    if (socket->sendTextMessage(QString::fromUtf8(json)) < 0) {
-        closeClient(socket, QWebSocketProtocol::CloseCodeAbnormalDisconnection,
-                    QStringLiteral("Unable to send session snapshot"));
-        return false;
-    }
-    client.sequence = nextSequence;
-    return true;
+    if (m_remoteObjectClients.isEmpty())
+        m_sessionValidationTimer.stop();
 }
 
 void RemoteSessionServer::closeClient(QWebSocket* socket,

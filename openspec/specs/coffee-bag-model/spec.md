@@ -117,23 +117,6 @@ Migration 19 SHALL add a nullable `beanbase_id` TEXT column to the `shots` table
 - **THEN** a nullable `beanbase_id` column and its index SHALL be added, and each existing shot's `beanbase_id` SHALL be backfilled from `json_extract(beanbase_json, '$.id')` (NULL when absent)
 - **AND** every subsequent shot save SHALL write `beanbase_id` directly
 
-### Requirement: Bags survive backup restore and device-to-device transfer
-The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `coffee_bags` rows and remap `shots.bag_id` to the new bag row ids (shot ids are remapped on import; bag ids must follow). The settings import path (`SettingsSerializer`) SHALL translate a legacy `beans.presets` JSON section into bag rows; `dye/activeBagId` SHALL be excluded from settings export/import.
-
-#### Scenario: Restoring a backup with bags
-- **WHEN** a backup containing a `coffee_bags` table is restored
-- **THEN** all bags SHALL be imported with new row ids
-- **AND** imported shots' `bag_id` values SHALL point at the corresponding imported bags
-
-#### Scenario: Importing settings from an old-version device
-- **WHEN** a settings export containing a legacy `beans.presets` section is imported on a new-version device
-- **THEN** the presets SHALL be converted to bags via the same merge-import rules as migration (import non-duplicates, skip matches, log)
-
-#### Scenario: Backfill on migration
-- **WHEN** migration 19 runs on a database with existing shots carrying `beanbase_json`
-- **THEN** each such shot's `beanbase_id` column SHALL contain the canonical UUID extracted from the blob
-- **AND** shots without a blob SHALL have a null `beanbase_id`
-
 ### Requirement: Bag yield spec and dose follow the recipe ladder
 Applying a bag's **yield spec** SHALL be gated on no recipe being active, and the `yield-anchor` ladder (recipe, then bag, then profile) SHALL be enforced explicitly, never left to the arrival order of signals. Applying a bag's dose SHALL be gated the same way, per `dose-source-precedence`.
 
@@ -267,44 +250,12 @@ A schema migration SHALL add a `bean_repair_pending INTEGER NOT NULL DEFAULT 0` 
 - **WHEN** the app is closed mid-repair, or a repair pass is abandoned
 - **THEN** the still-flagged shots SHALL remain flagged and be retried on a later launch
 
-### Requirement: Stored bags carrying a borrowed canonical record are unlinked by migration
-A schema migration SHALL apply the identity check to every stored bag and unlink those whose own roaster or coffee name names a different coffee than the record they point at. Detection SHALL be offline and conservative: it can only prove a conflict while the stored snapshot still carries the record's own names, and an empty name on either side SHALL NOT count as disagreement.
-
-#### Scenario: A stored borrowed link is dropped
-
-- **WHEN** the migration runs on a database holding a bag whose roaster names a different coffee than its canonical record
-- **THEN** the bag's canonical id SHALL be cleared and its snapshot stripped of the link keys
-- **AND** every descriptive field and the product URL SHALL be kept
-
-#### Scenario: A correctly linked bag is untouched
-
-- **WHEN** the migration runs on a database holding a bag whose names still match its record
-- **THEN** the bag SHALL keep its canonical id
-
-#### Scenario: The unlink reaches the shots' own snapshots
-
-- **WHEN** a bag is unlinked by the migration
-- **THEN** the shots of that bag SHALL have the link keys removed from their own stored snapshots
-
-#### Scenario: Only uploaded shots are queued for repair
-
-- **WHEN** a bag with both uploaded and never-uploaded shots is unlinked
-- **THEN** only the uploaded shots SHALL be flagged `bean_repair_pending`
-- **AND** the never-uploaded shots SHALL NOT be flagged, since the server cannot have renamed a shot it does not have
-
 ### Requirement: The unlink propagates to each bag's shots
 The unlink SHALL propagate to the shots of every bag it fixes, because each shot carries its own snapshot and upload reads that copy. Uploaded shots of those bags SHALL additionally be flagged for repair.
 
 #### Scenario: Uploaded shots are queued for repair
 - **WHEN** an unlinked bag has shots that were already uploaded
 - **THEN** those shots are flagged for repair
-
-### Requirement: The unlink does not depend on the repair queue
-The unlink SHALL be applied even if the repair-queue column could not be added, and only the cloud repair is lost in that case. Where the migration cannot determine whether that column exists, it SHALL defer to a later launch rather than unlink without queueing.
-
-#### Scenario: Unknown column state defers the migration
-- **WHEN** the migration cannot determine whether the repair-queue column exists
-- **THEN** it defers to a later launch and does not unlink
 
 ### Requirement: The active bag moves when it is finished
 When the active bag is finished, the active selection SHALL move to the newest other in-inventory bag of the same coffee (canonical id, else roaster + coffee; `CoffeeBagStorage::successorBagStatic`, the same lookup recipes roll to), and SHALL be cleared when there is none, so later shots are never recorded against a finished bag.
@@ -477,3 +428,11 @@ The upgrade SHALL show a one-time startup notice only when the pre-upgrade state
 #### Scenario: Fresh install
 - **WHEN** the app creates a new database
 - **THEN** no notice is pending, whatever settings survived from an earlier install
+
+### Requirement: Bags survive restore and transfer with remapped ids
+The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `coffee_bags` rows and remap `shots.bag_id` to the new bag row ids (shot ids are remapped on import; bag ids must follow). `dye/activeBagId` SHALL be excluded from settings export/import.
+
+#### Scenario: Restoring a backup with bags
+- **WHEN** a backup containing a `coffee_bags` table is restored
+- **THEN** all bags SHALL be imported with new row ids
+- **AND** imported shots' `bag_id` values SHALL point at the corresponding imported bags

@@ -175,7 +175,6 @@ extern "C" const char* __ubsan_default_options()
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QScreen>
-#include <QSettings>
 #include <QIcon>
 #include <QTimer>
 #include <QEventLoop>
@@ -189,10 +188,8 @@ extern "C" const char* __ubsan_default_options()
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QSet>
 #include <QStandardPaths>
 #include <QPixmapCache>
 #ifdef Q_OS_MACOS
@@ -227,7 +224,6 @@ extern "C" const char* __ubsan_default_options()
 #include "core/themeeditoroptions.h"
 #include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
 #include "core/contextsingletons_qml.h"  // *Foreign — singletons replacing setContextProperty()
-#include "core/settingsstoremigration.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
 #include "core/settings_hardware.h"
@@ -302,6 +298,7 @@ extern "C" const char* __ubsan_default_options()
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
 #include "history/shothistoryexporter.h"
+#include "history/shothistorystorage.h"
 #include "history/shotprojection.h"
 #include "mcp/mcpserver.h"
 #include "network/remoteaccess.h"
@@ -390,198 +387,16 @@ void wireWifiScaleDriver(DecentScaleWifi* wifi, Settings& settings, BLEManager& 
     });
 }
 
-constexpr const char* kAppNameOld = "Decenza DE1";
-constexpr const char* kAppNameNew = "Decenza";
-constexpr const char* kMigrationKey = "migration/app_name_decenza_de1_to_decenza_done";
-
-struct MergeResult {
-    int moved = 0;
-    int copiedFallback = 0;
-    int skipped = 0;
-    int failed = 0;
-};
-
-QString appScopedPathForName(QStandardPaths::StandardLocation location, const QString& appName)
+// A desktop install last run before 1.5.6 keeps its data under the old app
+// name. Read as a fresh install, it would get a new database here, and that
+// database stops 2.1.0's app-name move from ever recovering the old one.
+bool hasPreRenameShotDatabase()
 {
-    const QString originalName = QCoreApplication::applicationName();
-    QCoreApplication::setApplicationName(appName);
-    const QString path = QDir::cleanPath(QStandardPaths::writableLocation(location));
-    QCoreApplication::setApplicationName(originalName);
-    return path;
-}
-
-MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& destRoot)
-{
-    MergeResult result;
-    QDir sourceDir(sourceRoot);
-    if (!sourceDir.exists()) {
-        return result;
-    }
-
-    // Fast path: move whole directory when destination doesn't exist yet.
-    if (!QDir(destRoot).exists()) {
-        const QString destParent = QFileInfo(destRoot).absolutePath();
-        if (!QDir().mkpath(destParent)) {
-            DIAG_WARN(APP, "AppNameMigration") << "Failed to create destination parent directory:" << destParent;
-            result.failed++;
-            return result;
-        }
-        if (QDir().rename(sourceRoot, destRoot)) {
-            result.moved++;
-            return result;
-        }
-    }
-
-    if (!QDir().mkpath(destRoot)) {
-        DIAG_WARN(APP, "AppNameMigration") << "Failed to create destination directory:" << destRoot;
-        result.failed++;
-        return result;
-    }
-
-    QDirIterator it(sourceRoot, QDir::NoDotAndDotDot | QDir::AllEntries, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-        const QFileInfo sourceInfo = it.fileInfo();
-        const QString relativePath = sourceDir.relativeFilePath(sourceInfo.absoluteFilePath());
-        const QString destPath = QDir(destRoot).filePath(relativePath);
-
-        if (sourceInfo.isDir()) {
-            if (!QDir().mkpath(destPath)) {
-                DIAG_WARN(APP, "AppNameMigration") << "Failed to create subdirectory:" << destPath;
-                result.failed++;
-            }
-            continue;
-        }
-
-        if (QFileInfo::exists(destPath)) {
-            result.skipped++;
-            continue;
-        }
-
-        const QString destParent = QFileInfo(destPath).absolutePath();
-        if (!QDir().mkpath(destParent)) {
-            DIAG_WARN(APP, "AppNameMigration") << "Failed to create parent directory:" << destParent;
-            result.failed++;
-            continue;
-        }
-
-        QFile sourceFile(sourceInfo.absoluteFilePath());
-        if (sourceFile.rename(destPath)) {
-            result.moved++;
-            continue;
-        }
-
-        // Fallback for edge cases where rename isn't possible.
-        if (QFile::copy(sourceInfo.absoluteFilePath(), destPath)) {
-            QFile::remove(sourceInfo.absoluteFilePath());
-            result.copiedFallback++;
-        } else {
-            DIAG_WARN(APP, "AppNameMigration") << "Failed to copy file:" << sourceInfo.absoluteFilePath()
-                       << "->" << destPath;
-            result.failed++;
-        }
-    }
-
-    // Best-effort cleanup of empty source directories.
-    QStringList subdirs;
-    QDirIterator dirIt(sourceRoot, QDir::NoDotAndDotDot | QDir::Dirs, QDirIterator::Subdirectories);
-    while (dirIt.hasNext()) {
-        dirIt.next();
-        subdirs.prepend(dirIt.filePath());
-    }
-    for (const QString& subdir : subdirs) {
-        QDir().rmdir(subdir);
-    }
-    QDir().rmdir(sourceRoot);
-
-    return result;
-}
-
-void migrateDefaultQSettingsFromOldAppName(int& copied, int& skipped)
-{
-    const QString originalName = QCoreApplication::applicationName();
-
-    QCoreApplication::setApplicationName(kAppNameOld);
-    QSettings oldSettings;
-    const QStringList oldKeys = oldSettings.allKeys();
-
-    QCoreApplication::setApplicationName(kAppNameNew);
-    QSettings newSettings;
-    for (const QString& key : oldKeys) {
-        if (newSettings.contains(key)) {
-            skipped++;
-            continue;
-        }
-        newSettings.setValue(key, oldSettings.value(key));
-        copied++;
-    }
-    newSettings.sync();
-
-    QCoreApplication::setApplicationName(originalName);
-}
-
-void runAppNameMigrationOnce()
-{
-    if (QCoreApplication::applicationName() != QLatin1String(kAppNameNew)) {
-        return;
-    }
-
-    // Guard lives in the canonical store. It used to live in the legacy DE1Qt
-    // store, which runSettingsStoreMigrationOnce() destroys — leaving the flag
-    // there would re-run this migration on every launch forever.
-    AppSettings migrationSettings;
-    if (migrationSettings.value(kMigrationKey, false).toBool()) {
-        return;
-    }
-
-    int settingsCopied = 0;
-    int settingsSkipped = 0;
-    migrateDefaultQSettingsFromOldAppName(settingsCopied, settingsSkipped);
-
-    int filesMoved = 0;
-    int filesCopiedFallback = 0;
-    int filesSkipped = 0;
-    int filesFailed = 0;
-    const std::vector<QStandardPaths::StandardLocation> locations = {
-        QStandardPaths::AppDataLocation,
-        QStandardPaths::AppLocalDataLocation,
-        QStandardPaths::CacheLocation
-    };
-    QSet<QString> migratedPairs;
-    for (QStandardPaths::StandardLocation location : locations) {
-        const QString oldPath = appScopedPathForName(location, kAppNameOld);
-        const QString newPath = appScopedPathForName(location, kAppNameNew);
-        if (oldPath.isEmpty() || newPath.isEmpty() || oldPath == newPath) {
-            continue;
-        }
-
-        const QString migrationPair = oldPath + "->" + newPath;
-        if (migratedPairs.contains(migrationPair)) {
-            continue;
-        }
-        migratedPairs.insert(migrationPair);
-
-        if (!QDir(oldPath).exists()) {
-            continue;
-        }
-
-        const MergeResult merge = mergeDirectoryContents(oldPath, newPath);
-        filesMoved += merge.moved;
-        filesCopiedFallback += merge.copiedFallback;
-        filesSkipped += merge.skipped;
-        filesFailed += merge.failed;
-    }
-
-    migrationSettings.setValue(kMigrationKey, true);
-    migrationSettings.sync();
-
-    DIAG_INFO(APP, "AppNameMigration") << "completed"
-            << "settingsCopied=" << settingsCopied
-            << "settingsSkipped=" << settingsSkipped
-            << "filesMoved=" << filesMoved
-            << "filesCopiedFallback=" << filesCopiedFallback
-            << "filesSkipped=" << filesSkipped
-            << "filesFailed=" << filesFailed;
+    const QString currentName = QCoreApplication::applicationName();
+    QCoreApplication::setApplicationName(QStringLiteral("Decenza DE1"));
+    const QString oldDatabase = ShotHistoryStorage::defaultDatabasePath();
+    QCoreApplication::setApplicationName(currentName);
+    return QFileInfo::exists(oldDatabase);
 }
 
 }  // namespace
@@ -1092,17 +907,34 @@ int main(int argc, char *argv[])
     app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
 
-    // Both migrations must complete here — before Settings and
-    // AccessibilityManager are constructed, since both read the store these
-    // populate. (Deliberately no line numbers: the two this carried had drifted
-    // by ~130 and ~360 lines respectively.)
-    //
-    // Store migration runs FIRST so that the app-name migration below finds its
-    // own done-flag: that flag used to live in the legacy DE1Qt store, and this
-    // migration is what carries it into the canonical one. Reversed, the
-    // app-name migration would see an unstamped flag and redundantly re-run.
-    runSettingsStoreMigrationOnce();
-    runAppNameMigrationOnce();
+    // Before any settings or database migration runs: data older than the
+    // upgrade floor is refused and left exactly as it is.
+    auto floorProbe = ShotHistoryStorage::probeUpgradeFloor(ShotHistoryStorage::defaultDatabasePath());
+    if (floorProbe == ShotHistoryStorage::UpgradeFloorProbe::NoDatabase && hasPreRenameShotDatabase()) {
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "shot database found only under the pre-1.5.6 app name";
+        floorProbe = ShotHistoryStorage::UpgradeFloorProbe::BelowFloor;
+    }
+    switch (floorProbe) {
+    case ShotHistoryStorage::UpgradeFloorProbe::BelowFloor: {
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "shot database is below schema"
+            << UpgradeFloor::kSchemaVersion << "- showing the install-"
+            << UpgradeFloor::kSteppingStoneRelease << "notice and exiting without changes";
+        QQmlApplicationEngine notice;
+        notice.setInitialProperties({{QStringLiteral("steppingStoneRelease"),
+                                      QString::fromLatin1(UpgradeFloor::kSteppingStoneRelease)}});
+        notice.load(QUrl(u"qrc:/qt/qml/Decenza/qml/UpgradeFloorNotice.qml"_s));
+        if (notice.rootObjects().isEmpty())
+            return 1;
+        return app.exec();
+    }
+    case ShotHistoryStorage::UpgradeFloorProbe::Unknown:
+        DIAG_WARN(STORAGE, "UpgradeFloor") << "could not read the shot database's schema version -"
+            << "continuing; the database layer refuses it before writing if it is below the floor";
+        break;
+    case ShotHistoryStorage::UpgradeFloorProbe::NoDatabase:
+    case ShotHistoryStorage::UpgradeFloorProbe::Supported:
+        break;
+    }
 
     // Limit Qt's pixmap cache to 32 MB (default is 10 MB on desktop but unbounded
     // growth via QML Image elements can reach 100+ MB on devices with many emoji/icon SVGs).
@@ -1451,6 +1283,7 @@ int main(int argc, char *argv[])
     // at BALANCED on the first connect (no detection window) — and a record
     // from a different build is auto-discarded (re-detect every new build).
     bleManager.setSettings(settings.hardware());
+    bleManager.setSavedScaleAddresses([&settings] { return settings.knownScaleAddresses(); });
     // Wire TranslationManager so user-visible BLE error strings get i18n
     // (scale debug-log lines stay in English regardless — they're diagnostic).
     bleManager.setTranslationManager(&translationManager);
@@ -1502,10 +1335,6 @@ int main(int argc, char *argv[])
 #endif
     checkpoint("Core objects");
     MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
-#ifndef Q_OS_IOS
-    if (mainController.shotServer())
-        mainController.shotServer()->setUsbScaleManager(&usbScaleManager);
-#endif
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
     mainController.setTranslationManager(&translationManager);  // for LiveSteamCoach cue i18n
@@ -2163,7 +1992,6 @@ int main(int argc, char *argv[])
     // Connect screensaver manager and AI manager to shot server
     mainController.shotServer()->setScreensaverVideoManager(&screensaverManager);
     mainController.shotServer()->setAIManager(&aiManager);
-    mainController.shotServer()->setMqttClient(mainController.mqttClient());
     // Connect screensaver manager to data migration client for media import
     mainController.dataMigration()->setScreensaverVideoManager(&screensaverManager);
 
@@ -2256,8 +2084,6 @@ int main(int argc, char *argv[])
         relayClient.shutdown();
     };
     QObject::connect(mainController.updateChecker(), &UpdateChecker::aboutToDispatchInstall,
-                     &mainController, quietNetworkForApkInstall);
-    QObject::connect(mainController.shotServer(), &ShotServer::aboutToDispatchInstall,
                      &mainController, quietNetworkForApkInstall);
 #endif
 
@@ -2389,8 +2215,6 @@ int main(int argc, char *argv[])
     QObject::connect(mainController.preparation(), &PreparationController::captureDingRequested,
                      &accessibilityManager, &AccessibilityManager::playCaptureDing);
     accessibilityManager.setTranslationManager(&translationManager);
-    if (mainController.shotServer())
-        mainController.shotServer()->setAccessibilityManager(&accessibilityManager);
 
     // Steam-coach voice: the coach emits speakRequested only when its own audio
     // setting is on; route it via announceCoaching, which bypasses BOTH
@@ -2419,8 +2243,6 @@ int main(int argc, char *argv[])
     // a separate connect because crashReporter is constructed after that
     // lambda's call site.
     QObject::connect(mainController.updateChecker(), &UpdateChecker::aboutToDispatchInstall,
-                     &crashReporter, &CrashReporter::clearConnectionCache);
-    QObject::connect(mainController.shotServer(), &ShotServer::aboutToDispatchInstall,
                      &crashReporter, &CrashReporter::clearConnectionCache);
 #endif
 
@@ -2471,8 +2293,6 @@ int main(int argc, char *argv[])
         bleManager.setFirmwareUpdateActive(transferring);
         belkaPortal.setFirmwareUpdateActive(transferring);
     });
-    if (mainController.shotServer())
-        mainController.shotServer()->setBelkaPortalDevice(&belkaPortal);
     connectPortalDiscovery(&bleManager, &belkaPortal);
     PortalController portalController(&belkaPortal, settings.hardware(), &machineState,
                                      &timingController, &shotDataModel);
@@ -2634,7 +2454,6 @@ int main(int argc, char *argv[])
     QObject::connect(&fullBackupRestore, &FullBackupRestore::mediaRestored,
                      &screensaverManager, &ScreensaverVideoManager::reloadPersonalMedia);
     backupServiceSource.setRestoreAllowed([&machineState] { return !machineState.isOperating(); });
-    mainController.shotServer()->setFullBackupRestore(&fullBackupRestore);
     backupServiceSource.openClient(nativeConversationId);
     if (auto* server = mainController.shotServer()) {
         QObject::connect(server, &ShotServer::remoteObjectClientOpened,
@@ -2901,50 +2720,26 @@ int main(int argc, char *argv[])
 #endif
 
     // Scale auto-reconnect after disconnect: backoff ramp 5s → 30s → 60s, then
-    // the 60s tail repeats while the scale stays disconnected — slowing to 5min
-    // once it is clear the scale is not coming back this sitting (see below).
-    // First retry is quick (5s); the 30s/60s delays exceed BLE's 20s connection
-    // timeout so each attempt completes before the next fires. We never give up
-    // permanently (matches de1app): a scale powered back on hours later is
+    // the 60s tail repeats for as long as the scale stays disconnected. We never
+    // give up permanently (matches de1app): a scale powered back on hours later is
     // reconnected automatically because each retry runs a ~15s scan that
     // connects as soon as it sees the saved scale advertising, so it is picked
     // up within a retry cycle (#1207).
     int scaleReconnectAttempt = 0;
+    bool scaleHunting = false;   // last cadence logged; cleared by a ramp restart
     QTimer scaleReconnectTimer;
     scaleReconnectTimer.setSingleShot(true);
     const std::vector<int> reconnectDelays = {5000, 30000, 60000};
 
-    // …but the 60 s tail runs at that cadence for a bounded number of cycles,
-    // then drops to 5 minutes. kScaleFastTailAttempts counts TOTAL attempts, so
-    // with a 3-step ramp the 60 s branch runs 8 times and the crossing lands at
-    // 5 + 30 + 60×8 ≈ 8.6 min. A saved scale still absent by then is not "about
-    // to appear" — it is off, out of range, or (the case that prompted this) a
-    // WiFi scale whose host is not on this network at all, failing every dial
-    // with HostNotFoundError. Each cycle is not free: when the WiFi dial fails
-    // and the cached IP is stale, the cycle also runs an mDNS resolve and then
-    // the ~15 s BLE-scan fallback (beginWifiFallbackToBleScan) — once a minute,
-    // for as long as the app is open. MQTT next door already ramps 5→60 s and
-    // then holds at 15 min for exactly this reason (see MAX_FAST_RECONNECT_-
-    // ATTEMPTS in mqttclient.h, also 10); this is the same shape, kept much
-    // shorter because a scale that IS powered back on should still be picked up
-    // promptly.
+    // Do not add a slow tier: a scale woken after the crossing stayed unconnected
+    // through a pour that read 0 g (#2058). While the machine is not in an
+    // operation a failed attempt starts the next one immediately (the hunt, in the
+    // scaleRetryNeeded handler), so the 30 s/60 s gaps apply only mid-operation.
+    // Only the screensaver pauses the ladder: with Auto-Sleep off, a scale left
+    // switched off is scanned for all session. That is the accepted cost.
     //
-    // Nothing is given up by slowing down: every event that means "a scale
-    // might be here now" restarts the ramp at 5 s with the counter cleared —
-    // app resume, screensaver exit, and DE1 wake. A user-initiated scan and a
-    // successful connect also clear the counter, but they STOP the ladder
-    // rather than restarting it, which is correct for both. The worst case is a
-    // scale switched on while the app sits untouched in the foreground, which
-    // waits up to 5 min instead of up to 1.
-    //
-    // Each of those three restart sites used to be gated on the reconnect timer
-    // being idle. That gate silently voided all three: the timer is single-shot
-    // and re-armed at the end of every tick, so it is ALWAYS active while the
-    // ladder runs, which is precisely when a restart is wanted. Do not
-    // reintroduce it — QTimer::start() on an active single-shot timer just
-    // restarts it, so no guard is needed.
-    const int kScaleFastTailAttempts = 10;
-    const int kScaleSlowTailMs = 300000;  // 5 min
+    // Do not gate a ramp restart on the timer being idle: it is single-shot and
+    // re-armed every tick, so it is always active while the ladder runs.
 
     // When Settings.keepScaleOn is false we deliberately disconnect the scale
     // on DE1 sleep. The connectedChanged handler below normally schedules an
@@ -2978,7 +2773,7 @@ int main(int argc, char *argv[])
     bool de1EverAwake = false;
     bool wasInSleep = false;
 
-    // R2 refractometer auto-reconnect: same persistent backoff as the scale
+    // R2 refractometer auto-reconnect: shares the scale's reconnectDelays
     // (5s → 30s → 60s, then 60s forever). The R2 is only used to capture TDS/EY
     // on the post-shot review page, so — unlike the scale — this tick is scoped
     // to that page's "hunt": it is armed only while the hunt is active and keeps
@@ -3017,7 +2812,7 @@ int main(int argc, char *argv[])
 
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer,
-                      &reconnectDelays, &screensaverManager]() {   // the two const tail constants need no capture
+                      &reconnectDelays, &screensaverManager]() {
         // Stopping the timer on screensaver entry was not enough: a scan already
         // in flight re-armed it on failure and scanned all night (#1976). Every
         // arming of this timer lands in this tick, so it is the backstop; the
@@ -3065,30 +2860,12 @@ int main(int argc, char *argv[])
         // (issue #1303). The saved scale auto-connects when seen in a scan.
         bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         scaleReconnectAttempt++;
-        // Persistent reconnect: walk the ramp, hold on the last (60s) delay for
-        // kScaleFastTailAttempts cycles, then hold on the 5-minute delay
-        // forever. Stops naturally when the scale connects (connectedChanged),
-        // the user forgets it (scaleAddress empty, above), or the user scans for
-        // a different scale.
-        if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
-            scaleReconnectTimer.start(reconnectDelays[scaleReconnectAttempt]);
-        } else if (scaleReconnectAttempt < kScaleFastTailAttempts) {
-            scaleReconnectTimer.start(reconnectDelays.back());
-        } else {
-            // Announce the one crossing, not every slow cycle — the 5-minute
-            // tail runs forever and the scale log is a 1000-entry ring buffer.
-            // `==` rather than `>=` is what makes it one-shot, and it re-arms by
-            // itself when a genuine reset event clears the counter.
-            if (scaleReconnectAttempt == kScaleFastTailAttempts) {
-                const QString msg =
-                    QString("Scale still absent after %1 attempts — slowing retries to every %2 min")
-                        .arg(scaleReconnectAttempt).arg(kScaleSlowTailMs / 60000);
-                // INFO: it explains a log that otherwise looks like the reconnect
-                // died, but a scale that is switched off is not a fault.
-                bleManager.scaleInfo(msg, QStringLiteral("main"));
-            }
-            scaleReconnectTimer.start(kScaleSlowTailMs);
-        }
+        // Persistent reconnect: walk the ramp, then hold on the last (60s) delay.
+        // Stops naturally when the scale connects (connectedChanged), the user
+        // forgets it (scaleAddress empty, above), or the user scans for a
+        // different scale.
+        scaleReconnectTimer.start(reconnectDelays[
+            std::min(scaleReconnectAttempt, static_cast<int>(reconnectDelays.size()) - 1)]);
     });
 
     // Arm the scale retry timer when a startup direct-connect attempt times out.
@@ -3162,17 +2939,42 @@ int main(int argc, char *argv[])
     // failure case: the scale-type change in that path stops scaleReconnectTimer
     // (see "Scale reconnect: timer stopped due to scale type change" below),
     // and without this signal there was no path to start it back up. The
-    // timer's own slot self-perpetuates once running, so we just need to start
-    // it once per failure cycle — the slot will keep it going. Uses the long-
-    // tail delay (60 s) because the immediate failure has already happened;
-    // hammering harder would just churn the WiFi radio. The exception is the
-    // screensaver: no re-arm while it is up, and its exit restarts the ramp.
+    // timer's own slot self-perpetuates once running. Mid-operation a running
+    // timer is left alone; otherwise the next attempt starts now (the hunt,
+    // below). The exception is the screensaver: no re-arm while it is up, and
+    // its exit restarts the ramp.
     QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded, handlerScope.get(),
-                     [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
-                      &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager]() {
+                     [&settings, &bleManager, &scaleReconnectTimer,
+                      &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager,
+                      &machineState, &scaleHunting]() {
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) return;
-        if (scaleReconnectTimer.isActive()) return;
+        // Hunt: outside an operation the next attempt starts as this one fails, so
+        // a scale switched on at any moment is seen within one attempt (the R2
+        // hunt's shape). Mid-operation the spaced ramp stands, so a new scan is
+        // not started against the DE1 link. A wifi: scale is included: each
+        // chained attempt re-dials it, and a saved BLE scale can stand in via the
+        // fallback scan. Suspended, not merely inactive: a desktop app is inactive
+        // whenever another window has focus. Both emit sites of this signal sit
+        // behind the 20 s attempt timeout (BLEManager::onScaleConnectionTimeout),
+        // which is what keeps the chain from spinning.
+        const bool hunt = !machineState.isOperating() && !screensaverManager.screensaverActive()
+            && bleManager.isBluetoothAvailable()
+            && QGuiApplication::applicationState() != Qt::ApplicationSuspended;
+        // INFO on the edge: a submitted log has to show which cadence was running.
+        if (hunt != scaleHunting) {
+            scaleHunting = hunt;
+            bleManager.scaleInfo(hunt
+                ? QStringLiteral("Scale not found — scanning back-to-back while the machine is idle")
+                : QStringLiteral("Scale not found — retries spaced (operation running, app in "
+                                 "background or Bluetooth off)"),
+                QStringLiteral("main"));
+        }
+        if (scaleReconnectTimer.isActive()) {
+            if (hunt)
+                scaleReconnectTimer.start(0);
+            return;
+        }
         // A scan that was in flight when the screensaver started ends here.
         if (screensaverManager.screensaverActive()) {
             bleManager.scaleInfo(QStringLiteral("Scale not found; reconnect paused until the "
@@ -3180,20 +2982,13 @@ int main(int argc, char *argv[])
                                  QStringLiteral("main"));
             return;
         }
-        // Move the counter UP to the end of the ramp, never down. It doubles as
-        // the slow-tail budget (see kScaleFastTailAttempts), and a connection
-        // failure is not evidence the scale is coming back — so a plain
-        // assignment here let any path that idles the timer (notably the
-        // scale-type change in the scaleDiscovered handler) reset the budget to
-        // 2 and make the 5-min tail unreachable.
-        const int rampTailIndex = static_cast<int>(reconnectDelays.size()) - 1;
-        if (scaleReconnectAttempt < rampTailIndex)
-            scaleReconnectAttempt = rampTailIndex;
-        const int retryDelayMs = scaleReconnectAttempt >= kScaleFastTailAttempts
-                                     ? kScaleSlowTailMs : reconnectDelays.back();
-        scaleReconnectTimer.start(retryDelayMs);
+        if (hunt) {
+            scaleReconnectTimer.start(0);
+            return;
+        }
+        scaleReconnectTimer.start(reconnectDelays.back());
         bleManager.scaleInfo(QStringLiteral("Scheduling reconnect in %1 s (retry after failure)")
-                                 .arg(retryDelayMs / 1000),
+                                 .arg(reconnectDelays.back() / 1000),
                              QStringLiteral("main"));
     });
 
@@ -3207,7 +3002,7 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::scaleReconnectRampRestartRequested,
                      handlerScope.get(),
                      [&settings, &physicalScale, &bleManager, &scaleReconnectTimer,
-                      &scaleReconnectAttempt, &reconnectDelays,
+                      &scaleReconnectAttempt, &reconnectDelays, &scaleHunting,
                       &scaleAutoReconnectSuppressed](const QString& reason,
                                                      int firstDelayMs) {
         if (physicalScale && physicalScale->isConnected()) return;
@@ -3215,6 +3010,7 @@ int main(int argc, char *argv[])
         if (scaleAutoReconnectSuppressed) return;
         const int delayMs = firstDelayMs >= 0 ? firstDelayMs : reconnectDelays[0];
         scaleReconnectAttempt = 0;
+        scaleHunting = false;
         scaleReconnectTimer.start(delayMs);
         bleManager.scaleInfo(QStringLiteral("%1 — restarting scale reconnect ramp, first retry in %2 ms")
                                  .arg(reason).arg(delayMs),
@@ -3314,11 +3110,9 @@ int main(int argc, char *argv[])
         }
         // Clamp the counter at the cap so it doesn't grow without bound across
         // days of slow retries; once capped we stay on the slow tier. Track
-        // whether THIS tick is the one that reached the cap — unlike the scale
-        // ladder's counter (unclamped, so `== kScaleFastTailAttempts` is
-        // naturally one-shot), this one stops moving once capped, so an
-        // uncorrected `==` check below would be true on every slow tick forever
-        // rather than once.
+        // whether THIS tick is the one that reached the cap: the counter stops
+        // moving once capped, so an uncorrected `==` check below would be true on
+        // every slow tick forever rather than once.
         const bool justHitCap = de1ReconnectAttempt < kDE1MaxReconnectAttempts
                                  && ++de1ReconnectAttempt == kDE1MaxReconnectAttempts;
         bleManager.de1Debug(QStringLiteral("DE1 reconnect: attempt %1 of %2")
@@ -3532,10 +3326,9 @@ int main(int argc, char *argv[])
                 // increments the counter. With a wifi: primary and a BLE Decent
                 // scale in range that never completes a connect, the type
                 // alternates "decent-wifi" ↔ "decent" every cycle, so clearing
-                // here pinned the counter near the bottom of the ramp and the
-                // 5-min tail was unreachable (and the one-shot crossing log
-                // could re-fire). The user-driven cases that DO warrant a clear
-                // go through disconnectScaleRequested, which clears it there.
+                // here would re-log "Auto-reconnect attempt 1" on every cycle.
+                // The user-driven cases that DO warrant a clear go through
+                // disconnectScaleRequested, which clears it there.
             } else {
                 // Re-wire to use physical scale
                 machineState.setScale(physicalScale.get());
@@ -5209,11 +5002,9 @@ int main(int argc, char *argv[])
                              << "suppressed=" << scaleAutoReconnectSuppressed
                              << "lcdRestorePending=" << scaleLcdRestorePending << ")";
 
-                    // …but "mid-reconnect" may mean "deep in the 5-min tail",
-                    // and a DE1 that just woke is a strong signal the user is
-                    // back at the machine with the scale switched on. Restart
-                    // the ramp from the top so the scale is picked up in 5 s
-                    // rather than up to 5 min. Only when the ladder is actually
+                    // …but a DE1 that just woke is a strong signal the user is
+                    // back at the machine with the scale switched on, so restart
+                    // the ramp from the top. Only when the ladder is actually
                     // running: with no saved scale, or a USB primary (owned by
                     // UsbScaleManager), there is nothing to re-arm.
                     // isActive stays a caller gate: the ladder is deliberately

@@ -870,6 +870,33 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                 errors << qMakePair(QStringLiteral("backup.error.invalidConversations"),
                                     QStringLiteral("Backup contains invalid AI conversations"));
         }
+        QString tempDbPath;
+        if (isRawDb) {
+            tempDbPath = zipPath;
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using raw .db backup:" << tempDbPath;
+        } else {
+            QDir tempDirObj(tempDir);
+            QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+            if (!dbFiles.isEmpty()) {
+                tempDbPath = tempDir + "/" + dbFiles.first();
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
+            } else {
+                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup";
+            }
+        }
+        // Whatever categories were chosen: settings and profiles beside a shot database that
+        // is below the floor, or cannot be confirmed above it, are refused too.
+        if (!tempDbPath.isEmpty()) {
+            const auto probe = ShotHistoryStorage::probeUpgradeFloor(tempDbPath);
+            if (probe == ShotHistoryStorage::UpgradeFloorProbe::BelowFloor) {
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "restore: source is below the upgrade floor; nothing restored";
+                errors << qMakePair(QString::fromLatin1(UpgradeFloor::kSourceTooOldKey), UpgradeFloor::sourceTooOldMessage());
+            } else if (probe != ShotHistoryStorage::UpgradeFloorProbe::Supported) {
+                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "restore: backup shot database could not be read; nothing restored";
+                errors << qMakePair(QStringLiteral("backup.error.unreadableShotDatabase"),
+                                    QStringLiteral("The backup's shot database could not be read"));
+            }
+        }
         if (!errors.isEmpty()) {
             QDir(tempDir).removeRecursively();
             QMetaObject::invokeMethod(callbackContext, [managerGuard, errors, destroyed]() {
@@ -881,20 +908,6 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
         }
 
         if (restoreShots) {
-            QString tempDbPath;
-            if (isRawDb) {
-                tempDbPath = zipPath;
-                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using raw .db backup:" << tempDbPath;
-            } else {
-                QDir tempDirObj(tempDir);
-                QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
-                if (!dbFiles.isEmpty()) {
-                    tempDbPath = tempDir + "/" + dbFiles.first();
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
-                } else {
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup, skipping shot restore";
-                }
-            }
             if (!tempDbPath.isEmpty()) {
                 bool dbValid = true;
                 QFileInfo extractedFileInfo(tempDbPath);

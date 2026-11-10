@@ -8,7 +8,9 @@ Capture a taste rating (`enjoyment0to100`) for as many shots as possible with th
 - **Layer 2 — Quick rating row.** `PostShotReviewPage.qml` shows a low-friction three-icon row (high/medium/low → 80/60/40) above the metadata fold for unrated shots, with a per-shot dismiss control so the nudge never becomes nag-ware.
 
 Ratings written by either path are user ratings — the system never infers a score from detector output. The precision slider in the metadata editor remains available for users who want a number other than 40/60/80.
+
 ## Requirements
+
 ### Requirement: Conversational user replies SHALL persist ratings back to the shot
 When the user replies to a turn whose prior assistant message asked for taste feedback, the reply contains a parseable numeric score, and the turn has a non-zero `shotId`, the score SHALL be persisted to `ShotProjection.enjoyment0to100` for that shot. The remaining reply text (score removed) SHALL be persisted to `espressoNotes` when non-empty. When `shotId == 0`, the reply SHALL NOT be persisted; the linkage is the load-bearing precondition.
 
@@ -88,23 +90,6 @@ No setting SHALL supply a shot rating. `Settings` SHALL NOT have a default-ratin
 - **WHEN** a shot finishes after a former rating key held a value
 - **THEN** the shot saves unrated
 
-### Requirement: Migration 16 SHALL reset inferred ratings to unrated
-The one-time migration that drops `enjoyment_source` SHALL reset every row with `enjoyment_source = 'inferred'` to `enjoyment = 0`, and SHALL NOT read `shot/defaultRating` or any other setting to choose that value. Rows a person rated SHALL be left untouched, including a rating taken from a since-removed default.
-
-#### Scenario: Inferred rows reset regardless of any stale default
-
-- **GIVEN** a database at schema version 15 with an `enjoyment_source` column
-- **AND** a stale `shot/defaultRating` value present in the settings store
-- **WHEN** migration 16 runs
-- **THEN** every `enjoyment_source = 'inferred'` row SHALL have `enjoyment == 0`
-- **AND** the stale setting value SHALL have had no effect on the result
-
-#### Scenario: User-rated rows survive the migration
-
-- **GIVEN** a row with `enjoyment = 90` and `enjoyment_source = 'user'`
-- **WHEN** migration 16 runs
-- **THEN** that row's `enjoyment` SHALL remain `90`
-
 ### Requirement: Post-shot review SHALL surface a rating row above the metadata fold
 `PostShotReviewPage.qml` SHALL display a rating row above the metadata editor: a "How was this shot?" label and the shared `RatingInput` component. The row SHALL be shown for every shot, rated or not, with no visibility gate and no dismiss control.
 
@@ -150,4 +135,3 @@ The one-time migration that drops `enjoyment_source` SHALL reset every row with 
 #### Scenario: Control is announced as a slider
 - **WHEN** a screen reader focuses `RatingInput`
 - **THEN** it is announced as a slider with its current value and both interaction methods
-

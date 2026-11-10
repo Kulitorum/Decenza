@@ -15,27 +15,6 @@
 SettingsDye::SettingsDye(QObject* parent)
     : QObject(parent)
 {
-    // NOTE: do NOT seed bean/presets here. The legacy preset array is
-    // consumed by ShotHistoryStorage::importLegacyBeanPresets() — re-seeding
-    // an empty array would just create churn for the import to retire.
-
-    // One-time legacy DYE grinder migration: split the combined "model" string
-    // into brand/model/burrs using the alias table.
-    if (!m_settings.contains("dye/grinderBrand") || m_settings.value("dye/grinderBrand").toString().isEmpty()) {
-        QString oldModel = m_settings.value("dye/grinderModel").toString();
-        if (!oldModel.isEmpty()) {
-            auto result = GrinderAliases::lookup(oldModel);
-            if (result.found) {
-                m_settings.setValue("dye/grinderBrand", result.brand);
-                m_settings.setValue("dye/grinderModel", result.model);
-                if (m_settings.value("dye/grinderBurrs").toString().isEmpty()) {
-                    m_settings.setValue("dye/grinderBurrs", result.stockBurrs);
-                }
-                DIAG_DEBUG(APP, "SettingsDye") << "Migrated DYE grinder ->"
-                         << result.brand << result.model << result.stockBurrs;
-            }
-        }
-    }
 }
 
 void SettingsDye::setBagStorage(CoffeeBagStorage* storage)

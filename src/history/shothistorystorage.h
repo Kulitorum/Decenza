@@ -4,6 +4,7 @@
 #include "shotprojection.h"
 #include "shotscope.h"
 #include "decentuploadstate.h"
+#include "upgradefloor.h"
 
 #include <QObject>
 #include <QSqlDatabase>
@@ -46,38 +47,13 @@ public:
     // Database lifecycle
     bool initialize(const QString& dbPath = QString());
     bool isReady() const { return m_ready; }
+    // The schema version this database reached on open; a transfer manifest reports it.
+    int schemaVersion() const { return m_schemaVersion; }
     // Migration 52's one-time notice for users who relied on per-bag grind recall.
     Q_INVOKABLE bool bagGrindNoticePending() const { return m_bagGrindNoticePending; }
     Q_INVOKABLE void acknowledgeBagGrindNotice();
     int totalShots() const { return m_totalShots; }
     bool loadingFiltered() const { return m_loadingFiltered; }
-
-    // Did the most recent initialize() advance the schema past version `v` —
-    // i.e. was the DB below `v` on open and at/above it after migrating? This is
-    // the genuine one-time signal that a schema-introducing feature
-    // (equipment=22, recipes=25) actually ran, used to drive a matching one-time
-    // layout injection exactly once instead of re-firing whenever the widget is
-    // absent. False on a machine already at/above `v` (the upgrade is history),
-    // so a user who removed the widget is not re-served it. The sole caller is the
-    // MainController constructor (see maincontroller.cpp, after
-    // setupRecipeConnections), which on a true result invokes
-    // SettingsNetwork::injectEquipmentButtonIfMissing() /
-    // injectRecipesButtonIfMissing(). Those take no gate of their own —
-    // SettingsNetwork has no access to this class — so the check must stay here.
-    //
-    // Two cases a caller must handle rather than assume away:
-    //  - A first-ever launch returns TRUE for every `v`: createTables() seeds
-    //    schema_version at 1 and migrations climb from there. So a caller must
-    //    be idempotent, not merely upgrade-safe.
-    //  - Losing the DB file (deletion, partial OS restore) looks identical to a
-    //    fresh install and re-arms every crossing, so a deliberately removed
-    //    widget can come back. Restoring a backup does NOT do this — that path
-    //    merges rows and never rolls schema_version backwards.
-    // Returns false when the version could not be read at all (DB never opened,
-    // or the schema_version query failed), so a bad read never fakes a crossing.
-    bool crossedSchemaVersion(int v) const {
-        return m_schemaVersionAtStartKnown && m_schemaVersionAtStart < v && m_schemaVersion >= v;
-    }
 
     // The version a database lands on after the full migration chain. BUMP THIS
     // WITH EVERY NEW MIGRATION. It exists because the tests spelled the terminal
@@ -89,7 +65,16 @@ public:
     // the version IT introduces, which must not move when a later migration is
     // added. This is not their source — it is the total they must reach, and
     // freshDbCreatesSchema() is what checks that they do.
-    static constexpr int kCurrentSchemaVersion = 52;
+    static constexpr int kCurrentSchemaVersion = 53;
+
+    enum class UpgradeFloorProbe { NoDatabase, Supported, BelowFloor, Unknown };
+    // Reads the schema version at `path` through its own connection and writes
+    // nothing, so main() can call it before Settings or any migration exists.
+    // A `shots` table with no version row is BelowFloor: createTables() would
+    // otherwise have seeded it at 1.
+    static UpgradeFloorProbe probeUpgradeFloor(const QString& path);
+    // The path initialize() uses when given none.
+    static QString defaultDatabasePath();
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
@@ -143,23 +128,11 @@ public:
     // Async: clear visualizer_id/visualizer_url on a shot row, but ONLY if the
     // row still holds `staleVisualizerId` — a guarded clear so a link that was
     // replaced meanwhile (e.g. the user re-uploaded the shot and the row now
-    // carries a fresh id) is never wiped. Used by MainController's migration16
-    // drain when a PATCH 404s permanently (#1431). Logs the outcome (cleared /
+    // carries a fresh id) is never wiped. Used when a Visualizer PATCH 404s
+    // permanently (#1431). Logs the outcome (cleared /
     // already replaced / failed); fire-and-forget, no completion signal.
     void requestClearStaleVisualizerLink(qint64 shotId,
                                          const QString& staleVisualizerId);
-
-    // One-time reconciliation backfill (OpenSpec persist-visualizer-id-in-controller).
-    // `cloudShots` is the user's Visualizer shot list (each map:
-    // {visualizerId, url, clockEpoch}). On a background thread, links
-    // local rows whose visualizer_id is empty and whose timestamp is
-    // >= windowStartEpoch to a cloud shot whose clock is within
-    // kReconcileToleranceSec, strict 1:1 (no reuse of an id already on
-    // a row or already consumed this pass; ambiguous => skip). Emits
-    // visualizerLinksReconciled() with the linked {shotId,visualizerId}
-    // pairs so the caller can push the now-authoritative local rating.
-    Q_INVOKABLE void requestReconcileVisualizerLinks(const QVariantList& cloudShots,
-                                                     qint64 windowStartEpoch);
 
     // Read the Visualizer bean-repair queue: the uploaded shots whose bag was
     // unlinked from a borrowed canonical record, flagged at that moment by
@@ -417,21 +390,6 @@ public:
     static const QStringList& tasteBalanceValues();
     static const QStringList& tasteBodyValues();
 
-    // Pure reconciliation matcher (caller provides the connection).
-    // Links empty-visualizer_id rows whose timestamp is >= windowStartEpoch
-    // to a cloud shot whose clockEpoch is within tolerance, strict 1:1
-    // (no reuse of an id already on a row or consumed this pass;
-    // ambiguous => skip). Appends linked {shotId,visualizerId} maps to
-    // outLinked. Returns false on a SQL failure (seed SELECT, row
-    // SELECT) so the caller can distinguish "DB error, retry later"
-    // from "completed, 0 matched" — the run-once flag must only be set
-    // on a genuinely completed pass. Synchronous and thread-agnostic so
-    // it is unit-testable via a raw connection.
-    static bool reconcileVisualizerLinksStatic(QSqlDatabase& db,
-                                               const QVariantList& cloudShots,
-                                               qint64 windowStartEpoch,
-                                               QVariantList& outLinked);
-
     // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
     void requestUpdateShotWaterResult(qint64 shotId, const QString& uuid, const QVariantMap& result);
@@ -470,27 +428,6 @@ public:
     // broadcast above, every accepted request receives one result including an
     // explicit reason when the database cannot answer.
     void requestMostRecentShotIdForRequest(const QString& requestId);
-
-    // Async: the DISTINCT (profile title, basket identity) pairs among the most recent
-    // `limit` shots, as {profileTitle, brand, model} maps; emits
-    // recentProfileBasketPairsReady(). A shot with no equipment package contributes an empty
-    // brand+model, which callers map to their no-basket value.
-    //
-    // PAIRS, not just baskets, and not the equipment inventory. The one consumer (the SAW
-    // pre-basket seed) must only seed combinations that were actually pulled: a user can own
-    // 25 baskets and use 3, and a basket used with one profile says nothing about another.
-    //
-    // `profileTitle` is the shot's `profile_name`, which is the profile TITLE — SAW keys use
-    // the FILENAME, so the caller maps it through ProfileManager::titleToFilename() — a PURE
-    // slug transform that consults no catalog, so a deleted profile's title still yields a
-    // filename. What actually drops out is a title whose slug matches no stored key, which is
-    // the renamed-profile case; see the caller in maincontroller.cpp.
-    //
-    // Bounded at `limit` rows with a small join. Deliberately NOT a DISTINCT over the whole
-    // table: `shots` carries debug_log and profile_json blobs, so a full scan drags those
-    // pages along (see the cost note on queryDistinctList). The window means a profile
-    // untouched for `limit` shots is treated as untried.
-    Q_INVOKABLE void requestRecentProfileBasketPairs(int limit = 500);
 
     // Get filter options. Each runs its query against the live database and
     // returns the answer. There is deliberately no cache; the measurements and
@@ -585,18 +522,6 @@ public:
     // Get database path
     QString databasePath() const { return m_dbPath; }
 
-    // Bag id that bean/selectedPreset mapped to during the legacy preset
-    // import, or -1. SettingsDye adopts it through setActiveBagId() after
-    // storage init — the import cannot write dye/activeBagId to QSettings
-    // directly without bypassing the settings cache and NOTIFY.
-    qint64 migratedActiveBagId() const { return m_migratedActiveBagId; }
-
-    // Equipment package the active selection was moved to when migration 35
-    // merged an enrichment fork away, or -1. Adopted through SettingsDye's setter
-    // by MainController for the same reason as the bag id above: the selection is
-    // a QSettings value, and the merged-away id now names a deleted row.
-    qint64 healedActiveEquipmentId() const { return m_healedActiveEquipmentId; }
-
     // Close the database (for factory reset before file deletion)
     void close();
 
@@ -681,6 +606,10 @@ public:
         // True when the import STOPPED to protect the existing history, as
         // opposed to failing or finding nothing to do.
         bool refused() const { return !integrityFailure.isEmpty(); }
+
+        // The source predates the upgrade floor; nothing was read from it or
+        // written here. Callers report UpgradeFloor::sourceTooOldMessage().
+        bool sourceTooOld = false;
 
         // The map to hand AIConversation::importConversationsStatic, or nullptr
         // meaning "clear every stored shotId".
@@ -832,20 +761,12 @@ signals:
     void decentUploadStateUpdated(qint64 shotId, bool success);
     void uploadOutcomeUpdated(qint64 shotId, bool success);
     void decentUploadStateReady(qint64 shotId, const QVariantMap& state);
-    // Emitted after requestReconcileVisualizerLinks finishes. `ok` is
-    // false if the DB could not be opened or a SQL step failed — the
-    // caller MUST NOT treat that as a completed pass (do not set the
-    // run-once flag; retry next boot). `linked` is a QVariantList of
-    // {shotId:qint64, visualizerId:QString} maps for rows just linked
-    // (empty if ok and none matched).
-    void visualizerLinksReconciled(bool ok, const QVariantList& linked);
     // Result of requestPendingBeanRepairs. `ok` false means the read did not
     // run — the DB would not open, or the query failed — and must NOT be read
     // as an empty queue. `repairs` is empty when the queue genuinely is, which
     // is the normal case.
     void pendingBeanRepairsReady(bool ok, const QVector<BeanRepair>& repairs);
     void mostRecentShotIdReady(qint64 shotId);
-    void recentProfileBasketPairsReady(const QVariantList& pairs);
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 
 private:
@@ -909,10 +830,6 @@ private:
 
     bool createTables();
     bool runMigrations();
-    // Version-independent merge-import of legacy bean/presets QSettings into
-    // coffee_bags (bean-bag-inventory). Called from initialize() after
-    // migrations; clears the legacy keys only after a successful commit.
-    void importLegacyBeanPresets();
     QByteArray compressSampleData(ShotDataModel* shotData, const QString& phaseSummariesJson = QString());
     // outCorrectedBlob (when non-null): set to a recompressed blob when the
     // recomputed derived curves differ from what was stored, left empty
@@ -965,9 +882,6 @@ private:
     // review finding.
     [[nodiscard]] static bool deleteShotStatic(QSqlDatabase& db, qint64 shotId);
 
-    // Backfill beverage_type from profile_json for existing rows
-    void backfillBeverageType();
-
     // Helper for converting QVector<QPointF> to JSON object with t/v arrays
     static QJsonObject pointsToJsonObject(const QVector<QPointF>& points);
 
@@ -981,11 +895,7 @@ private:
     int m_totalShots = 0;
     int m_schemaVersion = 1;
     bool m_bagGrindNoticePending = false;
-    int m_schemaVersionAtStart = 1;  // schema version on open, before this run's migrations (crossedSchemaVersion)
-    bool m_schemaVersionAtStartKnown = false;  // false until read successfully; suppresses phantom crossings
     qint64 m_lastSavedShotId = 0;
-    qint64 m_migratedActiveBagId = -1;
-    qint64 m_healedActiveEquipmentId = -1;
     std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)
     std::atomic<bool> m_importInProgress{false};   // Prevent concurrent import/restore operations (thread-safe)
 
@@ -1026,17 +936,6 @@ private:
 
 #ifdef DECENZA_TESTING
 public:
-    // Fault-injection seam for migration retry tests (tst_dbmigration). When set
-    // to a migration number, runMigrations() makes that migration fail to
-    // complete exactly once — modelling a transient locked DB at migration
-    // time — then clears itself so the next initialize() retries cleanly. The
-    // mechanism differs per migration: 20 forces the orphan-link to report
-    // failure (and aborts the pass, as a real lock would fail the later
-    // migrations' writes too); 21 skips the RENAME so its post-condition gate
-    // stays unmet. Either way the schema_version is not bumped. 0 (default) =
-    // no fault. Production builds never compile this member.
-    static int s_faultInjectMigration;
-
     // Lets the read-gating test put the storage in the one state initialize()
     // can't reach on its own: m_ready=true with an m_dbPath whose parent dir is
     // absent, so the worker's withTempDb open fails while the !m_ready guard is

@@ -146,7 +146,6 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/emojiassets.cpp
     ${CMAKE_SOURCE_DIR}/src/core/markdownrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/appsettings.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/settingsstoremigration.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mqtt.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_autowake.cpp
@@ -705,14 +704,6 @@ add_decenza_test(tst_appsettings
     tst_appsettings.cpp
 )
 
-# --- tst_settingsstoremigration: the one-time DE1Qt -> canonical store migration ---
-# Drives migrateLegacySettingsStore() over temp IniFormat stores. The source comes
-# from decenza_testlib; nothing here addresses a real store, which matters because
-# this migration destroys what it reads.
-add_decenza_test(tst_settingsstoremigration
-    tst_settingsstoremigration.cpp
-)
-
 # --- tst_backgroundpresets: background preset catalogue + Glass theme ---
 # Includes the WCAG contrast floors for every colour — against the page, the page under
 # the densest pattern, the card and the action tile — computable here in a way it never
@@ -839,10 +830,7 @@ add_decenza_test(tst_textescaping
 )
 target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 
-# --- tst_customwidgethtml: the two segmentsToHtml implementations, and DocumentFormatter ---
-# Differential: runs the web editor's JS copy (lifted out of src/network/shotserver_layout.cpp)
-# in a QJSEngine and diffs it against the C++ one, so the app and ShotServer surfaces cannot
-# drift again. Also covers DocumentFormatter's colour round trip.
+# --- tst_customwidgethtml: shared widget behavior and DocumentFormatter ---
 add_decenza_test(tst_customwidgethtml
     tst_customwidgethtml.cpp
     ${CMAKE_SOURCE_DIR}/src/core/uiworkprobe.h
@@ -1400,7 +1388,7 @@ add_decenza_test(tst_coffeebags
 target_link_libraries(tst_coffeebags PRIVATE decenza_beanbaselib decenza_shotlib)
 target_include_directories(tst_coffeebags PRIVATE ${CMAKE_BINARY_DIR})
 
-# --- tst_dbmigration: DB schema creation and migration chain ---
+# --- tst_dbmigration: DB schema baseline, upgrade floor, and migrations above it ---
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_decenza_test(tst_dbmigration
     tst_dbmigration.cpp
@@ -1410,7 +1398,7 @@ target_link_libraries(tst_dbmigration PRIVATE decenza_shotlib)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_equipment: equipment package storage statics — grind/rpm split,
-# rpmCapable derivation, package CRUD + identity dedup, migration-22 data step
+# rpmCapable derivation, package CRUD + identity dedup
 # (add-equipment-packages). Static helpers only, so a minimal source set. ---
 add_decenza_test(tst_equipment
     tst_equipment.cpp
@@ -1430,8 +1418,8 @@ target_link_libraries(tst_recipestorage PRIVATE decenza_shotlib)
 target_include_directories(tst_recipestorage PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_recipepromotion: RecipePromotion::fieldsFromShotRecord — the shared
-# promotion field-builder behind recipe_create_from_shot (MCP) and the
-# recipes-idle-layout-upgrade starter-recipe hook. Header-only dependency
+# promotion field-builder behind recipe_create_from_shot (MCP) and the web
+# promote endpoint. Header-only dependency
 # (beanbase_blob.h's canonicalId is inline), no DB needed. ---
 add_decenza_test(tst_recipepromotion
     tst_recipepromotion.cpp
@@ -2378,7 +2366,6 @@ add_library(decenza_webclienttestlib STATIC
     ${CMAKE_SOURCE_DIR}/src/webclient/remotemachinestate.cpp
     ${CMAKE_SOURCE_DIR}/src/webclient/remotemaincontroller.h
     ${CMAKE_SOURCE_DIR}/src/webclient/remotemaincontroller.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/sessionactionrequest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/steameditrequest.cpp
     ${CMAKE_SOURCE_DIR}/src/webclient/remotesessionbackend.h
     ${CMAKE_SOURCE_DIR}/src/webclient/remotesessionbackend.cpp
@@ -2668,8 +2655,6 @@ target_include_directories(tst_steamservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}
 target_link_libraries(tst_steamservice PRIVATE Qt6::RemoteObjects Qt6::Qml decenza_steamgraphtestlib)
 set_tests_properties(tst_steamservice PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-add_decenza_test(tst_sessionactionrequest tst_sessionactionrequest.cpp)
-target_link_libraries(tst_sessionactionrequest PRIVATE decenza_webclienttestlib)
 
 add_decenza_test(tst_remotesessionserver
     tst_remotesessionserver.cpp
@@ -2681,17 +2666,6 @@ if(NOT ANDROID AND NOT APPLE)
     target_link_libraries(tst_remotesessionserver PRIVATE OpenSSL::Crypto)
     target_compile_definitions(tst_remotesessionserver PRIVATE DECENZA_TEST_OPENSSL_PEM)
 endif()
-
-add_decenza_test(tst_remotelastshotsnapshot
-    tst_remotelastshotsnapshot.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/remotelastshotsnapshot.cpp
-)
-
-add_decenza_test(tst_remoteshotgraphsnapshot
-    tst_remoteshotgraphsnapshot.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/remoteshotgraphsnapshot.h
-    ${CMAKE_SOURCE_DIR}/src/network/remoteshotgraphsnapshot.cpp
-)
 
 add_decenza_test(tst_sessionbackgroundimage
     tst_sessionbackgroundimage.cpp

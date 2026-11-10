@@ -279,25 +279,6 @@ void SettingsApp::setFavoritesOrder(const QStringList& filenamesInOrder) {
     emit favoriteProfilesChanged();
 }
 
-// rebuild-profile-picker: raw reads of the two keys behind the removed
-// Selected list, for ProfileManager::mergeSelectedIntoFavoritesIfNeeded() —
-// the only remaining reader. Not persisted through here; the merge is what
-// consumes them, once, via setSelectedMergedIntoFavorites() below.
-SettingsApp::LegacySelectedLists SettingsApp::takeLegacySelectedLists() const {
-    LegacySelectedLists legacy;
-    legacy.selectedBuiltIns = m_settings.value("profile/selectedBuiltIns").toStringList();
-    legacy.hiddenProfiles = m_settings.value("profile/hiddenProfiles").toStringList();
-    return legacy;
-}
-
-bool SettingsApp::selectedMergedIntoFavorites() const {
-    return m_settings.value("profile/selectedMergedIntoFavorites", false).toBool();
-}
-
-void SettingsApp::setSelectedMergedIntoFavorites() {
-    m_settings.setValue("profile/selectedMergedIntoFavorites", true);
-}
-
 // Favorites order (profile-favorites-order). Resolve-when-absent: an
 // upgraded install with favorites keeps ITS order (custom). A fresh install
 // is stamped "usage" where its default favorites are seeded (settings.cpp),

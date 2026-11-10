@@ -26,6 +26,8 @@ Transfer profiles, shots, settings, media, and AI conversations between devices 
 7. If the server requires authentication, user is prompted for a TOTP code
 8. User selects device and imports desired data types
 
+A source below the upgrade floor (`src/history/upgradefloor.h`: shot schema 41) is refused before anything imports. The manifest reports `shotSchemaVersion`; for a source too old to report it, its database is downloaded and checked before any category is applied (the shots step doubles as the check when it is queued), and a database that cannot be fetched or read refuses the transfer. Backup files are checked by the archive's `shots.db` schema version. The message tells the user to go through Decenza 2.1.0 first.
+
 ### REST Endpoints (on ShotServer)
 - `GET /api/backup/manifest` - List available data (counts, sizes; incl. `recipeCount`/`bagCount`/`equipmentCount`)
 - `GET /api/backup/settings` - Export settings JSON (includes SAW learning; excludes machine flow calibration + mqttPassword on import)
@@ -37,7 +39,6 @@ Transfer profiles, shots, settings, media, and AI conversations between devices 
 - `GET /api/backup/media/{filename}` - Download media file
 - `GET /api/backup/ai-conversations` - Export AI conversations
 - `GET /api/backup/full` - Download full backup archive
-- `POST /api/backup/restore` - Restore from backup archive
 
 ### Import Options
 - **Import All**: Settings, profiles, shots, media, AI conversations (merged with existing data)

@@ -2,6 +2,7 @@
 
 ## Purpose
 Keeps the grinder RPM with the grind setting on every shot surface: storage projections, JSON serialization, reads, input and display. For variable-RPM grinders the motor RPM is emitted only when one is recorded, so a dial-in is never reduced to the burr setting alone.
+
 ## Requirements
 
 ### Requirement: Grinder RPM SHALL travel with the grind setting across all shot surfaces
@@ -33,7 +34,7 @@ For variable-RPM grinders the dial-in is two values — the burr grind setting a
 
 #### Scenario: ShotServer edit forms accept RPM
 
-- **WHEN** the ShotServer shot, bag, or recipe HTML edit form is shown
+- **WHEN** a shared native or browser shot, bag, or recipe edit form is shown
 - **THEN** it SHALL include an RPM input alongside the grind field (loaded and saved), and the backend SHALL persist it
 
 #### Scenario: Shot comparison exposes an RPM row

@@ -173,53 +173,6 @@ private slots:
         QCOMPARE(result.toString(), QStringLiteral("[\"Not dispensed\",\"\"]"));
     }
 
-    void legacyResultsKeepEspressoRowsWithoutUnformattedWater()
-    {
-        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/src/network/shotserver_shots.cpp"));
-        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-        const auto source = QString::fromUtf8(file.readAll());
-        QJSEngine engine;
-        // Execute the actual page renderers with their surrounding browser state.
-        for (const auto& name : {"renderHappened", "renderComparison", "rowHtml"}) {
-            // Both pages define rowHtml; use the comparison page's version.
-            const auto pageSource = QLatin1String(name) == QLatin1String("rowHtml")
-                ? source.mid(source.lastIndexOf(QStringLiteral("function rowHtml("))) : source;
-            const auto function = sourceFunction(pageSource, QLatin1String(name));
-            QVERIFY2(!function.isEmpty(), name);
-            const auto loaded = engine.evaluate(function);
-            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
-        }
-        auto result = engine.evaluate(QStringLiteral(R"JS(
-            var rendered={style:{setProperty:function(){}}};
-            var document={getElementById:function(){return rendered;}};
-            var escapeHtml=function(s){return String(s);};
-            var txt=function(k){return k;}, unitLabel=function(u){return u;};
-            var metricText=function(r,v){return String(v);}, pill=function(){return "";};
-            var signed=function(v){return String(v);}, graphSwatch=function(){return "";};
-            var summaryFor=function(){return "";}, sinceHtml=function(){return "";};
-            var showMore=false, me=0, DASH="-", hiddenShots={}, icons={eye:"",eyeOff:""};
-            var shotData={shotId:1,id:1,date:"today",badges:[],rating0to100:null};
-            var shots=[shotData], cmpShots=shots;
-            var data={inputs:[],unchanged:[],comparisons:[],shots:shots,metrics:[
-                {key:"yieldG",unit:"g",decimals:1,cells:[{value:36}]},
-                {key:"waterWeightG",unit:"g",decimals:1,cells:[{value:100}]},
-                {key:"waterVolumeMl",unit:"ml",decimals:1,cells:[{value:120}]}]};
-            var cmp=data;
-            renderHappened();
-            var review=rendered.innerHTML;
-            cmp=function(){return data;};
-            var columns=function(){return [0];};
-            renderComparison();
-            JSON.stringify([review.indexOf("yieldG")>=0,review.indexOf("waterWeightG")<0,
-                            review.indexOf("waterVolumeMl")<0,
-                            rendered.innerHTML.indexOf("yieldG")>=0,
-                            rendered.innerHTML.indexOf("waterWeightG")<0,
-                            rendered.innerHTML.indexOf("waterVolumeMl")<0]);
-        )JS"));
-        QVERIFY2(!result.isError(), qPrintable(result.toString()));
-        QCOMPARE(result.toString(), QStringLiteral("[true,true,true,true,true,true]"));
-    }
-
     void carryForwardSummaryRoundsWeights()
     {
         QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));

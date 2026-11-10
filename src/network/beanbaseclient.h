@@ -231,8 +231,7 @@ public:
     Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
     // Apply AI-extracted page values to a blob: fill empty fields, correct
     // values that came from Bean Base, never touch a value the user typed. See
-    // BeanBaseBlob::applyExtraction — the single definition shared by the bag
-    // editor and the ShotServer's /api/beans/extract.
+    // BeanBaseBlob::applyExtraction.
     // `current` carries the caller's own live values where they are not in the
     // blob yet (the bag editor's form fields); keys absent from it fall back to
     // the blob. Returns {"blob", "applied", "corrections"}.

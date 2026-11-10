@@ -19,7 +19,6 @@
 #include "core/settingsserializer.h"
 #include "core/appsettings.h"
 #include <QScopeGuard>
-#include "network/grindcandidates.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -41,16 +40,6 @@ static QStringList typesOf(const QVariantList& items) {
     QStringList result;
     for (const QVariant& v : items)
         result << v.toMap().value("type").toString();
-    return result;
-}
-
-// File-scope helper: the ordered list of "id" values in a getZoneItems()
-// result — used to prove an item was MOVED (its id carried over) rather than
-// discarded and recreated with a fresh default id.
-static QStringList idsOf(const QVariantList& items) {
-    QStringList result;
-    for (const QVariant& v : items)
-        result << v.toMap().value("id").toString();
     return result;
 }
 
@@ -112,8 +101,6 @@ private:
     QString m_origTemperatureUnit;
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
-    bool m_origHeaterOffMigrated = false;
-    bool m_origSteamRateMigrated = false;
     int m_origSelectedPitcher = 0;
     int m_origStandingPitcher = SettingsBrew::NoStandingPitcher;
     bool m_origMilkAutoCapture;
@@ -124,12 +111,6 @@ private:
 
 private slots:
 
-    // A brand-new install is not "no keys at all". One-time migrations run before
-    // Settings is constructed and stamp their done-flags unconditionally — including
-    // on a fresh install, where there is nothing to migrate. Counting those made
-    // every install look like an upgrade, so the constructor's one-shot blocks seeded
-    // legacy defaults (e.g. two-tap steam stop) for users who should get the current
-    // ones.
     // Remote MCP no longer needs the local MCP switch. A store holding Remote Access
     // on with MCP off had remote MCP OFF, and must not come up with the public
     // connector running after the upgrade; one with both on keeps it.
@@ -190,28 +171,10 @@ private slots:
         QCOMPARE(SettingsNetwork::discussAppReadsShot(app, localServing, remoteLive), reads);
     }
 
-    void looksLikeFreshInstall_ignoresMigrationBookkeeping()
-    {
-        QVERIFY(Settings::looksLikeFreshInstall({}));
-
-        // Only migration guards present — still a fresh install.
-        QVERIFY(Settings::looksLikeFreshInstall({
-            QStringLiteral("migration/settings_store_de1qt_to_decenza_done"),
-            QStringLiteral("migration/app_name_decenza_de1_to_decenza_done"),
-        }));
-
-        // Any real user state means this install has been used.
-        QVERIFY(!Settings::looksLikeFreshInstall({
-            QStringLiteral("migration/settings_store_de1qt_to_decenza_done"),
-            QStringLiteral("profile/current"),
-        }));
-        QVERIFY(!Settings::looksLikeFreshInstall({QStringLiteral("calibration/steamTwoTapStop")}));
-    }
-
     // === Graph display transforms ===================================================
     //
     // Both resolvers are static and pure, so these need no settings store and no Settings
-    // instance — same reasoning as looksLikeFreshInstall above.
+    // instance.
 
     void graphFlowMultiplier_resolvesOnlyOneTwoOrThree_data()
     {
@@ -358,8 +321,6 @@ private slots:
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray();
-          m_origHeaterOffMigrated = raw.value("steam/heaterOffPresetsMigrated", false).toBool();
-          m_origSteamRateMigrated = raw.value("steam/steamRateMigrated", false).toBool();
           m_origSelectedPitcher = raw.value("steam/selectedPitcher", 0).toInt();
           m_origStandingPitcher = raw.value("steam/standingPitcher",
                                             SettingsBrew::NoStandingPitcher).toInt(); }
@@ -398,12 +359,6 @@ private slots:
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
-          // The "Off" pitcher migration's inputs. Its sentinel and the selection
-          // it remaps are BOTH restored: a test that leaves the sentinel cleared
-          // makes the next Settings construction re-run a migration nobody asked
-          // for, and the failure then lands in an unrelated test.
-          raw.setValue("steam/heaterOffPresetsMigrated", m_origHeaterOffMigrated);
-          raw.setValue("steam/steamRateMigrated", m_origSteamRateMigrated);
           raw.setValue("steam/selectedPitcher", m_origSelectedPitcher);
           // The parked recipe-override pitcher. A test that leaves this set makes
           // the NEXT test's unwind restore a pitcher it never parked, and the
@@ -776,66 +731,6 @@ private slots:
         // 0 means disabled (no SAW)
         m_settings.brew()->setTargetWeight(0.0);
         QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
-    }
-
-    void deadShotRatingKeysAreEvicted() {
-        // A shot rating is never sourced from settings. It used to be: a sticky
-        // dyeEspressoEnjoyment fed every shot save, so after the default-shot-
-        // rating feature was removed the last value the field ever held (a 50,
-        // in the wild) still leaked onto the next shot saved — which silently
-        // suppressed the AI taste intake, since that gate treats any non-zero
-        // enjoyment as feedback the user already gave.
-        //
-        // Removing the readers was not enough: both keys stayed on disk in
-        // every upgraded store, a bogus rating sitting around waiting to leak
-        // back into something. Constructing Settings evicts them.
-        //
-        // Covers three things: the keys are gone from the store, a backup does
-        // not carry espressoEnjoyment forward into a restored one, and a second
-        // construction against a clean store changes nothing.
-        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        raw.setValue("shot/defaultRating", 50);
-        raw.setValue("dye/espressoEnjoyment", 50);
-        raw.sync();
-
-        {
-            Settings settings;
-            // Backup must not carry the field forward into a restored store.
-            const QJsonObject backup = SettingsSerializer::exportToJson(&settings);
-            QVERIFY(!backup.value("dye").toObject().contains("espressoEnjoyment"));
-        }
-
-        QSettings after(Settings::testQSettingsPath(), QSettings::IniFormat);
-        after.sync();
-        QVERIFY2(!after.contains("shot/defaultRating"),
-                 "shot/defaultRating must be evicted, not merely unread");
-        QVERIFY2(!after.contains("dye/espressoEnjoyment"),
-                 "dye/espressoEnjoyment must be evicted, not merely unread");
-
-        // Idempotent: a second construction against a clean store is a no-op.
-        { Settings settings2; Q_UNUSED(settings2); }
-        after.sync();
-        QVERIFY(!after.contains("shot/defaultRating"));
-    }
-
-    void firmwareEarlyAccessUpgradeResetsLegacyChannelOnce() {
-        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        raw.remove("firmware/earlyAccessV1Migrated");
-        raw.setValue("firmware/nightlyChannel", true);
-        raw.setValue("firmware/EA", true);
-        raw.sync();
-
-        Settings upgraded;
-        QVERIFY(!upgraded.app()->firmwareEarlyAccess());
-
-        raw.sync();
-        QVERIFY(!raw.contains("firmware/nightlyChannel"));
-        QVERIFY(raw.value("firmware/earlyAccessV1Migrated").toBool());
-        QVERIFY(!raw.value("firmware/EA").toBool());
-
-        upgraded.app()->setFirmwareEarlyAccess(true);
-        Settings relaunched;
-        QVERIFY(relaunched.app()->firmwareEarlyAccess());
     }
 
     void emptyScaleAddressIsValid() {
@@ -1572,34 +1467,6 @@ private slots:
         QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.22);
     }
 
-    void steamRateMigrationSeedsFromLegacyPreset() {
-        // The one-time ctor migration seeds the global rate from the FIRST legacy
-        // preset carrying both (calibMilkG, duration). Snapshot the run-once sentinel
-        // because cleanup() doesn't restore it.
-        bool origMigrated;
-        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-          origMigrated = raw.value("steam/steamRateMigrated", false).toBool(); }
-
-        QJsonArray arr;
-        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; p["calibMilkG"] = 200; arr.append(p); }
-        { QJsonObject p; p["name"] = "Large"; p["duration"] = 40; p["flow"] = 150; p["calibMilkG"] = 100; arr.append(p); }
-        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-          raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
-          raw.remove("steam/steamSecondsPerGram");             // uncalibrated global rate
-          raw.setValue("steam/steamRateMigrated", false);      // allow the one-time seed to run
-          raw.sync(); }
-
-        // A fresh Settings runs the migration in SettingsBrew's ctor. First preset wins:
-        // 30/200 = 0.15, not the second's 40/100 = 0.40.
-        Settings fresh;
-        QCOMPARE(fresh.brew()->steamSecondsPerGram(), 0.15);
-
-        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-          raw.setValue("steam/steamRateMigrated", origMigrated);
-          raw.sync(); }
-        // cleanup() restores steam/pitcherPresets + steamSecondsPerGram.
-    }
-
     // applySteamPitcherValues is THE definition of "apply this pitcher": which
     // values get written, what the built-in entry skips, and what a stale index
     // does. It lives on SettingsBrew rather than MainController so it can be
@@ -1845,107 +1712,6 @@ private slots:
         QCOMPARE(brew->standingSteamPitcher(), int(SettingsBrew::NoStandingPitcher));
     }
 
-    // --- the "Off" pitcher migration (steam-heater-policy) -------------------
-    //
-    // A user's own Off presets are removed in favour of the one built-in entry.
-    // The selection remap is the part that matters: a selection left pointing at
-    // a stale index resolves to a REAL pitcher, so getting this wrong silently
-    // turns the steam boiler on at upgrade for exactly the users who had chosen
-    // to keep it off.
-
-    // Seed the pre-migration state: `presets` as the stored array, `selected` as
-    // the stored selection, sentinel cleared so the ctor migration runs.
-    void seedLegacyOffPitchers(const QJsonArray& presets, int selected) {
-        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        raw.setValue("steam/pitcherPresets", QJsonDocument(presets).toJson());
-        raw.setValue("steam/selectedPitcher", selected);
-        raw.setValue("steam/heaterOffPresetsMigrated", false);
-        raw.remove("steam/heaterOffRemovedNames");
-        raw.sync();
-    }
-
-    static QJsonArray legacyPresetsWithOff() {
-        QJsonArray arr;
-        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; arr.append(p); }
-        { QJsonObject p; p["name"] = "Off";   p["disabled"] = true;                arr.append(p); }
-        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150; arr.append(p); }
-        return arr;
-    }
-
-    void heaterOffMigrationRemovesUserOffPresets() {
-        seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
-        Settings fresh;
-        // Two real pitchers left; the built-in is synthetic and not one of them.
-        QCOMPARE(fresh.brew()->steamPitcherCount(), 2);
-        const QVariantList presets = fresh.brew()->steamPitcherPresets();
-        QCOMPARE(presets.size(), 3);   // + the built-in, appended last
-        QCOMPARE(presets.at(0).toMap().value("name").toString(), QStringLiteral("Small"));
-        QCOMPARE(presets.at(1).toMap().value("name").toString(), QStringLiteral("Large"));
-        QVERIFY(presets.at(2).toMap().value("builtin").toBool());
-    }
-
-    void heaterOffMigrationLandsARemovedSelectionOnTheBuiltIn() {
-        // THE case: the user was sitting ON their Off preset. Without the remap
-        // the stored index 1 now names "Large" and the boiler comes on.
-        seedLegacyOffPitchers(legacyPresetsWithOff(), 1);
-        Settings fresh;
-        QCOMPARE(fresh.brew()->selectedSteamPitcher(), SettingsBrew::HeaterOffPitcherIndex);
-        QVERIFY(fresh.brew()->getSteamPitcherPreset(fresh.brew()->selectedSteamPitcher())
-                    .value("disabled").toBool());
-    }
-
-    void heaterOffMigrationShiftsASelectionAboveARemovedPreset() {
-        // "Large" was index 2 with one Off preset below it; it is index 1 now.
-        seedLegacyOffPitchers(legacyPresetsWithOff(), 2);
-        Settings fresh;
-        QCOMPARE(fresh.brew()->selectedSteamPitcher(), 1);
-        QCOMPARE(fresh.brew()->getSteamPitcherPreset(1).value("name").toString(),
-                 QStringLiteral("Large"));
-    }
-
-    void heaterOffMigrationLeavesASelectionBelowARemovedPresetAlone() {
-        seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
-        Settings fresh;
-        QCOMPARE(fresh.brew()->selectedSteamPitcher(), 0);
-        QCOMPARE(fresh.brew()->getSteamPitcherPreset(0).value("name").toString(),
-                 QStringLiteral("Small"));
-    }
-
-    // The removed names are handed to the recipe rewrite exactly once — reading
-    // them clears them, so a second launch does not re-run a pass over every
-    // recipe, and a launch with nothing to migrate hands over nothing.
-    void heaterOffMigrationKeepsTheRemovedNamesUntilTheRewriteSucceeds() {
-        seedLegacyOffPitchers(legacyPresetsWithOff(), 0);
-        Settings fresh;
-        QCOMPARE(fresh.brew()->migratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
-        // Reading does NOT clear: a failed rewrite must be able to retry.
-        QCOMPARE(fresh.brew()->migratedHeaterOffNames(), QStringList{QStringLiteral("Off")});
-        fresh.brew()->clearMigratedHeaterOffNames();
-        QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
-    }
-
-    void heaterOffMigrationIsIdempotent() {
-        seedLegacyOffPitchers(legacyPresetsWithOff(), 1);
-        { Settings first; QCOMPARE(first.brew()->steamPitcherCount(), 2); }
-        // Second launch: the sentinel is set, so nothing is removed or remapped
-        // a second time and the selection stays on the built-in.
-        Settings second;
-        QCOMPARE(second.brew()->steamPitcherCount(), 2);
-        QCOMPARE(second.brew()->selectedSteamPitcher(), SettingsBrew::HeaterOffPitcherIndex);
-    }
-
-    // An install with no Off presets must not have its selection touched at all.
-    void heaterOffMigrationLeavesAnUnaffectedInstallAlone() {
-        QJsonArray arr;
-        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; arr.append(p); }
-        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150; arr.append(p); }
-        seedLegacyOffPitchers(arr, 1);
-        Settings fresh;
-        QCOMPARE(fresh.brew()->steamPitcherCount(), 2);
-        QCOMPARE(fresh.brew()->selectedSteamPitcher(), 1);
-        QVERIFY(fresh.brew()->migratedHeaterOffNames().isEmpty());
-    }
-
     // The DISPLAY position, and the signal that keeps it live. Every pill row,
     // the compact popup's announcement and the MCP `list` response address rows
     // by position, while the built-in is stored positionlessly — so this is the
@@ -1970,31 +1736,6 @@ private slots:
                     .at(brew->selectedSteamPitcherDisplayIndex()).toMap().value("builtin").toBool());
     }
 
-    // An unreadable preset blob must DEFER the migration, not consume it. The
-    // migration examines nothing when the array will not parse, so stamping the
-    // one-time flag anyway would mean a user whose file was momentarily
-    // unreadable never gets migrated at all — their own "Off" preset survives
-    // forever beside the built-in, and their selection is never remapped.
-    void heaterOffMigrationDefersWhenThePresetsCannotBeRead() {
-        {
-            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-            raw.setValue("steam/pitcherPresets", QByteArray("not json"));
-            raw.setValue("steam/heaterOffPresetsMigrated", false);
-            // Close the steam-rate migration gate explicitly: it reads the same
-            // unreadable array and would emit a second, incidental parse warning,
-            // making the expected-message set depend on store history.
-            raw.setValue("steam/steamRateMigrated", true);
-            raw.sync();
-        }
-        // Both halves of the deferral: the reader reports it, the migration says
-        // what it did about it.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("could not parse"));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("deferring the Heater off migration"));
-        Settings fresh;
-        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        QVERIFY(!raw.value("steam/heaterOffPresetsMigrated").toBool());
-    }
-
     // The built-in's label is reserved even though it has no stored name to
     // collide with — two rows reading "Heater off" would be indistinguishable.
     void theBuiltInHeaterOffNameIsReserved() {
@@ -2013,75 +1754,6 @@ private slots:
         QVERIFY(m_settings.brew()->standingSteamPitcher() != SettingsBrew::NoStandingPitcher);
         m_settings.brew()->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
         QCOMPARE(m_settings.brew()->standingSteamPitcher(), SettingsBrew::NoStandingPitcher);
-    }
-
-    void steamRateMigrationSentinelPreventsReseed() {
-        // A calibrated legacy preset is present, but the sentinel says migration already
-        // ran and the user deliberately left the rate at 0 (via the ± control). The ctor
-        // must NOT re-seed — this is why the gate is the sentinel, not "rate <= 0".
-        bool origMigrated;
-        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-          origMigrated = raw.value("steam/steamRateMigrated", false).toBool(); }
-
-        QJsonArray arr;
-        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; p["calibMilkG"] = 200; arr.append(p); }
-        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-          raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
-          raw.setValue("steam/steamSecondsPerGram", 0.0);      // deliberately uncalibrated
-          raw.setValue("steam/steamRateMigrated", true);       // already migrated
-          raw.sync(); }
-
-        Settings fresh;
-        QCOMPARE(fresh.brew()->steamSecondsPerGram(), 0.0);
-
-        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-          raw.setValue("steam/steamRateMigrated", origMigrated);
-          raw.sync(); }
-    }
-
-    // A backup made BEFORE the built-in entry existed carries user-created
-    // `disabled` presets. The import drops them, so the survivors renumber
-    // underneath the stored selection — the same hazard the ctor migration
-    // handles, which the import path originally met with a bare range check.
-    void importRemapsASelectionThatPointedAtADroppedOffPreset() {
-        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
-        QJsonObject steam = bundle["steam"].toObject();
-        QJsonArray presets;
-        { QJsonObject p; p["name"] = "Off"; p["disabled"] = true;                    presets.append(p); }
-        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150;   presets.append(p); }
-        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150;   presets.append(p); }
-        steam["pitcherPresets"] = presets;
-        steam["selectedPitcher"] = 0;          // the user was sitting ON the Off preset
-        bundle["steam"] = steam;
-
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
-        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
-
-        // A bare range check passed index 0 and landed the user on "Small",
-        // heater ON, for a backup whose whole intent was to keep it off.
-        QCOMPARE(m_settings.brew()->selectedSteamPitcher(),
-                 int(SettingsBrew::HeaterOffPitcherIndex));
-    }
-
-    void importShiftsASelectionThatSatAboveADroppedOffPreset() {
-        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
-        QJsonObject steam = bundle["steam"].toObject();
-        QJsonArray presets;
-        { QJsonObject p; p["name"] = "Off"; p["disabled"] = true;                    presets.append(p); }
-        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150;   presets.append(p); }
-        { QJsonObject p; p["name"] = "Large"; p["duration"] = 60; p["flow"] = 150;   presets.append(p); }
-        steam["pitcherPresets"] = presets;
-        steam["selectedPitcher"] = 2;          // "Large", with one dropped row below it
-        bundle["steam"] = steam;
-
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
-        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
-
-        QCOMPARE(m_settings.brew()->getSteamPitcherPreset(
-                     m_settings.brew()->selectedSteamPitcher()).value("name").toString(),
-                 QStringLiteral("Large"));
     }
 
     // The failure RETURN, not the remap. Every other importFromJson assertion in
@@ -2105,32 +1777,6 @@ private slots:
         QVERIFY(!SettingsSerializer::importFromJson(&m_settings, bundle));
         // Reported, and the current selection left alone rather than clamped.
         QCOMPARE(m_settings.brew()->selectedSteamPitcher(), before);
-    }
-
-    void steamRateImportReseedsFromLegacyBackup() {
-        // A pre-migration backup carries per-pitcher calibMilkG but NO steamSecondsPerGram
-        // key. Import must re-derive the global rate from the restored presets, so
-        // weight-timed steaming survives a cross-version restore instead of coming back
-        // dead (auto-capture ON, rate 0). Guards the reseed branch in importFromJson.
-        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
-        QJsonObject steam = bundle["steam"].toObject();
-        // Deterministic single legacy preset; strip the global-rate key to mimic an old
-        // backup, and mark weight-timing ON as a pre-PR calibrated backup would.
-        QJsonArray presets;
-        { QJsonObject p; p["name"] = "Legacy"; p["duration"] = 30; p["flow"] = 150; p["temperature"] = 135; p["calibMilkG"] = 200; presets.append(p); }
-        steam["pitcherPresets"] = presets;
-        steam["milkAutoCaptureEnabled"] = true;
-        steam.remove("steamSecondsPerGram");
-        bundle["steam"] = steam;
-
-        m_settings.brew()->setSteamSecondsPerGram(0.0);   // clear so the reseed is observable
-
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
-        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
-
-        // duration / calibMilkG = 30 / 200 = 0.15.
-        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.15);
     }
 
     void steamPitcherLegacyTemperatureFallsBackToGlobal() {
@@ -2231,58 +1877,8 @@ private slots:
             QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("schema/gate disagree: " + t));
         }
 
-        // The web editor's JSON carries the same table: readouts map to their
-        // keys, bespoke types to an empty array (present = has options).
-        const QJsonObject caps = SettingsNetwork::readoutCapabilitiesJson();
-        for (const QString& t : readouts) {
-            QVERIFY2(caps.contains(t), qPrintable("missing from web JSON: " + t));
-            QCOMPARE(caps.value(t).toArray(),
-                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
-        }
-        for (const QString& t : {QStringLiteral("custom"), QStringLiteral("sleep"),
-                                 QStringLiteral("shotPlan"), QStringLiteral("lastShot")}) {
-            QVERIFY2(caps.contains(t), qPrintable("bespoke missing from web JSON: " + t));
-            QVERIFY(caps.value(t).toArray().isEmpty());
-        }
-        // Action widgets are in the web JSON too, carrying their gesture keys —
-        // that is what makes the web editor show them as configurable.
-        for (const QString& t : {QStringLiteral("espresso"), QStringLiteral("beans"),
-                                 QStringLiteral("history")}) {
-            QVERIFY2(caps.contains(t), qPrintable("action widget missing from web JSON: " + t));
-            QCOMPARE(caps.value(t).toArray(),
-                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
-        }
-
-        // Generic invariants over EVERY entry, so future types are covered
-        // without extending the hand-pinned lists above:
-        const QSet<QString> knownKeys = {
-            QStringLiteral("dataMode"), QStringLiteral("displayMode"),
-            QStringLiteral("showRatio"), QStringLiteral("color"),
-            // Gesture overrides on the built-in action widgets.
-            QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction")
-        };
-        for (const QString& t : caps.keys()) {
-            // Web JSON and the QML-facing keys must agree for every type. A
-            // type placed in both the schema and the bespoke set would break
-            // this (JSON's empty array vs the schema's keys) — exactly the
-            // app/web divergence this table exists to prevent.
-            QCOMPARE(caps.value(t).toArray(),
-                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
-            // Screensavers stay a prefix rule on both sides — a screensaver
-            // schema entry would give the web editor selectors the QML
-            // screensaver popup doesn't have.
-            QVERIFY2(!t.startsWith("screensaver"), qPrintable("screensaver leaked into schema: " + t));
-            // Editors dispatch on exactly these key strings; a typo'd key
-            // ("colour", "display") would silently render nothing anywhere.
-            const QJsonArray keys = caps.value(t).toArray();
-            for (const auto& k : keys)
-                QVERIFY2(knownKeys.contains(k.toString()), qPrintable(t + " has unknown key: " + k.toString()));
-        }
         QVERIFY(SettingsNetwork::optionKeysForType("screensaverFlipClock").isEmpty());
-        // Pin the entry count so adding a configurable type is as deliberate a
-        // change as removing one (every entry changes web-editor behavior).
-        // 15 readout/bespoke types + the 10 built-in action widgets.
-        QCOMPARE(caps.size(), 25);
+
     }
 
     // The widget catalog drives the in-app palette, chip names, the library
@@ -2328,17 +1924,7 @@ private slots:
         QVERIFY(chips.contains("connectionStatus"));
         QVERIFY(!seen.contains("connectionStatus"));
 
-        // Every configurable type is a real, placeable catalog type — the
-        // capability schema and the catalog cannot drift apart.
-        const QJsonObject caps = SettingsNetwork::readoutCapabilitiesJson();
-        for (const QString& t : caps.keys())
-            QVERIFY2(seen.contains(t), qPrintable("configurable type missing from catalog: " + t));
 
-        // Web JSON parity: types/chipNames/catNames mirror the same table.
-        const QJsonObject webCatalog = SettingsNetwork::widgetCatalogJson();
-        QCOMPARE(webCatalog.value("types").toArray().size(), catalog.size());
-        QCOMPARE(webCatalog.value("chipNames").toObject().size(), chips.size());
-        QCOMPARE(webCatalog.value("catNames").toArray().size(), cats.size());
     }
 
     // An absent stored displayMode always means "today's rendering" — icon for
@@ -2349,14 +1935,7 @@ private slots:
         QCOMPARE(SettingsNetwork::defaultDisplayModeForType("temperature"), QStringLiteral("text"));
         QCOMPARE(SettingsNetwork::defaultDisplayModeForType("scaleWeight"), QStringLiteral("text"));
         QCOMPARE(SettingsNetwork::defaultDisplayModeForType(""), QStringLiteral("text"));
-        // Web parity: only non-text defaults are injected.
-        const QJsonObject d = SettingsNetwork::displayModeDefaultsJson();
-        QCOMPARE(d.size(), 2);
-        QCOMPARE(d.value("batteryLevel").toString(), QStringLiteral("icon"));
-        QCOMPARE(d.value("scaleBattery").toString(), QStringLiteral("icon"));
-        // Every defaulted type must support displayMode in the schema.
-        for (const QString& t : d.keys())
-            QVERIFY(SettingsNetwork::optionKeysForType(t).contains("displayMode"));
+
     }
 
     // itemIsConfigured gates the remove-confirmation that protects a set-up
@@ -2486,33 +2065,8 @@ private slots:
     }
 
     // ==========================================
-    // Recipes-first default layout + upgrade transform
-    // (recipes-idle-layout-upgrade)
+    // Recipes-first default layout
     // ==========================================
-
-    // The frozen composition of the old (pre-upgrade) default, used as the
-    // pristine-detection baseline and as a stand-in for "an untouched
-    // migrated-old-default layout" in the pristine-upgrade test below.
-    static QString oldDefaultLayoutJson() {
-        return QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
-            "{\"type\":\"flush\",\"id\":\"flush1\"}],"
-            "\"centerMiddle\":[{\"type\":\"shotPlan\",\"id\":\"plan1\"}],"
-            "\"bottomLeft\":[{\"type\":\"sleep\",\"id\":\"sleep1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"spacer\",\"id\":\"spacer2\"},"
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}");
-    }
 
     void defaultLayoutIsRecipesFirst() {
         SettingsNetwork* net = m_settings.network();
@@ -2598,501 +2152,23 @@ private slots:
         QVERIFY(!reloadedNet->hasItemType("recipes"));
     }
 
-    // The one-time inject places Equipment after beans when it is missing, and
-    // the result must survive a restart — the bug class here is "what comes back
-    // on the next launch", so an in-memory-only write would miss the point.
-    void injectEquipmentPlacesAfterBeans() {
+    // A layout saved before lowerMidBar existed has no key for it, and no read
+    // adds one: the zone reads as empty and the first item added creates it.
+    void layoutWithoutLowerMidBarAcceptsItems() {
         SettingsNetwork* net = m_settings.network();
-
+        const QString orig = net->layoutConfiguration();
         net->setLayoutConfiguration(QStringLiteral(
             "{\"version\":1,\"zones\":{"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
+            "\"bottomRight\":[{\"type\":\"settings\",\"id\":\"settings1\"}]}}"));
 
-        net->injectEquipmentButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "beans", "equipment", "settings"}));
+        QVERIFY(net->getZoneItems("lowerMidBar").isEmpty());
+        net->addItem(QStringLiteral("clock"), QStringLiteral("lowerMidBar"));
 
-        // Read back through an independent instance: proves the inject escaped
-        // SettingsNetwork's own m_layoutCache and reached QSettings. (Both
-        // instances share Qt's QConfFile cache for this path in-process, so this
-        // is not evidence of a disk write — the layout-cache distinction is the
-        // one that matters here, since that cache is what a restart discards.)
         Settings reloaded;
-        QCOMPARE(typesOf(reloaded.network()->getZoneItems("bottomRight")),
-                 QStringList({"history", "beans", "equipment", "settings"}));
-
-        // Second call is a no-op — no duplicate even though the "gate" (a real
-        // schema crossing) is what makes it one-time in production.
-        net->injectEquipmentButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")).count("equipment"), 1);
-    }
-
-    // The beans anchor is searched across ALL zones, not just the bottom bar, and
-    // zones are visited in QJsonObject::keys() order (alphabetical). In the
-    // CURRENT default layout beans lives in centerTop, so an upgrading user gets
-    // Equipment in the centre row rather than the bottom bar. Pinning it because
-    // it is surprising, and because nothing else in the suite exercises a beans
-    // anchor outside bottomRight.
-    void injectEquipmentFollowsBeansIntoCenterZone() {
-        SettingsNetwork* net = m_settings.network();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->injectEquipmentButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"beans", "equipment", "steam"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "settings"}));
-    }
-
-    // With no beans anywhere, Equipment falls back to appending to bottomRight.
-    void injectEquipmentFallsBackToBottomRight() {
-        SettingsNetwork* net = m_settings.network();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->injectEquipmentButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "settings", "equipment"}));
-    }
-
-    // Recipes goes immediately left of espresso when missing.
-    void injectRecipesPlacesLeftOfEspresso() {
-        SettingsNetwork* net = m_settings.network();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->injectRecipesButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "recipes", "espresso", "settings"}));
-
-        // Idempotent second call.
-        net->injectRecipesButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")).count("recipes"), 1);
-    }
-
-    // No espresso: Recipes sits beside equipment, else appends to bottomRight.
-    void injectRecipesFallsBackBesideEquipment() {
-        SettingsNetwork* net = m_settings.network();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->injectRecipesButtonIfMissing();
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "recipes", "settings"}));
-    }
-
-    // Inject is a no-op when the widget already exists. This is the ONLY thing
-    // stopping a double-add on a fresh install: a new DB is seeded at schema 1
-    // and climbs past both 22 and 25, so both gates fire on first launch while
-    // the default layout already ships both buttons.
-    void injectIsNoOpWhenAlreadyPresent() {
-        SettingsNetwork* net = m_settings.network();
-
-        net->resetLayoutToDefault();  // default ships equipment + recipes
-        const QStringList centerTopBefore = typesOf(net->getZoneItems("centerTop"));
-        const QStringList bottomRightBefore = typesOf(net->getZoneItems("bottomRight"));
-
-        net->injectEquipmentButtonIfMissing();
-        net->injectRecipesButtonIfMissing();
-
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")), centerTopBefore);
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")), bottomRightBefore);
-    }
-
-    void applyRecipesFirstUpgradePristineGetsFullNewDefault() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(oldDefaultLayoutJson());
-        net->applyRecipesFirstUpgrade();
-
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "beans", "steam", "hotwater"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"flush", "history", "equipment", "espresso", "settings"}));
-
+        SettingsNetwork* reloadedNet = reloaded.network();
+        QCOMPARE(typesOf(reloadedNet->getZoneItems("lowerMidBar")), QStringList({"clock"}));
+        QCOMPARE(typesOf(reloadedNet->getZoneItems("bottomRight")), QStringList({"settings"}));
         net->setLayoutConfiguration(orig);
-    }
-
-    // A user who installed before PR Kulitorum/Decenza#1372 ("Layout editor: drag-reorder...
-    // default cleanups") and never customized still carries the legacy
-    // centerStatus readouts {temperature, waterLevel, machineStatus} —
-    // nothing ever migrated that zone to empty. That's still pristine (never
-    // customized), so accepting the offer must give them the full new
-    // default too, not the surgical transform.
-    void applyRecipesFirstUpgradePristineDetectsLegacyCenterStatus() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerStatus\":["
-            "{\"type\":\"temperature\",\"id\":\"temp1\"},"
-            "{\"type\":\"waterLevel\",\"id\":\"water1\"},"
-            "{\"type\":\"machineStatus\",\"id\":\"conn1\"}],"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
-            "{\"type\":\"flush\",\"id\":\"flush1\"}],"
-            "\"centerMiddle\":[{\"type\":\"shotPlan\",\"id\":\"plan1\"}],"
-            "\"bottomLeft\":[{\"type\":\"sleep\",\"id\":\"sleep1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"spacer\",\"id\":\"spacer2\"},"
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "beans", "steam", "hotwater"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"flush", "history", "equipment", "espresso", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    void applyRecipesFirstUpgradeSurgicalTransformPreservesCustomizations() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        // Customized: an extra custom widget in the center row (differs from
-        // the pristine old default, so the surgical path applies).
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
-            "{\"type\":\"flush\",\"id\":\"flush1\"},"
-            "{\"type\":\"custom\",\"id\":\"custom1\",\"text\":\"Hi\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "steam", "hotwater", "flush", "custom"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "beans", "equipment", "espresso", "settings"}));
-        // Customization (the custom widget's text) survives untouched.
-        QCOMPARE(net->getItemProperties("custom1").value("text").toString(), QStringLiteral("Hi"));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    void applyRecipesFirstUpgradeInsertsRecipesAtEspressoPosition() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        // Recipes lands at the espresso button's former (index-0) position.
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "steam", "hotwater"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "espresso", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    // Regression: a customized user whose Recipes button already lives OUTSIDE
-    // the center (here, in the bottom bar) with Profiles (espresso) in the
-    // center. The upgrade must MOVE that existing Recipes button into the
-    // Profiles slot — not leave the center row short — and relocate Profiles to
-    // the bar. The old "insert Recipes only if none exists anywhere" guard
-    // wrongly skipped the center placement because a Recipes button was present
-    // (in the bar), so Profiles was pulled out with nothing put in its place.
-    void applyRecipesFirstUpgradeMovesExistingBarRecipesIntoEspressoSlot() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        // The bar Recipes button carries a distinctive id so the assertions can
-        // tell a genuine MOVE (id preserved) from a discard-and-recreate (which
-        // would produce the code's default "recipes1").
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"recipes\",\"id\":\"recipesKept\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        // Recipes moved from the bar into Profiles' former center slot; exactly
-        // one Recipes button exists; Profiles relocated after Equipment.
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "steam", "hotwater"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "espresso", "settings"}));
-        // The existing button was MOVED (its id survived), not recreated.
-        QCOMPARE(idsOf(net->getZoneItems("centerTop")).value(0), QStringLiteral("recipesKept"));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    // Multiple Recipes buttons across zones (a reachable hand-edited state):
-    // the transform must dedupe to exactly one, landed in Profiles' slot, with
-    // no stray copy left in any bar/other zone.
-    void applyRecipesFirstUpgradeDedupesMultipleRecipes() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
-            "\"bottomLeft\":[{\"type\":\"recipes\",\"id\":\"recipesA\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"recipes\",\"id\":\"recipesB\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        // Exactly one Recipes button remains, in the Profiles slot; none linger
-        // in either bar zone.
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "steam"}));
-        QVERIFY(!typesOf(net->getZoneItems("bottomLeft")).contains("recipes"));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"equipment", "espresso", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    // A Profiles copy parked in the unclassified lowerMidBar band (neither a
-    // center nor a bar zone) must not cause a duplicate: the center Profiles is
-    // swapped to Recipes, but since a Profiles button still exists (in
-    // lowerMidBar) none is appended to the bottom bar.
-    void applyRecipesFirstUpgradeNoDuplicateWhenProfilesInLowerMidBar() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"espresso\",\"id\":\"espresso_center\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
-            "\"lowerMidBar\":[{\"type\":\"espresso\",\"id\":\"espresso_lmb\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")), QStringList({"recipes", "steam"}));
-        QCOMPARE(typesOf(net->getZoneItems("lowerMidBar")), QStringList({"espresso"}));
-        // No Profiles appended to the bar — exactly one Profiles button total.
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    void applyRecipesFirstUpgradeLeavesEspressoAlreadyInBar() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
-            "\"bottomLeft\":[{\"type\":\"espresso\",\"id\":\"espresso1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        // Unchanged — the item is left exactly where the user put it, no duplicate.
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "steam", "hotwater"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomLeft")), QStringList({"espresso"}));
-        // Auto-Favorites still removed.
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    // Espresso present in BOTH a center zone and a bar zone simultaneously
-    // (an unusual manually-constructed layout): the center instance is still
-    // removed (recipes-position logic still applies), but since a bar
-    // instance already exists no relocation happens — the bar instance is
-    // left alone and no duplicate is created.
-    void applyRecipesFirstUpgradeRemovesCenterEspressoWhenAlsoInBar() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
-            "\"bottomLeft\":[{\"type\":\"espresso\",\"id\":\"espresso_bar1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
-                 QStringList({"recipes", "steam", "hotwater"}));
-        QCOMPARE(typesOf(net->getZoneItems("bottomLeft")), QStringList({"espresso"}));
-        // No duplicate landed in bottomRight.
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    // Multiple Auto-Favorites instances in the same zone (also unusual, but
-    // the removal loop iterates in reverse specifically to survive this) —
-    // both must be removed, not just the first.
-    void applyRecipesFirstUpgradeRemovesEveryAutofavoritesInstance() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites2\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-
-        QVERIFY(!typesOf(net->getZoneItems("bottomRight")).contains("autofavorites"));
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
-                 QStringList({"history", "equipment", "settings"}));
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    void applyRecipesFirstUpgradeIsIdempotent() {
-        SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
-
-        net->setLayoutConfiguration(QStringLiteral(
-            "{\"version\":1,\"zones\":{"
-            "\"centerTop\":["
-            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
-            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
-            "{\"type\":\"steam\",\"id\":\"steam1\"},"
-            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
-            "{\"type\":\"flush\",\"id\":\"flush1\"},"
-            "{\"type\":\"custom\",\"id\":\"custom1\"}],"
-            "\"bottomRight\":["
-            "{\"type\":\"history\",\"id\":\"history1\"},"
-            "{\"type\":\"beans\",\"id\":\"beans1\"},"
-            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
-            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
-            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
-            "}}"));
-
-        net->applyRecipesFirstUpgrade();
-        const QStringList centerTopOnce = typesOf(net->getZoneItems("centerTop"));
-        const QStringList bottomRightOnce = typesOf(net->getZoneItems("bottomRight"));
-
-        net->applyRecipesFirstUpgrade();
-        QCOMPARE(typesOf(net->getZoneItems("centerTop")), centerTopOnce);
-        QCOMPARE(typesOf(net->getZoneItems("bottomRight")), bottomRightOnce);
-
-        net->setLayoutConfiguration(orig);
-    }
-
-    void recipesUpgradeOfferedRoundTrip() {
-        SettingsNetwork* net = m_settings.network();
-        const bool orig = net->recipesUpgradeOffered();
-
-        net->setRecipesUpgradeOffered(false);
-        QSignalSpy spy(net, &SettingsNetwork::recipesUpgradeOfferedChanged);
-        net->setRecipesUpgradeOffered(true);
-        QVERIFY(net->recipesUpgradeOffered());
-        QCOMPARE(spy.count(), 1);
-        net->setRecipesUpgradeOffered(true);  // same value: no signal
-        QCOMPARE(spy.count(), 1);
-
-        net->setRecipesUpgradeOffered(orig);
     }
 
     // ==========================================
@@ -3289,170 +2365,6 @@ private slots:
         QVERIFY(dye->grinderIsClickIndexed("Eureka", "Mignon Specialita"));
         QVERIFY(!dye->grinderIsClickIndexed("Niche", "Zero"));
         QVERIFY(!dye->grinderIsClickIndexed("Acme", "NotReal"));
-    }
-
-    // ==========================================
-    // Web <datalist> candidate generation (GrindCandidates::build) — the C++
-    // TWIN of GrindRowSource.qml's stepping, serving /api/grind-candidates.
-    // Extracted from ShotServer so it is testable at all (same reason as
-    // tst_exifdate): a hand-duplicate of the click-indexed negative rule is
-    // exactly the thing that rots silently, and the web helper's deliberately
-    // quiet .catch means a regression would surface as a wrong dropdown, not
-    // an error.
-    // ==========================================
-
-    // Helper: pull the "grind" array out as a QStringList.
-    static QStringList grindOf(const QJsonObject& o) {
-        QStringList out;
-        for (const QJsonValue& v : o.value("grind").toArray())
-            out << v.toString();
-        return out;
-    }
-
-    void grindCandidates_negativesForSteplessCollar() {
-        GrindCandidates::Inputs in;
-        in.brand = "Niche"; in.model = "Zero";
-        in.current = "0.25"; in.grindStep = 0.25;
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        // A stepless collar's zero is a user-set calibration reference, so the
-        // window runs straight through it (5 steps down from 0.25 = -1).
-        QVERIFY(g.contains("-1"));
-        QVERIFY(g.contains("0"));
-        QVERIFY(g.contains("1.5"));
-    }
-
-    // #1713 on the web surface: the datalist must keep the precision the user's
-    // OWN value already has, not just the step's.
-    //
-    // stepDecimals() took the step alone while its comment claimed it mirrored
-    // GrindRowSource._stepDecimals, which has taken the max with the value since
-    // #1713. The failure is not a rounding nit: with history too thin to derive a
-    // step, grindStep is 0 and the endpoint falls back to 1.0 = zero decimals, so
-    // a recorded "1.1" formats to "1". The user's own setting vanishes from the
-    // dropdown AND the n=0 suggestion silently rewrites it, which is exactly the
-    // reported shape of #1713.
-    void grindCandidates_keepsThePrecisionOfTheUsersOwnValue() {
-        GrindCandidates::Inputs in;
-        in.brand = "Niche"; in.model = "Zero";
-        in.current = "1.1";
-        in.grindStep = 0.0;   // too thin to derive -> the 1.0 fallback, 0 decimals
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-
-        // The value itself survives, at its own precision.
-        QVERIFY2(g.contains("1.1"), qPrintable("datalist lost the user's value: " + g.join(',')));
-        // And the whole lattice carries that precision rather than collapsing to
-        // integers - "1" appearing at all would mean 1.1 was reformatted away.
-        QVERIFY2(g.contains("0.1"), qPrintable(g.join(',')));
-        QVERIFY2(g.contains("2.1"), qPrintable(g.join(',')));
-        QVERIFY2(!g.contains("1"), qPrintable("1.1 was reformatted to 1: " + g.join(',')));
-
-        // A step FINER than the value still wins - the max runs both ways.
-        in.grindStep = 0.25;
-        const QStringList q = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QVERIFY2(q.contains("1.35"), qPrintable(q.join(',')));
-
-        // A non-numeric value contributes no precision and must not throw the
-        // step's own decimals away.
-        in.current = "coarse"; in.grindStep = 0.5;
-        const QStringList c = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QVERIFY(!c.isEmpty());
-    }
-
-    void grindCandidates_positiveAnchorHasNoNegatives() {
-        GrindCandidates::Inputs in;
-        in.brand = "Niche"; in.model = "Zero";
-        in.current = "8"; in.grindStep = 0.25;
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QCOMPARE(g.first(), QString("6.75"));
-        QCOMPARE(g.last(), QString("9.25"));
-        for (const QString& v : g)
-            QVERIFY(!v.startsWith('-'));
-    }
-
-    void grindCandidates_clickIndexedSkipsNegativesInNumericForm() {
-        // THE regression guard: the catalog returns "" for a compound
-        // grinder's below-floor rows, and those fall through to the numeric
-        // fallback — which must re-check the click-indexed rule or it
-        // resurrects the refused negative. A Mignon logging plain "2.5" takes
-        // exactly that path (the notation, not the written form, decides).
-        GrindCandidates::Inputs in;
-        in.brand = "Eureka"; in.model = "Mignon Specialita";
-        in.current = "3"; in.grindStep = 1.0;
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        // The floor holds: 5 steps down from 3 would reach -2.
-        QCOMPARE(g.first(), QString("0"));
-        QCOMPARE(g.last(), QString("8"));
-        for (const QString& v : g)
-            QVERIFY2(!v.startsWith('-'),
-                     qPrintable("negative candidate on a click-indexed grinder: " + v));
-
-        // Same grinder, value written as a PLAIN NUMBER rather than "a+b" —
-        // the path that falls through the catalog into the numeric fallback,
-        // where the skip has to be re-checked. Asserting the rule (no
-        // negatives) rather than a formatted value: at step 1.0 the labels
-        // round to 0 decimals, so the exact strings are a formatting detail,
-        // not the behaviour under test.
-        in.current = "2.5";
-        const QStringList gz = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QVERIFY(!gz.isEmpty());
-        for (const QString& v : gz)
-            QVERIFY2(!v.startsWith('-'),
-                     qPrintable("negative candidate from the numeric fallback: " + v));
-    }
-
-    void grindCandidates_fallsBackToObservedHistory() {
-        // Too few stepped candidates (an unparseable notation) → the observed
-        // list, with the current value prepended when it is not already in it.
-        GrindCandidates::Inputs in;
-        in.brand = "Acme"; in.model = "NotReal";
-        in.current = "medium-fine"; in.grindStep = 1.0;
-        in.observed = QStringList{"7.5", "8", "8.5"};
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QCOMPARE(g, (QStringList{"medium-fine", "7.5", "8", "8.5"}));
-
-        // Already present → not duplicated.
-        in.current = "8";
-        QCOMPARE(grindOf(GrindCandidates::build(m_settings.dye(), in)).count("8"), 1);
-
-        // No current value at all (new bag): the history alone, capped.
-        in.current = "";
-        in.observed.clear();
-        for (int i = 0; i < 20; ++i)
-            in.observed << QString::number(i);
-        QCOMPARE(grindOf(GrindCandidates::build(m_settings.dye(), in)).size(),
-                 GrindCandidates::kHistoryCap);
-    }
-
-    void grindCandidates_decimalsFollowTheStep() {
-        QCOMPARE(GrindCandidates::stepDecimals(1.0), 0);
-        QCOMPARE(GrindCandidates::stepDecimals(0.5), 1);
-        QCOMPARE(GrindCandidates::stepDecimals(0.25), 2);
-        // A float-dirty step (0.1 + 0.2 = 0.30000000000000004) must not yield a
-        // 17-decimal label — the 3-decimal round-trip bounds it.
-        QCOMPARE(GrindCandidates::stepDecimals(0.1 + 0.2), 1);
-        // Trailing zeros stripped so labels match the display convention.
-        QCOMPARE(GrindCandidates::formatStepped(7.50, 2), QString("7.5"));
-        QCOMPARE(GrindCandidates::formatStepped(7.00, 2), QString("7"));
-    }
-
-    void grindCandidates_rpmGatedByCapability() {
-        GrindCandidates::Inputs in;
-        in.current = "8"; in.grindStep = 0.25; in.rpmStep = 50;
-
-        // Niche Zero is not RPM-capable: an EMPTY rpm list is the capability
-        // verdict the web helper hides the RPM field on.
-        in.brand = "Niche"; in.model = "Zero";
-        QVERIFY(GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray().isEmpty());
-
-        // An RPM-capable grinder with no recorded RPM seeds from the neutral
-        // anchor, and never offers a non-positive speed (0 is the unset
-        // sentinel, so it must not appear as a pickable row).
-        in.brand = "Varia"; in.model = "VS6";
-        const QJsonArray rpm = GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray();
-        QVERIFY(!rpm.isEmpty());
-        QVERIFY(rpm.contains(QJsonValue(double(GrindCandidates::kRpmDefaultAnchor))));
-        for (const QJsonValue& v : rpm)
-            QVERIFY(v.toDouble() > 0.0);
     }
 
     void stepGrinderSetting_customGrinderFallsBack() {

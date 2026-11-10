@@ -186,10 +186,8 @@ private:
 
 private slots:
     void initTestCase() {
-        // Redirect AppDataLocation, which ProfileManager::profilesPath() reads.
-        // Two reasons: stripStoredRecipeBlocks below writes real files, and without
-        // this the whole suite has been reading and writing the developer's own
-        // ~/Library/Application Support profiles directory.
+        // Redirect AppDataLocation, which ProfileManager::profilesPath() reads, so
+        // the suite never reads or writes the developer's own profiles directory.
         QStandardPaths::setTestModeEnabled(true);
         // Past Qt Test's 2000-message cap the rest of the run's output is dropped;
         // this suite's debug chatter alone crossed it.
@@ -232,10 +230,7 @@ private slots:
         raw.sync();
     }
 
-    // === stripStoredRecipeBlocks: runs at startup, rewrites files on disk ===
-    // Minimal valid D-Flow profile JSON, for the strip-pass cases below. Frame
-    // values are deliberately NOT ProfileParams' defaults, so a pass that rebuilt
-    // frames instead of just removing a key would be visible.
+    // === Fixtures ===
     // The QStandardPaths test-mode store persists across runs, and several tests in
     // this file leave deliberately-broken fixtures behind. A pass that walks every
     // profile at ProfileManager construction then reports them, which has nothing to
@@ -265,6 +260,9 @@ private slots:
         f.profileManager.loadProfile(fileName);
     }
 
+    // Minimal valid D-Flow profile JSON. Frame values are deliberately NOT
+    // ProfileParams' defaults, so a pass that rebuilt frames instead of just
+    // removing a key would be visible.
     static QJsonObject makeDFlowJson(const QString& title) {
         QJsonObject p;
         p["title"] = title;
@@ -297,172 +295,11 @@ private slots:
         return p;
     }
 
-
-    void stripLeavesProfilesWithoutABlockByteIdentical() {
-        // The pass runs ONCE, reads every profile on disk and rewrites the ones that
-        // qualify, so a mistake here is permanent and silent. A profile with no
-        // `recipe` key has nothing to strip and must not be touched at all — not
-        // even re-serialized, which would quietly renormalise a user's file under
-        // the banner of a migration.
-        //
-        // The legacy `is_recipe_mode` flag is deliberately included: the pass this
-        // replaced once keyed off it and rebuilt frames from ProfileParams' defaults
-        // for profiles that had no parameters to rebuild from (REC-1).
-        clearTestProfileStore();
-        McpTestFixture f;
-        f.settings.setValue("recipe_blocks_stripped", false);
-
-        const QString dir = f.profileManager.userProfilesPath();
-
-        QJsonObject legacy;
-        legacy["title"] = "D-Flow / Legacy Flag";
-        legacy["author"] = "test";
-        legacy["beverage_type"] = "espresso";
-        legacy["version"] = "2";
-        legacy["legacy_profile_type"] = "settings_2c";
-        legacy["is_recipe_mode"] = true;      // the legacy flag...
-        legacy["target_weight"] = 36.0;
-        legacy["espresso_temperature"] = 84.0;
-        QJsonArray steps;
-        for (const char* name : {"Filling", "Infusing", "Pouring"}) {
-            QJsonObject fr;
-            fr["name"] = name;
-            fr["temperature"] = 84.0;   // distinctive: NOT ProfileParams' 88.0 default
-            fr["sensor"] = "coffee";
-            fr["pump"] = "pressure";
-            fr["transition"] = "fast";
-            fr["pressure"] = 3.0;
-            fr["flow"] = 8.0;
-            fr["seconds"] = 25.0;
-            fr["volume"] = 60.0;
-            fr["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 3.0}};
-            fr["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
-            steps.append(fr);
-        }
-        legacy["steps"] = steps;
-        // ...and no "recipe" block, which is the whole point.
-
-        const QString path = dir + "/legacy_flag_only.json";
-        QFile out(path);
-        QVERIFY(out.open(QIODevice::WriteOnly));
-        const QByteArray before = QJsonDocument(legacy).toJson();
-        QCOMPARE(out.write(before), qint64(before.size()));
-        out.close();
-
-        f.profileManager.stripStoredRecipeBlocks();
-
-        QFile back(path);
-        QVERIFY(back.open(QIODevice::ReadOnly));
-        const QByteArray after = back.readAll();
-        back.close();
-        QFile::remove(path);
-
-        QVERIFY2(before == after,
-                 "a profile with no recipe block was rewritten by the strip pass — it "
-                 "has nothing to strip, so touching it can only lose something");
-    }
-
-    void stripRemovesTheBlockAndLeavesEverythingElseAlone() {
-        clearTestProfileStore();
-        McpTestFixture f;
-        f.settings.setValue("recipe_blocks_stripped", false);
-        const QString dir = f.profileManager.userProfilesPath();
-
-        QJsonObject p = makeDFlowJson("D-Flow / Has Block");
-        // A block whose values CONTRADICT the frames, which is the real-world case:
-        // five shipped A-Flow built-ins carried exactly that.
-        p["recipe"] = QJsonObject{
-            {"editorType", "dflow"}, {"dose", 18.0},
-            {"fillTemperature", 88.0}, {"pourTemperature", 93.0}, {"pourPressure", 9.0}};
-
-        const QString path = dir + "/has_block.json";
-        QFile out(path);
-        QVERIFY(out.open(QIODevice::WriteOnly));
-        out.write(QJsonDocument(p).toJson());
-        out.close();
-
-        f.profileManager.stripStoredRecipeBlocks();
-
-        QFile back(path);
-        QVERIFY(back.open(QIODevice::ReadOnly));
-        const QJsonObject after = QJsonDocument::fromJson(back.readAll()).object();
-        back.close();
-        QFile::remove(path);
-
-        QVERIFY2(!after.contains("recipe"), "the recipe block survived the strip pass");
-        // Everything else intact — the frames especially, which the block disagreed with.
-        QCOMPARE(after.value("title").toString(), QStringLiteral("D-Flow / Has Block"));
-        QCOMPARE(after.value("steps").toArray().size(), p.value("steps").toArray().size());
-        // dose was the struct default, so no recommendation is switched on.
-        QVERIFY2(!after.value("has_recommended_dose").toBool(false),
-                 "a default dose of 18 enabled a recommendation the user never set");
-    }
-
-    void stripPromotesAUserSetDose() {
-        clearTestProfileStore();
-        McpTestFixture f;
-        f.settings.setValue("recipe_blocks_stripped", false);
-        const QString dir = f.profileManager.userProfilesPath();
-
-        QJsonObject p = makeDFlowJson("D-Flow / Real Dose");
-        p["recipe"] = QJsonObject{{"editorType", "dflow"}, {"dose", 20.5}};
-
-        const QString path = dir + "/real_dose.json";
-        QFile out(path);
-        QVERIFY(out.open(QIODevice::WriteOnly));
-        out.write(QJsonDocument(p).toJson());
-        out.close();
-
-        f.profileManager.stripStoredRecipeBlocks();
-
-        QFile back(path);
-        QVERIFY(back.open(QIODevice::ReadOnly));
-        const QJsonObject after = QJsonDocument::fromJson(back.readAll()).object();
-        back.close();
-        QFile::remove(path);
-
-        QVERIFY(!after.contains("recipe"));
-        QVERIFY2(after.value("has_recommended_dose").toBool(false),
-                 "a dose the user set was dropped with the block instead of promoted");
-        QCOMPARE(after.value("recommended_dose").toVariant().toDouble(), 20.5);
-    }
-
-    void stripRunsOnlyOnce() {
-        clearTestProfileStore();
-        McpTestFixture f;
-        f.settings.setValue("recipe_blocks_stripped", false);
-        f.profileManager.stripStoredRecipeBlocks();
-        QVERIFY2(f.settings.value("recipe_blocks_stripped", false).toBool(),
-                 "the pass did not record completion, so it would rewrite every "
-                 "profile on every launch");
-
-        // Second run must be a no-op: a profile placed afterwards is left alone.
-        const QString dir = f.profileManager.userProfilesPath();
-        QJsonObject p = makeDFlowJson("D-Flow / After");
-        p["recipe"] = QJsonObject{{"editorType", "dflow"}, {"dose", 18.0}};
-        const QString path = dir + "/after.json";
-        QFile out(path);
-        QVERIFY(out.open(QIODevice::WriteOnly));
-        const QByteArray before = QJsonDocument(p).toJson();
-        out.write(before);
-        out.close();
-
-        f.profileManager.stripStoredRecipeBlocks();
-
-        QFile back(path);
-        QVERIFY(back.open(QIODevice::ReadOnly));
-        const QByteArray after = back.readAll();
-        back.close();
-        QFile::remove(path);
-        QCOMPARE(before, after);   // the gate held; loadProfile handles late arrivals
-    }
-
     // === strip-on-load: the block must not survive on disk ===
 
     void loadStripsAndPersistsAStoredBlock() {
-        // The one-time upgrade covers what is already stored. This covers everything
-        // that arrives afterwards — an import, a share code, a SAF sync, a restored
-        // backup. Dropping the block in memory alone would leave it on disk forever
+        // Covers every profile that arrives with a block — an import, a share code,
+        // a SAF sync, a restored backup. Dropping the block in memory alone would leave it on disk forever
         // on a profile the user never re-saves.
         clearTestProfileStore();
         McpTestFixture f;
@@ -499,69 +336,6 @@ private slots:
         again.close();
         QFile::remove(path);
         QCOMPARE(afterFirst, afterSecond);
-    }
-
-    void stripRefusesAProfileItCannotRewriteLosslessly() {
-        // The guard that stops the pass mangling a profile stored in an encoding the
-        // canonical serializer cannot reproduce. Every other fixture round-trips
-        // cleanly, so without a deliberately lossy one this branch is never entered.
-        clearTestProfileStore();
-        McpTestFixture f;
-        f.settings.setValue("recipe_blocks_stripped", false);
-
-        QJsonObject p = makeDFlowJson("D-Flow / Lossy");
-        p["recipe"] = QJsonObject{{"editorType", "dflow"}, {"dose", 18.0}};
-        // A key the serializer models and re-emits with a DIFFERENT value: the parity
-        // check reports a change, so the rewrite is refused.
-        p["target_weight"] = 36.5555;
-
-        const QString path = f.profileManager.userProfilesPath() + "/lossy.json";
-        QFile out(path);
-        QVERIFY(out.open(QIODevice::WriteOnly));
-        const QByteArray before = QJsonDocument(p).toJson();
-        out.write(before);
-        out.close();
-
-        f.profileManager.stripStoredRecipeBlocks();
-
-        QFile back(path);
-        QVERIFY(back.open(QIODevice::ReadOnly));
-        const QByteArray after = back.readAll();
-        back.close();
-        QFile::remove(path);
-
-        QCOMPARE(before, after);   // untouched, block and all
-        QVERIFY2(QJsonDocument::fromJson(after).object().contains("recipe"),
-                 "a profile that could not be rewritten losslessly was stripped anyway");
-        // A refusal must NOT block completion — it can never succeed on a later run.
-        QVERIFY2(f.settings.value("recipe_blocks_stripped", false).toBool(),
-                 "a refusal blocked the completion flag, so the pass would repeat forever");
-    }
-
-    void stripCountsAnUnparseableProfileAsFailedAndRetries() {
-        // Three outcomes used to collapse into one silent `false`, so a corrupt file
-        // was invisible on every launch AND the flag was set anyway.
-        clearTestProfileStore();
-        McpTestFixture f;
-        f.settings.setValue("recipe_blocks_stripped", false);
-
-        const QString path = f.profileManager.userProfilesPath() + "/corrupt.json";
-        QFile out(path);
-        QVERIFY(out.open(QIODevice::WriteOnly));
-        out.write("{ \"title\": \"D-Flow / Truncated\", \"recipe\": {");   // half a document
-        out.close();
-
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("cannot parse .*corrupt\\.json"));
-        // ...and the run summary, which is a warning precisely because failed > 0 —
-        // that is the outcome being asserted, so it must be expected, not silenced.
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression("Recipe block strip incomplete"));
-        f.profileManager.stripStoredRecipeBlocks();
-        QFile::remove(path);
-
-        QVERIFY2(!f.settings.value("recipe_blocks_stripped", false).toBool(),
-                 "an unparseable profile did not block the flag, so it is never revisited");
     }
 
     // === no-op-save guard ===
@@ -690,10 +464,8 @@ private slots:
         // The QStandardPaths store PERSISTS ACROSS RUNS, and a failing QVERIFY
         // below aborts this function — so an end-of-test cleanup runs only when
         // the test passes, which is exactly when it is not needed. A file left
-        // here makes migrateProfileFormat() warn at every later ProfileManager
-        // construction (and never stamp profile_format_migrated, so it retries
-        // forever); neither warning is in McpTestFixture's filter, so one red
-        // test would turn the whole file red on the NEXT run, pointing nowhere
+        // here would be read by every later test's ProfileManager, so one red
+        // test could turn the whole file red on the NEXT run, pointing nowhere
         // near here. This file already documents that hazard for the dye
         // settings at the `cleanup()` slot above.
         const QString brokenPath = f.profileManager.userProfilesPath() + "/broken.json";
@@ -4671,71 +4443,6 @@ private slots:
         QFile::remove(f.profileManager.userProfilesPath() + "/facet_espresso_7c3d.json");
     }
 
-    // === One-time upgrade: the removed Selected list merges into favorites ===
-    // (profile-favorites-order "Upgrade merges Selected into favorites")
-
-    void selectedMergesIntoFavoritesOnceAtStartup() {
-        // No stray downloaded/user profiles in the catalogue, or hiddenProfiles
-        // being empty below would treat them as old-Selected too.
-        clearTestProfileStore();
-
-        // A REAL built-in: startup prunes favorites whose profile does not
-        // exist. "Turbo Shot" sorts after both merged titles, so its staying
-        // first proves the existing order is kept rather than re-sorted.
-        const QString existingFavName = "Turbo Shot";
-        const QString existingFavFile = "turbo_shot";
-
-        // Seed the legacy Selected state and force the one-time flag absent
-        // BEFORE any ProfileManager (whose constructor runs the merge) exists.
-        // adaptive_v3/blooming_espresso are shipped built-ins (:/profiles),
-        // titled "Adaptive v3"/"Blooming Espresso"; the merge appends them in
-        // that title order.
-        {
-            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-            raw.remove(QStringLiteral("profile/selectedMergedIntoFavorites"));
-            QJsonArray existingFavs;
-            QJsonObject fav;
-            fav["name"] = existingFavName;
-            fav["filename"] = existingFavFile;
-            existingFavs.append(fav);
-            raw.setValue(QStringLiteral("profile/favorites"), QJsonDocument(existingFavs).toJson());
-            raw.setValue(QStringLiteral("profile/selectedBuiltIns"),
-                         QStringList{QStringLiteral("blooming_espresso"), QStringLiteral("adaptive_v3")});
-            raw.setValue(QStringLiteral("profile/hiddenProfiles"), QStringList());
-            raw.sync();
-        }
-
-        qsizetype sizeAfterFirst = 0;
-        {
-            McpTestFixture f;
-            const QVariantList favorites = f.settings.app()->favoriteProfiles();
-
-            // The pre-existing favorite keeps its position; the two old-Selected
-            // built-ins are appended after it, alphabetically by TITLE
-            // ("Adaptive v3" < "Blooming Espresso") — relative order only, so a
-            // favorite some other test left behind cannot fail this assertion.
-            const QSet<QString> ofInterest{existingFavFile, QStringLiteral("adaptive_v3"),
-                                           QStringLiteral("blooming_espresso")};
-            QCOMPARE(favoriteFilenamesAmong(favorites, ofInterest),
-                     QStringList({existingFavFile, QStringLiteral("adaptive_v3"), QStringLiteral("blooming_espresso")}));
-            sizeAfterFirst = favorites.size();
-        }
-
-        {
-            QSettings flagCheck(Settings::testQSettingsPath(), QSettings::IniFormat);
-            QVERIFY(flagCheck.value(QStringLiteral("profile/selectedMergedIntoFavorites")).toBool());
-        }
-
-        // Idempotence: a second ProfileManager construction (flag already set,
-        // legacy keys still present) adds nothing further.
-        McpTestFixture f2;
-        QCOMPARE(f2.settings.app()->favoriteProfiles().size(), sizeAfterFirst);
-
-        removeFavoriteIfPresent(f2, existingFavFile);
-        removeFavoriteIfPresent(f2, QStringLiteral("adaptive_v3"));
-        removeFavoriteIfPresent(f2, QStringLiteral("blooming_espresso"));
-    }
-
     // A retired built-in's favorite, current-profile and auto-load references
     // follow its successor instead of being pruned as stale (adaptive_v2 ->
     // adaptive_v3, the file de1app renamed in place).
@@ -4743,7 +4450,6 @@ private slots:
         clearTestProfileStore();
         {
             QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-            raw.setValue(QStringLiteral("profile/selectedMergedIntoFavorites"), true);
             QJsonArray favs;
             QJsonObject old; old["name"] = "Adaptive v2"; old["filename"] = "adaptive_v2";
             QJsonObject keep; keep["name"] = "Turbo Shot"; keep["filename"] = "turbo_shot";
@@ -4773,7 +4479,6 @@ private slots:
         clearTestProfileStore();
         {
             QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-            raw.setValue(QStringLiteral("profile/selectedMergedIntoFavorites"), true);
             QJsonArray favs;
             QJsonObject nw; nw["name"] = "Adaptive v3"; nw["filename"] = "adaptive_v3";
             QJsonObject old; old["name"] = "Adaptive v2"; old["filename"] = "adaptive_v2";

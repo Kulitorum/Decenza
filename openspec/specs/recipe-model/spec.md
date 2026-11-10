@@ -70,29 +70,6 @@ The temperature offset and the yield SHALL be stored as set, never recomputed in
 - **WHEN** a recipe stores `{2.0, ratio}` with a `doseG` of 18 and the live dose becomes 17.5
 - **THEN** the recipe still stores `1:2`, and its effective target becomes 35 g
 
-### Requirement: Legacy absolute yields migrate to yield specs
-A one-time forward migration SHALL convert each legacy `yield_g` into `yield_value` and `yield_mode`: a value above 0 becomes `absolute`, and 0 or NULL becomes `none`. `yield_g` SHALL be left dead in place and no longer read or written. Transfer and backup import SHALL convert only rows lacking `yield_mode`; a row carrying `yield_mode` SHALL import verbatim and ignore its dead `yield_g`.
-
-#### Scenario: Legacy absolute yield migrates to an absolute spec
-- **WHEN** a recipe row predating this change holds `yield_g` = 36
-- **THEN** after migration it holds `yield_value` = 36, `yield_mode` = `absolute`, and behaves exactly as before
-
-#### Scenario: Legacy unset yield migrates to none
-- **WHEN** a recipe row predating this change holds `yield_g` = 0 or NULL
-- **THEN** after migration it holds `yield_mode` = `none` and falls through the ladder exactly as an unset yield does today
-
-#### Scenario: Import from a legacy-version device converts
-- **WHEN** recipes are imported from a source database that has `yield_g` but no `yield_mode` column
-- **THEN** the conversion runs on the imported rows, producing the same specs the local migration would have
-
-#### Scenario: Import from a current-version device never reconverts
-- **WHEN** a recipe is imported from a source that has `yield_mode` (its dead `yield_g` still holding a pre-migration absolute), including a recipe the user has since changed to a ratio
-- **THEN** the imported recipe keeps its ratio — the dead column is ignored
-
-#### Scenario: Migration is a relabel
-- **WHEN** the yield migration runs on any recipe
-- **THEN** no profile is resolved, the migration cannot fail, and every migrated recipe behaves as it did before
-
 ### Requirement: Recipe surfaces expose the yield spec
 Every recipe surface (wizard, MCP, web editor) SHALL present yield as none, an absolute yield, or a ratio. The last written of ratio and yield is the anchor; the other is shown derived, never blank. JSON surfaces SHALL expose `yieldG` and `yieldRatio` as sparse, mutually exclusive keys, reject a request carrying both with an error naming the conflict, and clear the other when one is written. Tool descriptions SHALL say so.
 
@@ -114,7 +91,7 @@ Every recipe surface (wizard, MCP, web editor) SHALL present yield as none, an a
 - **THEN** it posts `yieldRatio` and omits `yieldG` — it SHALL NOT coerce a blank yield input to `0` and clear the anchor
 
 ### Requirement: Steam block with pitcher snapshot
-A recipe's steam block SHALL contain `hasMilk`, milk weight (g), steam temperature, flow and timeout, and either a pitcher snapshot (name and volume, by value) or an off marker. The off marker SHALL be a stable field, and SHALL NOT carry a pitcher name. A block with neither SHALL be treated as the off marker. A missing pitcher SHALL NOT block activation; a real one MAY be re-created, but an off-marker block SHALL NOT create a preset.
+A recipe's steam block SHALL contain `hasMilk`, milk weight (g), steam temperature, flow and timeout, and either a pitcher snapshot (name and volume, by value) or an off marker. A missing pitcher SHALL NOT block activation, and a real one MAY be re-created.
 
 An espresso recipe SHALL NOT inherit a shot's or the currently selected pitcher's steam settings when milk was not included.
 
@@ -125,6 +102,9 @@ An espresso recipe SHALL NOT inherit a shot's or the currently selected pitcher'
 #### Scenario: Pitcher preset edited after recipe creation
 - **WHEN** the user reorders, edits, or deletes entries in the global steam pitcher presets after a recipe was saved
 - **THEN** the recipe's steam behavior is unchanged, because the pitcher was snapshotted by value
+
+### Requirement: Steam off marker
+The off marker SHALL be a stable field, and SHALL NOT carry a pitcher name. A block with neither a pitcher snapshot nor the off marker SHALL be treated as the off marker. An off-marker block SHALL NOT create a preset.
 
 #### Scenario: The off marker survives a language change
 - **WHEN** a recipe carrying the off marker is activated in a different app language from the one it was saved in
@@ -231,17 +211,6 @@ A recipe SHALL link a specific bag via a `bag_id` column, riding transfer and ba
 - **WHEN** a recipe with no bag link is activated
 - **THEN** the active bag is unchanged and recipe-local grind applies, exactly as before
 
-### Requirement: Existing recipes migrate to bag links
-A one-time forward migration SHALL populate `bag_id` for existing recipes by resolving each recipe's bean identity to the current open bag (canonical id first, else case-insensitive roaster+coffee, most recently used first — the previous resolver's logic, run once). Recipes whose bean has no open bag SHALL migrate with no bag link and present as stale.
-
-#### Scenario: Migration resolves the open bag
-- **WHEN** the database migrates with a recipe whose bean has one open bag
-- **THEN** the recipe's `bag_id` points at that bag and behavior is unchanged from the user's perspective
-
-#### Scenario: Migration with no open bag
-- **WHEN** the database migrates with a recipe whose bean has no open bag
-- **THEN** the recipe migrates without a bag link and shows the bag-finished state until relinked
-
 ### Requirement: Promote-from-shot grind comes from the shot
 Promote-from-shot, in the wizard and in MCP `recipe_create_from_shot`, SHALL default grind and rpm from the shot's own recorded values, the dial that produced the shot, and SHALL NOT use the bag's current dial.
 
@@ -300,7 +269,7 @@ Portafilter-tea recipes SHALL store temperature in `temp_offset_c` with the same
 - **THEN** it targets 80°, the same as the absolute the user entered, with no tea-specific branch
 
 ### Requirement: Recipe surfaces expose the offset
-The MCP recipe tools and the ShotServer recipe endpoints, including the web editor, SHALL expose the temperature as `tempOffsetC`, a signed °C delta present only when non-zero on read, and SHALL accept it as the only temperature field. The legacy `temperatureOverrideC` SHALL NOT appear in responses. A create or update carrying it SHALL be rejected with an error naming `tempOffsetC` and its delta semantics, never silently dropped.
+The MCP recipe tools and shared native/browser editor SHALL expose the temperature as `tempOffsetC`, a signed °C delta present only when non-zero on read, and SHALL accept it as the only temperature field. The legacy `temperatureOverrideC` SHALL NOT appear in responses. A create or update carrying it SHALL be rejected with an error naming `tempOffsetC` and its delta semantics, never silently dropped.
 
 #### Scenario: MCP reads a recipe with an offset
 - **WHEN** an MCP client fetches a recipe holding a −3° offset
@@ -311,11 +280,11 @@ The MCP recipe tools and the ShotServer recipe endpoints, including the web edit
 - **THEN** the stored recipe holds offset 2 and re-reading it returns `tempOffsetC: 2`
 
 #### Scenario: Legacy field is rejected loudly
-- **WHEN** an MCP or web client sends `temperatureOverrideC` on recipe create or update
+- **WHEN** an MCP client sends `temperatureOverrideC` on recipe create or update
 - **THEN** the request fails with an error naming `tempOffsetC` and its signed-delta semantics, and no field is written
 
 ### Requirement: Water amount specifications round-trip across recipe surfaces
-Recipe storage, native/browser editing, MCP and HTTP recipe JSON SHALL preserve the fixed-or-ratio discriminator and the ratio value. Existing blocks without an amount discriminator SHALL retain fixed semantics. A name-only legacy block SHALL continue resolving its fixed settings from the named preset. Saving an unrelated field SHALL NOT flatten or discard a water ratio.
+Recipe storage, native/browser editing and MCP SHALL preserve the fixed-or-ratio discriminator and the ratio value. Existing blocks without an amount discriminator SHALL retain fixed semantics. A name-only legacy block SHALL continue resolving its fixed settings from the named preset. Saving an unrelated field SHALL NOT flatten or discard a water ratio.
 
 #### Scenario: Existing fixed-volume recipe
 - **WHEN** a legacy hot-water block stores 150 ml in volume mode and no amount discriminator
@@ -326,7 +295,7 @@ Recipe storage, native/browser editing, MCP and HTTP recipe JSON SHALL preserve 
 - **THEN** the returned hot-water block retains ratio mode and 2.7, with no fixed amount treated as authoritative
 
 #### Scenario: Edit an unrelated field through an older form
-- **WHEN** the retained legacy web form changes the name of a recipe carrying ratio water
+- **WHEN** the shared editor changes only the name of a recipe carrying ratio water
 - **THEN** the saved recipe retains its ratio amount specification
 
 ### Requirement: Water ratios are validated consistently

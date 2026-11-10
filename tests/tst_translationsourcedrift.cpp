@@ -763,6 +763,24 @@ private slots:
         QVERIFY2(!tm.parseAutoTranslateResponse(good, requested),
                  "a reply omitting a requested string must fail instead of triggering an upload");
 
+        // A reply that answers every string, one of them unusably, is usable: the bad one is
+        // rejected and the rest apply. It used to fail the whole batch, and with it the upload.
+        const QByteArray oneRejected =
+            "{\"choices\":[{\"message\":{\"content\":\"{\\\"Hello\\\": \\\"Hallo\\\", \\\"World\\\": \\\"!!\\\"}\"}}]}";
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Rejecting AI translation - it has no letters")));
+        QVERIFY2(tm.parseAutoTranslateResponse(oneRejected, requested),
+                 "a rejected string must not fail the batch it arrived in");
+        QCOMPARE(tm.m_aiTranslations.value(QStringLiteral("Hello")), QStringLiteral("Hallo"));
+        QVERIFY(!tm.m_aiTranslations.contains(QStringLiteral("World")));
+
+        // ...but a reply whose every answer was rejected did no work, and must still fail.
+        const QByteArray allRejected =
+            "{\"choices\":[{\"message\":{\"content\":\"{\\\"World\\\": \\\"!!\\\"}\"}}]}";
+        const QVariantList world{QVariantMap{{QStringLiteral("key"), QStringLiteral("World")}}};
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Rejecting AI translation - it has no letters")));
+        QVERIFY2(!tm.parseAutoTranslateResponse(allRejected, world),
+                 "a reply with nothing usable must fail the batch");
+
         tm.registerString(QStringLiteral("retranslate.hello"), QStringLiteral("Hello"));
         tm.m_translations[QStringLiteral("retranslate.hello")] = QStringLiteral("old manual");
         tm.m_userOverrides.insert(QStringLiteral("retranslate.hello"));
@@ -1216,16 +1234,10 @@ private slots:
                  "language, so a non-fatal cancel spends money the user just asked to stop");
     }
 
-    // A translation that loses or renumbers a placeholder is rejected, not applied.
-    //
-    // Renumbering is the dangerous one. "%1 frames" coming back as "Bilder" is visibly broken —
-    // the number just vanishes from the label. But "%2 of %1" against a source of "%1 of %2"
-    // looks perfectly fine in review and silently swaps two values at runtime. Neither is caught
-    // by anything else: the string is applied, saved, and then uploaded to the community copy,
-    // so one bad completion becomes every user's bad completion for that language.
+    // A translation that loses or invents a placeholder is rejected, not applied.
     //
     // Reordering must still be allowed — that is what numbered placeholders are for, and word
-    // order differs between languages. Only the SET has to match.
+    // order differs between languages. Only the SET has to match, so a swapped pair is not caught.
     void aTranslationThatBreaksPlaceholdersIsRejected()
     {
         QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("%1 of %2")),
@@ -1250,9 +1262,16 @@ private slots:
         // Repetition is harmless: QString::arg replaces every occurrence of %1.
         QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("%1 and %1 again")),
                  TranslationManager::placeholderSet(QStringLiteral("%1")));
+
+        // arg() reads two digits, so Turkish "%90" (90%) is prose, not %9...
+        QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("Pili %90-95 arasında tutar")),
+                 TranslationManager::placeholderSet(QStringLiteral("Keeps battery at 90-95%")));
+        // ...and "%15" is not a %1 that survived.
+        QVERIFY(TranslationManager::placeholderSet(QStringLiteral("%15 dakika"))
+                != TranslationManager::placeholderSet(QStringLiteral("%1 5 minutes")));
     }
 
-    // A community download cannot reintroduce a placeholder-broken string either.
+    // A community download cannot reintroduce a broken string (placeholders or no text) either.
     //
     // The AI path and this one need the same rule, but this is the one with the wider blast
     // radius: the backend accepts uploads unauthenticated, so one bad contribution reaches every
@@ -1270,6 +1289,7 @@ private slots:
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("placeholders do not match")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("skipped 1 broken string")));
         // "Skipped a bad string" is still a successful merge, not a refusal — refusal is
         // reserved for "could not read the local file".
         QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild")}}));
@@ -1281,6 +1301,59 @@ private slots:
         QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild %1 von %2")}}));
         QCOMPARE(tm.translateString(key, QStringLiteral("Background image %1 of %2")),
                  QStringLiteral("Hintergrundbild %1 von %2"));
+
+        // A source cut off at an escaped quote translated to a bare "\", which has no
+        // placeholder to fail on. It is not merged over a good value either.
+        const QString quoted = QStringLiteral("hint.quoted");
+        tm.registerString(quoted, QStringLiteral("\"What AI apps can do\" sets both of these."));
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{quoted, QStringLiteral("„Was KI-Apps tun können“ legt beides fest.")}}));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("no letters or digits")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("skipped 1 broken string")));
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{quoted, QStringLiteral("\\")}}));
+        QCOMPARE(tm.m_translations.value(quoted), QStringLiteral("„Was KI-Apps tun können“ legt beides fest."));
+
+        // An empty community value is no translation and never replaces one.
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{key, QString()}}));
+        QCOMPARE(tm.m_translations.value(key), QStringLiteral("Hintergrundbild %1 von %2"));
+    }
+
+    // An upload replaces the server copy for every user of the language, so a stale broken value
+    // in a local file must not travel with it: that is how a repaired server copy gets re-broken.
+    void anUploadWithholdsBrokenTranslations()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+        tm.registerString(QStringLiteral("good"), QStringLiteral("Profile \"%1\" is missing"));
+        tm.registerString(QStringLiteral("lostPlaceholder"), QStringLiteral("Profile \"%1\" is missing"));
+        tm.registerString(QStringLiteral("bareBackslash"), QStringLiteral("\"What AI apps can do\" sets both."));
+        tm.m_translations[QStringLiteral("good")] = QStringLiteral("Profil „%1“ fehlt");
+        tm.m_translations[QStringLiteral("lostPlaceholder")] = QStringLiteral("Profil \\");
+        tm.m_translations[QStringLiteral("bareBackslash")] = QStringLiteral("\\");
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Not uploading translation for lostPlaceholder")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Not uploading translation for bareBackslash")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("withheld 2 broken")));
+        tm.submitTranslation();
+
+        const QJsonObject sent = QJsonDocument::fromJson(tm.m_pendingUploadData).object()
+                                     .value(QStringLiteral("translations")).toObject();
+        QCOMPARE(sent.value(QStringLiteral("good")).toString(), QStringLiteral("Profil „%1“ fehlt"));
+        QVERIFY(!sent.contains(QStringLiteral("lostPlaceholder")));
+        QVERIFY(!sent.contains(QStringLiteral("bareBackslash")));
+
+        // All broken: refused, rather than an empty file replacing the server copy.
+        TranslationManager allBroken(&m_nam, &settings);
+        allBroken.setCurrentLanguage(QStringLiteral("de"));
+        allBroken.registerString(QStringLiteral("bareBackslash"), QStringLiteral("\"What AI apps can do\" sets both."));
+        allBroken.m_translations[QStringLiteral("bareBackslash")] = QStringLiteral("\\");
+        QSignalSpy submitted(&allBroken, &TranslationManager::translationSubmitted);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Not uploading translation for bareBackslash")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("withheld 1 broken")));
+        allBroken.submitTranslation();
+        QCOMPARE(submitted.count(), 1);
+        QCOMPARE(submitted.at(0).at(0).toBool(), false);
+        QVERIFY(allBroken.m_pendingUploadData.isEmpty());
     }
 
     // The scanner must not capture across a line.

@@ -290,6 +290,7 @@ T.Page {
     property int fPitcherDurationSec: 0
     property int fPitcherFlow: 0
     property real fPitcherTemperatureC: 0
+    property real fPitcherWeightG: 0
     property string _loadedSteamJson: ""
     property bool _steamChoiceEdited: false
     property bool _loadedSteamHasDetails: false
@@ -700,6 +701,7 @@ T.Page {
         _steamChoiceEdited = false; _loadedSteamHasDetails = false; _steamRemoved = false
         fHasMilk = false; fMilkWeightG = 0; fHeaterOff = false
         fPitcherName = ""; fPitcherDurationSec = 0; fPitcherFlow = 0; fPitcherTemperatureC = 0
+        fPitcherWeightG = 0
         if (!json || json === "")
             return
         try {
@@ -712,6 +714,7 @@ T.Page {
             fPitcherDurationSec = s.durationSec || 0
             fPitcherFlow = s.flow || 0
             fPitcherTemperatureC = s.temperatureC || 0
+            fPitcherWeightG = s.pitcherWeightG || 0
         } catch (e) {
             WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad steam JSON:", e].map(String).join(" "))
         }
@@ -740,6 +743,8 @@ T.Page {
             s.durationSec = fPitcherDurationSec
             s.flow = fPitcherFlow
             s.temperatureC = fPitcherTemperatureC
+            // Lets activation restore a deleted pitcher's empty weight, which milk capture needs.
+            if (fPitcherWeightG > 0) s.pitcherWeightG = fPitcherWeightG
         }
         return JSON.stringify(s)
     }
@@ -808,6 +813,8 @@ T.Page {
             s.durationSec = current.duration || 0
             s.flow = current.flow || 0
             s.temperatureC = current.temperature || 0
+            if ((current.pitcherWeightG || 0) > 0)
+                s.pitcherWeightG = current.pitcherWeightG
         }
         if (SteamService.state.lastSteamMilkG > 0)
             s.milkWeightG = SteamService.state.lastSteamMilkG
@@ -1295,7 +1302,7 @@ T.Page {
         if (preset.disabled === true) {
             fHeaterOff = true
             fPitcherName = ""; fPitcherDurationSec = 0
-            fPitcherFlow = 0; fPitcherTemperatureC = 0
+            fPitcherFlow = 0; fPitcherTemperatureC = 0; fPitcherWeightG = 0
             return
         }
         fHeaterOff = false
@@ -1303,6 +1310,7 @@ T.Page {
         fPitcherDurationSec = preset.duration || 0
         fPitcherFlow = preset.flow || 0
         fPitcherTemperatureC = preset.temperature || 0
+        fPitcherWeightG = preset.pitcherWeightG || 0
     }
 
     // The label for a tile: the built-in entry carries no stored name, so the
@@ -1331,7 +1339,8 @@ T.Page {
         }
         if (!found && fPitcherName !== "") {
             arr.push({ name: fPitcherName, duration: fPitcherDurationSec,
-                       flow: fPitcherFlow, temperature: fPitcherTemperatureC })
+                       flow: fPitcherFlow, temperature: fPitcherTemperatureC,
+                       pitcherWeightG: fPitcherWeightG })
         }
         return arr
     }

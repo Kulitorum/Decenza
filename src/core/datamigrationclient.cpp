@@ -35,6 +35,12 @@
 #include <QThreadPool>
 #include <QUuid>
 
+static QString sourceTooOldError(TranslationManager* translations)
+{
+    return translateOrFallback(translations, QString::fromLatin1(UpgradeFloor::kSourceTooOldKey),
+                               UpgradeFloor::sourceTooOldMessage());
+}
+
 struct DataMigrationClient::FullBackupDownload {
     std::shared_ptr<QTemporaryDir> directory = std::make_shared<QTemporaryDir>();
     bool writing = false;
@@ -402,6 +408,19 @@ void DataMigrationClient::onManifestReply()
         return;
     }
 
+    // Dormant until the floor is next raised: any source that reports a schema
+    // runs a build that already refuses data below today's floor. A source too
+    // old to report one has its database checked first (startImport).
+    const int sourceSchema = doc.object().value(QStringLiteral("shotSchemaVersion")).toInt();
+    m_sourceSchemaReported = sourceSchema > 0;
+    if (sourceSchema > 0 && sourceSchema < UpgradeFloor::kSchemaVersion) {
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "source shot schema" << sourceSchema
+                 << "is below the upgrade floor" << UpgradeFloor::kSchemaVersion << "; transfer refused";
+        setError(sourceTooOldError(m_translationManager));
+        emit connectionFailed(m_errorMessage);
+        return;
+    }
+
     m_manifest = doc.object().toVariantMap();
     emit manifestChanged();
 
@@ -550,8 +569,16 @@ void DataMigrationClient::startImport(const QStringList& types)
     }
     m_receivedBytes = 0;
 
-    // Set up the import queue
+    // An unreported source is checked by its database before anything else is
+    // applied: the shots step does that when it is queued, so it goes first;
+    // otherwise a check-only step fetches the database.
     m_importQueue = types;
+    if (const qsizetype shots = m_importQueue.indexOf(QStringLiteral("shots")); shots > 0) {
+        m_importQueue.move(shots, 0);
+    } else if (shots < 0 && !m_sourceSchemaReported && !types.isEmpty()) {
+        m_importQueue.prepend(QStringLiteral("schema_check"));
+        m_totalBytes += m_manifest["shotsSize"].toLongLong();
+    }
 
     startNextImport();
 }
@@ -877,6 +904,8 @@ void DataMigrationClient::startNextImport()
         doImportProfiles();
     } else if (next == "shots") {
         doImportShots();
+    } else if (next == "schema_check") {
+        doCheckSourceSchema();
     } else if (next == "media") {
         doImportMedia();
     } else if (next == "ai_conversations") {
@@ -1293,20 +1322,27 @@ void DataMigrationClient::onShotsReply()
         return;
     }
 
+    // A source that did not report its schema was never confirmed at the floor
+    // unless its database imports, so nothing else from it may follow a failure.
+    const auto failShotsStep = [this](const QString& message) {
+        setErrorIfFirst(message);
+        if (!m_sourceSchemaReported)
+            m_importQueue.clear();
+        startNextImport();
+    };
+
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import shots:" << reply->errorString();
-        setErrorIfFirst(tr("The shot history could not be fetched from the other device."));
         reply->deleteLater();
         m_currentReply = nullptr;
-        startNextImport();
+        failShotsStep(tr("The shot history could not be fetched from the other device."));
         return;
     }
 
     if (!m_shotHistory) {
-        setErrorIfFirst(tr("The shot history store is unavailable."));
         reply->deleteLater();
         m_currentReply = nullptr;
-        startNextImport();
+        failShotsStep(tr("The shot history store is unavailable."));
         return;
     }
 
@@ -1319,8 +1355,7 @@ void DataMigrationClient::onShotsReply()
     auto directory = std::make_shared<QTemporaryDir>();
     QObject* context = QCoreApplication::instance();
     if (!directory->isValid() || !context) {
-        setErrorIfFirst(tr("The shot history download could not be saved."));
-        startNextImport();
+        failShotsStep(tr("The shot history download could not be saved."));
         return;
     }
     const QString tempDbPath = directory->filePath(QStringLiteral("shots.db"));
@@ -1364,10 +1399,16 @@ void DataMigrationClient::onShotsReply()
             emit self->isImportingChanged();
             if (!guard || self->m_importGeneration != generation || self->m_cancelled) return;
             self->m_shotImport = shotImport;
+            // An unreported source whose database did not import was never
+            // confirmed to be at the floor, so nothing else from it is applied.
+            if (!success && (shotImport.sourceTooOld || !self->m_sourceSchemaReported))
+                self->m_importQueue.clear();
             if (!saved) {
                 self->setErrorIfFirst(self->tr("The shot history download could not be saved."));
             } else if (!success) {
-                if (!shotImport.integrityFailure.isEmpty())
+                if (shotImport.sourceTooOld) {
+                    self->setErrorIfFirst(sourceTooOldError(self->m_translationManager));
+                } else if (!shotImport.integrityFailure.isEmpty())
                     self->setErrorIfFirst(self->tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
                 else
                     self->setErrorIfFirst(self->tr("Shots could not be imported. Your existing shots were not changed."));
@@ -1378,6 +1419,65 @@ void DataMigrationClient::onShotsReply()
             self->startNextImport();
         }, Qt::QueuedConnection);
     }));
+}
+
+void DataMigrationClient::doCheckSourceSchema()
+{
+    setCurrentOperation(tr("Checking the other device's data..."));
+    QNetworkRequest request(QUrl(m_serverUrl + "/api/backup/shots"));
+    addSessionCookie(request);
+    QNetworkReply* reply = m_networkManager->get(request);
+    m_currentReply = reply;
+    setupSslHandling(reply);
+    connect(reply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (m_cancelled || reply != m_currentReply) return;
+        m_currentReply = nullptr;
+        if (reply->error() != QNetworkReply::NoError) {
+            DIAG_WARN(STORAGE, "DataMigrationClient") << "source database check download failed:" << reply->errorString();
+            refuseUncheckedSource(false);
+            return;
+        }
+        const QByteArray dbData = reply->readAll();
+        m_receivedBytes += dbData.size();
+        auto directory = std::make_shared<QTemporaryDir>();
+        const quint64 generation = m_importGeneration;
+        const QPointer<DataMigrationClient> guard(this);
+        QObject* context = QCoreApplication::instance();
+        QThreadPool::globalInstance()->start(QRunnable::create([guard, context, directory, dbData, generation] {
+            using Probe = ShotHistoryStorage::UpgradeFloorProbe;
+            Probe probe = Probe::Unknown;
+            const QString path = directory->filePath(QStringLiteral("shots.db"));
+            QFile file(path);
+            if (directory->isValid() && file.open(QIODevice::WriteOnly | QIODevice::NewOnly)
+                && file.write(dbData) == dbData.size() && file.flush()) {
+                file.close();
+                probe = ShotHistoryStorage::probeUpgradeFloor(path);
+            }
+            QMetaObject::invokeMethod(context, [guard, directory, generation, probe] {
+                Q_UNUSED(directory)
+                if (!guard || guard->m_importGeneration != generation || guard->m_cancelled) return;
+                if (probe == Probe::Supported)
+                    guard->startNextImport();
+                else
+                    guard->refuseUncheckedSource(probe == Probe::BelowFloor);
+            }, Qt::QueuedConnection);
+        }));
+    });
+}
+
+void DataMigrationClient::refuseUncheckedSource(bool belowFloor)
+{
+    if (belowFloor) {
+        DIAG_WARN(STORAGE, "DataMigrationClient") << "source is below the upgrade floor"
+                                                  << UpgradeFloor::kSchemaVersion << "- nothing imported";
+        setErrorIfFirst(sourceTooOldError(m_translationManager));
+    } else {
+        setErrorIfFirst(tr("The other device's data could not be checked, so nothing was imported."));
+    }
+    m_importQueue.clear();
+    startNextImport();
 }
 
 void DataMigrationClient::doImportMedia()

@@ -4,6 +4,7 @@
 Defines the default idle-page layout (the recipes-first centre row, the bottom bars and the Shot Plan widget), reset-to-default in the app and web editor, and how idle preset pill rows paginate within two rows.
 
 ## Requirements
+
 ### Requirement: Recipes-first default idle layout
 The default idle-page layout SHALL place, in `centerTop`, Recipes, Beans, Steam and Hot Water, in that order. `centerMiddle` SHALL hold the Shot Plan widget, `bottomLeft` SHALL hold Sleep, and `bottomRight` SHALL hold Flush, History, Equipment, Profiles (type `espresso`) and Settings, in that order. The status bar, `centerStatus` and `lowerMidBar` defaults SHALL be unchanged.
 
@@ -37,15 +38,6 @@ The whole-layout "Reset to default" actions — in the in-app layout settings an
 
 - **WHEN** the user clicks "Reset to Default" in the web layout editor
 - **THEN** the same recipes-first default is applied (both paths call the same reset)
-
-### Requirement: Injection migrations do not distort the new default
-
-The pre-existing layout injection migrations (equipment, recipes) SHALL remain no-ops on the new default layout: since the default already contains both widgets, loading a freshly reset layout SHALL NOT insert duplicates or reorder items.
-
-#### Scenario: Reset layout survives a reload unchanged
-
-- **WHEN** the layout is reset to default and then reloaded from storage
-- **THEN** the zone contents are identical to the default composition (no injected duplicates)
 
 ### Requirement: Idle preset pill rows fit two rows
 Every idle preset pill row that pages an inventory (favorite Profiles, Equipment packages, Flush presets and Hot-water vessels) SHALL show as many pills as fit within at most two rows at the row's current width, paginating the remainder with prev/next arrows. This SHALL apply in both rendering paths: the compact-bar popup and the `IdlePage` centre-zone expansion.
@@ -90,4 +82,3 @@ The equipment row SHALL select by id and SHALL keep its full MRU inventory paged
 #### Scenario: Equipment shows the whole inventory across pages
 - **WHEN** the user has more than five equipment packages
 - **THEN** all of them are reachable by paging, not just the five most recent
-

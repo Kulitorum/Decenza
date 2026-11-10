@@ -14,24 +14,7 @@
 #include <QSettings>
 #include <QString>
 
-// ai_conversations_list — read tier. Enumerates the persisted multi-shot
-// AI dialing conversations (AIManager::MAX_CONVERSATIONS = 5, oldest
-// evicted first), most recently active first. Mirrors the web UI's
-// /ai-conversations page (ShotServer::generateAIConversationsPage) so
-// MCP clients can discover and export the same conversations — e.g. to
-// collect real transcripts for prompt-quality work (#639).
-//
-// Reads the "ai/conversations/<key>/*" QSettings keys directly rather
-// than adding another AIConversation static helper — matching the raw
-// read already duplicated in shotserver_ai.cpp. If that key format
-// ever changes, grep for "ai/conversations/" across the codebase.
-//
-// ai_conversation_get — read tier. Returns the full transcript for one
-// conversation key from ai_conversations_list: system prompt + every
-// user/assistant turn (with shotId/structuredNext when present). Same
-// underlying QSettings data as ShotServer::handleAIConversationDownload
-// (the web UI's JSON export), returned as structured JSON instead of a
-// file download.
+// List persisted conversations and return complete transcripts from QSettings.
 void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager)
 {
     const QVector<McpToolAction> conversationActions{
@@ -107,8 +90,7 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
             // Prefer the per-conversation stored timestamp (always written
             // alongside `messages` by saveToStorage/appendAssistantTurnForKey,
             // so it survives even when the key has no index entry); fall back
-            // to the index's timestamp otherwise. Same fallback order as
-            // ShotServer::generateAIConversationsPage.
+            // to the index's timestamp otherwise.
             QString lastUpdated;
             const QDateTime storedDt = QDateTime::fromString(
                 settings.value(prefix + "timestamp").toString(), Qt::ISODate);

@@ -18,6 +18,7 @@
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <algorithm>
 #include <QJsonArray>
 #include <QDebug>
 #include <QDesktopServices>
@@ -1217,27 +1218,28 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
         merged = localDoc.object().value(QStringLiteral("translations")).toObject();
     }
 
-    // Same placeholder rule as mergeLanguageUpdate. This branch is narrow — both Update buttons
-    // set currentLanguage first, so it is reached only when the language changes while a
-    // download is in flight — but the check costs nothing and a sibling path enforcing a rule
-    // its twin does not is exactly how the seven broken strings survived in the first place.
+    // Same translationDefect rule as mergeLanguageUpdate. Narrow — reached only when the language
+    // changes while a download is in flight — but checked like its twin.
     const QJsonObject incoming = root["translations"].toObject();
-    int skippedBadPlaceholders = 0;
+    int skippedBroken = 0;
     for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it) {
+        // An empty incoming value is no translation; it never replaces one.
+        if (it.value().toString().isEmpty())
+            continue;
         const QString sourceEnglish = m_stringRegistry.value(it.key());
-        if (!sourceEnglish.isEmpty()
-            && placeholderSet(it.value().toString()) != placeholderSet(sourceEnglish)) {
+        if (const QString defect = translationDefect(sourceEnglish, it.value().toString());
+            !defect.isEmpty()) {
             DIAG_WARN(APP, "TranslationManager").noquote() << "Skipping community translation for" << it.key()
-                                 << "- placeholders do not match. source=" << sourceEnglish
+                                 << "-" << defect << ". source=" << sourceEnglish
                                  << "incoming=" << it.value().toString();
-            skippedBadPlaceholders++;
+            skippedBroken++;
             continue;
         }
         merged[it.key()] = it.value();
     }
-    if (skippedBadPlaceholders > 0)
+    if (skippedBroken > 0)
         DIAG_WARN(APP, "TranslationManager") << "Language file merge for" << langCode << "skipped"
-                   << skippedBadPlaceholders << "string(s) with broken placeholders";
+                   << skippedBroken << "broken string(s)";
 
     QJsonObject out = root;
     out["translations"] = merged;
@@ -1651,6 +1653,8 @@ TranslationManager::PreparedImport TranslationManager::prepareTranslationImport(
     for (auto it = incoming.begin(); it != incoming.end(); ++it) {
         const QString source = snapshot.registry.value(it.key());
         const QString text = it.value().toString();
+        // Placeholders only: a symbols-only value may be the user's own choice, and refusing
+        // here fails a whole backup restore.
         if (!source.isEmpty() && !text.isEmpty() && placeholderSet(source) != placeholderSet(text))
             return refuse(QStringLiteral("invalidPlaceholders"));
     }
@@ -1754,6 +1758,17 @@ QVariantMap TranslationManager::importTranslation(const QString& filePath, const
     return commitTranslationImport(prepareTranslationImport(captureFileSnapshot(), filePath, expectedLanguage));
 }
 
+QJsonObject TranslationManager::currentLanguageDocument(const QJsonObject& translations) const
+{
+    QJsonObject root;
+    root["language"] = m_currentLanguage;
+    root["displayName"] = getLanguageDisplayName(m_currentLanguage);
+    root["nativeName"] = getLanguageNativeName(m_currentLanguage);
+    root["isRtl"] = isRtlLanguage(m_currentLanguage);
+    root["translations"] = translations;
+    return root;
+}
+
 void TranslationManager::submitTranslation()
 {
     if (m_uploading) {
@@ -1791,19 +1806,33 @@ void TranslationManager::submitTranslation()
         return;
     }
 
-    // Build the translation JSON to upload
-    QJsonObject root;
-    root["language"] = m_currentLanguage;
-    root["displayName"] = getLanguageDisplayName(m_currentLanguage);
-    root["nativeName"] = getLanguageNativeName(m_currentLanguage);
-    root["isRtl"] = isRtlLanguage(m_currentLanguage);
-
-    // Simple key -> translation format
+    // The upload replaces the server copy for every user of this language, so a value the merge
+    // would refuse is not sent: a stale local one would otherwise outlive any server repair.
     QJsonObject translations;
+    int withheld = 0;
     for (auto it = m_translations.constBegin(); it != m_translations.constEnd(); ++it) {
+        if (const QString defect = translationDefect(m_stringRegistry.value(it.key()), it.value());
+            !defect.isEmpty()) {
+            DIAG_WARN(APP, "TranslationManager").noquote() << "Not uploading translation for" << it.key()
+                                 << "-" << defect << ". source=" << m_stringRegistry.value(it.key())
+                                 << "value=" << it.value();
+            ++withheld;
+            continue;
+        }
         translations[it.key()] = it.value();
     }
-    root["translations"] = translations;
+    if (withheld > 0)
+        DIAG_WARN(APP, "TranslationManager") << "Upload of" << m_currentLanguage << "withheld"
+                                             << withheld << "broken string(s)";
+    if (translations.isEmpty() && withheld > 0) {
+        m_lastError = tr("None of the %1 translations fit the English text, so nothing was uploaded.")
+                          .arg(m_currentLanguage);
+        emit lastErrorChanged();
+        emit translationSubmitted(false, m_lastError);
+        return;
+    }
+    m_uploadWithheld = withheld;
+    const QJsonObject root = currentLanguageDocument(translations);
 
     // Store the data for upload after we get the pre-signed URL
     m_pendingUploadData = QJsonDocument(root).toJson();
@@ -1959,8 +1988,11 @@ void TranslationManager::onTranslationUploaded(QNetworkReply* reply)
     // m_uploadingLangCode but left this reading m_currentLanguage, so a rate-limited French
     // upload completing after a switch to German still announced a successful GERMAN
     // contribution — the exact wrong report the fix's own comment quotes.
-    QString message = QString("Translation for %1 submitted successfully! Thank you for contributing.")
+    QString message = tr("Translation for %1 submitted successfully! Thank you for contributing.")
                           .arg(getLanguageDisplayName(m_uploadingLangCode.isEmpty() ? m_currentLanguage : m_uploadingLangCode));
+    if (m_uploadWithheld > 0)
+        message += QLatin1Char(' ') + tr("%1 string(s) were not uploaded because they do not fit the English text.")
+                                          .arg(m_uploadWithheld);
     emit translationSubmitted(true, message);
     DIAG_DEBUG(APP, "TranslationManager") << message;
 }
@@ -2432,18 +2464,11 @@ bool TranslationManager::saveTranslations()
     }
 
     // Save translations for any language (including English customizations)
-    QJsonObject root;
-    root["language"] = m_currentLanguage;
-    root["displayName"] = getLanguageDisplayName(m_currentLanguage);
-    root["nativeName"] = getLanguageNativeName(m_currentLanguage);
-    root["isRtl"] = isRtlLanguage(m_currentLanguage);
-
-    // Simple key -> translation format
     QJsonObject translations;
     for (auto it = m_translations.constBegin(); it != m_translations.constEnd(); ++it) {
         translations[it.key()] = it.value();
     }
-    root["translations"] = translations;
+    const QJsonObject root = currentLanguageDocument(translations);
 
     // QSaveFile: temp + atomic rename. This is the writer that RUNS on every string edit and
     // after every AI pass, so it is the one most likely to produce the truncated file the load
@@ -3132,14 +3157,14 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply, const Q
             DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation:" << finishMessage;
             emit autoTranslateFinished(false, finishMessage);
         } else {
-            QString okMsg = QString("Translated %1 strings").arg(m_autoTranslateProgress);
+            QString okMsg = tr("Translated %1 strings").arg(m_autoTranslateProgress);
             if (m_autoTranslateRejected > 0) {
                 // Not a failed run — the rest applied — but the user must be told these were
                 // dropped, or they are left looking English with no explanation.
-                okMsg += QStringLiteral(" (%1 rejected: placeholders did not match)")
+                okMsg += QLatin1Char(' ') + tr("(%1 rejected: placeholders did not match or no text)")
                              .arg(m_autoTranslateRejected);
                 DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation:" << m_autoTranslateRejected
-                                     << "string(s) rejected for placeholder mismatch";
+                                     << "string(s) rejected by translationDefect";
             }
             emit autoTranslateFinished(true, okMsg);
         }
@@ -3152,15 +3177,37 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply, const Q
 // point of %1/%2 — but it must not lose or invent one. Compared as a set, not a list: QString::arg
 // replaces every occurrence of %1, so repeating or de-duplicating one is harmless.
 //
-// 184 of the ~3680 registered strings carry these, and %N is the only form the corpus uses.
+// The corpus uses only %1-%9 (no %L, no two-digit escapes).
+// QString::arg reads one OR TWO digits after the % (qstring.cpp:8622-8645, Qt 6.12), so Turkish
+// "%90" (90%) is escape 90, not %9 followed by 0. A two-digit escape is therefore prose, and is
+// not counted; "%15" in place of "%1" still fails, because it is read whole.
 QSet<int> TranslationManager::placeholderSet(const QString& text)
 {
-    static const QRegularExpression re(QStringLiteral("%L?(\\d)"));
+    static const QRegularExpression re(QStringLiteral("%L?(\\d)(\\d?)"));
     QSet<int> found;
     auto it = re.globalMatch(text);
-    while (it.hasNext())
-        found.insert(it.next().captured(1).toInt());
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        if (match.capturedLength(2) == 0)
+            found.insert(match.captured(1).toInt());
+    }
     return found;
+}
+
+QString TranslationManager::translationDefect(const QString& source, const QString& translation)
+{
+    if (source.isEmpty() || translation.isEmpty())
+        return {};
+    if (placeholderSet(translation) != placeholderSet(source))
+        return QStringLiteral("placeholders do not match");
+    // A value with no letter or digit standing in for words: what a source cut off at an
+    // escaped quote translated to ("\\" for a string that starts with a quote).
+    const auto hasText = [](const QString& s) {
+        return std::any_of(s.cbegin(), s.cend(), [](QChar c) { return c.isLetterOrNumber(); });
+    };
+    if (!hasText(translation) && hasText(source))
+        return QStringLiteral("it has no letters or digits");
+    return {};
 }
 
 bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data, const QVariantList& batch)
@@ -3218,29 +3265,30 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data, cons
             missing.insert(item.toMap().value(QStringLiteral("key")).toString());
         int count = 0;
         int appliedCount = 0;
+        int rejectedHere = 0;
         for (auto it = translations.constBegin(); it != translations.constEnd(); ++it) {
             QString fallbackText = it.key();
             QString translation = it.value().toString().trimmed();
             if (!batch.isEmpty() && !missing.contains(fallbackText))
                 continue;
 
-            // Reject a translation that dropped, added or renumbered a placeholder.
-            //
-            // "%1 frames" coming back as "Bilder" leaves QString::arg with nowhere to put the
-            // number: the user sees a label with the value silently missing. Renumbering is
-            // worse — "%2 of %1" against a source of "%1 of %2" swaps two values with no visible
-            // damage at all, so it survives review and ships.
+            // Reject a translation that dropped or invented a placeholder ("%1 frames" coming
+            // back as "Bilder" leaves QString::arg nowhere to put the number), or has no text.
+            // A swap ("%2 of %1" for "%1 of %2") is indistinguishable from a legitimate reorder
+            // and is not caught.
             //
             // Nothing downstream checks this. The string is applied, saved, and then UPLOADED to
             // the community copy for that language, so one bad completion becomes everyone's
             // bad completion. Models drop placeholders exactly when the surrounding text is
             // being restructured, which is most likely in the languages that need it most.
-            if (!translation.isEmpty()
-                && placeholderSet(translation) != placeholderSet(fallbackText)) {
+            if (const QString defect = translationDefect(fallbackText, translation); !defect.isEmpty()) {
                 DIAG_WARN(APP, "TranslationManager").noquote()
-                    << "Rejecting AI translation - placeholders do not match. source="
+                    << "Rejecting AI translation -" << defect << ". source="
                     << fallbackText << "translation=" << translation;
                 m_autoTranslateRejected++;
+                // Answered, so the reply is usable: a rejection must not fail the whole batch.
+                missing.remove(fallbackText);
+                rejectedHere++;
                 continue;
             }
 
@@ -3274,11 +3322,12 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data, cons
             }
         }
         // Track actual translations applied, not just AI responses
-        m_autoTranslateProgress += batch.isEmpty() ? count : batch.size() - missing.size();
+        m_autoTranslateProgress += batch.isEmpty() ? count : batch.size() - missing.size() - rejectedHere;
         emit autoTranslateProgressChanged();
 
         DIAG_DEBUG(APP, "TranslationManager") << "AI translated" << count << "unique texts," << appliedCount << "keys applied, progress:" << m_autoTranslateProgress << "/" << m_autoTranslateTotal;
-        return missing.isEmpty();
+        // A reply whose every answer was rejected did no work: fail it, or the run uploads.
+        return missing.isEmpty() && !(count == 0 && rejectedHere > 0);
     }
 
     // The model answered, but not with the JSON object it was asked for — prose, a truncated
@@ -3305,7 +3354,7 @@ bool TranslationManager::copyAiToFinal(const QString& fallback)
     if (aiTranslation.isEmpty()) return false;
 
     QStringList keys = getKeysForFallback(fallback);
-    // The cached value must satisfy the placeholder rule too.
+    // The cached value must satisfy translationDefect too.
     //
     // m_aiTranslations is filled from two places: parseAutoTranslateResponse, which now checks,
     // and loadAiTranslations(), which reads a file written before the check existed. So every
@@ -3314,12 +3363,11 @@ bool TranslationManager::copyAiToFinal(const QString& fallback)
     // That is the propagation loop the check exists to break, entered through a button rather
     // than a download.
     const QString sourceEnglish = m_stringRegistry.value(keys.isEmpty() ? QString() : keys.first());
-    if (!sourceEnglish.isEmpty()
-        && placeholderSet(aiTranslation) != placeholderSet(sourceEnglish)) {
+    if (const QString defect = translationDefect(sourceEnglish, aiTranslation); !defect.isEmpty()) {
         DIAG_WARN(APP, "TranslationManager").noquote() << "Refusing to copy AI translation for" << fallback
-                             << "- placeholders do not match. source=" << sourceEnglish
+                             << "-" << defect << ". source=" << sourceEnglish
                              << "ai=" << aiTranslation;
-        m_lastError = tr("That AI translation is missing a value placeholder, so it was not used.");
+        m_lastError = tr("That AI translation does not fit the English text, so it was not used.");
         emit lastErrorChanged();
         return false;
     }
@@ -3683,13 +3731,13 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
     int added = 0;
     int updated = 0;
     int preserved = 0;
-    int skippedBadPlaceholders = 0;
+    int skippedBroken = 0;
 
     for (auto it = newTranslations.constBegin(); it != newTranslations.constEnd(); ++it) {
         const QString& key = it.key();
         const QString& newValue = it.value().toString();
 
-        // Same placeholder rule as the AI path, for the same reason and with a wider blast
+        // Same translationDefect rule as the AI path, for the same reason and with a wider blast
         // radius: this data comes from the community server, which anyone can upload to
         // unauthenticated. Without the check a single bad contribution propagates to every user
         // of that language on their next update.
@@ -3699,12 +3747,15 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
         // reader label — "Background image %1 of %2" translated as just "Hintergrundbild", so a
         // VoiceOver user in German, French, Arabic or Danish heard no position at all and could
         // not navigate the list. That damage arrived through exactly this path.
+        // An empty incoming value is no translation; it never replaces one.
+        if (newValue.isEmpty())
+            continue;
         const QString source = m_stringRegistry.value(key);
-        if (!source.isEmpty() && placeholderSet(newValue) != placeholderSet(source)) {
+        if (const QString defect = translationDefect(source, newValue); !defect.isEmpty()) {
             DIAG_WARN(APP, "TranslationManager").noquote() << "Skipping community translation for" << key
-                                 << "- placeholders do not match. source=" << source
+                                 << "-" << defect << ". source=" << source
                                  << "incoming=" << newValue;
-            skippedBadPlaceholders++;
+            skippedBroken++;
             continue;
         }
 
@@ -3725,10 +3776,13 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
         }
     }
 
+    if (skippedBroken > 0)
+        DIAG_WARN(APP, "TranslationManager") << "Language update for" << m_currentLanguage << "skipped"
+                   << skippedBroken << "broken string(s); the local values were kept";
     if (added > 0 || updated > 0) {
         DIAG_DEBUG(APP, "TranslationManager") << "Language update merged:" << added << "new," << updated << "updated,"
                  << preserved << "preserved user overrides,"
-                 << skippedBadPlaceholders << "skipped for placeholder mismatch";
+                 << skippedBroken << "skipped as broken";
         // Honour the save. Returning true after a refused write defeats this function's own
         // caller, which was rewritten in this branch specifically to act on the bool — the
         // caller then writes metadata, emits languageDownloaded(true), and the UI offers to

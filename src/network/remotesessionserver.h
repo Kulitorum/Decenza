@@ -18,7 +18,7 @@ class QWebSocketCorsAuthenticator;
 class QWebSocketServer;
 class QtRoWebSocketDevice;
 
-// Owns the WebSocket half of the read-only browser session transport. The
+// Owns the WebSocket half of the browser session transport. The
 // listener remains ShotServer's QTcpServer; accepted HTTP sockets are handed
 // here only after ShotServer has validated the still-unconsumed upgrade.
 class RemoteSessionServer final : public QObject
@@ -26,7 +26,6 @@ class RemoteSessionServer final : public QObject
     Q_OBJECT
 
 public:
-    using SnapshotProvider = std::function<QJsonObject(quint64 sequence)>;
     using SessionValidator = std::function<bool(const QByteArray& request)>;
     using RemoteObjectHandler = std::function<void(QIODevice* device)>;
 
@@ -47,8 +46,7 @@ public:
         bool secureOrigin, bool requireSession, const SessionValidator& validateSession,
         const QString& expectedPackageId = {}, const QString& expectedHostId = {});
 
-    explicit RemoteSessionServer(SnapshotProvider snapshotProvider,
-                                 SessionValidator sessionValidator,
+    explicit RemoteSessionServer(SessionValidator sessionValidator,
                                  bool secureOrigin,
                                  QObject* parent = nullptr);
     ~RemoteSessionServer() override;
@@ -72,16 +70,9 @@ signals:
 
 private slots:
     void takePendingConnections();
-    void publishSnapshots();
+    void revalidateSessions();
 
 private:
-    struct Client {
-        QPointer<QWebSocket> socket;
-        QTcpSocket* socketIdentity = nullptr; // Identity only; may already be destroyed.
-        QByteArray authenticatedRequest;
-        quint64 sequence = 0;
-    };
-
     struct RemoteObjectClient {
         QString clientId;
         QPointer<QWebSocket> socket;
@@ -90,8 +81,6 @@ private:
         QPointer<QtRoWebSocketDevice> device;
     };
 
-    bool sendSnapshot(QWebSocket* socket, Client& client);
-    void removeClient(QWebSocket* socket);
     bool acceptRemoteObjectClient(QWebSocket* socket, QTcpSocket* socketIdentity);
     void removeRemoteObjectClient(QWebSocket* socket);
     bool validateRemoteObjectClient(RemoteObjectClient& client);
@@ -99,13 +88,11 @@ private:
                      const QString& reason);
 
     QWebSocketServer* m_server = nullptr;
-    QTimer m_publishTimer;
-    SnapshotProvider m_snapshotProvider;
+    QTimer m_sessionValidationTimer;
     SessionValidator m_sessionValidator;
     QString m_remoteObjectPackageId;
     QString m_remoteObjectHostId;
     RemoteObjectHandler m_remoteObjectHandler;
     QHash<QTcpSocket*, QPointer<QTcpSocket>> m_handedOffSockets;
-    QHash<QWebSocket*, Client> m_clients;
     QHash<QWebSocket*, RemoteObjectClient> m_remoteObjectClients;
 };

@@ -22,7 +22,7 @@ The application SHALL expose the shared "Auto-update shots" setting (`SettingsUp
 #### Scenario: Edit from any editor
 
 - **GIVEN** shot N has `visualizer_id == "xyz"` and Auto-update is on
-- **WHEN** shot N's metadata is changed from ShotServer, MCP, the AI advisor or the change-beans dialog
+- **WHEN** shot N's metadata is changed from the shared app, MCP, the AI advisor or the change-beans dialog
 - **THEN** Visualizer receives one PATCH for shot N, built from the saved row
 
 ### Requirement: MCP shot metadata write triggers auto-update when the shot has a visualizer_id

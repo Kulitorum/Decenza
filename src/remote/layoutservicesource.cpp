@@ -253,9 +253,6 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
     } else if (operation == QLatin1String("ensureSettingsAccessible")) {
         if (!fields.isEmpty()) return reject();
         settings->ensureSettingsAccessible();
-    } else if (operation == QLatin1String("applyRecipesFirstUpgrade")) {
-        if (!fields.isEmpty()) return reject();
-        settings->applyRecipesFirstUpgrade();
     } else {
         *reason = QStringLiteral("unsupportedOperation");
         return false;

@@ -2,7 +2,9 @@
 
 ## Purpose
 Adds four History actions to the Custom layout widget's catalog: Go to History filtered to this recipe, this bean, this bag or this profile. Each resolves its filter from live app state at activation, falls back to unfiltered History when no context exists, re-filters an open History page rather than stacking another, and is offered identically by the in-app and web editors.
+
 ## Requirements
+
 ### Requirement: The Custom widget offers four context-filtered History actions
 
 The Custom widget's action catalog SHALL include four actions that open Shot History with a filter applied, alongside the unfiltered "Go to History": **this recipe**, **this bean**, **this bag** and **this profile**. Each SHALL be assignable to tap, long-press or double-click, and SHALL be available in the same page contexts as "Go to History". The bean and bag actions SHALL remain distinct and SHALL NOT be implemented as one another.
@@ -104,7 +106,7 @@ duplicate Shot History page SHALL be pushed onto the stack.
 ### Requirement: Both widget editors offer the four actions
 
 The four actions SHALL appear in the in-app Custom widget editor's action picker and in
-the ShotServer web layout editor's action picker, with the same labels and the same
+the shared browser layout editor's action picker, with the same labels and the same
 gesture coverage, so a widget configured on one surface reads and edits correctly on the
 other.
 
@@ -122,4 +124,3 @@ other.
 
 - **WHEN** a widget is configured with one of these actions in the web editor and then opened in the in-app editor
 - **THEN** the in-app editor shows that action selected, not a blank or unknown action
-

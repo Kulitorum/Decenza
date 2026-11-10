@@ -87,23 +87,6 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     // Create conversation handler for multi-turn interactions
     m_conversation = new AIConversation(this, this);
 
-    // One-time clear: grinder calibration (v1.7.2) changed what the advisor
-    // knows per shot; old conversations anchored on "I don't have LRV3 data"
-    // are misleading. Fires once per device, then becomes a no-op.
-    clearAllConversationsOnce(QStringLiteral("grinder_calibration_v1.7.2"));
-    // Pre-change threads are keyed without the equipment package and their turns
-    // carry cross-equipment context verbatim, so changing the key already orphans
-    // them; and their user messages are the old prose-wrapped shape, which nothing
-    // reads any more — one JSON object per turn is the only shape now.
-    //
-    // v2, not v1: the marker is per id and v1 has already fired on any device that
-    // ran an interim build of this change. Those devices would keep prose turns
-    // that no reader can render.
-    clearAllConversationsOnce(QStringLiteral("equipment_scoped_conversations_v2"));
-
-    // Migrate legacy single-conversation storage if needed
-    migrateFromLegacyConversation();
-
     // Load conversation index and restore most recent conversation
     loadConversationIndex();
     loadMostRecentConversation();
@@ -1989,65 +1972,6 @@ void AIManager::evictOldestConversation()
 
     DIAG_DEBUG(AI, "AIManager") << "Evicted oldest conversation:" << oldest.beanBrand << oldest.beanType << oldest.profileName;
     saveConversationIndex();
-}
-
-void AIManager::clearAllConversationsOnce(const QString& migrationId)
-{
-    AppSettings settings;
-    const QString markerKey = QStringLiteral("ai/migrations/") + migrationId;
-    if (settings.value(markerKey).toBool())
-        return;
-
-    settings.beginGroup(QStringLiteral("ai/conversations"));
-    settings.remove(QString());  // removes all keys in this group
-    settings.endGroup();
-
-    settings.setValue(markerKey, true);
-    DIAG_DEBUG(AI, "AIManager") << "cleared all conversations for migration" << migrationId;
-}
-
-void AIManager::migrateFromLegacyConversation()
-{
-    AppSettings settings;
-
-    // Check if legacy data exists and new index doesn't
-    QByteArray legacyMessages = settings.value("ai/conversation/messages").toByteArray();
-    QByteArray existingIndex = settings.value("ai/conversations/index").toByteArray();
-
-    if (legacyMessages.isEmpty() || !existingIndex.isEmpty()) return;
-
-    QJsonDocument doc = QJsonDocument::fromJson(legacyMessages);
-    if (!doc.isArray() || doc.array().isEmpty()) return;
-
-    DIAG_DEBUG(AI, "AIManager") << "Migrating legacy conversation to keyed storage";
-
-    // Use a fixed key for the legacy conversation
-    QString legacyKey = "_legacy";
-
-    // Copy data to new keyed location
-    QString prefix = "ai/conversations/" + legacyKey + "/";
-    settings.setValue(prefix + "systemPrompt", settings.value("ai/conversation/systemPrompt"));
-    settings.setValue(prefix + "messages", legacyMessages);
-    settings.setValue(prefix + "timestamp", settings.value("ai/conversation/timestamp"));
-
-    // Create index entry
-    ConversationEntry entry;
-    entry.key = legacyKey;
-    entry.beanBrand = "";
-    entry.beanType = "";
-    entry.profileName = "(Previous conversation)";
-    entry.timestamp = QDateTime::currentSecsSinceEpoch();
-
-    QJsonArray indexArr;
-    indexArr.append(entry.toJson());
-    settings.setValue("ai/conversations/index", QJsonDocument(indexArr).toJson(QJsonDocument::Compact));
-
-    // Keep legacy keys as recovery fallback — they'll be harmless if left in place
-    // settings.remove("ai/conversation/systemPrompt");
-    // settings.remove("ai/conversation/messages");
-    // settings.remove("ai/conversation/timestamp");
-
-    DIAG_DEBUG(AI, "AIManager") << "Legacy conversation migrated to key:" << legacyKey;
 }
 
 QString AIManager::switchConversation(const QVariant& shotData)

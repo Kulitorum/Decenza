@@ -23,7 +23,7 @@ The system SHALL provide an `EquipmentPage.qml` that lists equipment packages wi
 - **AND** bags and shots pointing at it SHALL continue to resolve to its identity
 
 ### Requirement: Idle-page Equipment button
-The system SHALL provide an `EquipmentItem.qml` idle-page layout widget that navigates to the Equipment window, registered in all required places: `CMakeLists.txt` qml module list, `LayoutItemDelegate.qml` (render switch + label map), the layout editor palette (`LayoutCenterZone.qml`/`LayoutEditorZone.qml` widget list + chip label map), and `shotserver_layout.cpp` (web editor widget list).
+The system SHALL provide an `EquipmentItem.qml` idle-page layout widget that navigates to the Equipment window, registered in all required places: `CMakeLists.txt` qml module list, `LayoutItemDelegate.qml` (render switch + label map), the layout editor palette (`LayoutCenterZone.qml`/`LayoutEditorZone.qml` widget list + chip label map).
 
 #### Scenario: Default layout placement
 - **WHEN** a fresh install builds the default layout
@@ -32,22 +32,6 @@ The system SHALL provide an `EquipmentItem.qml` idle-page layout widget that nav
 #### Scenario: Tapping the Equipment button
 - **WHEN** the user taps the idle Equipment button
 - **THEN** the Equipment window SHALL open
-
-### Requirement: Idempotent layout-injection migration for existing users
-`getLayoutObject()` in `src/core/settings_network.cpp` SHALL run a run-once migration that ensures an `equipment` item exists in the saved layout: if no item across any zone has `type == "equipment"`, it SHALL insert `{"type":"equipment","id":"equipment1"}` immediately after the `beans` item (or, if no `beans` item exists, append it to `bottomRight`), then persist the migrated layout once.
-
-#### Scenario: Existing customized layout gains the button
-- **WHEN** an upgraded user has a saved layout with no equipment item
-- **THEN** the migration SHALL inject an equipment item next to their beans item and persist it once
-- **AND** the equipment button SHALL be initially visible and movable thereafter
-
-#### Scenario: Migration is idempotent
-- **WHEN** the layout already contains an equipment item
-- **THEN** the migration SHALL make no change and SHALL NOT add a duplicate
-
-#### Scenario: Beans item absent
-- **WHEN** the saved layout has no beans item
-- **THEN** the equipment item SHALL be appended to the `bottomRight` zone
 
 ### Requirement: The equipment card SHALL display the package's basket
 `EquipmentCard` SHALL show the package's basket on its own line (below the grinder

@@ -470,46 +470,6 @@ private slots:
         }
     }
 
-    // --- clearAllFlowCalPendingIdeals(): the v4 migration's primitive ---------
-    //
-    // The v4 migration (Settings constructor, calibration/v4AchievedFlowFormulaReset)
-    // clears every profile's pending batch so none straddles the old and new
-    // formula-selection logic in one median, but must leave stored multipliers
-    // alone — unlike the v2/v3 migrations it sits beside, which reset everything
-    // because the STORED value itself was shown corrupted. This covers the
-    // primitive the migration calls; the migration's own gating (a persisted,
-    // on-disk one-time flag, checked in the Settings constructor) has no
-    // existing test coverage for v2/v3 either, so this doesn't introduce a
-    // new gap.
-    void clearAllFlowCalPendingIdeals_clearsBatchesButNotMultipliers() {
-        Settings settings;
-        SettingsCalibration* cal = settings.calibration();
-        const QString profileA = QStringLiteral("tst_autoflowcal_v4_a");
-        const QString profileB = QStringLiteral("tst_autoflowcal_v4_b");
-        cal->clearProfileFlowCalibration(profileA);
-        cal->clearProfileFlowCalibration(profileB);
-
-        QVERIFY(cal->setProfileFlowCalibration(profileA, 1.23));
-        QVERIFY(cal->setProfileFlowCalibration(profileB, 0.87));
-        cal->appendFlowCalPendingIdeal(profileA, 0.80);
-        cal->appendFlowCalPendingIdeal(profileA, 0.79);
-        cal->appendFlowCalPendingIdeal(profileB, 1.10);
-        QCOMPARE(cal->flowCalPendingIdeals(profileA).size(), 2);
-        QCOMPARE(cal->flowCalPendingIdeals(profileB).size(), 1);
-
-        double globalBefore = cal->flowCalibrationMultiplier();
-        cal->clearAllFlowCalPendingIdeals();
-
-        QVERIFY(cal->flowCalPendingIdeals(profileA).isEmpty());
-        QVERIFY(cal->flowCalPendingIdeals(profileB).isEmpty());
-        QCOMPARE(cal->profileFlowCalibration(profileA), 1.23);
-        QCOMPARE(cal->profileFlowCalibration(profileB), 0.87);
-        QCOMPARE(cal->flowCalibrationMultiplier(), globalBefore);
-
-        cal->clearProfileFlowCalibration(profileA);
-        cal->clearProfileFlowCalibration(profileB);
-    }
-
     // With auto calibration off, a stored per-profile value is deliberately
     // ignored — the machine uses the global multiplier. This is what
     // set_flow_calibration reports as its `warning` case, and the reason the tool
@@ -658,51 +618,6 @@ private slots:
         for (int i = 0; i < 2000; ++i)
             c2 = blend(c2, autoFlowCalIdeal(c2, weightFlowAt(c2), machineFlow, density));
         QVERIFY(qAbs(c2 - pumpError) < 1e-6);
-    }
-
-    // The flow-cal settings migrations are one-shot: each clears the pending
-    // accumulator once, stamps a flag, and must never fire again. Nothing
-    // asserted that until now, and the failure mode is silent and permanent —
-    // settings.cpp:227-240 records a previous near-miss where treating
-    // QSettings::status() as a per-write verdict would have made v2/v3/v4 re-run
-    // their resets on EVERY launch, wiping calibration data. For v4-v6 the
-    // symptom is quieter and worse: the pending batch is wiped at every app
-    // start, so a user who pulls fewer than five shots per session never
-    // converges again, with no error anywhere.
-    //
-    // Constructing Settings twice is what a second app launch does — no fault
-    // injection, and it covers all five blocks rather than the two this change
-    // added.
-    void flowCalMigrationsRunOnceAndLeaveLaterBatchesAlone() {
-        const QString profile = QStringLiteral("tst_flowcal_migration_profile");
-        {
-            Settings first;                       // runs (or has already run) every migration
-            first.calibration()->clearProfileFlowCalibration(profile);
-        }
-        {
-            Settings seed;
-            seed.calibration()->appendFlowCalPendingIdeal(profile, 0.91);
-            QCOMPARE(seed.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
-        }
-        // A later launch must not touch the accumulator: every migration flag is
-        // already stamped, so every clear is a no-op.
-        Settings later;
-        QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(1));
-        QCOMPARE(later.calibration()->flowCalPendingIdeals(profile).first(), 0.91);
-
-        // ...and the other half of the name: with a flag cleared, it DOES fire.
-        // Without this the slot would stay green if clearPendingBatchesOnce()
-        // were dead code, which is TESTING.md's trap #7 exactly.
-        {
-            AppSettings raw;
-            raw.remove(QStringLiteral("calibration/v6UnifiedIdealFormula"));
-            raw.sync();
-        }
-        Settings rerun;
-        QCOMPARE(rerun.calibration()->flowCalPendingIdeals(profile).size(), qsizetype(0));
-
-        later.calibration()->clearProfileFlowCalibration(profile);
-        later.calibration()->clearFlowCalPendingIdeals(profile);
     }
 
     // The rejection counter the MCP surface reads. Untested, and one of its

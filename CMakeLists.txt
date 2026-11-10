@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 2.1.1 LANGUAGES C CXX)
+project(Decenza VERSION 2.2.0 LANGUAGES C CXX)
 
 include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
 decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
@@ -691,7 +691,6 @@ set(SOURCES
     src/main.cpp
     src/core/bundledfontregistration.h
     src/core/appsettings.cpp
-    src/core/settingsstoremigration.cpp
     src/core/settings.cpp
     src/core/settings_mqtt.cpp
     src/core/settings_autowake.cpp
@@ -864,16 +863,12 @@ set(SOURCES
     src/models/shotcomparisonmodel.cpp
     src/models/flowcalibrationmodel.cpp
     src/network/shotserver.cpp
-    src/network/shotserver_recipes.cpp
-    src/network/shotserver_bags.cpp
-    src/network/shotserver_equipment.cpp
     src/network/shotserver_session.cpp
     src/network/sessionbackgroundimage.cpp
     src/network/shotserver_webclient.cpp
     src/network/webclientassets.cpp
     src/network/machineuisnapshot.cpp
     src/network/machineuisnapshot.h
-    src/network/sessionactionrequest.cpp
     src/network/steamhealthsnapshot.cpp
     src/network/steamhealthsnapshot.h
     src/network/steamuistate.cpp
@@ -883,7 +878,6 @@ set(SOURCES
     src/network/remotesteamgraphsnapshot.cpp
     src/network/remotesteamgraphsnapshot.h
     src/core/steamgraphvalidation.h
-    src/network/sessionactionrequest.h
     src/network/steampitchersnapshot.cpp
     src/network/steampitchersnapshot.h
     src/machine/machinephase.h
@@ -994,21 +988,12 @@ set(SOURCES
     src/remote/recipeservicesource.cpp
     src/network/remotesessionserver.cpp
     src/network/remotesessionserver.h
-    src/network/remotelastshotsnapshot.cpp
-    src/network/remotelastshotsnapshot.h
-    src/network/remoteshotgraphsnapshot.cpp
-    src/network/remoteshotgraphsnapshot.h
-    src/network/shotserver_shots.cpp
-    src/network/shotserver_upload.cpp
     src/network/shotserver_backup.cpp
     src/network/shotserver_layout.cpp
     src/network/shotserver_screensaver.cpp
     src/network/screensavermediarange.h
-    src/network/shotserver_theme.cpp
-    src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
     src/network/shotserver_remoteweb.cpp
-    src/network/shotserver_ai.cpp
     src/mcp/mcpserver.cpp
     src/network/remoteaccess.cpp
     src/mcp/mcptunnel_tsnet.cpp
@@ -1116,7 +1101,6 @@ set(HEADERS
     src/widget/machinestatussnapshot.h
     src/widget/widgetsharedkeys.h
     src/core/appsettings.h
-    src/core/settingsstoremigration.h
     src/core/settings.h
     # QML_FOREIGN registration for Settings. Listed here so AUTOMOC processes it and
     # qmltyperegistrar sees the type; it is compiled by no other target, which is the point
@@ -1264,6 +1248,7 @@ set(HEADERS
     src/ai/shotsummarizer.h
     src/history/shothistory_types.h
     src/history/shothistorystorage.h
+    src/history/upgradefloor.h
     src/history/shothistorystorage_internal.h
     src/history/coffeebagstorage.h
     src/history/equipmentstorage.h
@@ -1643,6 +1628,7 @@ set_source_files_properties(qml/components/PuckPrepLabels.qml PROPERTIES QT_QML_
 # Define QML files list for dependency tracking
 set(QML_FILES
     qml/main.qml
+    qml/UpgradeFloorNotice.qml
     qml/AppShell.qml
     qml/Theme.qml
     qml/pages/IdlePage.qml

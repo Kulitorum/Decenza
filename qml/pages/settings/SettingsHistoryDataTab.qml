@@ -109,6 +109,7 @@ KeyboardAwareContainer {
             "directoryEntryLimit": TranslationManager.translate("settings.history.folderEntryLimit", "The selected folder contains too many files to scan."),
             "selectionFileLimit": TranslationManager.translate("settings.history.folderShotLimit", "The selected folder contains too many shot files to import at once."),
             "noSupportedFiles": TranslationManager.translate("settings.history.folderNoShots", "No .shot files were found in the selected folder."),
+            "shotimporter.error.noShotsInArchive": TranslationManager.translate("shotimporter.error.noShotsInArchive", "No .shot files were found in the archive."),
             "inspectionBusy": TranslationManager.translate("settings.history.folderScanBusy", "A folder scan is already running. Try again shortly."),
             "transferSizeLimit": TranslationManager.translate("settings.history.fileTooLarge", "The selected files are too large."),
             "incompleteTransfer": TranslationManager.translate("settings.history.incompleteUpload", "The file upload did not complete."),

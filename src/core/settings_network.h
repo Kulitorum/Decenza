@@ -54,8 +54,6 @@ class SettingsNetwork : public QObject {
 
     // Layout configuration
     Q_PROPERTY(QString layoutConfiguration READ layoutConfiguration WRITE setLayoutConfiguration NOTIFY layoutConfigurationChanged FINAL)
-    // One-time recipes-first layout upgrade offer (recipes-idle-layout-upgrade)
-    Q_PROPERTY(bool recipesUpgradeOffered READ recipesUpgradeOffered WRITE setRecipesUpgradeOffered NOTIFY recipesUpgradeOfferedChanged FINAL)
 
     // Discuss Shot URLs
     Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged FINAL)
@@ -152,18 +150,12 @@ public:
     // Layout configuration (dynamic IdlePage layout)
     QString layoutConfiguration() const;
     void setLayoutConfiguration(const QString& json);
-    bool recipesUpgradeOffered() const;
-    void setRecipesUpgradeOffered(bool offered);
     Q_INVOKABLE QVariantList getZoneItems(const QString& zoneName) const;
     Q_INVOKABLE void moveItem(const QString& itemId, const QString& fromZone, const QString& toZone, int toIndex);
     Q_INVOKABLE void addItem(const QString& type, const QString& zone, int index = -1);
     Q_INVOKABLE void removeItem(const QString& itemId, const QString& zone);
     Q_INVOKABLE void reorderItem(const QString& zoneName, int fromIndex, int toIndex);
     Q_INVOKABLE void resetLayoutToDefault();
-    // One-time upgrade for existing users: transforms the current layout to the
-    // recipes-first arrangement in place (or applies the full new default when
-    // the layout is pristine). See recipes-idle-layout-upgrade.
-    Q_INVOKABLE void applyRecipesFirstUpgrade();
     Q_INVOKABLE bool hasItemType(const QString& type) const;
     Q_INVOKABLE int getZoneYOffset(const QString& zoneName) const;
     Q_INVOKABLE void setZoneYOffset(const QString& zoneName, int offset);
@@ -189,28 +181,7 @@ public:
     // live in QML (SettingsLayoutTab.ensureSettingsAccessible); that function
     // now just delegates here so there is a single implementation.
     Q_INVOKABLE void ensureSettingsAccessible();
-    // One-time idle-button injections, driven by the DB schema crossing (not by
-    // widget presence). MainController calls these only when this run's
-    // migrations actually introduced the feature — equipment at schema 22,
-    // recipes at 25 (ShotHistoryStorage::crossedSchemaVersion). Each still
-    // no-ops if the widget is already placed, so a fresh install (whose default
-    // layout ships both) never double-adds. The "if missing" guard used to live
-    // inside getLayoutObject and re-fired on every launch after the user removed
-    // the widget — the bug these one-time gates replace (see issue #1586).
-    void injectEquipmentButtonIfMissing();
-    void injectRecipesButtonIfMissing();
 
-private:
-    // saveLayoutObject + a VERIFIED flush. Returns false (and warns, naming
-    // `what`) when the write did not reach storage. The one-time injections
-    // need this: their gate is consumed inside runMigrations() before
-    // SettingsNetwork is even asked to write, so a silently-dropped
-    // QSettings::setValue means the widget is never added AND never retried —
-    // and logging success on that path would put a false statement in a field
-    // debug.log. Mirrors SettingsHardware::setConnectionPriority's pattern.
-    bool saveLayoutObjectVerified(const QJsonObject& layout, const QString& what);
-
-public:
     // Both setters return false when the write was refused (unstorable value)
     // or no item with itemId exists (e.g. deleted from another device while an
     // editor was open) — callers should surface that instead of assuming success.
@@ -225,50 +196,16 @@ public:
     Q_INVOKABLE bool setItemProperties(const QString& itemId, const QVariantMap& properties);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 
-    // Source of truth for "does this widget type expose per-instance options?"
-    // Derived from the readout capability schema plus the bespoke-editor set
-    // (settings_network.cpp). The web editor receives the same schema as JSON,
-    // so there is no hand-maintained mirror. See: layout-readout-capability-schema.
+    // Shared per-instance option and display defaults.
     Q_INVOKABLE static bool typeHasOptions(const QString& type);
-    // The readout option keys a widget type supports ("displayMode", "color",
-    // "dataMode", "showRatio"). Empty for non-configurable types and for types
-    // with a dedicated editor. Drives the unified readout options editor.
     Q_INVOKABLE static QStringList optionKeysForType(const QString& type);
-    // The full schema as JSON (type → option keys; bespoke-editor types map to
-    // an empty array). Injected into the web layout editor page so it consumes
-    // the same table instead of a hand-maintained mirror.
-    static QJsonObject readoutCapabilitiesJson();
-    // What an absent stored displayMode means for a type ("icon" for the
-    // battery readouts, "text" otherwise). Declared once in the schema tables;
-    // the unified editor, the item components, and the web editor all consume
-    // it (the web via displayModeDefaultsJson → WIDGET_DISPLAY_DEFAULTS).
     Q_INVOKABLE static QString defaultDisplayModeForType(const QString& type);
-    static QJsonObject displayModeDefaultsJson();
-    // What an absent allowQuit/confirmQuit/showIcon means on a Sleep widget. QML resolves it through
-    // LayoutActions.sleepOption(); the web editor gets sleepOptionDefaultsJson → SLEEP_DEFAULTS.
     Q_INVOKABLE static QVariantMap sleepOptionDefaults();
-    static QJsonObject sleepOptionDefaultsJson();
 
-    // Widget catalog (single source of truth for the palette): ordered palette
-    // entries {type, cat, labelKey, label, flag} for the add-widget picker,
-    // chip names {type: {key, fallback}} for chip/display labels (includes
-    // legacy aliases like connectionStatus), and the category names. QML
-    // resolves labels via TranslationManager.translate(key, fallback); the web
-    // editor receives the same table as JSON (widgetCatalogJson).
+    // Shared palette, chip labels, categories and action catalog.
     Q_INVOKABLE static QVariantList widgetCatalog();
     Q_INVOKABLE static QVariantMap widgetChipNames();
     Q_INVOKABLE static QVariantList widgetCategoryNames();
-    static QJsonObject widgetCatalogJson();
-
-    // Action catalog (single source of truth for the Custom widget's assignable
-    // actions): ordered entries {id, labelKey, label, contexts, expandsToSubmenu}
-    // for the action
-    // picker. Same arrangement as the widget catalog above and for the same
-    // reason — this list was hand-copied into CustomEditorPopup.qml and the web
-    // editor's ACTIONS array, and the two had already drifted by sixteen
-    // entries before anyone noticed. QML resolves labels via
-    // TranslationManager.translate(key, fallback); the web editor receives the
-    // same table as JSON. See: layout-action-catalog.
     Q_INVOKABLE static QVariantList layoutActionCatalog();
     // Label lookup for EVERY action id, including ones no longer offered in the
     // picker — the analogue of widgetChipNames(). Without it a stored legacy
@@ -281,8 +218,6 @@ public:
     // See: layout-widget-gesture-overrides.
     Q_INVOKABLE static QString gestureReservedActionForType(const QString& type);
     Q_INVOKABLE static bool typeSupportsGestureOverrides(const QString& type);
-    // { actions: [...offered on the web...], labels: { id: label } }
-    static QJsonObject layoutActionCatalogJson();
 
     // Every (translation key, English fallback) pair declared by the C++ catalog
     // tables in this file — action labels, widget palette/chip labels, category
@@ -326,7 +261,6 @@ signals:
     void discussShotCustomUrlChanged();
     void claudeRcSessionUrlChanged();
     void layoutConfigurationChanged();
-    void recipesUpgradeOfferedChanged();
 
 private:
     QString defaultLayoutJson() const;

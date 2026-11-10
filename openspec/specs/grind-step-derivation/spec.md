@@ -5,6 +5,7 @@
 Governs how the grind and RPM step for a grinder is derived. The step is computed from the live shot history on each call rather than from the distinct-value cache, and consumers of history are notified only on writes.
 
 ## Requirements
+
 ### Requirement: The grind step SHALL be derived from the live database, not a cache
 `grindStepForGrinder()` and `grindRpmStepForGrinder()` SHALL query the shot history directly on each call. They SHALL NOT read, populate or depend on the async distinct-value cache, or on `distinctCacheReady()`. The derivation MAY run inline on the calling thread, because it is small, bounded and runs on a discrete user action.
 
@@ -62,8 +63,7 @@ trimmed, so a differently-typed name does not read as a grinder with no history.
 
 ### Requirement: An empty model SHALL pool the full cross-grinder history
 
-An empty model means "no grinder selected". The ShotServer `/beans` form depends on this, since a
-new bag has no equipment chosen yet. Shots with no equipment row at all SHALL be included.
+An empty model means "no grinder selected". Shots with no equipment row at all SHALL be included.
 
 #### Scenario: Equipment-less shots contribute to the empty-model step
 
@@ -83,4 +83,3 @@ derive" and the caller substitutes its own fallback; it is not a step of zero.
 - **GIVEN** a grinder with exactly one distinct numeric setting
 - **WHEN** the step is read
 - **THEN** it SHALL be `0`
-

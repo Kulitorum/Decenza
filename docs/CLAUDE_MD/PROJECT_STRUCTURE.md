@@ -90,14 +90,9 @@ src/
 │   └── steamdatamodel.*    # Steam session data for graphing
 ├── network/
 │   ├── shotserver.cpp      # HTTP server core + route dispatch
-│   ├── shotserver_backup.cpp   # Backup/restore endpoints
-│   ├── shotserver_layout.cpp   # Layout editor web UI
-│   ├── shotserver_shots.cpp    # Shot history endpoints
-│   ├── shotserver_settings.cpp # Settings endpoints
-│   ├── shotserver_ai.cpp       # AI assistant endpoints
+│   ├── shotserver_backup.cpp   # Device migration backup endpoints
+│   ├── shotserver_layout.cpp   # Browser library thumbnails
 │   ├── shotserver_auth.cpp     # Authentication
-│   ├── shotserver_theme.cpp    # Theme endpoints
-│   ├── shotserver_upload.cpp   # File upload handling
 │   ├── visualizeruploader.*    # Upload shots to visualizer.coffee
 │   ├── visualizerimporter.*    # Import profiles from visualizer.coffee
 │   ├── mqttclient.*        # MQTT connectivity for remote monitoring

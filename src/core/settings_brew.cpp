@@ -82,91 +82,6 @@ SettingsBrew::SettingsBrew(QObject* parent)
         m_settings.setValue("flush/presets", QJsonDocument(defaults).toJson());
     }
 
-    // One-time migration: weight-timed steaming is now a GLOBAL seconds-per-gram
-    // rate instead of per-pitcher reference milk. The rate assumes a consistent
-    // steam flow across pitchers (presets may still override flow — see the honest
-    // note in the SteamPage UI); it is a simpler one-calibration model, not a
-    // physical guarantee. Existing calibrated users had (calibMilkG, duration)
-    // stored per preset; seed the global rate from the first preset that has both
-    // so they aren't reset. Runs after the preset-seeding block above so the presets
-    // are present. Done in the ctor (not the getter) to avoid a const getter mutating
-    // QSettings mid-read.
-    //
-    // The run-once gate is the SENTINEL, not a "rate <= 0" check. Legacy calibMilkG
-    // is left in storage (old backups still carry it, and it re-seeds the rate on
-    // import — see importFromJson), so a bare "rate <= 0" guard would re-seed the old
-    // rate every launch and silently undo a user who deliberately uncalibrated (the
-    // new ± control allows 0). The inner "rate <= 0" check below is a one-time
-    // don't-clobber-an-existing-rate guard, distinct from the run-once gate.
-    if (!m_settings.value("steam/steamRateMigrated", false).toBool()) {
-        if (m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble() <= 0.0) {
-            double seeded = deriveSteamRateFromLegacyPresets();
-            if (seeded > 0.0) m_settings.setValue("steam/steamSecondsPerGram", seeded);
-        }
-        m_settings.setValue("steam/steamRateMigrated", true);
-    }
-
-    // One-time migration: user-created "Off" pitchers are gone, replaced by the
-    // single built-in "Heater off" entry every install now has. Runs after the
-    // preset-seeding block so the array is present.
-    //
-    // The selection remap is the load-bearing half. A user whose resting state
-    // was an Off preset has that preset REMOVED here, and a selection left
-    // pointing at a stale index resolves to a real pitcher — so without the
-    // remap the upgrade silently turns their steam boiler on and leaves it on.
-    // The names of what was removed are kept for the recipe rewrite, which needs
-    // a database and therefore cannot happen here.
-    if (!m_settings.value("steam/heaterOffPresetsMigrated", false).toBool()) {
-        // Capture parseFailed like every other reader in this file. An unreadable
-        // array yields an empty one, which looks exactly like "nothing to
-        // migrate" — so without this the one-time flag got stamped on a launch
-        // where the presets were never actually examined, and a transient
-        // corruption meant the install would never revisit the migration.
-        bool migrationParseFailed = false;
-        const QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"),
-                                               &migrationParseFailed);
-        // Skip the BLOCK, never return — this is a constructor, and the brew
-        // overrides below still have to load.
-        if (migrationParseFailed) {
-            DIAG_WARN(APP, "SettingsBrew") << "steam pitcher presets unreadable — deferring the"
-                          " Heater off migration to the next launch";
-        } else {
-        QJsonArray kept;
-        QStringList removedNames;
-        const int selected = m_settings.value("steam/selectedPitcher", 0).toInt();
-        int remapped = selected;
-        bool selectionWasRemoved = false;
-        for (int i = 0; i < arr.size(); ++i) {
-            const QJsonObject preset = arr.at(i).toObject();
-            // `disabled` is the only flag a user-created Off preset ever carried:
-            // addSteamPitcherPresetDisabled() (deleted by this change) wrote that
-            // and nothing else. An earlier version of this loop also accepted an
-            // `off` key, justified in a comment as "what the add-dialog wrote" —
-            // no writer in this codebase's history has ever produced it.
-            if (preset.value(QStringLiteral("disabled")).toBool()) {
-                removedNames << preset.value(QStringLiteral("name")).toString();
-                if (i == selected)
-                    selectionWasRemoved = true;
-                else if (i < selected)
-                    --remapped;   // survivors below the selection shift up by one
-                continue;
-            }
-            kept.append(preset);
-        }
-        if (!removedNames.isEmpty()) {
-            m_settings.setValue("steam/pitcherPresets", QJsonDocument(kept).toJson());
-            m_settings.setValue("steam/selectedPitcher",
-                                selectionWasRemoved ? HeaterOffPitcherIndex : remapped);
-            m_settings.setValue("steam/heaterOffRemovedNames", removedNames);
-            DIAG_INFO(APP, "SettingsBrew") << "replaced" << removedNames.size()
-                    << "user Off pitcher preset(s) with the built-in Heater off entry;"
-                    << "selection" << selected << "->"
-                    << (selectionWasRemoved ? HeaterOffPitcherIndex : remapped);
-        }
-        m_settings.setValue("steam/heaterOffPresetsMigrated", true);
-        }
-    }
-
     // Load persistent brew overrides into the cache (Settings used to do this).
     m_hasTemperatureOverride = m_settings.value("brew/hasTemperatureOverride", false).toBool();
     if (m_hasTemperatureOverride) {
@@ -366,28 +281,6 @@ QJsonArray SettingsBrew::readPresetArray(const QString& key, bool* parseFailed) 
         return QJsonArray();
     }
     return doc.array();
-}
-
-double SettingsBrew::deriveSteamRateFromLegacyPresets() const {
-    // Recover a global seconds-per-gram rate from the pre-migration per-pitcher
-    // (calibMilkG, duration): the first preset carrying both wins. Returns 0 when no
-    // preset was calibrated. Shared by the one-time ctor migration and the backup-
-    // import re-seed so both derive the rate identically.
-    const QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"));
-    for (const QJsonValue& v : arr) {
-        QJsonObject preset = v.toObject();
-        double calibMilk = preset.value("calibMilkG").toDouble(0.0);
-        double duration  = preset.value("duration").toDouble(0.0);
-        if (calibMilk > 0.0 && duration > 0.0) return duration / calibMilk;
-    }
-    return 0.0;
-}
-
-void SettingsBrew::seedSteamRateFromLegacyPresets() {
-    // Only seed a positive derived rate — never clobber the caller's rate with 0 when
-    // no legacy calibration is present. Goes through the setter so QML is notified.
-    double seeded = deriveSteamRateFromLegacyPresets();
-    if (seeded > 0.0) setSteamSecondsPerGram(seeded);
 }
 
 bool SettingsBrew::doseCaptureSoundEnabled() const {
@@ -662,14 +555,6 @@ int SettingsBrew::resolveRecipePitcherOverride(int recipeIndex) {
     // Discard an override parked by older versions; it must never be restored.
     setStandingSteamPitcher(NoStandingPitcher);
     return recipeIndex;
-}
-
-QStringList SettingsBrew::migratedHeaterOffNames() const {
-    return m_settings.value("steam/heaterOffRemovedNames").toStringList();
-}
-
-void SettingsBrew::clearMigratedHeaterOffNames() {
-    m_settings.remove("steam/heaterOffRemovedNames");
 }
 
 SettingsBrew::PresetMutationResult SettingsBrew::tryAddSteamPitcherPreset(
@@ -1393,9 +1278,6 @@ void SettingsBrew::writeBrewYieldAnchor(double value, const QString& mode) {
     if (YieldSpec::isSet(newMode)) {
         m_settings.setValue("brew/brewYieldOverride", newValue);
         m_settings.setValue("espresso/brewYieldMode", newMode);
-        // Legacy flag kept in sync so a downgraded build still sees the
-        // anchor as an active override.
-        m_settings.setValue("brew/hasBrewYieldOverride", true);
     } else {
         m_settings.remove("brew/brewYieldOverride");
         m_settings.remove("espresso/brewYieldMode");

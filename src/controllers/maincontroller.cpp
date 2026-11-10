@@ -48,7 +48,6 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../history/shotdebuglogger.h"
-#include "../history/recipepromotion.h"
 #include "../network/shotserver.h"
 #include "../network/locationprovider.h"
 #include "../core/crashhandler.h"
@@ -127,8 +126,6 @@ void logDriftEnd(const LogCollapse& giveUpLog, const QString& text)
 void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
 {
     m_preparation->setScaleDeviceProxy(proxy);
-    if (m_shotServer)
-        m_shotServer->setScaleDeviceProxy(proxy);
     if (!m_hdsFirmwareUpdate)
         return;
     m_hdsFirmwareUpdate->setScaleDevice(proxy ? proxy->target() : nullptr);
@@ -142,8 +139,6 @@ void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
 void MainController::setBLEManager(BLEManager* bleManager)
 {
     m_bleManager = bleManager;
-    if (m_shotServer)
-        m_shotServer->setBLEManager(bleManager);
 }
 
 MainController::MainController(QNetworkAccessManager* networkManager,
@@ -601,84 +596,20 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_shotHistory->requestProfileUsage();
 
     // Coffee bag storage shares the shot history database (coffee_bags
-    // table, created by migration 19 inside initialize() above).
+    // table, created by initialize() above).
     m_bagStorage = new CoffeeBagStorage(this);
     m_bagStorage->initialize(m_shotHistory->databasePath());
-    // Adopt the bag that the legacy preset import mapped bean/selectedPreset
-    // to — through the setter, so the settings cache and NOTIFY fire.
-    if (m_shotHistory->migratedActiveBagId() > 0)
-        m_settings->dye()->setActiveBagId(static_cast<int>(m_shotHistory->migratedActiveBagId()));
     m_settings->dye()->setBagStorage(m_bagStorage);
 
     // Equipment storage shares the same database (equipment_packages +
-    // equipment_items tables, created by migration 22). The active package is
+    // equipment_items tables, created by initialize() above). The active package is
     // dye/activeEquipmentId.
     m_equipmentStorage = new EquipmentStorage(this);
     m_equipmentStorage->initialize(m_shotHistory->databasePath());
-    // Adopt the package that migration 35 merged the active selection into, if it
-    // healed one — through the setter, so the settings cache and NOTIFY fire.
-    // Before setEquipmentStorage(), so the storage resolves the surviving id.
-    //
-    // Logged because the migration announcing the move and this line applying it
-    // are in different files, and only this one changes what the app points at.
-    // Without it a submitted log stops one step short of the answer to "my
-    // equipment changed after updating" — the same gap that made #1713
-    // undiagnosable.
-    if (m_shotHistory->healedActiveEquipmentId() > 0) {
-        const qint64 healed = m_shotHistory->healedActiveEquipmentId();
-        EQUIP_INFO_STDERR("Migration",
-                          QString("adopted the healed active equipment - selection now points at package %1")
-                              .arg(healed));
-        m_settings->dye()->setActiveEquipmentId(healed);
-    }
     m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
 
-    // One-time SAW upgrade path: stores written before the basket joined the SAW key hold
-    // "<profile>::<scale>" buckets that no reader looks for any more. Copy each into
-    // "<profile>::<scale>::<basket>" for every basket the recent shot history shows in use,
-    // so each basket keeps predicting exactly what the single shared model predicted and
-    // then diverges as it earns medians of its own.
-    //
-    // Wired here rather than inside Settings because the basket set comes from the shot
-    // database, which Settings has no handle on — and it has to be the SHOT HISTORY rather
-    // than the equipment inventory: a user can own 25 baskets and pull shots with 3, and
-    // seeding the other 22 would fabricate buckets of borrowed data. Guarded and idempotent
-    // inside seedSawBucketsFromPreBasketKeys(). A query that fails, cannot open the DB, or
-    // runs before the store is ready emits NOTHING, so the flag stays unset and the seed
-    // retries next launch — and the seed additionally refuses an empty pair list when
-    // pre-basket buckets exist, since that combination can only be a failed read.
-    connect(m_shotHistory, &ShotHistoryStorage::recentProfileBasketPairsReady, this,
-            [this](const QVariantList& pairs) {
-                // Shots record the profile TITLE; SAW keys use the FILENAME. titleToFilename
-                // is a PURE slug transform (profile.cpp:1767) — it consults no catalog, so a
-                // deleted profile's title still maps to a filename and the isEmpty() guard
-                // below only fires for a title with no alphanumerics at all. An earlier
-                // comment here claimed it dropped unresolvable profiles; it does not.
-                //
-                // The real residual: a RENAMED profile's old shots carry the old title, whose
-                // slug will not match the filename its bucket is keyed under, so that bucket
-                // reads as "untried" and is left behind. The save path keeps title and
-                // filename in lockstep by uniquifying the title (profilesavehelper.cpp), so
-                // this is sound today but not by construction. The count of buckets left
-                // behind is logged by the seed.
-                QHash<QString, QStringList> basketsByProfile;
-                for (const QVariant& v : pairs) {
-                    const QVariantMap m = v.toMap();
-                    const QString filename =
-                        m_profileManager->titleToFilename(m.value("profileTitle").toString());
-                    if (filename.isEmpty()) continue;
-                    const QString basket =
-                        SettingsCalibration::sawBasketKey(m.value("brand").toString(),
-                                                          m.value("model").toString());
-                    QStringList& baskets = basketsByProfile[filename];
-                    if (!baskets.contains(basket)) baskets << basket;
-                }
-                m_settings->calibration()->seedSawBucketsFromPreBasketKeys(
-                    basketsByProfile, /*historyComplete=*/true);
-            });
-    m_shotHistory->requestRecentProfileBasketPairs();
 
-    // Recipe storage shares the same database (recipes table, migration 25).
+    // Recipe storage shares the same database (recipes table).
     // Wired BEFORE the clearBrewOverrides connection below on purpose: the
     // deactivate-on-bag-swap watcher inside must see the swap first, so the
     // override reset that follows a bag change cannot be stamped onto a
@@ -688,7 +619,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         return m_profileManager->recipeBrewDefaultsSnapshot();
     });
     m_recipeStorage->initialize(m_shotHistory->databasePath());
-    // Migration 31's deferred temp-offset conversion must be queued on the
+    // The deferred temp-offset conversion must be queued on the
     // serialized recipe worker BEFORE setupRecipeConnections() — whose tail
     // enqueues the startup active-recipe restore read — so that read (and
     // every later one; the worker is FIFO) sees converted values. Queued
@@ -697,42 +628,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // override for a whole session. ProfileManager scanned its catalog in
     // its constructor, so the title→temperature snapshot is ready.
     requestRecipeTempOffsetConversion();
-    // Second half of the "Off" preset migration (steam-heater-policy). The
-    // settings half already removed the presets and remapped the selection;
-    // this rewrites the recipes that named them, which needs a database and so
-    // could not happen in SettingsBrew's constructor.
-    if (m_recipeStorage && m_settings) {
-        // PEEK, don't take: the rewrite is asynchronous and can fail (a bad
-        // SELECT, a mid-batch UPDATE error). Consuming the names up front lost
-        // them permanently on any failure, leaving those recipes naming a preset
-        // that no longer exists — and activation would then resurrect it as a
-        // real pitcher, which is the junk-pitcher outcome the migration exists to
-        // prevent. Cleared only once the pass reports success, so a failure
-        // simply retries next launch.
-        const QStringList removed = m_settings->brew()->migratedHeaterOffNames();
-        if (!removed.isEmpty()) {
-            QPointer<Settings> settingsGuard(m_settings);
-            m_recipeStorage->requestHeaterOffPitcherRewrite(removed, [settingsGuard](bool ok) {
-                if (ok && settingsGuard)
-                    settingsGuard->brew()->clearMigratedHeaterOffNames();
-            });
-        }
-    }
     setupRecipeConnections();
-
-    // One-time idle-button injections (issue #1586). What the gate means is
-    // documented on ShotHistoryStorage::crossedSchemaVersion; what the injections
-    // guarantee is documented on their declarations in settings_network.h.
-    //
-    // What is specific to THIS site is the ordering, which is why the calls live
-    // here and not somewhere more obvious: they must run after
-    // m_shotHistory->initialize() above (it is what computes the crossing) and
-    // before the QML engine is created in main.cpp (so the layout is settled by
-    // first paint, with no visible re-arrangement).
-    if (m_shotHistory->crossedSchemaVersion(22))
-        m_settings->network()->injectEquipmentButtonIfMissing();
-    if (m_shotHistory->crossedSchemaVersion(25))
-        m_settings->network()->injectRecipesButtonIfMissing();
 
     // Switching beans resets the brew overrides to the active profile's
     // defaults — a new coffee starts from the profile + bean baseline, not
@@ -851,21 +747,6 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_shotHistory->requestUpdateVisualizerInfo(dbShotId, visualizerId, url);
     });
 
-    // Migration 16 ran inside initialize() above. If it found inferred
-    // shots that were uploaded to Visualizer, it queued them in
-    // QSettings under migration16/pendingVisualizerSync. Drain that
-    // list now — guarded internally on credentials being available.
-    // Transiently-failed entries persist for the next boot; permanently
-    // failed ones (404) are evicted (see updateFailed connect below).
-    processPendingVisualizerRatingSync();
-
-    // One-time reconciliation: relink shots that were uploaded before
-    // the authoritative C++ writeback existed (the orphaned cohort),
-    // then push their now-correct local rating to the cloud. Order-
-    // independent of the migration16 drain above — see OpenSpec change
-    // persist-visualizer-id-in-controller.
-    processVisualizerReconciliation();
-
     // Edits made on visualizer.coffee come back: a pass now, every 30 minutes,
     // and as soon as an account is connected.
     m_visualizerSync = new VisualizerShotSync(m_visualizer, m_shotHistory, m_bagStorage, m_beanbase,
@@ -925,81 +806,6 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     connect(m_bagStorage, &CoffeeBagStorage::bagsChanged, this,
             [this]() { processVisualizerBeanRepair(); });
 
-    connect(m_visualizer, &VisualizerUploader::updateSuccess, this,
-            [this](const QString& visualizerId) {
-        // Only react when this matches the migration16 PATCH we issued;
-        // other concurrent updates (e.g., user-initiated edits from
-        // PostShotReviewPage) must not pop our queue entries.
-        if (m_migration16InFlightVisualizerId.isEmpty()
-            || visualizerId != m_migration16InFlightVisualizerId)
-            return;
-
-        AppSettings s;
-        QJsonArray pending = QJsonDocument::fromJson(
-            s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
-        for (qsizetype i = 0; i < pending.size(); ++i) {
-            if (pending[i].toObject().value("visualizerId").toString() == visualizerId) {
-                pending.removeAt(i);
-                break;
-            }
-        }
-        if (pending.isEmpty())
-            s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
-        else
-            s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
-                       QJsonDocument(pending).toJson(QJsonDocument::Compact));
-        m_migration16InFlightVisualizerId.clear();
-        dispatchNextPendingVisualizerSync();
-    });
-    connect(m_visualizer, &VisualizerUploader::updateFailed, this,
-            [this](const QString& visualizerId, bool permanent, const QString&) {
-        // Same in-flight filter as updateSuccess above: ignore failures
-        // from PATCHes we didn't issue (user edits from the review pages).
-        if (m_migration16InFlightVisualizerId.isEmpty()
-            || visualizerId != m_migration16InFlightVisualizerId)
-            return;
-        m_migration16InFlightVisualizerId.clear();
-
-        if (!permanent) {
-            // Transient (anything but 404 — see the classification in
-            // VisualizerUploader::onUpdateFinished): leave the entry in
-            // the pending list and abort the drain — the queue picks up
-            // on the next boot.
-            DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync pending until next boot for remote shot" << visualizerId;
-            return;
-        }
-
-        // Permanent (HTTP 404): the shot does not exist on Visualizer and
-        // never will — e.g. a bogus placeholder visualizer_id that
-        // migration 16 queued in good faith. Retrying forever wastes a
-        // network round-trip and logs an error on every launch (#1431):
-        // evict the entry, clear the dead link on the local shot row so
-        // nothing else trusts it, and continue draining. The clear is
-        // guarded on the row still holding this exact id, so a link the
-        // user replaced meanwhile (re-upload) is never wiped.
-        AppSettings s;
-        QJsonArray pending = QJsonDocument::fromJson(
-            s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
-        for (qsizetype i = 0; i < pending.size(); ++i) {
-            const QJsonObject entry = pending[i].toObject();
-            if (entry.value("visualizerId").toString() != visualizerId)
-                continue;
-            const qint64 shotId = entry.value("shotId").toVariant().toLongLong();
-            if (m_shotHistory)
-                m_shotHistory->requestClearStaleVisualizerLink(shotId, visualizerId);
-            pending.removeAt(i);
-            break;
-        }
-        if (pending.isEmpty())
-            s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
-        else
-            s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
-                       QJsonDocument(pending).toJson(QJsonDocument::Compact));
-        DIAG_INFO(VISUALIZER, "MainController") << "migration16 removed missing remote shot" << visualizerId
-            << "from pending queue";
-        dispatchNextPendingVisualizerSync();
-    });
-
     // Create shot importer for importing .shot files from DE1 app
     m_shotImporter = new ShotImporter(m_shotHistory, this);
 
@@ -1058,11 +864,6 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Set MachineState on ShotServer for home automation API
     m_shotServer->setMachineState(m_machineState);
-    m_shotServer->setShotDataModel(m_shotDataModel);
-    connect(m_profileManager, &ProfileManager::targetWeightChanged,
-            m_shotServer, &ShotServer::notifySessionGraphChanged);
-    connect(m_machineState, &MachineState::targetWeightChanged,
-            m_shotServer, &ShotServer::notifySessionGraphChanged);
     // MainController for the recipes/bags/equipment web surfaces (add-recipes)
     m_shotServer->setMainController(this);
 
@@ -1792,7 +1593,7 @@ namespace {
 // The recipe steam block's JSON shape, shared by activation, the shot-save
 // snapshot, the composer prefill, MCP, and the web UI:
 //   { "hasMilk": bool, "milkWeightG": n, "heaterOff": bool, "pitcherName": s,
-//     "durationSec": n, "flow": n, "temperatureC": n }
+//     "durationSec": n, "flow": n, "temperatureC": n, "pitcherWeightG": n }
 //
 // "heaterOff" is the built-in "Heater off" entry chosen deliberately, and is
 // mutually exclusive with the pitcher fields — it carries no values of its own.
@@ -2339,96 +2140,6 @@ void MainController::finishHomeRecipeStart(bool success, const QString& reason)
     emit recipeShotStartRequestCompleted(requestId, recipeId, success, reason);
 }
 
-void MainController::checkRecipesUpgradeEligibility() {
-    if (!m_shotHistory) {
-        m_recipesUpgradeWillCreate = false;
-        m_recipesUpgradeShotRecord = ShotRecord();
-        emit recipesUpgradeOfferReady(false, false);
-        return;
-    }
-    const QString dbPath = m_shotHistory->databasePath();
-    auto record = std::make_shared<ShotRecord>();
-    auto recipeCount = std::make_shared<qint64>(0);
-    auto shotId = std::make_shared<qint64>(-1);
-    // Tracks whether the recipe count is trustworthy — a failed/unopened
-    // query must never be read as "zero recipes" (that would offer, and on
-    // accept create, a spurious duplicate starter recipe for a user who
-    // already has some).
-    auto recipeCountOk = std::make_shared<bool>(false);
-    QThread* thread = QThread::create([dbPath, record, recipeCount, shotId, recipeCountOk]() {
-        const bool opened = withTempDb(dbPath, "recipes_upgrade_offer", [&](QSqlDatabase& db) {
-            QSqlQuery countQuery(db);
-            *recipeCountOk = countQuery.exec(QStringLiteral("SELECT COUNT(*) FROM recipes"))
-                && countQuery.next();
-            if (*recipeCountOk) {
-                *recipeCount = countQuery.value(0).toLongLong();
-            } else {
-                DIAG_WARN(RECIPES, "MainController") << "checkRecipesUpgradeEligibility: recipe count query failed:"
-                           << countQuery.lastError().text();
-            }
-
-            QSqlQuery latestQuery(db);
-            if (latestQuery.exec(QStringLiteral("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1"))
-                && latestQuery.next())
-                *shotId = latestQuery.value(0).toLongLong();
-
-            if (*shotId > 0)
-                *record = ShotHistoryStorage::loadShotRecordStatic(db, *shotId, nullptr, Q_FUNC_INFO);
-        });
-        if (!opened) {
-            *recipeCountOk = false;
-            DIAG_WARN(RECIPES, "MainController") << "checkRecipesUpgradeEligibility: could not open shot history DB";
-        }
-    });
-    connect(thread, &QThread::finished, this, [this, record, recipeCount, shotId, recipeCountOk]() {
-        m_recipesUpgradeWillCreate = RecipePromotion::isEligibleForStarterRecipe(
-            *recipeCountOk, *recipeCount, *shotId, record->summary.id);
-        m_recipesUpgradeShotRecord = m_recipesUpgradeWillCreate ? *record : ShotRecord();
-
-        const bool milkPreselected = m_recipesUpgradeWillCreate
-            && RecipePromotion::milkPreselectedFromSteamJson(m_recipesUpgradeShotRecord.steamJson);
-        emit recipesUpgradeOfferReady(m_recipesUpgradeWillCreate, milkPreselected);
-    });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
-}
-
-void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk) {
-    if (m_settings && m_settings->network()) {
-        m_settings->network()->applyRecipesFirstUpgrade();
-        m_settings->network()->setRecipesUpgradeOffered(true);
-    }
-
-    if (!m_recipesUpgradeWillCreate || !m_recipeStorage) {
-        emit recipesUpgradeApplied(QString(), false);
-        return;
-    }
-
-    QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
-        m_recipesUpgradeShotRecord, name, std::optional<bool>(hasMilk), currentSteamSpecJson());
-    // Correlation token: recipeCreated is a broadcast — a concurrent MCP/web
-    // create (or its failure) must not be mistaken for the starter recipe.
-    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    fields.insert(QStringLiteral("requestToken"), token);
-
-    auto conn = std::make_shared<QMetaObject::Connection>();
-    *conn = connect(m_recipeStorage, &RecipeStorage::recipeCreated, this,
-        [this, conn, name, token](qint64 recipeId, const QVariantMap& recipe) {
-            if (recipe.value(QStringLiteral("requestToken")).toString() != token)
-                return;
-            QObject::disconnect(*conn);
-            if (recipeId > 0) {
-                activateRecipe(recipeId);
-                emit recipesUpgradeApplied(name, false);
-            } else {
-                // Requested but failed (RecipeStorage logs the cause) — must
-                // not look like "no starter recipe was requested" to the UI.
-                emit recipesUpgradeApplied(QString(), true);
-            }
-        });
-    m_recipeStorage->requestCreateRecipe(fields);
-}
-
 void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                                           qint64 linkedBagId, const QVariantMap& linkedBag) {
     if (recipe.isEmpty()) {
@@ -2592,11 +2303,19 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     // the built-in entry: that arrives as the marker above, and
                     // recreating it as a user preset would put two "Heater off"
                     // rows in the picker.
+                    const int countBefore = brew->steamPitcherCount();
                     brew->addSteamPitcherPreset(pitcherName,
                                                 steam.value("durationSec").toInt(),
                                                 steam.value("flow").toInt(),
                                                 steam.value("temperatureC").toDouble());
                     index = brew->steamPitcherCount() - 1;
+                    // Without its empty weight, milk capture skips the pitcher and
+                    // weight-timed steaming falls back to the fixed time (#2185).
+                    // Only onto a pitcher the add appended: a refused add (a name
+                    // taken once trimmed) leaves index on an unrelated preset.
+                    const double pitcherWeightG = steam.value("pitcherWeightG").toDouble();
+                    if (pitcherWeightG > 0 && brew->steamPitcherCount() == countBefore + 1)
+                        brew->setSteamPitcherWeight(index, pitcherWeightG);
                     DIAG_DEBUG(RECIPES, "MainController") << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
                 }
                 overrideIndex = index;
@@ -3020,6 +2739,8 @@ QString MainController::currentSteamSpecJson() const {
         o.insert("durationSec", pitcher.value("duration").toInt());
         o.insert("flow", pitcher.value("flow").toInt());
         o.insert("temperatureC", pitcher.value("temperature").toDouble());
+        if (pitcher.value("pitcherWeightG").toDouble() > 0)
+            o.insert("pitcherWeightG", pitcher.value("pitcherWeightG").toDouble());
     }
     if (brew->lastSteamMilkG() > 0)
         o.insert("milkWeightG", brew->lastSteamMilkG());
@@ -4112,7 +3833,7 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     // It does NOT mean what a comment here used to say: that anchoring a flow
     // window to reported flow "creates a feedback loop, factor drifts down over
     // time". That was v3's premise, and v6 exists because it is wrong — see
-    // docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "v3 Migration". Hybrid profiles (e.g. ASL9-3 — pressure declines + a
+    // docs/CLAUDE_MD/AUTO_FLOW_CALIBRATION.md, "Why the pre-v6 formula converged on √e". Hybrid profiles (e.g. ASL9-3 — pressure declines + a
     // flow-controlled tail) need window-level classification: the steady
     // window almost always lands in the pressure declines, so anchoring to
     // the tail's flow target produces false rejections and spurious
@@ -4281,8 +4002,8 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     // A shot that never latched is SKIPPED rather than computed against the live
     // multiplier. Substituting one would put an ideal derived from an assumed
     // calibration into a median whose whole premise is that every member was
-    // measured under the same one — the premise v4, v5 and v6 each clear the
-    // accumulator to protect. It would also disagree with the record: that shot
+    // measured under the same one — the premise the v4–v6 batch clears
+    // protected. It would also disagree with the record: that shot
     // saves flow_calibration as NULL, so the database would say "unknown" while
     // the batch had consumed a guess, and nobody replaying the column could
     // reproduce the number.
@@ -5985,106 +5706,6 @@ bool MainController::isSawSettling() const {
     return m_timingController ? m_timingController->isSawSettling() : false;
 }
 
-void MainController::processPendingVisualizerRatingSync()
-{
-    AppSettings s;
-    if (!s.contains(QStringLiteral("migration16/pendingVisualizerSync")))
-        return;
-
-    // Visualizer needs credentials to PATCH. If absent, leave the list
-    // for a future boot where the user has configured an account.
-    const QString user = s.value(QStringLiteral("visualizer/username")).toString();
-    const QString pass = s.value(QStringLiteral("visualizer/password")).toString();
-    if (user.isEmpty() || pass.isEmpty()) {
-        DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 pending Visualizer sync skipped (no credentials)";
-        return;
-    }
-
-    dispatchNextPendingVisualizerSync();
-}
-
-void MainController::dispatchNextPendingVisualizerSync()
-{
-    if (!m_migration16InFlightVisualizerId.isEmpty()) return;
-    if (!m_visualizer || !m_shotHistory) return;
-    if (m_visualizer->rateLimitWait() > 0) return;   // waiting out a 429; the queue resumes next boot
-
-    AppSettings s;
-    const QByteArray raw = s.value(
-        QStringLiteral("migration16/pendingVisualizerSync")).toByteArray();
-    if (raw.isEmpty()) return;
-
-    const QJsonArray pending = QJsonDocument::fromJson(raw).array();
-    if (pending.isEmpty()) {
-        s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
-        return;
-    }
-
-    const QJsonObject entry = pending.first().toObject();
-    const qint64 shotId = entry.value("shotId").toVariant().toLongLong();
-    const QString visualizerId = entry.value("visualizerId").toString();
-    if (shotId <= 0 || visualizerId.isEmpty()) {
-        // Malformed entry — drop and try the next one. Re-write the list
-        // without the bad entry and recurse.
-        QJsonArray rest = pending;
-        rest.removeFirst();
-        if (rest.isEmpty())
-            s.remove(QStringLiteral("migration16/pendingVisualizerSync"));
-        else
-            s.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
-                       QJsonDocument(rest).toJson(QJsonDocument::Compact));
-        dispatchNextPendingVisualizerSync();
-        return;
-    }
-
-    m_migration16InFlightVisualizerId = visualizerId;
-
-    // Load the (now-corrected) shot off the background thread and
-    // dispatch the PATCH from the callback. shotReady fires for every
-    // shot load app-wide, so we filter on shotId and disconnect once
-    // we've handled the matching one. The Connection handle is held in
-    // a shared_ptr captured by the lambda so it self-destructs whether
-    // the lambda is invoked (explicit disconnect below) or the context
-    // object dies first (Qt auto-disconnects on `this`, then the lambda
-    // copy in Qt's connection store gets cleaned up). Pre-shared_ptr
-    // this used a raw `new` that leaked on context destruction.
-    // Note: requestShot does NOT emit shotReady on a DB-open FAILURE (only on a
-    // genuine load — found or not-found). That is deliberate: the !isValid()
-    // branch below permanently drops the pending entry, so a transient open
-    // failure must not reach it. On such a failure this connection simply never
-    // fires; the queue stalls and resumes next boot. Do not "fix" that stall by
-    // making requestShot emit an empty projection on open failure — it would
-    // silently discard the sync. (See ShotHistoryStorage::requestShot.)
-    QPointer<MainController> self(this);
-    auto conn = std::make_shared<QMetaObject::Connection>();
-    *conn = connect(m_shotHistory, &ShotHistoryStorage::shotReady, this,
-        [self, conn, shotId, visualizerId](qint64 readyId, const ShotProjection& shot) {
-        if (!self || readyId != shotId) return;
-        QObject::disconnect(*conn);
-        if (!shot.isValid()) {
-            DIAG_WARN(VISUALIZER, "MainController") << "migration16 sync — shot" << shotId << "no longer exists; dropping";
-            // Pop the bad entry and continue.
-            AppSettings ss;
-            QJsonArray remain = QJsonDocument::fromJson(
-                ss.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
-            if (!remain.isEmpty()) remain.removeFirst();
-            if (remain.isEmpty())
-                ss.remove(QStringLiteral("migration16/pendingVisualizerSync"));
-            else
-                ss.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
-                            QJsonDocument(remain).toJson(QJsonDocument::Compact));
-            self->m_migration16InFlightVisualizerId.clear();
-            self->dispatchNextPendingVisualizerSync();
-            return;
-        }
-        DIAG_DEBUG(VISUALIZER, "MainController") << "migration16 sync — re-PATCHing visualizerId" << visualizerId
-                 << "with corrected enjoyment" << shot.enjoyment0to100;
-        // The rating alone: anything else may have been edited on Visualizer since.
-        self->m_visualizer->updateShotOnVisualizer(visualizerId, shot, VisualizerSync::Enjoyment);
-    });
-    m_shotHistory->requestShot(shotId);
-}
-
 void MainController::processVisualizerBeanRepair()
 {
     if (!m_visualizer || !m_shotHistory || !m_shotHistory->isReady())
@@ -6093,8 +5714,7 @@ void MainController::processVisualizerBeanRepair()
     AppSettings s;
     if (s.value(QStringLiteral("visualizer/username")).toString().isEmpty()
         || s.value(QStringLiteral("visualizer/password")).toString().isEmpty()) {
-        // Logged, like processVisualizerReconciliation's identical case: a
-        // reader of the log must be able to tell "no account" from "never ran".
+        // Logged so a reader of the log can tell "no account" from "never ran".
         // Once per run without an account: every bag change re-enters here.
         if (!m_beanRepairSkipLogged) {
             m_beanRepairSkipLogged = true;
@@ -6113,91 +5733,6 @@ void MainController::processVisualizerBeanRepair()
     // single-shot connection per call would stack handlers that one emission
     // consumes together, leaving later requests with nobody listening.
     m_shotHistory->requestPendingBeanRepairs();
-}
-
-void MainController::processVisualizerReconciliation()
-{
-    if (!m_visualizer || !m_shotHistory) return;
-
-    AppSettings s;
-    if (s.value(QStringLiteral("visualizerBackfill/doneV1"), false).toBool())
-        return;  // already reconciled on this device
-
-    const QString user = s.value(QStringLiteral("visualizer/username")).toString();
-    const QString pass = s.value(QStringLiteral("visualizer/password")).toString();
-    if (user.isEmpty() || pass.isEmpty()) {
-        // No credentials: skip WITHOUT setting the run-once flag so it
-        // retries on a later boot once an account is configured.
-        DIAG_DEBUG(VISUALIZER, "MainController") << "Visualizer reconciliation skipped (no credentials)";
-        return;
-    }
-
-    // Bounded window. Widening this later requires bumping the run-once
-    // key to doneV2 (this device already has doneV1 set after one pass).
-    constexpr qint64 kReconcileWindowDays = 60;
-    const qint64 windowStartEpoch =
-        QDateTime::currentSecsSinceEpoch() - kReconcileWindowDays * 24 * 3600;
-
-    // Fetch → reconcile → self-correct, each a single-shot hop.
-    connect(m_visualizer, &VisualizerUploader::shotListFailed, this,
-            [](const QString& err) {
-        // Fail safe: do NOT set the run-once flag — retried next boot.
-        DIAG_WARN(VISUALIZER, "MainController") << "Visualizer reconciliation list fetch failed:"
-                   << err << "(will retry next boot)";
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    connect(m_visualizer, &VisualizerUploader::shotListFetched, this,
-            [this, windowStartEpoch](const QVariantList& cloudShots) {
-        if (m_shotHistory && m_shotHistory->isReady())
-            m_shotHistory->requestReconcileVisualizerLinks(cloudShots, windowStartEpoch);
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    connect(m_shotHistory, &ShotHistoryStorage::visualizerLinksReconciled, this,
-            [this](bool ok, const QVariantList& linked) {
-        if (!ok) {
-            // DB open / SQL failure — NOT a completed pass. Leave the
-            // run-once flag unset so it retries on the next boot rather
-            // than permanently skipping the backfill after one transient
-            // hiccup (e.g. DB momentarily locked at boot).
-            DIAG_WARN(STORAGE, "MainController") << "Visualizer reconciliation did not "
-                          "complete (DB error) — will retry next boot";
-            return;
-        }
-        // Genuinely completed pass — safe to set the run-once flag.
-        AppSettings ss;
-        ss.setValue(QStringLiteral("visualizerBackfill/doneV1"), true);
-        ss.sync();
-
-        if (linked.isEmpty()) {
-            DIAG_DEBUG(VISUALIZER, "MainController") << "Visualizer reconciliation — nothing to relink";
-            return;
-        }
-        // Push the now-authoritative local rating to each freshly
-        // linked cloud shot by appending to the same serial drain queue
-        // the migration16 sync uses (load shot → PATCH local rating;
-        // a cleared rating goes up as JSON null). Unconditional per
-        // linked row — the list API doesn't return the cloud rating and
-        // the PATCH is idempotent over this bounded set.
-        QJsonArray queue = QJsonDocument::fromJson(
-            ss.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
-        for (const QVariant& v : linked) {
-            const QVariantMap m = v.toMap();
-            QJsonObject e;
-            e["shotId"] = m.value("shotId").toLongLong();
-            e["visualizerId"] = m.value("visualizerId").toString();
-            queue.append(e);
-        }
-        ss.setValue(QStringLiteral("migration16/pendingVisualizerSync"),
-                    QJsonDocument(queue).toJson(QJsonDocument::Compact));
-        ss.sync();
-        DIAG_DEBUG(VISUALIZER, "MainController") << "Visualizer reconciliation linked"
-                 << linked.size() << "shot(s); queued for rating push";
-        dispatchNextPendingVisualizerSync();
-    }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
-
-    DIAG_DEBUG(VISUALIZER, "MainController") << "starting one-time Visualizer reconciliation (window"
-             << kReconcileWindowDays << "days)";
-    m_visualizer->fetchShotListSince(windowStartEpoch);
 }
 
 void MainController::persistWaterResult(const std::optional<ShotWaterJoin::Write>& write)

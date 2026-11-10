@@ -2299,12 +2299,6 @@ private slots:
         AppSettings settings;
         settings.clear();
 
-        // AIManager's ctor runs a one-time clearAllConversationsOnce
-        // migration that wipes the whole ai/conversations group — must
-        // construct it BEFORE writing the "external" data below, or the
-        // migration deletes what we're about to write (see
-        // mcpAiConversationGet_orphanedKey_fallsBackToStoredTimestamp for
-        // the same gotcha).
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
@@ -2577,10 +2571,6 @@ private slots:
         AppSettings s;
         s.clear();
 
-        // Create AIManager first so clearAllConversationsOnce() fires on empty
-        // settings and marks itself done — otherwise it would wipe the test
-        // data we store below (the marker lives in QSettings and is absent
-        // after s.clear(), causing the migration to re-fire on every CI run).
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
@@ -3162,8 +3152,6 @@ private slots:
         AppSettings s;
         s.clear();
 
-        // Construct AIManager first so clearAllConversationsOnce() fires on
-        // empty settings and marks itself done before we write test data.
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
@@ -3429,11 +3417,6 @@ private slots:
         AppSettings settings;
         settings.clear();
 
-        // AIManager's constructor runs a one-time clearAllConversationsOnce
-        // migration that wipes the whole "ai/conversations" QSettings group
-        // when its marker is absent (settings.clear() above wiped it too) —
-        // construct AIManager BEFORE writing the orphaned key, or this
-        // migration wipes it out from under the test.
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);  // conversationIndex() has no entry for `key`
@@ -3856,11 +3839,6 @@ private slots:
         const qint64 liveId = storage.importShotRecord(rec, false);
         QVERIFY(liveId > 0);
 
-        // Construct the manager BEFORE writing the conversation: AIManager's ctor
-        // runs the one-time clearAllConversationsOnce migration (aimanager.cpp),
-        // which wipes the whole ai/conversations group when its marker key is
-        // absent — and the preceding slots' settings.clear() removes that marker,
-        // so it fires here on every run.
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);
@@ -3916,8 +3894,6 @@ private slots:
     {
         ShotHistoryStorage notReady;   // never initialize()d
 
-        // Manager first, for the same reason as the slot above:
-        // clearAllConversationsOnce wipes ai/conversations on construction.
         QNetworkAccessManager nam;
         Settings appSettings;
         AIManager mgr(&nam, &appSettings);

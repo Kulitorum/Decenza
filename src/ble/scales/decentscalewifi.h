@@ -104,7 +104,7 @@ public:
     // Injected rather than logged directly because the budget must be ONE store
     // shared with the manager. When only the manager's lines were budgeted, its
     // half of the failing cycle went quiet on the endless tail while this
-    // driver's half kept warning every 60 s forever — leaving a repeating
+    // driver's half kept warning every retry cycle forever — leaving a repeating
     // fragment with no attempt number and no outcome.
     //
     // Unset (the default) means log normally: the driver is usable standalone
@@ -454,7 +454,7 @@ private:
     // because the only line naming the source sat at DEBUG.
     //
     // A field on an existing line, not a new line: the alternative was one extra
-    // INFO per 60 s cycle forever, which is the log spam this work exists to
+    // INFO per retry cycle forever, which is the log spam this work exists to
     // reduce.
     QString m_targetSource;
 };

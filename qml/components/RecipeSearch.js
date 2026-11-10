@@ -6,11 +6,6 @@
 // a Yirgacheffe recipe on a "D-Flow / Q" profile ("D-Flow" collapses to "dflow").
 // Shot History's FTS search also ANDs tokens, but would not match a bare "df".
 //
-// The web /recipes and /beans pages carry the same logic in embedded JS
-// (normalizeSearch, tokenizeSearch and sortedCopy in webtemplates/management_js.h;
-// matchesFilter in shotserver_recipes.cpp; bagHaystack in shotserver_bags.cpp).
-// tests/tst_recipesearch.cpp evaluates both sources and checks they agree.
-
 // Lower-case and DELETE `-` `/` `.` so an abbreviation like "df" matches "D-Flow"
 // and tokens can span a punctuation boundary. Whitespace is preserved as the token
 // separator, so " / " (spaces around a slash) still splits its neighbours.

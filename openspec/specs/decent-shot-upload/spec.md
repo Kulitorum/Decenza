@@ -162,7 +162,7 @@ When the metadata of an uploaded shot changes, the system SHALL re-upload it wit
 
 #### Scenario: Edit from any surface re-uploads
 
-- **WHEN** a shot's metadata is changed from the post-shot review, shot detail, ShotServer, an MCP tool, the AI advisor or the change-beans dialog
+- **WHEN** a shot's metadata is changed from the post-shot review, shot detail, an MCP tool, the AI advisor or the change-beans dialog
 - **THEN** it is re-uploaded with `?replace=1` if auto-update is on
 
 ### Requirement: Missing shots are tracked and offered for upload per destination
@@ -299,13 +299,6 @@ The Upload button SHALL, for Decent, retry a shot recorded as rejected, re-send 
 
 - **WHEN** the user presses Upload on a reviewed shot recorded as rejected for Decent
 - **THEN** the shot is sent again to Decent
-
-### Requirement: Web and MCP settings parity
-The ShotServer settings page SHALL let the user link and unlink the Decent account, switch Decent and Visualizer on or off, change the shared Upload settings, and see the account state. On the web, Connect SHALL verify an account through the same code the app uses before saving it. Neither surface SHALL expose the encrypted password, a password or an account name.
-
-#### Scenario: Switch Decent on from the web
-- **WHEN** the user switches Decent on from the ShotServer settings page
-- **THEN** the in-app switch reflects it
 
 ### Requirement: MCP upload settings
 MCP `settings_get` and `settings_set` SHALL expose `visualizerEnabled` and `decentEnabled`, the shared `uploadAutomatically`, `updateAutomatically` and `uploadMinDurationSec`, and the read-only `decentAccountState`.
