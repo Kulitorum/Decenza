@@ -26,7 +26,7 @@ The old HTML recipe, bag, equipment, settings and theme handlers have no in-tree
 
 ## Manual and release notes
 
-The local wiki checkout at `../Decenza.wiki` has updates to `Manual.md` and `Installation.md`; `wiki-update.patch` records the exact changes. The wiki changes have not been published. To publish them, review and commit those two wiki files, then push the wiki repository's branch. `release-note.md` contains the proposed release note; it has not been published to a release.
+The wiki updates to `Manual.md` and `Installation.md` were published in wiki commit `0373244`; `wiki-update.patch` records the changes. `release-note.md` contains the proposed release note; it has not been published to a release.
 
 The user authorized adapting existing connection tests, without adding a new test suite; the snapshot-only tests were removed.
 
