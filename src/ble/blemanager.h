@@ -781,10 +781,6 @@ signals:
     void scaleConnected();     // Emitted when a physical scale (re)connects — lets the UI dismiss the scale-disconnect / no-scale notice
     void scaleReconnectRampRestartRequested(const QString& reason, int firstDelayMs);
     void scanStarted();  // Emitted when BLE scan actually begins
-    // Emitted when a saved WiFi scale fails to connect within the connection
-    // timeout and BLEManager has started a BLE scan as a fallback. UI binds
-    // this to a toast/banner so the user knows what's happening.
-    void wifiUnreachableFallingBackToBle(const QString& hostname);
     // Emitted when a manual "Add WiFi Scale" connect attempt fails to verify
     // (timeout without HDS recognition, or socket error before any frame).
     // The QML layer binds this to a user-visible dialog so a typo / wrong IP

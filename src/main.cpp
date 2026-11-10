@@ -1283,13 +1283,7 @@ int main(int argc, char *argv[])
     // at BALANCED on the first connect (no detection window) — and a record
     // from a different build is auto-discarded (re-detect every new build).
     bleManager.setSettings(settings.hardware());
-    bleManager.setSavedScaleAddresses([&settings] {
-        QStringList addresses;
-        const QVariantList known = settings.knownScales();
-        for (const QVariant& row : known)
-            addresses << row.toMap().value(QStringLiteral("address")).toString();
-        return addresses;
-    });
+    bleManager.setSavedScaleAddresses([&settings] { return settings.knownScaleAddresses(); });
     // Wire TranslationManager so user-visible BLE error strings get i18n
     // (scale debug-log lines stay in English regardless — they're diagnostic).
     bleManager.setTranslationManager(&translationManager);

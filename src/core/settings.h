@@ -212,6 +212,8 @@ public:
 
     // Multi-scale management
     Q_INVOKABLE QVariantList knownScales() const;
+    // Just the addresses, for "is this scale saved" checks outside Settings.
+    QStringList knownScaleAddresses() const;
     Q_INVOKABLE void addKnownScale(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void removeKnownScale(const QString& address);
     Q_INVOKABLE void setPrimaryScale(const QString& address);

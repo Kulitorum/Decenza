@@ -2259,7 +2259,6 @@ void BLEManager::beginWifiFallbackToBleScan() {
 
     m_wifiFallbackToBleActive = true;
     scaleRepeatFailure(QString("WiFi scale %1 unreachable — trying Bluetooth").arg(hostname));
-    emit wifiUnreachableFallingBackToBle(hostname);
 
     // Re-arm the connection timer so the fallback BLE scan has a bounded
     // time budget — onScaleConnectionTimeout trips the FlowScale fallback
