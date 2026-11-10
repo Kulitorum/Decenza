@@ -1884,7 +1884,6 @@ T.Page {
                     property bool showPitcherName: false
                     onArmedChanged: showPitcherName = false
 
-                    // One sample per offer: it ends on capture or when the page is left.
                     function arm() {
                         return HomePresetActions.offerMilkSample("review")
                     }
@@ -1904,7 +1903,7 @@ T.Page {
                     readonly property string labelText: {
                         if (!selectedUsable)
                             return TranslationManager.translate("postshotreview.milk.choosePitcher", "Choose pitcher")
-                        if (armed) {
+                        if (armed && !(milkCapture.isCaptured && sessionMilk > 0)) {
                             if (showPitcherName)
                                 return pitcherName
                             if (!milkCapture.loadPresent)
@@ -1918,10 +1917,11 @@ T.Page {
                                 .arg(pitcherName).arg(sessionMilk.toFixed(0))
                         return pitcherName
                     }
-                    // While armed the label is an instruction, so a screen-reader user hears each
-                    // step; the placement step gets the idle page's full prompt.
+                    // While weighing the label is an instruction, so a screen-reader user hears
+                    // each step; the placement step gets the idle page's full prompt. A capture
+                    // is announced by onMilkCaptured.
                     onLabelTextChanged: {
-                        if (!armed || !AccessibilityManager.enabled)
+                        if (!armed || milkCapture.isCaptured || !AccessibilityManager.enabled)
                             return
                         AccessibilityManager.announce(milkCapture.loadPresent ? labelText
                             : TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale"))

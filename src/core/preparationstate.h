@@ -104,7 +104,8 @@ public:
 
     Q_INVOKABLE bool isPreparationMode(const QString& mode) const { return PreparationSnapshot::isMode(mode); }
     Q_INVOKABLE virtual bool selectMode(const QString& mode) = 0;
-    // A milk sample is offered by an owner and stays open while any owner holds it.
+    // A milk sample is offered by an owner and stays open until every owner withdraws
+    // or the host closes it.
     // Clients pass the offering surface; the client view qualifies it with its client
     // id (PreparationSnapshot::milkOwner).
     Q_INVOKABLE virtual bool startMilkAttempt(const QString& owner) = 0;

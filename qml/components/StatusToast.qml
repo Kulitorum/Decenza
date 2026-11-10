@@ -12,20 +12,25 @@ Rectangle {
     property int durationMs: 4000
     property bool error: false
 
-    function show(text) {
+    // isError, when given, restyles this showing; omit it on a toast that is always one kind.
+    function show(text, isError) {
+        if (isError !== undefined)
+            toast.error = isError
         toast.message = text
         toast.opacity = 1
         hideTimer.restart()
     }
 
     anchors.bottom: parent ? parent.bottom : undefined
-    anchors.bottomMargin: Theme.scaled(40)
+    // Clear of the bottom bar, which a window-level toast would otherwise cover.
+    anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
     width: Math.min(label.implicitWidth + Theme.scaled(32),
                     parent ? parent.width - Theme.scaled(48) : label.implicitWidth + Theme.scaled(32))
-    height: label.implicitHeight + Theme.scaled(16)
+    height: label.implicitHeight + Theme.scaled(20)
     radius: Theme.cardRadius
-    color: Theme.surfaceColor
+    // The selected-pill colours, so a toast stands out; an error keeps its red on neutral.
+    color: toast.error ? Theme.surfaceColor : Theme.primaryColor
     border.color: Theme.errorColor
     border.width: toast.error ? 1 : 0
     opacity: 0
@@ -44,8 +49,8 @@ Rectangle {
         anchors.centerIn: parent
         width: Math.min(implicitWidth, toast.width - Theme.scaled(32))
         text: toast.message
-        color: toast.error ? Theme.errorColor : Theme.textColor
-        font.pixelSize: Theme.scaled(13)
+        color: toast.error ? Theme.errorColor : Theme.primaryContrastColor
+        font: Theme.bodyFont
         wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
         Accessible.ignored: true

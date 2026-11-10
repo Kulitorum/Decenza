@@ -211,12 +211,15 @@ private slots:
         f.prepareMilkCapture();
         f.captureMilk();
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
-        // The capture closed the offer; the surface still withdraws when it closes.
         QVERIFY(f.preparation.cancelMilkAttempt(kIdleRow));
         f.settleBaseline();
 
         QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+        // Set down and lifted before it settles: this offer has captured nothing.
+        f.setWeight(150.0);
+        f.setWeight(0.0);
+        QVERIFY(f.preparation.milkAttemptOpen());
         QVERIFY(f.preparation.cancelMilkAttempt(kIdleRow));
         QVERIFY(!f.preparation.milk()->active());
         f.setWeight(170.0);
@@ -227,31 +230,50 @@ private slots:
 
     // Tapping the review button again, or another idle pill, cycles the pitcher
     // within the same offer. The old capture was the other pitcher's net.
+    void pitcherChangeKeepsAttemptOpenAndScaleBaseline_data()
+    {
+        QTest::addColumn<double>("secondEmptyG");
+        QTest::addColumn<bool>("liftedBetween");
+        QTest::newRow("stays-on-scale") << 40.0 << false;
+        // Two presets for one pitcher: the net does not move, and it is still weighed.
+        QTest::newRow("same-empty-weight") << 50.0 << false;
+        // The first pitcher's capture must not make its lift end the offer.
+        QTest::newRow("swapped-for-the-other-pitcher") << 40.0 << true;
+    }
+
     void pitcherChangeKeepsAttemptOpenAndScaleBaseline()
     {
+        QFETCH(double, secondEmptyG);
+        QFETCH(bool, liftedBetween);
         Fixture f;
         f.prepareMilkCapture();
         f.captureMilk();
         QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
         f.settings.brew()->addSteamPitcherPreset(QStringLiteral("Second pitcher"), 20, 20, 160.0);
-        f.settings.brew()->setSteamPitcherWeight(1, 40.0);
+        f.settings.brew()->setSteamPitcherWeight(1, secondEmptyG);
         f.settings.brew()->setSelectedSteamCup(1);
         QVERIFY(f.preparation.milkAttemptOpen());
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
+        if (liftedBetween) {
+            f.setWeight(0.0);
+            QVERIFY(f.preparation.milkAttemptOpen());
+            f.setWeight(150.0);
+        }
         // The prior 150 g sample remains a real load over the original zero
         // baseline; changing the cup tare must not adopt it as a new baseline.
         f.advance(2500);
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 2);
-        QCOMPARE(f.preparation.snapshot().lastMilkGrams, 110.0);
-        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 110.0);
+        QCOMPARE(f.preparation.snapshot().lastMilkGrams, 150.0 - secondEmptyG);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 150.0 - secondEmptyG);
+        f.setWeight(0.0);
         QVERIFY(!f.preparation.milkAttemptOpen());
     }
 
     // Field log, 2026-11-01/02: after a steam the mode stayed "steam", and the
     // espresso cup set down next was captured as 206.8 g / 211.8 g of milk,
     // rewriting the next steam's time. Only an offered sample may be taken.
-    void milkIsCapturedOnlyForOneOfferedSample()
+    void milkIsCapturedOnlyWhileOffered()
     {
         Fixture f;
         f.addTestPitcher();
@@ -266,8 +288,8 @@ private slots:
         QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         f.captureMilk();
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
-        QVERIFY(!f.preparation.milkAttemptOpen());
         f.setWeight(0.0);
+        QVERIFY(!f.preparation.milkAttemptOpen());
         f.advance(1000);
         f.setWeight(400.0);
         f.advance(5000);
@@ -289,6 +311,71 @@ private slots:
         QVERIFY(!f.preparation.milk()->active());
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), f.settings.brew()->steamTimeout());
+    }
+
+    // #2058: milk poured with the pitcher on the scale. A pause mid-pour captures, and
+    // the rest of the pour has to replace that capture rather than be ignored.
+    void toppedUpMilkReplacesTheCaptureUntilThePitcherIsLifted()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        QSignalSpy apply(&f.preparation, &PreparationController::applySteamSettingsRequested);
+        f.captureMilk();
+        const int firstTimeout = f.settings.brew()->steamTimeout();
+        QVERIFY(f.preparation.milkAttemptOpen());
+
+        f.setWeight(200.0); // topped up to 150 g of milk
+        f.advance(2500);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 2);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 150.0);
+        QCOMPARE(apply.count(), 2);
+        QVERIFY(f.settings.brew()->steamTimeout() > firstTimeout);
+
+        // Within 2 g of the capture is the same milk.
+        f.setWeight(201.5);
+        f.advance(2500);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 2);
+
+        // After a manual +/-5, a top-up is weighed but does not re-time.
+        QVERIFY(f.preparation.setMilkTimeLocked(false));
+        f.setWeight(205.0);
+        f.advance(2500);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 155.0);
+        QCOMPARE(apply.count(), 2);
+
+        f.setWeight(0.0);
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        QVERIFY(!f.preparation.milk()->active());
+    }
+
+    // A tare resets the detector with the pitcher still on, so the detector never sees
+    // the lift; the cup set down afterwards must still not be taken for milk.
+    void liftAfterATareStillEndsTheOffer()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.captureMilk();
+        emit f.machine.tareCompleted();
+        f.setWeight(0.0); // tared with the pitcher on
+        f.advance(1000);
+        QVERIFY(f.preparation.milkAttemptOpen());
+
+        // A top-up now would be weighed from the pitcher-on zero: 120 g read as 70 g.
+        f.setWeight(120.0);
+        f.advance(2500);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+        f.setWeight(0.0);
+
+        // The detector sees no load to lose here, so only the raw lift can clear a +/-5.
+        QVERIFY(f.preparation.setMilkTimeLocked(false));
+        f.setWeight(-150.0); // lifted
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        QVERIFY(f.preparation.milkTimeLocked());
+        f.advance(1000);
+        f.setWeight(0.0);
+        f.advance(5000);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
     }
 
     // The host holds one attempt for every surface and client that offered it.
@@ -349,6 +436,8 @@ private slots:
             QRegularExpression(QStringLiteral(".*MockScale DISCONNECTED.*")));
         f.scale.mockSetConnected(false);
         QVERIFY(!f.preparation.milkTimeLocked());
+        // A dropout is not a lift: the pitcher is still there to be topped up.
+        QVERIFY(f.preparation.milkAttemptOpen());
     }
 
     void connectedFiniteRemovalSampleRelocksManualSteamTime_data()
@@ -371,11 +460,12 @@ private slots:
         f.setWeight(150.0);
         f.advance(2500);
         QVERIFY(f.preparation.snapshot().milk.loadPresent);
-        QVERIFY(!f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.milkAttemptOpen(), offered);
         QVERIFY(f.preparation.setMilkTimeLocked(false));
 
         f.setWeight(0.0);
         QVERIFY(f.preparation.milkTimeLocked());
+        QVERIFY(!f.preparation.milkAttemptOpen());
     }
 
     void steamEndClearsTransientMilkAndLearnsElapsedPair()
@@ -410,7 +500,7 @@ private slots:
         f.captureMilk();
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
 
-        // The sample is taken, so a later reading is not measured as milk.
+        // A reading that never settles is not measured as milk.
         f.setWeight(160.0); // 110 g net
         f.setWeight(0.0); // Pitcher lifted; scale stays connected.
         f.preparation.evaluateForTesting();
@@ -547,7 +637,7 @@ private slots:
         QTest::newRow("historical-milk-is-not-current") << QStringLiteral("historical") << 65 << false;
         QTest::newRow("manual-time-with-load-on-scale") << QStringLiteral("manual") << 65 << false;
         QTest::newRow("weight-timing-disabled") << QStringLiteral("disabled") << 65 << false;
-        QTest::newRow("resting-load-does-not-replace-capture") << QStringLiteral("resting") << 27 << true;
+        QTest::newRow("unsettled-load-does-not-replace-capture") << QStringLiteral("resting") << 27 << true;
         QTest::newRow("captured-after-lift") << QStringLiteral("captured") << 27 << true;
         QTest::newRow("reselect-same-pitcher-keeps-capture") << QStringLiteral("reselect") << 27 << true;
         QTest::newRow("steam-mode-round-trip-keeps-capture") << QStringLiteral("modeRoundTrip") << 27 << true;
@@ -590,7 +680,7 @@ private slots:
             QVERIFY(f.preparation.selectMode(QStringLiteral("espresso")));
             QVERIFY(f.preparation.selectMode(QStringLiteral("steam")));
         } else if (milkState == QLatin1String("otherPitcher")) {
-            // No offer is open, and the pitcher still on the scale is not weighed again.
+            // The pitcher still on the scale has not settled as the new one.
             f.settings.brew()->addSteamPitcherPreset(QStringLiteral("Second pitcher"), 20, 20, 160.0);
             f.settings.brew()->setSteamPitcherWeight(1, 40.0);
             f.settings.brew()->setSelectedSteamCup(1);
