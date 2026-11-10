@@ -29,29 +29,6 @@ using Inspection = RemoteSessionServer::UpgradeInspection;
 
 constexpr qint64 kMaximumHeaderSize = 64 * 1024;
 
-QByteArray validRequest(const QByteArray& extraHeaders = {},
-                        const QByteArray& target = QByteArrayLiteral("/api/session/ws"))
-{
-    QByteArray request = QByteArrayLiteral("GET ") + target
-        + QByteArrayLiteral(" HTTP/1.1\r\nHost: espresso.local:8080\r\n"
-                            "Origin: http://espresso.local:8080\r\n");
-    request += extraHeaders;
-    request += QByteArrayLiteral("\r\n");
-    return request;
-}
-
-Inspection inspect(const QByteArray& bytes, qint64 available = -1,
-                   bool secure = false, bool requireSession = false,
-                   const RemoteSessionServer::SessionValidator& validator = {},
-                   const QString& expectedPackageId = {}, const QString& expectedHostId = {})
-{
-    if (available < 0)
-        available = bytes.size();
-    return RemoteSessionServer::inspectUpgradeBuffer(
-        bytes, available, kMaximumHeaderSize, secure, requireSession, validator,
-        expectedPackageId, expectedHostId);
-}
-
 QString testPackageId() { return QString(64, QLatin1Char('a')); }
 QString testHostId() { return QStringLiteral("01234567-89ab-cdef-0123-456789abcdef"); }
 
@@ -64,20 +41,35 @@ QByteArray remoteObjectsTarget(const QString& packageId = testPackageId(),
         + QByteArrayLiteral("&clientId=") + clientId.toLatin1();
 }
 
+
+QByteArray validRequest(const QByteArray& extraHeaders = {},
+                        const QByteArray& target = remoteObjectsTarget())
+{
+    QByteArray request = QByteArrayLiteral("GET ") + target
+        + QByteArrayLiteral(" HTTP/1.1\r\nHost: espresso.local:8080\r\n"
+                            "Origin: http://espresso.local:8080\r\n");
+    request += extraHeaders;
+    request += QByteArrayLiteral("\r\n");
+    return request;
+}
+
+Inspection inspect(const QByteArray& bytes, qint64 available = -1,
+                   bool secure = false, bool requireSession = false,
+                   const RemoteSessionServer::SessionValidator& validator = {},
+                   const QString& expectedPackageId = testPackageId(), const QString& expectedHostId = testHostId())
+{
+    if (available < 0)
+        available = bytes.size();
+    return RemoteSessionServer::inspectUpgradeBuffer(
+        bytes, available, kMaximumHeaderSize, secure, requireSession, validator,
+        expectedPackageId, expectedHostId);
+}
+
 class SessionHarness
 {
 public:
-    static RemoteSessionServer::SnapshotProvider defaultProvider()
-    {
-        return [](quint64 sequence) {
-            return QJsonObject{{QStringLiteral("type"), QStringLiteral("snapshot")},
-                               {QStringLiteral("sequence"), static_cast<double>(sequence)}};
-        };
-    }
-
-    explicit SessionHarness(RemoteSessionServer::SessionValidator validator = {},
-                            RemoteSessionServer::SnapshotProvider provider = {})
-        : helper(provider ? std::move(provider) : defaultProvider(), std::move(validator), false)
+    explicit SessionHarness(RemoteSessionServer::SessionValidator validator = {})
+        : helper(std::move(validator), false)
     {
         QObject::connect(&listener, &QTcpServer::newConnection, &listener, [this] {
             while (listener.hasPendingConnections())
@@ -337,9 +329,9 @@ private slots:
         const auto validator = [](const QByteArray& raw) {
             return raw.contains("Cookie: session=abc\r\n");
         };
-        QCOMPARE(inspect(request, -1, false, true, validator).disposition,
+        QCOMPARE(inspect(request, -1, false, true, validator, {}, {}).disposition,
                  Disposition::Rejected);
-        QCOMPARE(inspect(request, -1, false, true, validator).statusCode, 503);
+        QCOMPARE(inspect(request, -1, false, true, validator, {}, {}).statusCode, 503);
 
         Inspection result = inspect(request, -1, false, true, validator,
                                     testPackageId(), testHostId());
@@ -390,8 +382,8 @@ private slots:
 
     void missingOriginIsRejected()
     {
-        QByteArray request = QByteArrayLiteral(
-            "GET /api/session/ws HTTP/1.1\r\nHost: espresso.local:8080\r\n\r\n");
+        QByteArray request = validRequest();
+        request.replace("Origin: http://espresso.local:8080\r\n", "");
         const Inspection result = inspect(request);
         QCOMPARE(result.disposition, Disposition::Rejected);
         QCOMPARE(result.statusCode, 403);
@@ -399,7 +391,7 @@ private slots:
 
     void httpsUpgradeDoesNotRequireAuthenticationWhenDisabled()
     {
-        for (const auto& target : {QByteArrayLiteral("/api/session/ws"), remoteObjectsTarget()}) {
+        for (const auto& target : {remoteObjectsTarget()}) {
             QByteArray request = validRequest({}, target);
             request.replace("http://espresso.local:8080", "https://espresso.local:8080");
             const auto result = inspect(request, -1, true, false,
@@ -425,7 +417,7 @@ private slots:
 
     void queryAndWrongMethodAreRejected()
     {
-        Inspection result = inspect(validRequest({}, QByteArrayLiteral("/api/session/ws?x=1")));
+        Inspection result = inspect(validRequest({}, QByteArrayLiteral("/api/session/objects?x=1")));
         QCOMPARE(result.disposition, Disposition::Rejected);
         QCOMPARE(result.statusCode, 400);
 
@@ -461,11 +453,11 @@ private slots:
     void malformedHeadersAndOversizedUnterminatedLineAreRejected()
     {
         const Inspection malformed = inspect(QByteArrayLiteral(
-            "GET /api/session/ws HTTP/1.1\r\nHost espresso.local:8080\r\n\r\n"));
+            "GET /api/session/objects HTTP/1.1\r\nHost espresso.local:8080\r\n\r\n"));
         QCOMPARE(malformed.disposition, Disposition::Rejected);
         QCOMPARE(malformed.statusCode, 400);
 
-        const QByteArray huge = QByteArrayLiteral("GET /api/session/ws")
+        const QByteArray huge = QByteArrayLiteral("GET /api/session/objects")
             + QByteArray(kMaximumHeaderSize, 'X');
         const Inspection oversized = inspect(huge, huge.size());
         QCOMPARE(oversized.disposition, Disposition::Rejected);
@@ -477,45 +469,6 @@ private slots:
         const Inspection result = inspect(QByteArrayLiteral(
             "GET /api/state HTTP/1.1\r\nHost: espresso.local:8080\r\n\r\n"));
         QCOMPARE(result.disposition, Disposition::NotTarget);
-    }
-
-    void transportSendsIncreasingSnapshotSequence()
-    {
-        SessionHarness harness;
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        QVERIFY(messages.isValid());
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        const auto first = QJsonDocument::fromJson(messages.takeFirst().at(0).toString().toUtf8());
-        QVERIFY(first.isObject());
-        QCOMPARE(first.object().value(QStringLiteral("sequence")).toDouble(), 1.0);
-
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        const auto second = QJsonDocument::fromJson(messages.takeFirst().at(0).toString().toUtf8());
-        QVERIFY(second.isObject());
-        QCOMPARE(second.object().value(QStringLiteral("sequence")).toDouble(), 2.0);
-        client.close();
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
-    }
-
-    void transportClosesWhenSessionIsRevoked()
-    {
-        bool validSession = true;
-        SessionHarness harness([&validSession](const QByteArray&) { return validSession; });
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        validSession = false;
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
     }
 
     void remoteObjectClientLifetimesEndExactlyOnce()
@@ -719,106 +672,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(textClient.state() == QAbstractSocket::UnconnectedState, 5000);
     }
 
-    void transportRejectsClientMessages()
-    {
-        SessionHarness harness;
-        QVERIFY(harness.start());
 
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        client.sendTextMessage(QStringLiteral("write command"));
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
-    }
-
-    void transportShutdownRetiresActiveClient()
-    {
-        SessionHarness harness;
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        harness.helper.closeAll();
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
-    }
-
-    void closingClientRemainsAccountedUntilDisconnected()
-    {
-        SessionHarness harness;
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        QSignalSpy closed(&harness.helper, &RemoteSessionServer::connectionClosed);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-
-        client.close();
-        QVERIFY(QMetaObject::invokeMethod(&harness.helper, "publishSnapshots",
-                                          Qt::DirectConnection));
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
-        QCOMPARE(closed.size(), 1);
-    }
-
-    void transportSendsLocalizedSnapshotLargerThanFourKiB()
-    {
-        SessionHarness harness({}, [](quint64 sequence) {
-            return QJsonObject{
-                {QStringLiteral("sequence"), static_cast<double>(sequence)},
-                {QStringLiteral("localizedEquipmentText"), QString(4 * 1024, QChar(0x00e9))}
-            };
-        });
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        const QJsonDocument payload = QJsonDocument::fromJson(
-            messages.takeFirst().at(0).toString().toUtf8());
-        QVERIFY(payload.isObject());
-        QCOMPARE(payload.object().value(QStringLiteral("localizedEquipmentText")).toString().size(),
-                 4 * 1024);
-        QVERIFY(payload.toJson(QJsonDocument::Compact).size() > 4 * 1024);
-        QVERIFY(client.state() == QAbstractSocket::ConnectedState);
-        client.close();
-    }
-
-    void transportClosesWhenSnapshotExceedsLimit()
-    {
-        SessionHarness harness({}, [](quint64) {
-            return QJsonObject{{QStringLiteral("data"), QString(32 * 1024 + 1, QLatin1Char('x'))}};
-        });
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
-        QCOMPARE(messages.size(), 0);
-    }
-
-    void transportRejectsOversizedIncomingFrame()
-    {
-        SessionHarness harness;
-        QVERIFY(harness.start());
-
-        QWebSocket client;
-        QSignalSpy messages(&client, &QWebSocket::textMessageReceived);
-        client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/api/session/ws")
-                             .arg(harness.listener.serverPort())));
-        QTRY_COMPARE_WITH_TIMEOUT(messages.size(), 1, 5000);
-        QCOMPARE(client.sendBinaryMessage(QByteArray(4 * 1024 + 1, 'x')) > 0, true);
-        QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
-    }
 };
 
 QTEST_GUILESS_MAIN(TestRemoteSessionServer)

@@ -165,7 +165,7 @@ inline constexpr const char* WEB_AUTH_LOGIN_PAGE = R"HTML(
                     status.className = 'status success';
                     setTimeout(function() {
                         var path = window.location.pathname;
-                        if (path === '/auth/login' || path === '/legacy/auth/login') {
+                        if (path === '/auth/login') {
                             window.location.assign('/');
                         } else {
                             window.location.reload();

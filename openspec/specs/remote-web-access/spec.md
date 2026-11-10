@@ -73,23 +73,23 @@ The web route SHALL forward only the web interface entry and assets, the authent
 - **THEN** the request returns `404`
 
 ### Requirement: Legacy web interface is never served remotely
-Remote Web Access SHALL serve only the current web interface. No part of the legacy HTML interface SHALL be reachable over the public host: no page, asset, bookmark redirect or alias into `/legacy/`, and no API route used only by legacy pages. The safe URL, the Network card and the remote interface SHALL NOT link to or offer the legacy interface. The legacy interface stays available on the LAN as before.
+Remote Web Access SHALL serve only the current web interface. No part of the legacy HTML interface SHALL be reachable over the public host: no page, asset, bookmark redirect or alias into `/legacy/`. The safe URL, Network card and remote interface SHALL NOT link to or offer the legacy interface. The removed interface SHALL also be unavailable on the LAN. Existing remote route restrictions on APIs remain in force.
 
 #### Scenario: Old bookmark path over the public host
-- **WHEN** an admitted browser requests a pre-`/legacy/` page path that the LAN redirects into `/legacy/`
-- **THEN** the request returns `404` and no redirect is issued
+- **WHEN** an admitted browser requests an old legacy page path
+- **THEN** the server returns 404 without redirecting into `/legacy/`
 
 #### Scenario: Legacy asset over the public host
-- **WHEN** an admitted browser requests a stylesheet, script or image that only the legacy pages use
-- **THEN** the request returns `404`
+- **WHEN** an admitted browser requests an asset used only by the removed pages
+- **THEN** the server returns 404
 
 #### Scenario: Legacy-only API over the public host
 - **WHEN** an admitted browser calls an API route that only the legacy pages use
-- **THEN** the request returns `404`
+- **THEN** the server returns 404
 
 #### Scenario: LAN unchanged
 - **WHEN** a LAN browser opens `/legacy/`
-- **THEN** the legacy interface works as before
+- **THEN** the server returns 404
 
 ### Requirement: Safe URL and QR code
 When the web route is active, the Network card SHALL display the safe URL with a copy action and a QR code that opens it on a phone. While the route is not reachable, the card SHALL NOT present the URL as usable.

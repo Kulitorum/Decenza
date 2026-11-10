@@ -342,8 +342,6 @@ qt_add_qml_module(decenza-web
         ../core/preparationstate.h
         ../core/preparationstate.cpp
         ../core/steamcalculations.h
-        ../network/sessionactionrequest.h
-        ../network/sessionactionrequest.cpp
         ../network/steamhealthsnapshot.h
         ../network/steamhealthsnapshot.cpp
         ../network/steamuistate.h

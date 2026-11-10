@@ -1074,7 +1074,6 @@ T.ApplicationWindow {
     }
 
     readonly property bool themeColorsObserved: ThemeManagementService.editorObserved
-        || (MainController.shotServer && MainController.shotServer.themeEditorOpen)
     onThemeColorsObservedChanged: if (themeColorsObserved) pageColorTimer.restart()
 
     // Delay color detection slightly so page content is fully loaded. The scan walks the

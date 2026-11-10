@@ -1,0 +1,31 @@
+--- a/Manual.md
++++ b/Manual.md
+@@ -787,7 +787,7 @@
+ 
+ Turn on **Settings → Connections → Network → Enable Network**. Open the HTTPS address shown there from another device on the same network; the default port is 8888.
+ 
+-The browser uses the same screens as the app. Settings changes affect the host app, while each browser keeps its own navigation and unfinished forms. File pickers use the device running the browser; downloads save there too. Copied links to saved shots, recipes and profiles reopen those records.
++The browser uses the same screens as the app. Settings changes affect the host app, while each browser keeps its own navigation and unfinished forms. File pickers use the device running the browser; downloads save there too. Copied links to saved shots, recipes and profiles reopen those records. The former HTML interface and its old bookmarks are no longer available; open the address shown in Settings to use the current interface.
+ 
+ ### Remote Web Access
+ 
+--- a/Installation.md
++++ b/Installation.md
+@@ -48,7 +48,7 @@
+ 
+ ### Updating
+ 
+-Decenza checks for updates automatically and shows a banner when a new version is available. You can also update through the web interface: open `http://<tablet-ip>:8888` in a browser → burger menu → **Update App** → upload the new APK.
++Decenza checks for updates automatically and shows a banner when a new version is available. Use **Settings → About** for normal updates.
+ 
+ **If the APK won't install after an update**: Android may report the package as invalid or refuse the install if it considers the new version a "downgrade" (can happen after switching between release tracks). Uninstall the old version first, then install fresh from the latest APK.
+ 
+@@ -99,7 +99,7 @@
+ 
+ **Bluetooth permission**: If Windows asks for Bluetooth access, click **Allow**.
+ 
+-**Updating**: Decenza checks for updates automatically. You can also update via the web interface (burger menu → **Update App**).
++**Updating**: Decenza checks for updates automatically; use **Settings → About** for normal updates.
+ 
+ ---
+ 

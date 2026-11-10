@@ -80,11 +80,8 @@ class TestCustomWidgetHtml : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
-    void initTestCase();
     void customWidgetFormattingDependsOnlyOnUsedValues();
 
-    void bothImplementationsAgree_data();
-    void bothImplementationsAgree();
 
     void roundTripPreservesExplicitColourAndSize();
     void colourIsDroppedOnlyWhenUnset();
@@ -106,7 +103,6 @@ private slots:
     void everyCatalogActionHasADispatchArm();
     void everyAppShellRequestReachesTheShell();
     void homeMachineActionsUseSharedServices();
-    void webCatalogOmitsActionsTheWebCannotAuthor();
     void actionContextsAreDrawnFromTheKnownVocabulary();
     void neitherEditorHardCodesItsOwnActionList();
     void historyFilterKeysAreUnderstoodByTheStorageLayer();
@@ -143,9 +139,6 @@ private slots:
     void compactWorkflowPickerSelectsTheHostMode();
 
 private:
-    QJSEngine m_engine;
-    QJSValue m_jsSegmentsToHtml;
-    QString viaJs(const QVariantList &segments);
     static QString readSource(const QString &relativePath);
     static QString liftFunction(const QString &src, const QString &signature);
     static QString stripQmlTypeAnnotations(QString fn);
@@ -169,7 +162,6 @@ const auto kWaterVesselDialog = QStringLiteral("/qml/components/WaterVesselDialo
 const auto kRecipeWizard = QStringLiteral("/qml/pages/RecipeWizardPage.qml");
 const auto kSharedPresetDraft = QStringLiteral("/qml/components/SharedPresetDraft.qml");
 const auto kBrewDialog = QStringLiteral("/qml/components/BrewDialog.qml");
-const auto kWebLayout       = QStringLiteral("/src/network/shotserver_layout.cpp");
 const auto kStorageQueries  = QStringLiteral("/src/history/shothistorystorage_queries.cpp");
 const auto kSleepEditor     = QStringLiteral("/qml/components/layout/SleepEditorPopup.qml");
 const auto kLibraryItemCard = QStringLiteral("/qml/components/library/LibraryItemCard.qml");
@@ -196,30 +188,6 @@ static const QStringList kGestureWidgetFiles{
     QStringLiteral("EquipmentItem"), QStringLiteral("HistoryItem"),
     QStringLiteral("AutoFavoritesItem"), QStringLiteral("SettingsItem") };
 
-
-// Lift the JS segmentsToHtml() out of the raw string literal it is served from. Brace-matched
-// rather than regex'd, so a nested `}` inside the function body cannot truncate it.
-void TestCustomWidgetHtml::initTestCase()
-{
-    const QString src = readSource(SrcPath::kWebLayout);
-    QVERIFY2(!src.isEmpty(), "could not read shotserver_layout.cpp");
-
-    const QString needle = QStringLiteral("function segmentsToHtml(");
-    const qsizetype start = src.indexOf(needle);
-    QVERIFY2(start >= 0, "function segmentsToHtml( not found in shotserver_layout.cpp — the "
-                         "web editor's copy moved or was renamed; this test is now blind");
-    QVERIFY2(src.indexOf(needle, start + 1) < 0,
-             "more than one segmentsToHtml( in shotserver_layout.cpp — cannot tell which one "
-             "the web editor serves");
-
-    const QString body = liftFunction(src, needle);
-    QVERIFY2(!body.isEmpty(), "could not brace-match the JS segmentsToHtml body");
-
-    const QJSValue result = m_engine.evaluate(QStringLiteral("(function(){ %1 return segmentsToHtml; })()").arg(body));
-    QVERIFY2(!result.isError(), qPrintable(result.toString()));
-    m_jsSegmentsToHtml = result;
-    QVERIFY(m_jsSegmentsToHtml.isCallable());
-}
 
 void TestCustomWidgetHtml::customWidgetFormattingDependsOnlyOnUsedValues()
 {
@@ -722,38 +690,6 @@ void TestCustomWidgetHtml::homePresetActionsRunShippingSelectionAndStartPolicy()
 // supply the parameter: the web editor's pickAction() stores the bare id, which
 // CustomItem then rejects at dispatch. Centralizing the catalog is what put such
 // an action within that editor's reach, so the exclusion has to hold.
-void TestCustomWidgetHtml::webCatalogOmitsActionsTheWebCannotAuthor()
-{
-    const QJsonObject json = SettingsNetwork::layoutActionCatalogJson();
-    const QJsonArray actions = json.value(QStringLiteral("actions")).toArray();
-    const QJsonObject labels = json.value(QStringLiteral("labels")).toObject();
-
-    QVERIFY2(actions.size() > 35, "the web action list is far shorter than the table");
-    // Labels cover EVERY id, offered or not — that is what keeps a stored legacy
-    // action from rendering as its raw string.
-    QVERIFY2(labels.size() > actions.size(),
-             "the label map should cover more ids than the picker offers (legacy aliases)");
-    QVERIFY2(labels.contains(QStringLiteral("command:scanDE1")),
-             "the legacy alias lost its label; a stored layout will show a raw id");
-
-    QStringList offered;
-    for (const QJsonValue &v : actions)
-        offered << v.toObject().value(QStringLiteral("id")).toString();
-
-    QVERIFY2(!offered.contains(QStringLiteral("command:loadProfile")),
-             "the web picker is offering a parameterized action it cannot expand; picking it "
-             "stores a bare id that CustomItem rejects");
-    QVERIFY2(!offered.contains(QStringLiteral("command:scanDE1")),
-             "a non-picker alias is being offered");
-    // The in-app picker DOES offer it — the two surfaces differ deliberately, and
-    // asserting only the absence above would also pass if the action vanished.
-    QStringList inApp;
-    for (const QVariant &v : SettingsNetwork::layoutActionCatalog())
-        inApp << v.toMap().value(QStringLiteral("id")).toString();
-    QVERIFY2(inApp.contains(QStringLiteral("command:loadProfile")),
-             "the in-app picker lost Load Profile");
-}
-
 // `contexts` is a space-separated string in the table, so a typo ("idel") or an
 // empty value costs nothing at compile time and silently removes the action from
 // every picker — invisible to whoever typed it, since a stored layout keeps
@@ -796,20 +732,6 @@ void TestCustomWidgetHtml::actionContextsAreDrawnFromTheKnownVocabulary()
 // a user to notice an action missing from one surface.
 void TestCustomWidgetHtml::neitherEditorHardCodesItsOwnActionList()
 {
-    const QString webSrc = readSource(SrcPath::kWebLayout);
-    QVERIFY2(!webSrc.isEmpty(), "could not read shotserver_layout.cpp");
-    // The CONSUMPTION sites, not just the name: a bare `contains("LAYOUT_...")`
-    // is satisfied by the C++ injection line alone, so the catalog could be
-    // injected into the page and then ignored while this still passed. The page
-    // normalizes the injected object into `CATALOG` once, so that is what the
-    // two readers derive from.
-    QVERIFY2(webSrc.contains(QStringLiteral("var CATALOG = ")),
-             "the web editor no longer normalizes the injected catalog");
-    QVERIFY2(webSrc.contains(QStringLiteral("CATALOG.actions")),
-             "the web editor's ACTIONS no longer derives from the injected catalog");
-    QVERIFY2(webSrc.contains(QStringLiteral("CATALOG.labels")),
-             "the web editor's label lookup no longer derives from the injected catalog");
-
     const QString popupSrc = readSource(SrcPath::kCustomEditor);
     QVERIFY2(!popupSrc.isEmpty(), "could not read CustomEditorPopup.qml");
     // The catalog read moved into the LayoutActions singleton when the built-in
@@ -833,20 +755,11 @@ void TestCustomWidgetHtml::neitherEditorHardCodesItsOwnActionList()
     // Bare ids are fine and expected — CustomItem's dispatch, the compiled
     // action buttons in LayoutItemDelegate, `command:loadProfile:<file>`
     // assembly — so match only id-with-label pairs.
-    static const QRegularExpression pairRe(
-        QStringLiteral("\"(?:navigate|command):[A-Za-z0-9]+\"\\s*,\\s*label\\s*:"));
-    QVERIFY2(!pairRe.match(webSrc).hasMatch(),
-             "shotserver_layout.cpp has re-grown a hand-written {id, label} action list");
     static const QRegularExpression qmlPairRe(
         QStringLiteral("id:\\s*\"(?:navigate|command):[A-Za-z0-9]+\"\\s*,\\s*label\\s*:"));
     QVERIFY2(!qmlPairRe.match(popupSrc).hasMatch(),
              "CustomEditorPopup.qml has re-grown a hand-written {id, label} action list");
-    // Same shape in an HTML <option> list, the form the two regexes above
-    // cannot see.
-    static const QRegularExpression optionRe(
-        QStringLiteral("<option value=\"(?:navigate|command):[A-Za-z0-9]+\">"));
-    QVERIFY2(!optionRe.match(webSrc).hasMatch(),
-             "shotserver_layout.cpp has re-grown a hand-written <option> action list");
+
 }
 
 // The Custom widget's four History actions hand ShotHistoryPage an
@@ -1138,61 +1051,6 @@ void TestCustomWidgetHtml::everyGestureHandlerCanActuallyFire()
                         + problems.join(QStringLiteral("; "))));
 }
 
-QString TestCustomWidgetHtml::viaJs(const QVariantList &segments)
-{
-    QJSValue arg = m_engine.toScriptValue(segments);
-    QJSValue out = m_jsSegmentsToHtml.call(QJSValueList{arg});
-    if (out.isError())
-        return QStringLiteral("<JS ERROR: ") + out.toString() + QStringLiteral(">");
-    return out.toString();
-}
-
-void TestCustomWidgetHtml::bothImplementationsAgree_data()
-{
-    QTest::addColumn<QVariantList>("segments");
-
-    auto seg = [](const QString &text, const QVariantMap &extra = {}) {
-        QVariantMap m = extra;
-        m[QStringLiteral("text")] = text;
-        return QVariant(m);
-    };
-
-    QTest::newRow("plain") << QVariantList{ seg(QStringLiteral("Hello")) };
-    QTest::newRow("bold") << QVariantList{ seg(QStringLiteral("Hello"), {{QStringLiteral("bold"), true}}) };
-    QTest::newRow("italic") << QVariantList{ seg(QStringLiteral("Hello"), {{QStringLiteral("italic"), true}}) };
-    QTest::newRow("colour") << QVariantList{ seg(QStringLiteral("Hello"), {{QStringLiteral("color"), QStringLiteral("#00cc6d")}}) };
-    QTest::newRow("size") << QVariantList{ seg(QStringLiteral("Hello"), {{QStringLiteral("size"), 28}}) };
-    QTest::newRow("colour+size") << QVariantList{
-        seg(QStringLiteral("Hello"), {{QStringLiteral("color"), QStringLiteral("#00cc6d")},
-                                      {QStringLiteral("size"), 48}}) };
-    QTest::newRow("newline") << QVariantList{ seg(QStringLiteral("a")), seg(QStringLiteral("\n")), seg(QStringLiteral("b")) };
-    QTest::newRow("empty-skipped") << QVariantList{ seg(QString()), seg(QStringLiteral("x")) };
-    QTest::newRow("ampersand") << QVariantList{ seg(QStringLiteral("Tea & Coffee")) };
-    QTest::newRow("angle-brackets") << QVariantList{ seg(QStringLiteral("a <b> c")) };
-    // The drift this test was written for: legal unescaped in element content, so both render
-    // the same, but the two surfaces stored different bytes for the same widget.
-    QTest::newRow("double-quote") << QVariantList{ seg(QStringLiteral("say \"hi\"")) };
-    QTest::newRow("quote-inside-span") << QVariantList{
-        seg(QStringLiteral("say \"hi\""), {{QStringLiteral("color"), QStringLiteral("#ff0000")}}) };
-    QTest::newRow("token") << QVariantList{ seg(QStringLiteral("%STATE%")) };
-    QTest::newRow("emoji") << QVariantList{ seg(QStringLiteral("café ☕")) };
-    QTest::newRow("all-at-once") << QVariantList{
-        seg(QStringLiteral("A&\"<"), {{QStringLiteral("bold"), true},
-                                      {QStringLiteral("italic"), true},
-                                      {QStringLiteral("color"), QStringLiteral("#123456")},
-                                      {QStringLiteral("size"), 12}}) };
-}
-
-void TestCustomWidgetHtml::bothImplementationsAgree()
-{
-    QFETCH(QVariantList, segments);
-
-    const QString cpp = DocumentFormatter::segmentsToHtml(segments);
-    const QString js = viaJs(segments);
-
-    QCOMPARE(js, cpp);
-}
-
 // A colour and size chosen in the editor survive document -> segments -> HTML. This is the
 // path the custom-widget styling actually travels when saved.
 void TestCustomWidgetHtml::roundTripPreservesExplicitColourAndSize()
@@ -1328,7 +1186,7 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
     }
 
     const QString defaults = QString::fromUtf8(
-        QJsonDocument(SettingsNetwork::sleepOptionDefaultsJson()).toJson(QJsonDocument::Compact));
+        QJsonDocument(QJsonObject::fromVariantMap(SettingsNetwork::sleepOptionDefaults())).toJson(QJsonDocument::Compact));
     QJSEngine eng;
     const QJSValue tile = eng.evaluate(QString::fromUtf8(kRecorderPreamble) + QStringLiteral(
         "LayoutService = { sleepOptionDefaults: function() { return %1; } };"
@@ -1409,7 +1267,7 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
         "|(allowQuit|confirmQuit|showIcon)\\s*===\\s*undefined\\)?\\s*\\?\\s*(true|false)\\b"
         "|property\\s+bool\\s+(allowQuit|confirmQuit|showIcon)\\s*:\\s*(true|false)\\b"));
     for (const QString &rel : { SrcPath::widgetItem(QStringLiteral("SleepItem")),
-                                SrcPath::kSleepEditor, SrcPath::kWebLayout }) {
+                                SrcPath::kSleepEditor }) {
         const QString reader = readSource(rel);
         QVERIFY2(!reader.isEmpty(), qPrintable("could not read " + rel));
         QVERIFY2(!literalDefault.match(reader).hasMatch(),

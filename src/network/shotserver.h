@@ -10,7 +10,6 @@
 #include <QUdpSocket>
 #include <QHash>
 #include <QSet>
-#include <QQueue>
 #include <QFile>
 #include <QJsonObject>
 #include <QVariantMap>
@@ -37,14 +36,8 @@ class QSqlDatabase;
 class DE1Device;
 class MachineState;
 class MainController;
-class BelkaPortalDevice;
-class ScaleDeviceProxy;
-class BLEManager;
-class UsbScaleManager;
-class ShotDataModel;
 class ScreensaverVideoManager;
 class Settings;
-class SettingsBrew;
 class ProfileStorage;
 class AIManager;
 class FullBackupRestore;
@@ -57,7 +50,6 @@ class RemoteSessionServer;
 class NativeHostSessionServiceSource;
 class QRemoteObjectHost;
 class TranslationManager;
-class AccessibilityManager;
 struct PendingScreensaverMediaTransfer;
 
 struct PendingRequest {
@@ -68,9 +60,6 @@ struct PendingRequest {
     QFile* tempFile = nullptr;      // Stream body to temp file for large uploads
     QString tempFilePath;           // Path to temp file
     QElapsedTimer lastActivity;     // For timeout tracking
-    bool isMediaUpload = false;     // Flag for media upload requests
-    bool isBackupRestore = false;   // Flag for backup restore uploads
-    bool isApkUpload = false;       // Flag for APK upload requests
 };
 
 class ShotServer : public QObject, public RemoteWebHost {
@@ -87,7 +76,6 @@ class ShotServer : public QObject, public RemoteWebHost {
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
     Q_PROPERTY(bool hasTotpSecret READ hasStoredTotpSecret NOTIFY hasTotpSecretChanged)
     // A browser has the web theme editor open; only it reads the page-colour scan.
-    Q_PROPERTY(bool themeEditorOpen READ isThemeEditorOpen NOTIFY themeEditorOpenChanged FINAL)
     Q_PROPERTY(QVariantMap sessionAppearance READ sessionAppearance WRITE setSessionAppearance
                NOTIFY sessionAppearanceChanged)
     Q_PROPERTY(QString sessionBackgroundImageRevision READ sessionBackgroundImageRevision
@@ -98,14 +86,12 @@ public:
     ~ShotServer();
 
     bool isRunning() const { return m_server && m_server->isListening(); }
-    bool isThemeEditorOpen() const { return !m_sseThemeClients.isEmpty(); }
     QVariantMap sessionAppearance() const { return m_sessionAppearance; }
     QString sessionBackgroundImageRevision() const { return m_sessionBackgroundImageRevision; }
     QString url() const;
     int port() const { return m_port; }
     void setPort(int port);
     void setSessionAppearance(const QVariantMap& appearance);
-    void setAccessibilityManager(AccessibilityManager* manager);
     void setRemoteObjectHost(QRemoteObjectHost* host);
     void setHostSessionSource(NativeHostSessionServiceSource* source);
     QString sessionHostId() const { return m_sessionHostId; }
@@ -129,15 +115,7 @@ public:
 
     // Machine state for home automation API
     void setMachineState(MachineState* machineState) { m_machineState = machineState; }
-    void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
-    void setBelkaPortalDevice(BelkaPortalDevice* portal);
-    void setBLEManager(BLEManager* manager);
-    void setUsbScaleManager(UsbScaleManager* manager);
-    void setShotDataModel(ShotDataModel* model);
     void setTranslationManager(TranslationManager* manager);
-    void notifySessionGraphChanged();
-    void notifySessionHistoryChanged();
-    void notifySessionEquipmentChanged();
 
     // MainController for the recipes/bags/equipment surfaces (add-recipes):
     // storages + the single recipe-activation path. Non-owning.
@@ -145,10 +123,7 @@ public:
 
     // AI manager for layout AI assistant
     void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
-    void setFullBackupRestore(FullBackupRestore* restore) { m_fullBackupRestore = restore; }
 
-    // MQTT client for connection test/control from web UI
-    void setMqttClient(MqttClient* client) { m_mqttClient = client; }
 
     // Widget library for the web layout and theme editors
     void setWidgetLibrary(WidgetLibrary* library) { m_widgetLibrary = library; }
@@ -181,18 +156,12 @@ signals:
     void urlChanged();
     void portChanged();
     void hasTotpSecretChanged();
-    void themeEditorOpenChanged();
     void sessionAppearanceChanged();
     void sessionBackgroundImageRevisionChanged();
     void clientConnected(const QString& address);
     void remoteObjectClientOpened(const QString& clientId);
     void remoteObjectClientClosed(const QString& clientId);
 
-    /// Emitted on the main thread immediately before installApk() invokes the
-    /// Android PackageInstaller JNI dispatch. Mirror of UpdateChecker's signal
-    /// of the same name — see that header for the QSocketNotifier race
-    /// (#865) listeners are expected to mitigate.
-    void aboutToDispatchInstall();
 
 private slots:
     void onNewConnection();
@@ -200,8 +169,6 @@ private slots:
     void onDisconnected();
     void onCleanupTimerTick();
     void onDiscoveryDatagram();
-    void onLayoutChanged();
-    void onThemeChanged();
 
 private:
     // Collapses repeated identical request lines — see handleRequest(). Keyed BY the line, so a
@@ -214,19 +181,10 @@ private:
     LogCollapse m_requestLog{LogCollapse::kChangesOnly};
 
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
-    void connectEquipmentRevisionSources();
-    void refreshSessionSteamPitchers();
     bool tryUpgradeSessionWebSocket(QTcpSocket* socket);
     void handleRemoteSessionConnectionClosed(QTcpSocket* socketIdentity);
     QJsonObject sessionStateSnapshot() const;
     QJsonObject sessionTelemetrySnapshot() const;
-    QJsonObject sessionSnapshot(quint64 sequence) const;
-    void handleSessionLayout(QTcpSocket* socket, const QString& method);
-    void handleSessionLastShot(QTcpSocket* socket);
-    void handleSessionGraph(QTcpSocket* socket, bool steam = false);
-    void handleSessionTranslations(QTcpSocket* socket);
-    void handleSessionAction(QTcpSocket* socket, const QString& method,
-                             const QString& target, const QByteArray& request);
     void handleSessionBeanImage(QTcpSocket* socket, const QString& method, const QString& path);
     void handleSessionBackgroundImage(QTcpSocket* socket, const QString& method,
                                       const QString& path);
@@ -235,44 +193,13 @@ private:
     void pumpScreensaverMedia(QTcpSocket* socket);
     void handleWebClientAsset(QTcpSocket* socket, const QString& method,
                               const QString& path, const QByteArray& request);
-    void startNextSessionGraphSnapshot(bool steam);
-    using GraphSerializer = std::function<std::pair<int, QByteArray>()>;
-    GraphSerializer captureShotGraphSnapshot() const;
-    GraphSerializer captureSteamGraphSnapshot() const;
     void sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
                       const QByteArray& body, const QByteArray& extraHeaders = QByteArray());
     void sendJson(QTcpSocket* socket, const QByteArray& json);
-    // GET /api/grind-candidates?brand=&model=&current=&rpm= — server-computed
-    // stepped grind/RPM candidate lists for the web <datalist> helper
-    // (replace-grind-inputs-with-picker). The PAGE passes the grinder identity
-    // of the record being edited (the shot's / recipe-package's), so
-    // candidates resolve against the value's own grinder, never the active one.
-    // Mirrors GrindRowSource.qml: catalog stepping via
-    // SettingsDye::stepGrinderSetting (notation-aware, click-indexed floor),
-    // plain-numeric fallback, observed-history fallback; RPM ±5 steps around
-    // the value (neutral 1000 anchor when unset). No stepping in browser JS.
-    void handleGrindCandidatesApi(QTcpSocket* socket, const QString& path);
     void sendHtml(QTcpSocket* socket, const QString& html);
     void sendFile(QTcpSocket* socket, const QString& path, const QString& contentType);
 
     QString getLocalIpAddress() const;
-    QString generateShotListPage(const QVariantList& shots) const;
-    // Worker thread: the shot page's curves, outcome, neighbours, phase summaries
-    // and Decent upload state.
-    static QJsonObject shotPageData(QSqlDatabase& db, const ShotRecord& record);
-    QString generateShotDetailPage(const ShotProjection& shot, const QJsonObject& pageData) const;
-    // Worker thread: the shots and every base's comparison, as the page embeds them.
-    static QJsonObject comparisonPageData(const QList<ShotRecord>& shots);
-    static QJsonObject graphTraceJson(const ShotRecord& record, bool withGoals);
-    QString generateComparisonPage(const QJsonObject& data) const;
-    QString generateDebugPage() const;
-    QString generateUploadPage() const;
-    void handleUploadFromFile(QTcpSocket* socket, const QString& tempPath, const QString& headers);
-    bool installApk(const QString& apkPath);
-
-    // Personal media upload
-    QString generateMediaUploadPage() const;
-    void handleMediaUpload(QTcpSocket* socket, const QString& tempFilePath, const QString& headers);
     void cleanupPendingRequest(QTcpSocket* socket);
     void resetKeepAliveTimer(QTcpSocket* socket);
 
@@ -292,52 +219,9 @@ private:
 
     // Full backup download/restore
     void handleBackupFull(QTcpSocket* socket);
-    QString generateRestorePage() const;
-    void handleBackupRestore(QTcpSocket* socket, const QString& tempFilePath, const QString& headers);
 
     // Layout editor web UI
-    QString generateLayoutPage() const;
-    void handleLayoutApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
-
-    // Theme editor web UI
-    QString generateThemePage() const;
-    void handleThemeApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
-    QJsonObject buildThemeJson() const;
-
-    // Recipes web UI (add-recipes) — shotserver_recipes.cpp
-    QString generateRecipesPage() const;
-    void handleRecipesApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
-
-    // Bags web UI (add-recipes) — shotserver_bags.cpp
-    QString generateBeansPage() const;
-    void handleBagsApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
-
-    // Equipment web UI (add-recipes) — shotserver_equipment.cpp
-    QString generateEquipmentPage() const;
-    void handleEquipmentApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
-
-    // Settings web UI
-    QString generateSettingsPage() const;
-    void handleGetSettings(QTcpSocket* socket);
-    void handleSaveSettings(QTcpSocket* socket, const QByteArray& body);
-    void handleRotateRemoteMcpToken(QTcpSocket* socket);
-
-    // Settings test/connect endpoints
-    void handleAccountConnect(QTcpSocket* socket, const QByteArray& body, const QString& destination);
-    void handleAccountDisconnect(QTcpSocket* socket, const QString& destination);
-    // Upload missing shots for a destination, and its count and progress (ShotUploads::missing).
-    void handleUploadMissing(QTcpSocket* socket, const QString& destination);
-    void handleGetUploadMissing(QTcpSocket* socket);
-    void handleAiTest(QTcpSocket* socket, const QByteArray& body);
-    void handleMqttConnect(QTcpSocket* socket, const QByteArray& body);
-    void handleMqttDisconnect(QTcpSocket* socket);
-    void handleMqttStatus(QTcpSocket* socket);
-    void handleMqttPublishDiscovery(QTcpSocket* socket);
-    void handleMqttNewDeviceId(QTcpSocket* socket);
-
-    // AI Conversations web UI
-    QString generateAIConversationsPage() const;
-    void handleAIConversationDownload(QTcpSocket* socket, const QString& key, const QString& format);
+    void handleLayoutApi(QTcpSocket* socket, const QString& method, const QString& path);
 
     // Pocket app pairing
     void handlePocketPair(QTcpSocket* socket, const QByteArray& body);
@@ -358,7 +242,6 @@ private:
     static bool isSignInRoute(const QString& routePath);
     void sendSignInRequired(QTcpSocket* socket);
     QString extractCookie(const QByteArray& request, const QString& cookieName) const;
-    void sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie = QString());
 
     // TOTP rate limiting
     QHash<QString, QPair<int, QDateTime>> m_loginAttempts;  // IP -> (attempts, window start)
@@ -423,40 +306,11 @@ private:
     DE1Device* m_device = nullptr;
     ScreensaverVideoManager* m_screensaverManager = nullptr;
     Settings* m_settings = nullptr;
-    QPointer<SettingsBrew> m_sessionSteamBrew;
-    QJsonObject m_sessionSteamPitchers;
-    QList<QMetaObject::Connection> m_steamPitcherConnections;
     ProfileStorage* m_profileStorage = nullptr;
     MachineState* m_machineState = nullptr;
-    QPointer<ShotDataModel> m_shotDataModel;
-    QPointer<ScaleDeviceProxy> m_scaleDeviceProxy;
-    QPointer<BelkaPortalDevice> m_belkaPortal;
-    QPointer<BLEManager> m_bleManager;
-    UsbScaleManager* m_usbScaleManager = nullptr;
     QPointer<TranslationManager> m_translationManager;
-    QPointer<AccessibilityManager> m_accessibilityManager;
-    quint64 m_graphRevision = 0;
-    quint64 m_historyRevision = 0;
-    quint64 m_layoutRevision = 0;
-    quint64 m_equipmentRevision = 0;
-    // Request IDs are deduplicated over a bounded recent window only. After
-    // eviction, a client must reconcile state before retrying an uncertain action.
-    QSet<QString> m_recentSessionActionRequestIds;
-    QQueue<QString> m_sessionActionRequestOrder;
-    int m_activeLastShotJobs = 0;
-    QList<QMetaObject::Connection> m_graphModelConnections;
-    QList<QMetaObject::Connection> m_equipmentRevisionConnections;
-    struct GraphRequestQueue {
-        QList<QPointer<QTcpSocket>> sockets;
-        quint64 nextJobId = 0;
-        quint64 activeJobId = 0;
-    };
-    GraphRequestQueue m_shotGraphQueue;
-    GraphRequestQueue m_steamGraphQueue;
     MainController* m_mainController = nullptr;
     AIManager* m_aiManager = nullptr;
-    FullBackupRestore* m_fullBackupRestore = nullptr;
-    MqttClient* m_mqttClient = nullptr;
     bool m_aiTestInFlight = false;
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
@@ -495,15 +349,11 @@ private:
     // wait for the rest of its headers.
     bool holdRemoteWebRequest(QTcpSocket* socket);
     void refuseRemoteWebRequest(QTcpSocket* socket, RemoteWebVerdict verdict, const QByteArray& headerBlock);
-    void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event);
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
-    int m_activeMediaUploads = 0;
     bool m_backupFullInProgress = false;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
     QHash<QTcpSocket*, qint64> m_uploadProgressLog;  // Track last-logged byte offset per socket (cleaned up on disconnect)
-    QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
-    QSet<QTcpSocket*> m_sseThemeClients;   // SSE connections for theme change notifications
     QHash<QTcpSocket*, QTimer*> m_keepAliveTimers;  // Idle timers for keep-alive connections
     // Every accepted socket, for the whole time it is alive. The other
     // containers above each hold a SUBSET once the connection has taken a shape
@@ -523,8 +373,6 @@ private:
     // Limits to prevent resource exhaustion
     static constexpr qint64 MAX_HEADER_SIZE = 64 * 1024;           // 64 KB for headers
     static constexpr qint64 MAX_SMALL_BODY_SIZE = 1024 * 1024;     // 1 MB kept in memory
-    static constexpr qint64 MAX_UPLOAD_SIZE = 500 * 1024 * 1024;   // 500 MB max per file
-    static constexpr int MAX_CONCURRENT_UPLOADS = 2;               // Limit concurrent media uploads
     static constexpr int CONNECTION_TIMEOUT_MS = 300000;           // 5 minute timeout
     // Ceiling on simultaneously accepted clients. Not a throughput limit — it is
     // the backstop for an unauthenticated listener bound to QHostAddress::Any and

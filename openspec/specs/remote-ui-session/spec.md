@@ -74,7 +74,7 @@ The Wasm interface SHALL ignore application Quit actions, including direct and c
 - **AND** the native host and its current operation remain running
 
 ### Requirement: Shared preparation workflow selection
-Native and Wasm SHALL share one host-owned preparation selection for espresso, steam, hot water, and flush. Selection SHALL update preparation controls without changing any client's navigation, dialogs, or drafts, and SHALL NOT start an operation. HTML workflows SHALL remain available under `/legacy/`, preserving route context.
+Native and Wasm SHALL share one host-owned preparation selection for espresso, steam, hot water, and flush. Selection SHALL update preparation controls without changing any client's navigation, dialogs, or drafts, and SHALL NOT start an operation.
 
 #### Scenario: Select a preparation workflow from another interface
 - **WHEN** a user selects Steam in a browser while native Decenza is showing an editor, or selects Espresso on native Decenza while a browser is reviewing history

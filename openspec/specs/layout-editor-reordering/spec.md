@@ -4,9 +4,10 @@
 Defines how widgets are reordered within a zone in the in-app and web layout editors: drag-and-drop as the primary interaction (persisted through the existing reorder mechanism), removal of the prior arrow-button controls, and an accessible move-toward-start/move-toward-end fallback for screen-reader and keyboard users who cannot perform drag gestures.
 
 ## Requirements
+
 ### Requirement: Drag-and-drop reordering of widgets within a zone
 
-Both the in-app layout editor and the web layout editor SHALL let a user reorder the widgets within a zone by dragging a widget to a new position in that zone. Dragging SHALL replace the prior select-then-arrow interaction as the primary reordering method. Reordering SHALL persist through the existing reorder mechanism (`SettingsNetwork::reorderItem()` in-app and the `/api/layout/reorder` endpoint on the web) so existing layouts and storage are unchanged.
+Both the in-app layout editor and the web layout editor SHALL let a user reorder the widgets within a zone by dragging a widget to a new position in that zone. Dragging SHALL replace the prior select-then-arrow interaction as the primary reordering method. Reordering SHALL persist through the existing reorder mechanism (through the shared layout service) so existing layouts and storage are unchanged.
 
 #### Scenario: Drag a widget to a new position in-app
 
@@ -17,7 +18,7 @@ Both the in-app layout editor and the web layout editor SHALL let a user reorder
 #### Scenario: Drag a widget to a new position in the web editor
 
 - **WHEN** a user drags a widget chip to a new position within the same zone in the web editor
-- **THEN** the editor SHALL reorder the widget via `/api/layout/reorder` and re-render the zone in the new order
+- **THEN** the shared editor SHALL reorder the widget and re-render the zone in the new order
 - **AND** the new order SHALL be persisted
 
 #### Scenario: Reorder produces the same result as before
@@ -56,4 +57,3 @@ Because drag gestures are not operable with assistive technology, each widget ch
 - **WHEN** a screen-reader user activates a widget chip's "move toward start" or "move toward end" accessible action
 - **THEN** the widget SHALL move one position in that direction within its zone
 - **AND** the action SHALL be unavailable (or a no-op) when the widget is already at that end of the zone
-

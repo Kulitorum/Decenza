@@ -863,16 +863,12 @@ set(SOURCES
     src/models/shotcomparisonmodel.cpp
     src/models/flowcalibrationmodel.cpp
     src/network/shotserver.cpp
-    src/network/shotserver_recipes.cpp
-    src/network/shotserver_bags.cpp
-    src/network/shotserver_equipment.cpp
     src/network/shotserver_session.cpp
     src/network/sessionbackgroundimage.cpp
     src/network/shotserver_webclient.cpp
     src/network/webclientassets.cpp
     src/network/machineuisnapshot.cpp
     src/network/machineuisnapshot.h
-    src/network/sessionactionrequest.cpp
     src/network/steamhealthsnapshot.cpp
     src/network/steamhealthsnapshot.h
     src/network/steamuistate.cpp
@@ -882,7 +878,6 @@ set(SOURCES
     src/network/remotesteamgraphsnapshot.cpp
     src/network/remotesteamgraphsnapshot.h
     src/core/steamgraphvalidation.h
-    src/network/sessionactionrequest.h
     src/network/steampitchersnapshot.cpp
     src/network/steampitchersnapshot.h
     src/machine/machinephase.h
@@ -993,21 +988,12 @@ set(SOURCES
     src/remote/recipeservicesource.cpp
     src/network/remotesessionserver.cpp
     src/network/remotesessionserver.h
-    src/network/remotelastshotsnapshot.cpp
-    src/network/remotelastshotsnapshot.h
-    src/network/remoteshotgraphsnapshot.cpp
-    src/network/remoteshotgraphsnapshot.h
-    src/network/shotserver_shots.cpp
-    src/network/shotserver_upload.cpp
     src/network/shotserver_backup.cpp
     src/network/shotserver_layout.cpp
     src/network/shotserver_screensaver.cpp
     src/network/screensavermediarange.h
-    src/network/shotserver_theme.cpp
-    src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
     src/network/shotserver_remoteweb.cpp
-    src/network/shotserver_ai.cpp
     src/mcp/mcpserver.cpp
     src/network/remoteaccess.cpp
     src/mcp/mcptunnel_tsnet.cpp

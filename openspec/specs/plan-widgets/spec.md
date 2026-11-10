@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the text-rendering rules for the `shotPlan` widget's shot-plan and steam-plan sentences: how the configured display-item list maps to sentence and fragment formats, override indicators for temperature and yield, the cleaning-profile warning, page-aware switching between shot and steam plans, and the wrap-before-elide overflow behavior.
+
 ## Requirements
+
 ### Requirement: Shot plan sentence content follows the display toggles
 The Shot Plan text SHALL render the display items named by the instance's ordered item list (`shotPlanItems`), in list order, in one of two formats selected by Sentence style (`shotPlanSentence`, default ON). Each item SHALL contribute exactly its named content, and an item absent from the list SHALL contribute nothing. Fragment format (Sentence style OFF) SHALL join present segments with the standard separator in list order.
 
@@ -265,14 +267,14 @@ The Recipe (`recipe`) display item SHALL default OFF. It SHALL NOT appear in the
 
 #### Scenario: Recipe appears in both editors' available items
 
-- **WHEN** a user opens the in-app Shot Plan Settings, or the ShotServer web layout editor, for a Shot Plan widget that does not yet show Recipe
+- **WHEN** a user opens the in-app Shot Plan Settings, or the shared browser layout editor, for a Shot Plan widget that does not yet show Recipe
 - **THEN** "Recipe" is offered in the Available items and can be added to the Shown list, and once shown can be reordered and removed like any other item
 
 ### Requirement: Both layout editors offer the Recipe item
-Both layout editors SHALL offer `recipe` as an addable and removable item with a translatable "Recipe" label: the in-app Shot Plan Settings chip editor and the ShotServer web layout editor. The two editors SHALL stay in sync on the item set and its label.
+Both layout editors SHALL offer `recipe` as an addable and removable item with a translatable "Recipe" label: the in-app Shot Plan Settings chip editor and the shared browser layout editor. The two editors SHALL stay in sync on the item set and its label.
 
 #### Scenario: Web editor offers Recipe
-- **WHEN** a user opens the ShotServer web layout editor for a Shot Plan widget
+- **WHEN** a user opens the shared browser layout editor for a Shot Plan widget
 - **THEN** "Recipe" is offered in the same item set and label as the in-app editor
 
 ### Requirement: Recipe name is the active recipe live and the frozen recipe on shot surfaces
@@ -287,4 +289,3 @@ On the live idle widget the Recipe item SHALL render the currently active recipe
 
 - **WHEN** the Recipe item is shown on the shot-detail or post-shot-review snapshot line for a past shot, and a different recipe is now active live
 - **THEN** the line shows the recipe recorded for that shot, not the currently active recipe
-

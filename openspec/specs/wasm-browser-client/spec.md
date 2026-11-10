@@ -32,26 +32,23 @@ Host-only producers SHALL remain tracked in the coverage inventory without exclu
 - **AND** the feature is not silently excluded or counted as complete
 
 ### Requirement: Root Wasm entry and legacy HTML namespace
-The Wasm app SHALL be served at `/` and `/wasm/`. Existing HTML pages SHALL be served below `/legacy/`, and existing non-root page bookmarks SHALL remain usable through redirects or compatible aliases. This change SHALL retain the HTML implementation and preserve API, authentication, upload, download, and file contracts.
+The Wasm app SHALL be served at `/` and `/wasm/`. The legacy HTML interface, its namespace and page bookmark aliases SHALL no longer be served. Authentication, device migration and independently used API and file contracts SHALL remain compatible; endpoints used only by the removed interface SHALL be removed.
 
 #### Scenario: Open the root entry
-- **WHEN** a user opens `/`
-- **THEN** the host serves the Wasm interface
-- **AND** a user opening `/wasm/` reaches the same application
+- **WHEN** a user opens `/` or `/wasm/`
+- **THEN** the same Wasm application opens
 
 #### Scenario: Open the legacy index bookmark
-- **WHEN** a user opens `/index.html`
-- **THEN** the host redirects to `/legacy/` and serves the retained HTML shot history
+- **WHEN** a user opens `/index.html` or `/legacy/`
+- **THEN** the server returns 404 without redirecting to the removed interface
 
 #### Scenario: Open a legacy HTML bookmark
-- **WHEN** a user opens an existing non-root HTML page path such as `/beans`, `/recipes`, `/equipment`, or `/shot/<id>`
-- **THEN** ShotServer serves the matching `/legacy/...` page, either directly or through a compatible alias, while preserving its identifier and supported query parameters
-- **AND** the legacy page retains its previous workflow behavior
+- **WHEN** a user opens an old HTML page bookmark such as `/beans`, `/recipes`, `/equipment` or `/shot/<id>`
+- **THEN** the server returns 404 without redirecting to the removed interface
 
 #### Scenario: Preserve API and file endpoints
-- **WHEN** a Wasm or legacy page requests an existing `/api/...` route or file/download endpoint
-- **THEN** ShotServer returns the existing response contract
-- **AND** it does not redirect the request to an HTML page or Wasm shell
+- **WHEN** an existing client calls an independently used API or file endpoint
+- **THEN** its existing contract remains available independently of the removed pages
 
 ### Requirement: Remote browser access
 The browser interface SHALL load from a reachable Decenza host URL on another machine without installing Decenza on the client. It SHALL obtain machine state and stored data from that host and send user actions to that host. It SHALL work without client Bluetooth or USB access and without a public internet connection when the host is reachable on the local network.
@@ -99,7 +96,7 @@ The interface SHALL support current stable desktop Chrome, Edge, Firefox, and Sa
 - **AND** focus is restored meaningfully after a dialog closes
 
 ### Requirement: Wasm workflow parity
-Each workflow exposed by the Wasm interface SHALL preserve the fields, actions, searches, imports, exports, errors, and recovery paths recorded for that workflow in the web inventory. Shared native/Wasm screens SHALL expose consistent domain behavior. A feature absent from the native screen SHALL remain reachable in the Wasm interface when that workflow is included. The retained HTML implementation remains independently usable under `/legacy/` and is not required to move to Wasm.
+Each workflow exposed by the Wasm interface SHALL preserve the fields, actions, searches, imports, exports, errors, and recovery paths recorded for that workflow in the web inventory. Shared native/Wasm screens SHALL expose consistent domain behavior. A feature absent from the native screen SHALL remain reachable in the Wasm interface when that workflow is included.
 
 #### Scenario: Web-specific editor features
 - **WHEN** a layout or theme workflow is implemented in Wasm
@@ -134,12 +131,11 @@ The shared app header SHALL offer browser-local fullscreen entry/exit without a 
 - **AND** Home Screen mode uses the existing Decenza icon and keeps controls inside display safe areas
 
 ### Requirement: Stable navigation and external contracts
-HTML bookmarks SHALL remain usable through `/legacy/` or compatible aliases, preserving record and query context. `/` and `/wasm/` SHALL open the same app. Browser Back, Forward, and reload SHALL preserve internal navigation and draft guards. REST, MCP, MQTT, relay, upload, and download contracts SHALL remain compatible.
+`/` and `/wasm/` SHALL open the same app. Browser Back, Forward, and reload SHALL preserve internal navigation and draft guards. Independently used REST, MCP, MQTT, relay and file-transfer contracts SHALL remain compatible.
 
 #### Scenario: Open an existing saved shot link
-- **WHEN** a user opens or reloads an existing `/shot/<id>` bookmark
-- **THEN** the existing HTML interface opens that shot under `/legacy/shot/<id>`
-- **AND** the shot's JSON and profile downloads still return files rather than an application shell
+- **WHEN** a client requests the legacy shot JSON or profile download for a saved shot
+- **THEN** the server returns 404
 
 #### Scenario: Leave Home with browser Back
 - **WHEN** the user presses browser Back from Wasm Home and a previous website exists
@@ -152,22 +148,21 @@ HTML bookmarks SHALL remain usable through `/legacy/` or compatible aliases, pre
 - **AND** file and API requests continue to return their existing responses
 
 #### Scenario: Existing restock link retains context
-- **WHEN** the user follows a `/beans?restock=<bag>&recipe=<id>` link
-- **THEN** the existing HTML interface opens the restock workflow for that bag and recipe
-- **AND** the `/legacy/beans` route or compatible bookmark alias preserves both query values
+- **WHEN** a user follows an old `/beans?restock=<bag>&recipe=<id>` page link
+- **THEN** the server returns 404 without redirecting to the removed interface
 
 ### Requirement: Recoverable delivery and rollout
-The Wasm interface SHALL report loading progress and actionable loading or compatibility failures. If the root Wasm entry is unavailable, the HTML implementation SHALL remain accessible at `/legacy/` and stored data SHALL remain available through its existing APIs.
+The Wasm interface SHALL report loading progress and actionable loading or compatibility failures. Authentication and independently used API and file routes SHALL remain available independently of the Wasm runtime.
 
 #### Scenario: Wasm application fails to load
 - **WHEN** a browser cannot initialize the Wasm application
 - **THEN** a lightweight page offers the failure reason and retry
-- **AND** the existing HTML interface remains available at `/legacy/`
+- **AND** it does not offer the removed HTML interface
 
 #### Scenario: Wasm bundle is unavailable
-- **WHEN** the Wasm bundle is disabled, missing, or incompatible
-- **THEN** users can continue to open the existing HTML pages at `/legacy/` and use their current workflows
-- **AND** API, authentication, file, and download routes do not require the Wasm runtime
+- **WHEN** the Wasm bundle is disabled, missing or incompatible
+- **THEN** the failure is reported and stored data remains intact
+- **AND** authentication and independently used file routes do not require the Wasm runtime
 
 ### Requirement: Compatible application and host versions
 The Wasm client and native host SHALL ship together. The browser SHALL use only its serving app origin and require an exact package identity before accepting live state or enabling mutations. Missing identity or required features SHALL fail explicitly, without older-host compatibility. Stale cached assets SHALL require a matching reload or report an actionable error.

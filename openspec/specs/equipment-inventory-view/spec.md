@@ -23,7 +23,7 @@ The system SHALL provide an `EquipmentPage.qml` that lists equipment packages wi
 - **AND** bags and shots pointing at it SHALL continue to resolve to its identity
 
 ### Requirement: Idle-page Equipment button
-The system SHALL provide an `EquipmentItem.qml` idle-page layout widget that navigates to the Equipment window, registered in all required places: `CMakeLists.txt` qml module list, `LayoutItemDelegate.qml` (render switch + label map), the layout editor palette (`LayoutCenterZone.qml`/`LayoutEditorZone.qml` widget list + chip label map), and `shotserver_layout.cpp` (web editor widget list).
+The system SHALL provide an `EquipmentItem.qml` idle-page layout widget that navigates to the Equipment window, registered in all required places: `CMakeLists.txt` qml module list, `LayoutItemDelegate.qml` (render switch + label map), the layout editor palette (`LayoutCenterZone.qml`/`LayoutEditorZone.qml` widget list + chip label map).
 
 #### Scenario: Default layout placement
 - **WHEN** a fresh install builds the default layout

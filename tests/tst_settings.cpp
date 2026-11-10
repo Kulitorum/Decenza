@@ -19,7 +19,6 @@
 #include "core/settingsserializer.h"
 #include "core/appsettings.h"
 #include <QScopeGuard>
-#include "network/grindcandidates.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -1878,58 +1877,8 @@ private slots:
             QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("schema/gate disagree: " + t));
         }
 
-        // The web editor's JSON carries the same table: readouts map to their
-        // keys, bespoke types to an empty array (present = has options).
-        const QJsonObject caps = SettingsNetwork::readoutCapabilitiesJson();
-        for (const QString& t : readouts) {
-            QVERIFY2(caps.contains(t), qPrintable("missing from web JSON: " + t));
-            QCOMPARE(caps.value(t).toArray(),
-                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
-        }
-        for (const QString& t : {QStringLiteral("custom"), QStringLiteral("sleep"),
-                                 QStringLiteral("shotPlan"), QStringLiteral("lastShot")}) {
-            QVERIFY2(caps.contains(t), qPrintable("bespoke missing from web JSON: " + t));
-            QVERIFY(caps.value(t).toArray().isEmpty());
-        }
-        // Action widgets are in the web JSON too, carrying their gesture keys —
-        // that is what makes the web editor show them as configurable.
-        for (const QString& t : {QStringLiteral("espresso"), QStringLiteral("beans"),
-                                 QStringLiteral("history")}) {
-            QVERIFY2(caps.contains(t), qPrintable("action widget missing from web JSON: " + t));
-            QCOMPARE(caps.value(t).toArray(),
-                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
-        }
-
-        // Generic invariants over EVERY entry, so future types are covered
-        // without extending the hand-pinned lists above:
-        const QSet<QString> knownKeys = {
-            QStringLiteral("dataMode"), QStringLiteral("displayMode"),
-            QStringLiteral("showRatio"), QStringLiteral("color"),
-            // Gesture overrides on the built-in action widgets.
-            QStringLiteral("longPressAction"), QStringLiteral("doubleclickAction")
-        };
-        for (const QString& t : caps.keys()) {
-            // Web JSON and the QML-facing keys must agree for every type. A
-            // type placed in both the schema and the bespoke set would break
-            // this (JSON's empty array vs the schema's keys) — exactly the
-            // app/web divergence this table exists to prevent.
-            QCOMPARE(caps.value(t).toArray(),
-                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
-            // Screensavers stay a prefix rule on both sides — a screensaver
-            // schema entry would give the web editor selectors the QML
-            // screensaver popup doesn't have.
-            QVERIFY2(!t.startsWith("screensaver"), qPrintable("screensaver leaked into schema: " + t));
-            // Editors dispatch on exactly these key strings; a typo'd key
-            // ("colour", "display") would silently render nothing anywhere.
-            const QJsonArray keys = caps.value(t).toArray();
-            for (const auto& k : keys)
-                QVERIFY2(knownKeys.contains(k.toString()), qPrintable(t + " has unknown key: " + k.toString()));
-        }
         QVERIFY(SettingsNetwork::optionKeysForType("screensaverFlipClock").isEmpty());
-        // Pin the entry count so adding a configurable type is as deliberate a
-        // change as removing one (every entry changes web-editor behavior).
-        // 15 readout/bespoke types + the 10 built-in action widgets.
-        QCOMPARE(caps.size(), 25);
+
     }
 
     // The widget catalog drives the in-app palette, chip names, the library
@@ -1975,17 +1924,7 @@ private slots:
         QVERIFY(chips.contains("connectionStatus"));
         QVERIFY(!seen.contains("connectionStatus"));
 
-        // Every configurable type is a real, placeable catalog type — the
-        // capability schema and the catalog cannot drift apart.
-        const QJsonObject caps = SettingsNetwork::readoutCapabilitiesJson();
-        for (const QString& t : caps.keys())
-            QVERIFY2(seen.contains(t), qPrintable("configurable type missing from catalog: " + t));
 
-        // Web JSON parity: types/chipNames/catNames mirror the same table.
-        const QJsonObject webCatalog = SettingsNetwork::widgetCatalogJson();
-        QCOMPARE(webCatalog.value("types").toArray().size(), catalog.size());
-        QCOMPARE(webCatalog.value("chipNames").toObject().size(), chips.size());
-        QCOMPARE(webCatalog.value("catNames").toArray().size(), cats.size());
     }
 
     // An absent stored displayMode always means "today's rendering" — icon for
@@ -1996,14 +1935,7 @@ private slots:
         QCOMPARE(SettingsNetwork::defaultDisplayModeForType("temperature"), QStringLiteral("text"));
         QCOMPARE(SettingsNetwork::defaultDisplayModeForType("scaleWeight"), QStringLiteral("text"));
         QCOMPARE(SettingsNetwork::defaultDisplayModeForType(""), QStringLiteral("text"));
-        // Web parity: only non-text defaults are injected.
-        const QJsonObject d = SettingsNetwork::displayModeDefaultsJson();
-        QCOMPARE(d.size(), 2);
-        QCOMPARE(d.value("batteryLevel").toString(), QStringLiteral("icon"));
-        QCOMPARE(d.value("scaleBattery").toString(), QStringLiteral("icon"));
-        // Every defaulted type must support displayMode in the schema.
-        for (const QString& t : d.keys())
-            QVERIFY(SettingsNetwork::optionKeysForType(t).contains("displayMode"));
+
     }
 
     // itemIsConfigured gates the remove-confirmation that protects a set-up
@@ -2433,170 +2365,6 @@ private slots:
         QVERIFY(dye->grinderIsClickIndexed("Eureka", "Mignon Specialita"));
         QVERIFY(!dye->grinderIsClickIndexed("Niche", "Zero"));
         QVERIFY(!dye->grinderIsClickIndexed("Acme", "NotReal"));
-    }
-
-    // ==========================================
-    // Web <datalist> candidate generation (GrindCandidates::build) — the C++
-    // TWIN of GrindRowSource.qml's stepping, serving /api/grind-candidates.
-    // Extracted from ShotServer so it is testable at all (same reason as
-    // tst_exifdate): a hand-duplicate of the click-indexed negative rule is
-    // exactly the thing that rots silently, and the web helper's deliberately
-    // quiet .catch means a regression would surface as a wrong dropdown, not
-    // an error.
-    // ==========================================
-
-    // Helper: pull the "grind" array out as a QStringList.
-    static QStringList grindOf(const QJsonObject& o) {
-        QStringList out;
-        for (const QJsonValue& v : o.value("grind").toArray())
-            out << v.toString();
-        return out;
-    }
-
-    void grindCandidates_negativesForSteplessCollar() {
-        GrindCandidates::Inputs in;
-        in.brand = "Niche"; in.model = "Zero";
-        in.current = "0.25"; in.grindStep = 0.25;
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        // A stepless collar's zero is a user-set calibration reference, so the
-        // window runs straight through it (5 steps down from 0.25 = -1).
-        QVERIFY(g.contains("-1"));
-        QVERIFY(g.contains("0"));
-        QVERIFY(g.contains("1.5"));
-    }
-
-    // #1713 on the web surface: the datalist must keep the precision the user's
-    // OWN value already has, not just the step's.
-    //
-    // stepDecimals() took the step alone while its comment claimed it mirrored
-    // GrindRowSource._stepDecimals, which has taken the max with the value since
-    // #1713. The failure is not a rounding nit: with history too thin to derive a
-    // step, grindStep is 0 and the endpoint falls back to 1.0 = zero decimals, so
-    // a recorded "1.1" formats to "1". The user's own setting vanishes from the
-    // dropdown AND the n=0 suggestion silently rewrites it, which is exactly the
-    // reported shape of #1713.
-    void grindCandidates_keepsThePrecisionOfTheUsersOwnValue() {
-        GrindCandidates::Inputs in;
-        in.brand = "Niche"; in.model = "Zero";
-        in.current = "1.1";
-        in.grindStep = 0.0;   // too thin to derive -> the 1.0 fallback, 0 decimals
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-
-        // The value itself survives, at its own precision.
-        QVERIFY2(g.contains("1.1"), qPrintable("datalist lost the user's value: " + g.join(',')));
-        // And the whole lattice carries that precision rather than collapsing to
-        // integers - "1" appearing at all would mean 1.1 was reformatted away.
-        QVERIFY2(g.contains("0.1"), qPrintable(g.join(',')));
-        QVERIFY2(g.contains("2.1"), qPrintable(g.join(',')));
-        QVERIFY2(!g.contains("1"), qPrintable("1.1 was reformatted to 1: " + g.join(',')));
-
-        // A step FINER than the value still wins - the max runs both ways.
-        in.grindStep = 0.25;
-        const QStringList q = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QVERIFY2(q.contains("1.35"), qPrintable(q.join(',')));
-
-        // A non-numeric value contributes no precision and must not throw the
-        // step's own decimals away.
-        in.current = "coarse"; in.grindStep = 0.5;
-        const QStringList c = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QVERIFY(!c.isEmpty());
-    }
-
-    void grindCandidates_positiveAnchorHasNoNegatives() {
-        GrindCandidates::Inputs in;
-        in.brand = "Niche"; in.model = "Zero";
-        in.current = "8"; in.grindStep = 0.25;
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QCOMPARE(g.first(), QString("6.75"));
-        QCOMPARE(g.last(), QString("9.25"));
-        for (const QString& v : g)
-            QVERIFY(!v.startsWith('-'));
-    }
-
-    void grindCandidates_clickIndexedSkipsNegativesInNumericForm() {
-        // THE regression guard: the catalog returns "" for a compound
-        // grinder's below-floor rows, and those fall through to the numeric
-        // fallback — which must re-check the click-indexed rule or it
-        // resurrects the refused negative. A Mignon logging plain "2.5" takes
-        // exactly that path (the notation, not the written form, decides).
-        GrindCandidates::Inputs in;
-        in.brand = "Eureka"; in.model = "Mignon Specialita";
-        in.current = "3"; in.grindStep = 1.0;
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        // The floor holds: 5 steps down from 3 would reach -2.
-        QCOMPARE(g.first(), QString("0"));
-        QCOMPARE(g.last(), QString("8"));
-        for (const QString& v : g)
-            QVERIFY2(!v.startsWith('-'),
-                     qPrintable("negative candidate on a click-indexed grinder: " + v));
-
-        // Same grinder, value written as a PLAIN NUMBER rather than "a+b" —
-        // the path that falls through the catalog into the numeric fallback,
-        // where the skip has to be re-checked. Asserting the rule (no
-        // negatives) rather than a formatted value: at step 1.0 the labels
-        // round to 0 decimals, so the exact strings are a formatting detail,
-        // not the behaviour under test.
-        in.current = "2.5";
-        const QStringList gz = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QVERIFY(!gz.isEmpty());
-        for (const QString& v : gz)
-            QVERIFY2(!v.startsWith('-'),
-                     qPrintable("negative candidate from the numeric fallback: " + v));
-    }
-
-    void grindCandidates_fallsBackToObservedHistory() {
-        // Too few stepped candidates (an unparseable notation) → the observed
-        // list, with the current value prepended when it is not already in it.
-        GrindCandidates::Inputs in;
-        in.brand = "Acme"; in.model = "NotReal";
-        in.current = "medium-fine"; in.grindStep = 1.0;
-        in.observed = QStringList{"7.5", "8", "8.5"};
-        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
-        QCOMPARE(g, (QStringList{"medium-fine", "7.5", "8", "8.5"}));
-
-        // Already present → not duplicated.
-        in.current = "8";
-        QCOMPARE(grindOf(GrindCandidates::build(m_settings.dye(), in)).count("8"), 1);
-
-        // No current value at all (new bag): the history alone, capped.
-        in.current = "";
-        in.observed.clear();
-        for (int i = 0; i < 20; ++i)
-            in.observed << QString::number(i);
-        QCOMPARE(grindOf(GrindCandidates::build(m_settings.dye(), in)).size(),
-                 GrindCandidates::kHistoryCap);
-    }
-
-    void grindCandidates_decimalsFollowTheStep() {
-        QCOMPARE(GrindCandidates::stepDecimals(1.0), 0);
-        QCOMPARE(GrindCandidates::stepDecimals(0.5), 1);
-        QCOMPARE(GrindCandidates::stepDecimals(0.25), 2);
-        // A float-dirty step (0.1 + 0.2 = 0.30000000000000004) must not yield a
-        // 17-decimal label — the 3-decimal round-trip bounds it.
-        QCOMPARE(GrindCandidates::stepDecimals(0.1 + 0.2), 1);
-        // Trailing zeros stripped so labels match the display convention.
-        QCOMPARE(GrindCandidates::formatStepped(7.50, 2), QString("7.5"));
-        QCOMPARE(GrindCandidates::formatStepped(7.00, 2), QString("7"));
-    }
-
-    void grindCandidates_rpmGatedByCapability() {
-        GrindCandidates::Inputs in;
-        in.current = "8"; in.grindStep = 0.25; in.rpmStep = 50;
-
-        // Niche Zero is not RPM-capable: an EMPTY rpm list is the capability
-        // verdict the web helper hides the RPM field on.
-        in.brand = "Niche"; in.model = "Zero";
-        QVERIFY(GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray().isEmpty());
-
-        // An RPM-capable grinder with no recorded RPM seeds from the neutral
-        // anchor, and never offers a non-positive speed (0 is the unset
-        // sentinel, so it must not appear as a pickable row).
-        in.brand = "Varia"; in.model = "VS6";
-        const QJsonArray rpm = GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray();
-        QVERIFY(!rpm.isEmpty());
-        QVERIFY(rpm.contains(QJsonValue(double(GrindCandidates::kRpmDefaultAnchor))));
-        for (const QJsonValue& v : rpm)
-            QVERIFY(v.toDouble() > 0.0);
     }
 
     void stepGrinderSetting_customGrinderFallsBack() {

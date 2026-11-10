@@ -4,9 +4,10 @@
 Governs the user-visible label for the layout system's Clock widget, which is presented as "Time" everywhere it appears in the native and web layout editors while its internal `clock` type identifier stays unchanged for backward compatibility.
 
 ## Requirements
+
 ### Requirement: Clock widget editor label reads "Time"
 
-The Clock widget SHALL be presented to the user as **"Time"** in every editor surface, including the widget picker/catalog in both the native QML layout editor and the web (ShotServer) layout editor. The internal widget `type` identifier SHALL remain `clock`; only the user-visible label changes. The label SHALL match the placed-chip label and the center-zone caption, which already read "Time".
+The Clock widget SHALL be presented to the user as **"Time"** in every editor surface, including the widget picker/catalog in both the native QML layout editor and the shared browser layout editor. The internal widget `type` identifier SHALL remain `clock`; only the user-visible label changes. The label SHALL match the placed-chip label and the center-zone caption, which already read "Time".
 
 #### Scenario: Picker label in the native editor
 
@@ -22,4 +23,3 @@ The Clock widget SHALL be presented to the user as **"Time"** in every editor su
 
 - **WHEN** a Time widget is added or an existing layout containing a `clock` item is loaded
 - **THEN** the persisted widget `type` SHALL remain `clock` and existing layouts SHALL continue to work without migration
-

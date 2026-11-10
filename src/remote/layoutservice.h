@@ -52,18 +52,13 @@ public:
     Q_INVOKABLE static bool typeHasOptions(const QString& type);
     Q_INVOKABLE static QStringList optionKeysForType(const QString& type);
     Q_INVOKABLE static QStringList zoneOptionValues(const QString& key);
-    Q_INVOKABLE static QJsonObject readoutCapabilitiesJson();
     Q_INVOKABLE static QString defaultDisplayModeForType(const QString& type);
-    Q_INVOKABLE static QJsonObject displayModeDefaultsJson();
     Q_INVOKABLE static QVariantMap sleepOptionDefaults();
-    Q_INVOKABLE static QJsonObject sleepOptionDefaultsJson();
     Q_INVOKABLE static QVariantList widgetCatalog();
     Q_INVOKABLE static QVariantMap widgetChipNames();
     Q_INVOKABLE static QVariantList widgetCategoryNames();
-    Q_INVOKABLE static QJsonObject widgetCatalogJson();
     Q_INVOKABLE static QVariantList layoutActionCatalog();
     Q_INVOKABLE static QVariantMap layoutActionLabels();
-    Q_INVOKABLE static QJsonObject layoutActionCatalogJson();
     Q_INVOKABLE static QString gestureReservedActionForType(const QString& type);
     Q_INVOKABLE static bool typeSupportsGestureOverrides(const QString& type);
 

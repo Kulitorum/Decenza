@@ -2,7 +2,9 @@
 
 ## Purpose
 Lets each built-in action widget (Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles, History, Favorites and Settings) carry a per-instance long-press or double-click action drawn from the Custom-widget catalog. Covers the reserved-gesture rule for widgets whose tap runs an operation, unchanged default behaviour, identical rendering in both widget formats, and matching gesture editing in both layout editors.
+
 ## Requirements
+
 ### Requirement: Built-in action widgets accept per-instance gesture overrides
 
 The ten built-in action widgets (Recipes, Beans, Steam, Hot Water, Equipment, Flush, Profiles, History, Favorites and Settings) SHALL accept a per-instance long-press and/or double-click action. An override SHALL be stored per widget INSTANCE through the existing item-property mechanism, with no new settings and no schema change, so two copies of one type MAY carry different gestures.
@@ -119,7 +121,7 @@ These widgets render two ways: compiled through the Custom widget's renderer in 
 
 ### Requirement: Both editors expose gesture overrides
 
-The in-app layout editor and the ShotServer web layout editor SHALL both offer gesture
+The in-app layout editor and the shared browser layout editor SHALL both offer gesture
 editing for these widget types, with the same actions, the same reserved-slot presentation,
 and the same stored result. A widget configured in one editor SHALL read back correctly in
 the other.
@@ -141,4 +143,3 @@ indicator appears on them.
 
 - **WHEN** a one-slot widget with an override is opened in either editor
 - **THEN** both show the reserved gesture as non-editable and name the page it opens
-

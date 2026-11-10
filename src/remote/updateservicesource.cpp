@@ -6,7 +6,6 @@
 #include "core/settings_app.h"
 #include "core/updatechecker.h"
 #include "importservicesource.h"
-#include "network/shotserveruploadroute.h"
 
 #include <QMetaType>
 #include <QDir>
