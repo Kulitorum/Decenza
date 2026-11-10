@@ -17,46 +17,12 @@ import Decenza
 // first place — a new refusal path would silently not surface. Mount this once per page that can
 // trigger one and every present and future refusal is covered.
 //
-// Also carries translationNotice — informational outcomes like "stopped, N strings saved" —
-// in non-error styling. Anything set on lastError gets error styling by default, which is the
-// right default for a message nobody classified; informational is opt-in at the C++ end.
-Rectangle {
+// A StatusToast so it looks and sits like every other toast; every message here is a refusal.
+StatusToast {
     id: root
 
-    // Auto-dismiss is one of the cases the project rules explicitly allow a timer for; this is a
-    // transient notice, not a guard standing in for a condition.
-    property int dismissAfterMs: 6000
-
-    // True while showing a translationNotice ("stopped, N strings saved") rather than an error.
-    // Notices are outcomes the user asked for — they get the accent border and a polite screen
-    // reader announcement instead of error red and an assertive interrupt.
-    property bool isNotice: false
-
-    anchors.horizontalCenter: parent.horizontalCenter
-    anchors.bottom: parent.bottom
-    anchors.bottomMargin: Theme.spacingLarge
-    width: Math.min(messageText.implicitWidth + Theme.scaled(28), parent.width - Theme.scaled(32))
-    height: messageText.implicitHeight + Theme.scaled(20)
-    color: Theme.surfaceColor
-    radius: Theme.cardRadius
-    border.width: 1
-    border.color: root.isNotice ? Theme.primaryColor : Theme.errorColor
-    opacity: 0
-    visible: opacity > 0
-    z: 1000
-
-    Accessible.role: Accessible.AlertMessage
-    Accessible.name: messageText.text
-
-    Text {
-        id: messageText
-        anchors.centerIn: parent
-        width: root.width - Theme.scaled(28)
-        color: Theme.textColor
-        font: Theme.bodyFont
-        wrapMode: Text.WordWrap
-        horizontalAlignment: Text.AlignHCenter
-    }
+    error: true
+    durationMs: 6000
 
     property string lastShownError: ""
 
@@ -93,17 +59,8 @@ Rectangle {
             if (code === root.lastShownError)
                 return
             root.lastShownError = code
-            root.isNotice = false
-            messageText.text = message
             AccessibilityManager.announce(message, true)
-            showAnimation.restart()
+            root.show(message)
         }
-    }
-
-    SequentialAnimation {
-        id: showAnimation
-        NumberAnimation { target: root; property: "opacity"; to: 1; duration: 150 }
-        PauseAnimation { duration: root.dismissAfterMs }
-        NumberAnimation { target: root; property: "opacity"; to: 0; duration: 300 }
     }
 }

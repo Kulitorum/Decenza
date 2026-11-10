@@ -68,7 +68,7 @@ T.Page {
                     if (navigationAction === "steam-back")
                         AppShell.browserBackCancelled()
                     if (steamPage.StackView.status === StackView.Active)
-                        steamPage.showPitcherToast(steamPage.actionFailureText(message))
+                        steamPage.showPitcherToast(steamPage.actionFailureText(message), true)
                 } else if (result.dismissPage === true) {
                     AppShell.dismissRequested()
                 }
@@ -90,7 +90,7 @@ T.Page {
                     || operation === "tare"
             if (!success && (pageAction || settingAction)
                     && steamPage.StackView.status === StackView.Active)
-                steamPage.showPitcherToast(steamPage.actionFailureText(message))
+                steamPage.showPitcherToast(steamPage.actionFailureText(message), true)
         }
     }
 
@@ -163,7 +163,7 @@ T.Page {
     function beginEditorRequest(operation, fields, presetName) {
         if (!editorReady) {
             steamPage.showPitcherToast(TranslationManager.translate(
-                "steam.editor.notReady", "The steam setting was not saved. Wait for the current request to finish or reconnect, then try again."))
+                "steam.editor.notReady", "The steam setting was not saved. Wait for the current request to finish or reconnect, then try again."), true)
             return ""
         }
         pendingEditorOperation = operation
@@ -185,7 +185,7 @@ T.Page {
         pendingEditorPresetName = ""
         if (!success) {
             if (steamPage.StackView.status === StackView.Active)
-                steamPage.showPitcherToast(steamPage.actionFailureText(message))
+                steamPage.showPitcherToast(steamPage.actionFailureText(message), true)
             return
         }
         if (pendingOperation === "rename-preset" || pendingOperation === "delete-preset")
@@ -398,42 +398,12 @@ T.Page {
     // needed. (The old confirm dialog rendered white-on-white in dark themes and just
     // added friction.) The button's accessible name and the toast carry the "empty
     // pitcher" wording that the confirm used to state.
-    function showPitcherToast(message) {
-        pitcherToastText.text = message
-        pitcherToast.opacity = 1
-        pitcherToastTimer.restart()
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
+    function showPitcherToast(message, isError) {
+        pitcherToast.show(message, isError === true)
+        if (AccessibilityManager.enabled)
             AccessibilityManager.announce(message, true)
     }
-    Rectangle {
-        id: pitcherToast
-        parent: Overlay.overlay
-        opacity: 0
-        Behavior on opacity { NumberAnimation { duration: 150 } }
-        visible: opacity > 0
-        anchors.bottom: parent ? parent.bottom : undefined
-        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
-        anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
-        width: pitcherToastText.implicitWidth + Theme.scaled(32)
-        height: Theme.scaled(40)
-        radius: Theme.scaled(20)
-        color: Theme.surfaceColor
-        border.color: Theme.borderColor
-        border.width: 1
-        z: 10
-        Text {
-            id: pitcherToastText
-            anchors.centerIn: parent
-            color: Theme.textColor
-            font: Theme.bodyFont
-            Accessible.ignored: true
-        }
-    }
-    Timer {
-        id: pitcherToastTimer
-        interval: 2500
-        onTriggered: pitcherToast.opacity = 0
-    }
+    StatusToast { id: pitcherToast; parent: Overlay.overlay; durationMs: 2500 }
 
     // Steam view mode: "timer" (default) or "chart".
     readonly property string steamViewMode: SteamService.state.steamViewMode
@@ -531,7 +501,7 @@ T.Page {
         function onWarningEventsMissed(count) {
             if (steamPage.StackView.status === StackView.Active)
                 steamPage.showPitcherToast(TranslationManager.translate("steam.warning.eventsMissed",
-                    "%1 earlier Steam warnings could not be recovered after reconnecting.").arg(count))
+                    "%1 earlier Steam warnings could not be recovered after reconnecting.").arg(count), true)
         }
         function onDescaleWarning() {
             steamPage.openPostSessionWarning(TranslationManager.translate("steam.warning.descale",

@@ -317,7 +317,7 @@ Item {
         function onOperationCompleted(requestId, operation, filename, success, reason) {
             if (operation === "toggleFavorite" && !success) {
                 picker.showToast(TranslationManager.translate(
-                    "profileselector.toast.action_failed", "Couldn't update favorites"))
+                    "profileselector.toast.action_failed", "Couldn't update favorites"), true)
                 return
             }
             if (requestId !== picker._pendingOperationId) return
@@ -335,7 +335,7 @@ Item {
                     : kind === "autoLoad" ? "Couldn't update auto-load profile"
                     : kind === "autoLoadRevert" ? "Couldn't update auto-load revert time"
                     : "Profile action failed"
-                picker.showToast(TranslationManager.translate("profileselector.toast.action_failed", message))
+                picker.showToast(TranslationManager.translate("profileselector.toast.action_failed", message), true)
                 return
             }
             if (kind === "delete") deleteDialog.close()
@@ -372,10 +372,8 @@ Item {
         actionsDialog.open()
     }
 
-    function showToast(message) {
-        toastText.text = message
-        toastRect.visible = true
-        toastTimer.restart()
+    function showToast(message, isError) {
+        pickerToast.show(message, isError === true)
     }
 
     // A toggleable filter pill with a faceted count (profile-picker "Faceted
@@ -1239,32 +1237,5 @@ Item {
 
     ProfileFavoritesOrderDialog { id: favoritesOrderDialog }
 
-    // ---- Toast ----
-    Rectangle {
-        id: toastRect
-        parent: Overlay.overlay
-        visible: false
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: toastText.implicitWidth + Theme.scaled(32)
-        height: Theme.scaled(40)
-        radius: Theme.scaled(20)
-        color: Theme.surfaceColor
-        border.color: Theme.borderColor
-        border.width: 1
-        z: 10
-
-        Text {
-            id: toastText
-            anchors.centerIn: parent
-            color: Theme.textColor
-            font: Theme.bodyFont
-        }
-    }
-    Timer {
-        id: toastTimer
-        interval: 3000
-        onTriggered: toastRect.visible = false
-    }
+    StatusToast { id: pickerToast; parent: Overlay.overlay; durationMs: 3000 }
 }

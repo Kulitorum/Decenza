@@ -12,7 +12,10 @@ Rectangle {
     property int durationMs: 4000
     property bool error: false
 
-    function show(text) {
+    // isError, when given, restyles this showing; omit it on a toast that is always one kind.
+    function show(text, isError) {
+        if (isError !== undefined)
+            toast.error = isError
         toast.message = text
         toast.opacity = 1
         hideTimer.restart()
