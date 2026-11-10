@@ -1611,7 +1611,11 @@ T.Page {
                         spacing: Theme.scaled(16)
                         visible: !steamPage.currentPitcherDisabled
 
+                        Tr { id: durationFallbackHint; key: "steam.hint.durationFallback"; fallback: "Used when milk isn't weighed"; visible: false }
+
                         Column {
+                            // Fills the row up to the value box, so a long translation elides instead of running under it.
+                            Layout.fillWidth: true
                             spacing: Theme.scaled(4)
                             Tr {
                                 key: "steam.label.duration"
@@ -1623,14 +1627,14 @@ T.Page {
                             Text {
                                 // Opacity, not visible: the line stays reserved so toggling never shifts the layout.
                                 opacity: steamPage.weightTimingActive ? 1 : 0
-                                text: TranslationManager.translate("steam.hint.durationFallback", "Used when milk isn't weighed")
+                                width: parent.width
+                                elide: Text.ElideRight
+                                text: durationFallbackHint.text
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
                                 Accessible.ignored: true
                             }
                         }
-
-                        Item { Layout.fillWidth: true }
 
                         ValueInput {
                             id: durationSlider
@@ -1647,7 +1651,7 @@ T.Page {
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
                                 + (steamPage.weightTimingActive
-                                   ? ", " + TranslationManager.translate("steam.hint.durationFallback", "Used when milk isn't weighed")
+                                   ? ", " + durationFallbackHint.text
                                    : "")
                             KeyNavigation.tab: flowSlider
                             KeyNavigation.backtab: addPitcherButton
@@ -1781,8 +1785,7 @@ T.Page {
                             Text {
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
-                                // Fixed line height: the "→" below comes from the symbol fallback font, whose line is
-                                // taller than the primary font's, so a natural-height line changed size with the text.
+                                // Fixed height so the line is the same size whichever font draws its text.
                                 lineHeightMode: Text.FixedHeight
                                 lineHeight: Math.ceil(Theme.labelFont.pixelSize * 1.5)
                                 text: {
@@ -1798,8 +1801,9 @@ T.Page {
                                     var duration = SteamService.state.lastSteamEffectiveDurationSec
                                     if (steamPage.weightTimingActive && milk > 0 && duration > 0)
                                         return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + milk.toFixed(0) + "g → " + duration + "s"
-                                    // A no-break space, not "": an empty Text has no height, and the line must stay
-                                    // so toggling weight timing never moves the controls below.
+                                    // Not "": the empty line collapsed in the Wasm client (observed, 22px, although
+                                    // qquicktext.cpp:469-471 gives an empty Text an implicit height), and the controls
+                                    // below moved when weight timing was toggled. A no-break space keeps the line.
                                     return "\u00a0"
                                 }
                                 Accessible.ignored: true
@@ -2394,7 +2398,7 @@ T.Page {
                 font: Theme.subtitleFont
             }
 
-            Tr { id: pitcherNamePlaceholder; key: "steam.placeholder.presetName"; fallback: "Preset name"; visible: false }
+            Tr { id: presetNamePlaceholder; key: "steam.placeholder.presetName"; fallback: "Preset name"; visible: false }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -2415,7 +2419,7 @@ T.Page {
                     inputMethodHints: Qt.ImhNoPredictiveText
                     activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: editPresetTitle.text + ", " + pitcherNamePlaceholder.text
+                    Accessible.name: editPresetTitle.text + ", " + presetNamePlaceholder.text
                     Accessible.description: text
                     Accessible.focusable: true
                     KeyNavigation.tab: editDeleteButton
@@ -2424,7 +2428,7 @@ T.Page {
                     Text {
                         anchors.fill: parent
                         verticalAlignment: Text.AlignVCenter
-                        text: pitcherNamePlaceholder.text
+                        text: presetNamePlaceholder.text
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
@@ -2543,7 +2547,7 @@ T.Page {
                 font: Theme.subtitleFont
             }
 
-            Tr { id: addPitcherNamePlaceholder; key: "steam.placeholder.presetName"; fallback: "Preset name"; visible: false }
+            Tr { id: addPresetNamePlaceholder; key: "steam.placeholder.presetName"; fallback: "Preset name"; visible: false }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(280)
@@ -2564,7 +2568,7 @@ T.Page {
                     inputMethodHints: Qt.ImhNoPredictiveText
                     activeFocusOnTab: true
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: addPresetTitle.text + ", " + addPitcherNamePlaceholder.text
+                    Accessible.name: addPresetTitle.text + ", " + addPresetNamePlaceholder.text
                     Accessible.description: text
                     Accessible.focusable: true
                     KeyNavigation.tab: addCancelPitcherButton
@@ -2573,7 +2577,7 @@ T.Page {
                     Text {
                         anchors.fill: parent
                         verticalAlignment: Text.AlignVCenter
-                        text: addPitcherNamePlaceholder.text
+                        text: addPresetNamePlaceholder.text
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
@@ -2604,7 +2608,7 @@ T.Page {
                     id: addPitcherConfirmButton
                     primary: true
                     text: TranslationManager.translate("common.button.add", "Add")
-                    accessibleName: text
+                    accessibleName: addPresetTitle.text
                     enabled: steamPage.editorReady && newPitcherName.text.trim().length > 0
                         && !SteamService.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: newPitcherName

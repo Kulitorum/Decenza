@@ -18,6 +18,9 @@
 - [x] 1.10 Rebuild through Qt Creator (ask first), then in Wasm switch weight timing off. Verify: `QML diagnostics gate passed`, and the pitcher row shows no "Weight-timed" line while off.
 - [x] 1.11 Keep the scrollbar off the controls: the editor column ended at the Flickable's edge, so the bar was drawn over the switch and the +/- boxes. The column is now narrower by the bar's width plus a gap, reserved while the bar is hidden. Verify: in Wasm and native, the scrollbar sits clear of the switch and the value boxes.
 - [x] 1.12 Rebuild through Qt Creator, then in Wasm compare the page with weight timing on and off. Verify: `QML diagnostics gate passed`, rows at identical positions in both states, and the scrollbar clear of the controls.
+- [x] 1.13 Review fixes in `SteamPage.qml`: the pitcher hint's no-break space stays (the Wasm retest showed an empty line collapsing 22px even with a fixed line height), now with a comment that records the observation; the Duration hint elides instead of running under the value box; its string is held in one `Tr`; the Add button speaks the dialog title; the two placeholder ids drop "pitcher". Verify: grep finds one `steam.hint.durationFallback` key.
+- [x] 1.14 Reword "pitcher preset" to "preset" in the wiki `Manual.md` at the three places it appears. Verify: `grep -n -i "pitcher preset" Manual.md` is empty; the edit is made in `Decenza.wiki` and pushed with the release.
+- [x] 1.15 Rebuild through Qt Creator (ask first), then in Wasm compare the page with weight timing on and off. Verify: `QML diagnostics gate passed`, rows at identical positions in both states, and the Duration hint does not run under the value box.
 
 ## Workflow follow-up
 

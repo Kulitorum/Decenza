@@ -27,4 +27,4 @@ None.
 
 - `qml/pages/SteamPage.qml` only (shared native/Wasm QML, so the web client picks it up). Reads `SteamService.state.milkAutoCaptureEnabled` and `steamSecondsPerGram`, both already published; no C++, service or settings change.
 - Six new translation keys (the hint and five reworded strings; a reused key would keep showing its existing translation of the old wording). Fifteen page-local keys lose their readers.
-- No manual entry: the hint states its own meaning on the screen where it applies.
+- Manual: the three places where the wiki Manual says "pitcher preset" (recipe milk settings, Steam how-to, quick start) say "preset". No new section: the hint states its own meaning on screen.
