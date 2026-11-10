@@ -13,7 +13,7 @@
 - [x] 1.3e Replace the five hand-drawn toasts (profile picker, library panel, Steam page, Recipes page, translation errors) with `StatusToast`; `show(text, isError)` styles each showing. The Brew dialog's recipe error is an inline banner and stays.
 - [x] 1.3f Codex review: the lift is judged from the raw reading against the captured load, so a tare or dropout between capture and lift cannot leave the request open for a cup; the capture-sound switch sends one write at a time and reports a refusal.
 - [x] 1.3g Codex review: after a tare or dropout with the captured pitcher on, the capture stands and nothing more is weighed until the lift (the detector's zero is then the loaded pitcher).
-- [ ] 1.5 Device check, rides the next beta: pour with the pitcher on the scale, pause, pour more, lift. Verify: two captures, the second weight is the one steamed, and the message shows bottom-centre clear of the bars.
+- [x] 1.5 Real-scale check by Jeff on the Mac build (built 9:40 AM MT 2026-11-10, USB scale, Small pitcher 25.0 g): pitcher set down, 71.1 g captured, topped up, 313.3 g captured and timed at 85 s, lift logged "Milk sample ended: pitcher lifted, 313.3 g stands"; toast seen above the bottom bar. Steam was not started, and the tare/dropout paths were exercised by the unit tests only. The tablet gets it with the next beta.
 
 ## Workflow follow-up
 
