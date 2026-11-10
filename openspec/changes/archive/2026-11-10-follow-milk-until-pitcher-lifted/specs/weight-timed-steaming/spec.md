@@ -4,7 +4,7 @@
 
 ### Requirement: Automatic milk capture before steaming
 
-The system SHALL capture milk only for a sample the user requests, from the review-page milk button or the idle-screen steam pitchers (Steam row or compact Steam popup). The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL confirm a settled sample and lock the scaled time, and SHALL replace it when the reading moves by more than 2 g and settles again while the pitcher stays on the scale. It SHALL end when the pitcher is lifted after a capture (a tare or a scale disconnect is not a lift; after one the capture stands and nothing more is weighed until the lift), when its surface closes, or when any operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
+The system SHALL capture milk only for a sample the user requests, from the review milk button or the idle steam pitchers. The pitcher SHALL be weight-timed with a saved empty weight. Each request SHALL confirm a settled sample, lock the scaled time, and replace it once the reading moves over 2 g and settles. It SHALL end on a lift after a capture, when its surface closes, or when an operation other than a wand purge starts. Steam mode, the steam page and a finished steam SHALL NOT start one.
 
 #### Scenario: Milk settles and the time locks
 - **WHEN** the user opens the idle pitchers and the pitcher with milk holds steady within tolerance for the dwell
@@ -25,6 +25,10 @@ The system SHALL capture milk only for a sample the user requests, from the revi
 #### Scenario: Milk added after a capture replaces it
 - **WHEN** milk was captured, and the user pours more into the pitcher on the scale and the reading settles
 - **THEN** the new weight replaces the capture and the steam time is scaled to it
+
+#### Scenario: Tare or scale dropout with the pitcher on
+- **WHEN** milk was captured and the scale tares or disconnects while the pitcher is still on it
+- **THEN** the request stays open, the capture stands, nothing more is weighed, and lifting the pitcher still ends the request
 
 #### Scenario: Top-up after a manual adjustment
 - **WHEN** the user tapped ±5 after a capture and then pours more into the pitcher on the scale
