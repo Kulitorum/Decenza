@@ -2303,6 +2303,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     // the built-in entry: that arrives as the marker above, and
                     // recreating it as a user preset would put two "Heater off"
                     // rows in the picker.
+                    const int countBefore = brew->steamPitcherCount();
                     brew->addSteamPitcherPreset(pitcherName,
                                                 steam.value("durationSec").toInt(),
                                                 steam.value("flow").toInt(),
@@ -2310,8 +2311,10 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     index = brew->steamPitcherCount() - 1;
                     // Without its empty weight, milk capture skips the pitcher and
                     // weight-timed steaming falls back to the fixed time (#2185).
+                    // Only onto a pitcher the add appended: a refused add (a name
+                    // taken once trimmed) leaves index on an unrelated preset.
                     const double pitcherWeightG = steam.value("pitcherWeightG").toDouble();
-                    if (pitcherWeightG > 0)
+                    if (pitcherWeightG > 0 && brew->steamPitcherCount() == countBefore + 1)
                         brew->setSteamPitcherWeight(index, pitcherWeightG);
                     DIAG_DEBUG(RECIPES, "MainController") << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
                 }
