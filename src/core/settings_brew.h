@@ -41,8 +41,7 @@ class SettingsBrew : public QObject {
     // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
     // off — toggled by the bell on the Dose cup row.
     Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged FINAL)
-    // Last actual steam session (milk weight + steam time), saved so the steam
-    // setup can adopt them as a new reference baseline.
+    // The milk weight a steam is planned for: a recipe's, or the last one measured.
     Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged FINAL)
     Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged FINAL)
     // The pitcher the last steam session was steamed with, so its pour can only
@@ -309,8 +308,7 @@ public:
     // As waterVesselNameTaken: for a dialog to check before it calls a setter.
     Q_INVOKABLE bool steamPitcherNameTaken(const QString& name, int ignoreIndex = -1) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
-    // Weight-scaled steaming: pair a reference milk weight with this preset's
-    // duration. At steam time the duration is scaled by the actual milk weight.
+    // Legacy reference milk weight. Stored and round-tripped; scales nothing.
     Q_INVOKABLE void setSteamPitcherCalibration(int index, double calibMilkG);
     // Single source of truth for weight-timed steam scaling. Returns the scaled steam
     // time (s) clamped to [5,120], or 0 — meaning "use the preset's fixed duration" —

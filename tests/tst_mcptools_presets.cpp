@@ -139,6 +139,10 @@ private slots:
 
         QVERIFY(call("steam_pitcher", {{"action", "update"}, {"index", oat}, {"secPerGramMilk", 3.0}})["error"]
                     .toString().contains("secPerGramMilk"));
+        QCOMPARE(call("steam_pitcher", {{"action", "list"}})["presets"].toArray()[oat]
+                     .toObject()["secPerGramMilk"].toDouble(), 0.18);
+        QVERIFY(call("steam_pitcher", {{"action", "add"}, {"name", "Soy"}, {"secPerGramMilk", 3.0}})["error"]
+                    .toString().contains("secPerGramMilk"));
     }
 
     void steamSelectIsControlLevelButEditingIsNot() {

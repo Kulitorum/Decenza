@@ -1448,9 +1448,16 @@ private slots:
                 == SettingsBrew::PresetMutationResult::Invalid);
         QVERIFY(!brew->milkAutoCaptureEnabled());
 
-        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 200.0, 30.0)
+        // Above kMaxSecondsPerGram: a measured rate is stored as measured.
+        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 30.0, 70.0)
                 == SettingsBrew::PresetMutationResult::Applied);
-        QCOMPARE(brew->getSteamPitcherPreset(idx)["secondsPerGram"].toDouble(), 0.15);
+        QCOMPARE(brew->getSteamPitcherPreset(idx)["secondsPerGram"].toDouble(), 70.0 / 30.0);
+        QVERIFY(brew->milkAutoCaptureEnabled());
+
+        // The same pour again changes no rate and still opts back in.
+        brew->setMilkAutoCaptureEnabled(false);
+        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 30.0, 70.0)
+                == SettingsBrew::PresetMutationResult::NoChange);
         QVERIFY(brew->milkAutoCaptureEnabled());
     }
 
@@ -1516,7 +1523,6 @@ private slots:
         raw.setValue("steam/pitcherPresets", QJsonDocument(presets).toJson());
         raw.sync();
         Settings secondLaunch;
-        QCOMPARE(secondLaunch.brew()->getSteamPitcherPreset(2)["secondsPerGram"].toDouble(), 0.0);
         QVERIFY(!secondLaunch.brew()->getSteamPitcherPreset(2).contains("secondsPerGram"));
     }
 

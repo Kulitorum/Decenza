@@ -71,9 +71,12 @@ class tst_PreparationController : public QObject
         // The selected pitcher's own steam rate.
         void setRate(double secondsPerGram)
         {
-            QVERIFY(settings.brew()->trySetSteamPitcherSecondsPerGram(
-                        settings.brew()->selectedSteamPitcher(), QString(), secondsPerGram)
-                    != SettingsBrew::PresetMutationResult::Invalid);
+            // qFatal, not QVERIFY: QVERIFY in a helper returns from the helper only.
+            const auto result = settings.brew()->trySetSteamPitcherSecondsPerGram(
+                settings.brew()->selectedSteamPitcher(), QString(), secondsPerGram);
+            if (result != SettingsBrew::PresetMutationResult::Applied
+                && result != SettingsBrew::PresetMutationResult::NoChange)
+                qFatal("Fixture::setRate was refused");
         }
 
         void addTestPitcher()
@@ -576,12 +579,14 @@ private slots:
     }
 
     // A capture that cannot scale the time still says what it had to work with.
+    // Rate 0 BEFORE the capture: an uncalibrated pitcher must still be weighed,
+    // or its pour could never calibrate it.
     void steamStartFallbackLogsItsInputs()
     {
         Fixture f;
         f.prepareMilkCapture();
-        f.captureMilk();
         f.setRate(0.0);
+        f.captureMilk();
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral(
             "Steam start: preset duration \\d+ s, not scaled: pitcher has no steam seconds-per-gram rate "
             "\\[milk=100\\.0 g weight-timed=on pitcher-rate=0 s/g pitcher=Test pitcher empty=50\\.0 g\\]")));

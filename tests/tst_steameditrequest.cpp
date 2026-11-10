@@ -156,6 +156,16 @@ private slots:
         fields = validFields(QStringLiteral("set-preset-temperature"));
         fields.insert(QStringLiteral("temperatureC"), 1000.0);
         QVERIFY(!SteamEditRequest::validateFields(QStringLiteral("set-preset-temperature"), fields).valid);
+        const QString rateOp = QStringLiteral("set-preset-seconds-per-gram");
+        fields = validFields(rateOp);
+        fields.insert(QStringLiteral("value"), 2.01);
+        QVERIFY(!SteamEditRequest::validateFields(rateOp, fields).valid);
+        fields.insert(QStringLiteral("value"), -0.01);
+        QVERIFY(!SteamEditRequest::validateFields(rateOp, fields).valid);
+        fields = validFields(rateOp);
+        fields.remove(QStringLiteral("expectedName"));
+        QVERIFY(!SteamEditRequest::validateFields(rateOp, fields).valid);
+
         fields = validFields(QStringLiteral("create-preset"));
         fields.insert(QStringLiteral("name"), QString(129, QLatin1Char('x')));
         QVERIFY(!SteamEditRequest::validateFields(QStringLiteral("create-preset"), fields).valid);

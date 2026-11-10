@@ -1,5 +1,6 @@
 #include "steampageeditor.h"
 
+#include "core/diagnosticlogging.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../machine/machinestate.h"
@@ -370,6 +371,10 @@ bool SteamPageEditor::dispatch(const SteamEditRequest::Command& command,
 void SteamPageEditor::finish(const QString& requestId, const QString& operation,
                              bool success, const QString& message, const QVariantMap& result)
 {
+    // The client is shown `message`; a submitted log would otherwise hold no
+    // trace of a refused edit.
+    if (!success)
+        DIAG_INFO(STEAM, "SteamPageEditor") << operation << "refused:" << message;
     setErrorMessage(success ? QString() : message);
     emit operationCompleted(requestId, operation, success, message, result, editorRevision());
 }

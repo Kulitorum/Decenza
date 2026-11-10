@@ -2290,9 +2290,12 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                 // re-parsed the whole preset blob on every iteration.
                 const int realCount = static_cast<int>(presets.size()) - 1;
                 int index = -1;
+                // Trimmed, as the add's duplicate check is: an untrimmed miss
+                // here went on to an add that was then refused as a duplicate.
+                const QString wanted = pitcherName.trimmed();
                 for (int i = 0; i < realCount; ++i) {
-                    if (presets.at(i).toMap().value("name").toString()
-                            .compare(pitcherName, Qt::CaseInsensitive) == 0) {
+                    if (presets.at(i).toMap().value("name").toString().trimmed()
+                            .compare(wanted, Qt::CaseInsensitive) == 0) {
                         index = i;
                         break;
                     }
@@ -2304,26 +2307,35 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     // the built-in entry: that arrives as the marker above, and
                     // recreating it as a user preset would put two "Heater off"
                     // rows in the picker.
-                    const int countBefore = brew->steamPitcherCount();
-                    // With its rate: without one the recreated pitcher
-                    // weighs milk and then steams for the fixed time.
-                    // The count check below is what reports a refused add.
-                    (void)brew->tryAddSteamPitcherPreset(pitcherName,
-                                                steam.value("durationSec").toInt(),
-                                                steam.value("flow").toInt(),
-                                                steam.value("temperatureC").toDouble(),
-                                                steam.value("secondsPerGram").toDouble());
-                    index = brew->steamPitcherCount() - 1;
-                    // Without its empty weight, milk capture skips the pitcher and
-                    // weight-timed steaming falls back to the fixed time (#2185).
-                    // Only onto a pitcher the add appended: a refused add (a name
-                    // taken once trimmed) leaves index on an unrelated preset.
-                    const double pitcherWeightG = steam.value("pitcherWeightG").toDouble();
-                    if (pitcherWeightG > 0 && brew->steamPitcherCount() == countBefore + 1)
-                        brew->setSteamPitcherWeight(index, pitcherWeightG);
-                    DIAG_DEBUG(RECIPES, "MainController") << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
+                    // With its rate: without one the recreated pitcher weighs
+                    // milk and then steams for the fixed time. A recipe saved
+                    // before pitchers had rates stores none, and passes none.
+                    std::optional<double> rate;
+                    if (steam.contains("secondsPerGram"))
+                        rate = steam.value("secondsPerGram").toDouble();
+                    const auto added = brew->tryAddSteamPitcherPreset(
+                        pitcherName, steam.value("durationSec").toInt(),
+                        steam.value("flow").toInt(),
+                        steam.value("temperatureC").toDouble(), rate);
+                    if (added == SettingsBrew::PresetMutationResult::Applied) {
+                        index = brew->steamPitcherCount() - 1;
+                        // Without its empty weight, milk capture skips the pitcher and
+                        // weight-timed steaming falls back to the fixed time (#2185).
+                        const double pitcherWeightG = steam.value("pitcherWeightG").toDouble();
+                        if (pitcherWeightG > 0)
+                            brew->setSteamPitcherWeight(index, pitcherWeightG);
+                        DIAG_INFO(RECIPES, "MainController")
+                            << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
+                    } else {
+                        DIAG_WARN(RECIPES, "MainController")
+                            << "applyActivatedRecipe: could not recreate pitcher" << pitcherName
+                            << "- leaving the current steam pitcher selected";
+                    }
                 }
-                overrideIndex = index;
+                // A refused recreate names no pitcher: selecting "the last one"
+                // steamed the drink with an unrelated pitcher, or with the heater off.
+                if (index >= 0)
+                    overrideIndex = index;
             }
             // Selects AND applies the pitcher's own duration/flow/temperature.
             // This used to be a bare setSelectedSteamCup(), which stored the

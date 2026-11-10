@@ -259,8 +259,15 @@ SettingsBrew::PresetMutationResult SettingsBrew::trySetSteamPitcherSecondsPerGra
 {
     if (!std::isfinite(secondsPerGram))
         return PresetMutationResult::Invalid;
-    return updateSteamPitcherPresetFields(index, expectedName,
-        QJsonObject{{QStringLiteral("secondsPerGram"), qMax(0.0, secondsPerGram)}}, false);
+    const double rate = qMax(0.0, secondsPerGram);
+    const PresetMutationResult result = updateSteamPitcherPresetFields(index, expectedName,
+        QJsonObject{{QStringLiteral("secondsPerGram"), rate}}, false);
+    if (result == PresetMutationResult::Applied) {
+        DIAG_INFO(APP, "SettingsBrew") << "steam rate of pitcher"
+            << getSteamPitcherPreset(index).value(QStringLiteral("name")).toString()
+            << "set to" << rate << "s/g";
+    }
+    return result;
 }
 
 SettingsBrew::PresetMutationResult SettingsBrew::tryCalibrateSteamPitcher(

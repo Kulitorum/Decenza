@@ -636,9 +636,13 @@ void PreparationController::finishSteamSession()
         m_brew->setLastSteamMilkG(m_snapshot.sessionMeasuredMilkG);
         m_brew->setLastSteamTimeS(m_steamElapsedTracker);
         m_brew->setLastSteamPourMilkG(m_snapshot.sessionMeasuredMilkG);
-        m_brew->setLastSteamPitcherName(
-            m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher())
-                .value(QStringLiteral("name")).toString());
+        const QString pitcherName = m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher())
+                                        .value(QStringLiteral("name")).toString();
+        m_brew->setLastSteamPitcherName(pitcherName);
+        DIAG_INFO(STEAM, "PreparationController").noquote()
+            << QStringLiteral("Steam pour recorded: %1 g milk, %2 s, pitcher=%3")
+                   .arg(m_snapshot.sessionMeasuredMilkG, 0, 'f', 1)
+                   .arg(m_steamElapsedTracker, 0, 'f', 1).arg(pitcherName);
     }
     m_steamElapsedTracker = 0.0;
     m_snapshot.sessionMeasuredMilkG = 0.0;

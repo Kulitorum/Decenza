@@ -289,17 +289,18 @@ T.Page {
     // DE1::SubState::Puffing = 20
     readonly property bool isPuffing: SteamService.state.deviceState === 5 && SteamService.state.deviceSubState === 20
 
-    // Reactive: is the currently selected preset an "Off" pill? Duration/flow/temp
-    // sliders don't apply to Off presets so they're hidden in the settings frame.
-    // References selectedSteamPitcher and steamPitcherPresets so the binding
-    // re-evaluates on selection change or when the preset list itself is edited.
+    // Reads steamPitcherPresets so the binding also re-evaluates when the
+    // preset list itself is edited, not only on a selection change.
     readonly property var currentPitcher: {
         var _list = SteamService.state.steamPitcherPresets
         return SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher) || ({})
     }
+    // Heater off has no duration/flow/temperature/rate, so those rows hide.
     readonly property bool currentPitcherDisabled: currentPitcher.disabled === true
-    // The selected pitcher's own steam rate: seconds per gram of milk, 0 = uncalibrated.
     readonly property real currentPitcherRate: currentPitcher.secondsPerGram ?? 0
+    // SteamCalculations::kMaxSecondsPerGram: the most a rate may be SET to. A
+    // rate measured from a pour can be higher and is shown as stored.
+    readonly property real maxEnteredRate: 2.0
     readonly property string currentPitcherName: currentPitcherDisabled ? "" : (currentPitcher.name ?? "")
 
     // PreparationController applies steam timing and preset reset once per host phase
@@ -1988,8 +1989,8 @@ T.Page {
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
-                    // ── Steam rate: the selected pitcher's own seconds per gram of milk.
-                    // "Use last steam" is offered only for the pitcher that steam was with. ──
+                    // ── Steam rate. "Use last steam" is offered only for the pitcher
+                    // that steam was with. ──
                     ColumnLayout {
                         id: steamRateSection
                         Layout.fillWidth: true
@@ -2032,7 +2033,7 @@ T.Page {
                                 SettingsSearch.keywords: ["steam", "calibration", "milk", "weight", "time"]
                                 Layout.preferredWidth: Theme.scaled(170)
                                 from: 0
-                                to: 2.0
+                                to: Math.max(steamPage.maxEnteredRate, steamPage.currentPitcherRate)
                                 stepSize: 0.01
                                 decimals: 2
                                 suffix: TranslationManager.translate("steam.rate.suffix", " s/g")
@@ -2042,6 +2043,13 @@ T.Page {
                                 KeyNavigation.tab: pitcherRepeater.count > 0 ? steamPage.pitcherFocusTarget(0) : addPitcherButton
                                 KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
                                 onValueCommitted: function(newValue) {
+                                    // A measured rate above the entry limit can only be
+                                    // lowered, and lowering it lands on the limit.
+                                    if (newValue > steamPage.maxEnteredRate) {
+                                        if (newValue >= steamPage.currentPitcherRate)
+                                            return
+                                        newValue = steamPage.maxEnteredRate
+                                    }
                                     steamPage.beginEditorRequest("set-preset-seconds-per-gram",
                                         { index: SteamService.state.selectedSteamPitcher,
                                           expectedName: steamPage.currentPitcherName,

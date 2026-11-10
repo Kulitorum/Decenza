@@ -455,9 +455,9 @@ Two tools, `steam_pitcher` and `water_vessel`, each with `action` = `list` \| `a
 The five `steam_pitcher_*` tools this replaced each declared a `confirmed` argument that nothing enforced — none was ever in McpServer's confirmation list. The argument is gone rather than honoured: these are small, re-creatable presets, and the confirmation net is worth more unspent on routine edits.
 | Tool | Description | Category |
 |------|-------------|----------|
-| `steam_pitcher` action=`list` | Presets (name, durationSec, flowMlPerSec, temperatureC, secPerGramMilk — each pitcher's own weight-timed steam rate; pitcherWeightG when saved; disabled "Off" presets carry only name+disabled) plus `selectedIndex`. | read |
-| `steam_pitcher` action=`add` | Add a preset and select it. Optional durationSec/flowMlPerSec/temperatureC/secPerGramMilk (temperature defaults to the global steam temperature, the rate to the selected pitcher's); `disabled=true` adds an "Off" preset that turns the heater off. | settings |
-| `steam_pitcher` action=`update` | Update by index — partial; unspecified fields keep their values. Editing the selected pitcher re-applies it. Disabled presets can't be edited (delete + re-add). | settings |
+| `steam_pitcher` action=`list` | Presets (name, durationSec, flowMlPerSec, temperatureC, secPerGramMilk — each pitcher's own weight-timed steam rate; pitcherWeightG and legacy calibMilkG when stored; the built-in "Heater off" entry carries only name+disabled) plus `selectedIndex`. | read |
+| `steam_pitcher` action=`add` | Add a preset and select it. Optional durationSec/flowMlPerSec/temperatureC/secPerGramMilk (temperature defaults to the global steam temperature, the rate to the selected pitcher's). `disabled=true` is refused: select the built-in "Heater off" entry instead. | settings |
+| `steam_pitcher` action=`update` | Update by index — partial; unspecified fields keep their values. Editing the selected pitcher re-applies it. The built-in "Heater off" entry can't be edited or deleted. | settings |
 | `steam_pitcher` action=`delete` | Delete a preset by index. | settings |
 | `steam_pitcher` action=`select` | Switch the active pitcher by index; applies its duration/flow/temperature to the machine. | control |
 | `water_vessel` action=`list` | Presets (name, volumeMl, mode "weight"/"volume", flowMlPerSec, temperatureC) plus `selectedIndex`. | read |

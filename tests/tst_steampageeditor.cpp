@@ -173,6 +173,8 @@ private slots:
         brew->setMilkAutoCaptureEnabled(false);
         brew->setLastSteamPourMilkG(250.0);
         brew->setLastSteamTimeS(35.0);
+        // A recipe's planned milk, set after the pour, is not the pour.
+        brew->setLastSteamMilkG(180.0);
         QSignalSpy completed(&f.editor, &SteamPageEditor::operationCompleted);
 
         // No pitcher recorded with the pour: nothing to calibrate.
