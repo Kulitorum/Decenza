@@ -20,7 +20,7 @@ enum class Operation {
     StoreCurrentPitcherWeight,
     ClearPitcherWeight,
     SetMilkAutoCapture,
-    SetSteamSecondsPerGram,
+    SetPresetSecondsPerGram,
     CalibrateFromLastSteam
 };
 

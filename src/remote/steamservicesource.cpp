@@ -84,10 +84,11 @@ NativeSteamServiceSource::NativeSteamServiceSource(MainController* controller,
                             &SettingsBrew::steamTimeoutChanged,
                             &SettingsBrew::steamFlowChanged,
                             &SettingsBrew::steamAutoFlushSecondsChanged,
-                            &SettingsBrew::steamSecondsPerGramChanged,
                             &SettingsBrew::milkAutoCaptureEnabledChanged,
                             &SettingsBrew::lastSteamMilkGChanged,
-                            &SettingsBrew::lastSteamTimeSChanged})
+                            &SettingsBrew::lastSteamTimeSChanged,
+                            &SettingsBrew::lastSteamPitcherNameChanged,
+                            &SettingsBrew::lastSteamPourMilkGChanged})
             connect(brew, signal, this, &NativeSteamServiceSource::scheduleSettingsRefresh);
 
         auto* app = m_settings->app();
@@ -229,10 +230,11 @@ void NativeSteamServiceSource::refreshSnapshot()
         setSteamTimeout(brew->steamTimeout());
         setSteamFlow(brew->steamFlow());
         setSteamAutoFlushSeconds(brew->steamAutoFlushSeconds());
-        setSteamSecondsPerGram(brew->steamSecondsPerGram());
         setMilkAutoCaptureEnabled(brew->milkAutoCaptureEnabled());
         setLastSteamMilkG(brew->lastSteamMilkG());
         setLastSteamTimeS(brew->lastSteamTimeS());
+        setLastSteamPitcherName(brew->lastSteamPitcherName());
+        setLastSteamPourMilkG(brew->lastSteamPourMilkG());
         setLastSteamEffectiveDurationSec(brew->effectiveSteamDurationSec(selected, lastSteamMilkG()));
         setSteamTwoTapStop(m_settings->hardware()->steamTwoTapStop());
         setSteamViewMode(app->steamViewMode());
@@ -266,7 +268,7 @@ void NativeSteamServiceSource::refreshSnapshot()
     setScaleWeight(m_machineState->scaleWeight());
     setSteamTemperatureActual(m_device->steamTemperature());
     setPlannedSteamDurationSec(m_preparation->plannedSteamDurationSec(
-        preset, milkAutoCaptureEnabled(), steamSecondsPerGram(), steamTimeout()));
+        preset, milkAutoCaptureEnabled(), steamTimeout()));
     setSteamHeaterOn(m_controller->steamHeaterOn());
     setSteamSoftStopped(m_controller->steamSoftStopped());
     setSteamAutoFlushCountdown(m_controller->steamAutoFlushCountdown());

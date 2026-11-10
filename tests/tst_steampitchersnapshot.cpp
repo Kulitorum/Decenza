@@ -22,6 +22,7 @@ QVariantMap preset(QString name, double pitcherWeight)
             {QStringLiteral("flow"), 150},
             {QStringLiteral("temperature"), 135.0},
             {QStringLiteral("pitcherWeightG"), pitcherWeight},
+            {QStringLiteral("secondsPerGram"), 0.14},
             {QStringLiteral("calibMilkG"), 250.0}};
 }
 
@@ -39,6 +40,7 @@ QJsonObject validObject()
                          {QStringLiteral("flow"), 150},
                          {QStringLiteral("temperature"), 135.0},
                          {QStringLiteral("pitcherWeightG"), 165.5},
+                         {QStringLiteral("secondsPerGram"), 0.14},
                          {QStringLiteral("calibMilkG"), 250.0}},
              QJsonObject{{QStringLiteral("name"), QStringLiteral("Large")}},
              QJsonObject{{QStringLiteral("disabled"), true},
@@ -170,6 +172,7 @@ private slots:
         QCOMPARE(parsed.selectedIndex, 1);
         QCOMPARE(parsed.displayIndex(), 1);
         QCOMPARE(parsed.presetAt(0).value(QStringLiteral("pitcherWeightG")).toDouble(), 165.5);
+        QCOMPARE(parsed.presetAt(0).value(QStringLiteral("secondsPerGram")).toDouble(), 0.14);
         QVERIFY(!parsed.presetAt(1).contains(QStringLiteral("duration")));
 
         SteamPitcherSnapshot heaterOffSelected;
@@ -290,7 +293,7 @@ private slots:
         const QStringList numericFields{
             QStringLiteral("duration"), QStringLiteral("flow"),
             QStringLiteral("temperature"), QStringLiteral("pitcherWeightG"),
-            QStringLiteral("calibMilkG")
+            QStringLiteral("secondsPerGram"), QStringLiteral("calibMilkG")
         };
         QStringList fields{QStringLiteral("name"), QStringLiteral("disabled"),
                            QStringLiteral("builtin")};

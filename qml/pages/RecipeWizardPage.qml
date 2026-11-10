@@ -291,6 +291,7 @@ T.Page {
     property int fPitcherFlow: 0
     property real fPitcherTemperatureC: 0
     property real fPitcherWeightG: 0
+    property real fPitcherSecondsPerGram: 0
     property string _loadedSteamJson: ""
     property bool _steamChoiceEdited: false
     property bool _loadedSteamHasDetails: false
@@ -715,6 +716,7 @@ T.Page {
             fPitcherFlow = s.flow || 0
             fPitcherTemperatureC = s.temperatureC || 0
             fPitcherWeightG = s.pitcherWeightG || 0
+            fPitcherSecondsPerGram = s.secondsPerGram || 0
         } catch (e) {
             WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: bad steam JSON:", e].map(String).join(" "))
         }
@@ -745,6 +747,7 @@ T.Page {
             s.temperatureC = fPitcherTemperatureC
             // Lets activation restore a deleted pitcher's empty weight, which milk capture needs.
             if (fPitcherWeightG > 0) s.pitcherWeightG = fPitcherWeightG
+            if (fPitcherSecondsPerGram > 0) s.secondsPerGram = fPitcherSecondsPerGram
         }
         return JSON.stringify(s)
     }
@@ -815,6 +818,8 @@ T.Page {
             s.temperatureC = current.temperature || 0
             if ((current.pitcherWeightG || 0) > 0)
                 s.pitcherWeightG = current.pitcherWeightG
+            if ((current.secondsPerGram || 0) > 0)
+                s.secondsPerGram = current.secondsPerGram
         }
         if (SteamService.state.lastSteamMilkG > 0)
             s.milkWeightG = SteamService.state.lastSteamMilkG
@@ -1303,6 +1308,7 @@ T.Page {
             fHeaterOff = true
             fPitcherName = ""; fPitcherDurationSec = 0
             fPitcherFlow = 0; fPitcherTemperatureC = 0; fPitcherWeightG = 0
+            fPitcherSecondsPerGram = 0
             return
         }
         fHeaterOff = false
@@ -1311,6 +1317,7 @@ T.Page {
         fPitcherFlow = preset.flow || 0
         fPitcherTemperatureC = preset.temperature || 0
         fPitcherWeightG = preset.pitcherWeightG || 0
+        fPitcherSecondsPerGram = preset.secondsPerGram || 0
     }
 
     // The label for a tile: the built-in entry carries no stored name, so the
@@ -1340,7 +1347,8 @@ T.Page {
         if (!found && fPitcherName !== "") {
             arr.push({ name: fPitcherName, duration: fPitcherDurationSec,
                        flow: fPitcherFlow, temperature: fPitcherTemperatureC,
-                       pitcherWeightG: fPitcherWeightG })
+                       pitcherWeightG: fPitcherWeightG,
+                       secondsPerGram: fPitcherSecondsPerGram })
         }
         return arr
     }

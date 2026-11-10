@@ -10,6 +10,7 @@
 #include "mcptoolregistry.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
+#include "../core/steamcalculations.h"
 #include "../core/settings_hardware.h"
 #include "../controllers/maincontroller.h"
 #include "../machine/machinestate.h"
@@ -47,6 +48,7 @@ QJsonObject steamPitcherToJson(const QVariantMap& m, double globalTempC)
     o["temperatureC"] = m.contains("temperature") ? m.value("temperature").toDouble() : globalTempC;
     if (m.contains("pitcherWeightG")) o["pitcherWeightG"] = m.value("pitcherWeightG").toDouble();
     if (m.contains("calibMilkG")) o["calibMilkG"] = m.value("calibMilkG").toDouble();
+    o["secPerGramMilk"] = SteamCalculations::presetSecondsPerGram(m);
     return o;
 }
 
@@ -81,6 +83,16 @@ bool missingIndex(const QJsonObject& args, const QString& action, QJsonObject& r
     if (args.contains("index")) return false;
     result["error"] = QStringLiteral("index is required for action=%1 (get it from action=list)")
                           .arg(action);
+    return true;
+}
+
+bool rateOutOfRange(const QJsonObject& args, QJsonObject& result)
+{
+    if (!args.contains("secPerGramMilk")) return false;
+    const double rate = args.value("secPerGramMilk").toDouble(-1.0);
+    if (rate >= 0.0 && rate <= SteamCalculations::kMaxSecondsPerGram) return false;
+    result["error"] = QStringLiteral("secPerGramMilk must be a number from 0 to %1")
+                          .arg(SteamCalculations::kMaxSecondsPerGram);
     return true;
 }
 
@@ -176,8 +188,13 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             // selected the PREVIOUS pitcher (or, with none, the built-in) while
             // reporting success — the same hazard the import loop guards with
             // an after == before + 1 check.
+            if (rateOutOfRange(args, result)) return result;
+            const double rate = args.contains("secPerGramMilk")
+                ? args.value("secPerGramMilk").toDouble()
+                : settings->brew()->steamRateForNewPitcher();
             const int before = settings->brew()->steamPitcherCount();
-            settings->brew()->addSteamPitcherPreset(name, duration, flow, temp);
+            // The count check below is what reports a refused add.
+            (void)settings->brew()->tryAddSteamPitcherPreset(name, duration, flow, temp, rate);
             const int newIndex = settings->brew()->steamPitcherCount() - 1;
             if (settings->brew()->steamPitcherCount() != before + 1) {
                 result["error"] = "the pitcher could not be added — the stored preset list could not be read";
@@ -225,7 +242,15 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
                 result["error"] = "a steam pitcher named \"" + name + "\" already exists";
                 return result;
             }
+            if (rateOutOfRange(args, result)) return result;
             settings->brew()->updateSteamPitcherPreset(index, name, duration, flow, temp);
+            if (args.contains("secPerGramMilk")
+                && settings->brew()->trySetSteamPitcherSecondsPerGram(
+                       index, name, args.value("secPerGramMilk").toDouble())
+                   == SettingsBrew::PresetMutationResult::Unreadable) {
+                result["error"] = "the steam rate could not be saved — the stored preset list could not be read";
+                return result;
+            }
             // If we edited the active pitcher, re-apply so the live steam settings
             // (and the machine) reflect the change immediately.
             if (index == settings->brew()->selectedSteamPitcher()) applySteamPitcher(index);
@@ -288,7 +313,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     registry->registerActionTool(
         "steam_pitcher",
         "Steam pitcher presets: list, add, update, delete, select. A preset carries name, "
-        "durationSec, flowMlPerSec and temperatureC; `select` makes one active and sends it to "
+        "durationSec, flowMlPerSec, temperatureC and secPerGramMilk; `select` makes one active and sends it to "
         "the machine. Indexes come from `list` and shift after a delete. Field meanings, the "
         "\"Off\" preset, and pitcherWeightG/calibMilkG: get_agent_file topic \"steam_pitcher\".",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
@@ -297,6 +322,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             {"durationSec", QJsonObject{{"type", "integer"}, {"description", "Steam duration in seconds (add default 30)"}}},
             {"flowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Steam flow rate in mL/s (add default 1.5)"}}},
             {"temperatureC", QJsonObject{{"type", "number"}, {"description", "Steam temperature in °C (add defaults to the global steam temperature)"}}},
+            {"secPerGramMilk", QJsonObject{{"type", "number"}, {"description", "Weight-timed steam rate, seconds per gram of milk, 0-2; 0 = uncalibrated (add defaults to the selected pitcher's)"}}},
             {"disabled", QJsonObject{{"type", "boolean"}, {"description", "add only: create an \"Off\" preset (heater off); other fields ignored"}}}
         }}},
         pitcherActions);

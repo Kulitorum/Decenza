@@ -98,7 +98,7 @@ T.Page {
     property int editingPitcherIndex: -1  // For the edit popup
     // Weight timing sets the steam time from weighed milk, so a preset Duration is only the fallback.
     readonly property bool weightTimingActive: SteamService.state.milkAutoCaptureEnabled
-                                              && SteamService.state.steamSecondsPerGram > 0
+                                              && currentPitcherRate > 0
     property string pendingNavigationAction: ""
     property string pendingNavigationRequestId: ""
     property string pendingEditorRequestId: ""
@@ -293,12 +293,14 @@ T.Page {
     // sliders don't apply to Off presets so they're hidden in the settings frame.
     // References selectedSteamPitcher and steamPitcherPresets so the binding
     // re-evaluates on selection change or when the preset list itself is edited.
-    readonly property bool currentPitcherDisabled: {
-        var _selected = SteamService.state.selectedSteamPitcher
+    readonly property var currentPitcher: {
         var _list = SteamService.state.steamPitcherPresets
-        var preset = SteamService.getSteamPitcherPreset(_selected)
-        return preset ? preset.disabled === true : false
+        return SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher) || ({})
     }
+    readonly property bool currentPitcherDisabled: currentPitcher.disabled === true
+    // The selected pitcher's own steam rate: seconds per gram of milk, 0 = uncalibrated.
+    readonly property real currentPitcherRate: currentPitcher.secondsPerGram ?? 0
+    readonly property string currentPitcherName: currentPitcherDisabled ? "" : (currentPitcher.name ?? "")
 
     // PreparationController applies steam timing and preset reset once per host phase
     // transition. This page owns only its transient warnings and presentation state.
@@ -1792,11 +1794,7 @@ T.Page {
                             stepSize: 0.1
                             decimals: 1
                             suffix: " g"
-                            value: {
-                                var _ = SteamService.state.steamPitcherPresets
-                                var preset = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
-                                return preset ? (preset.pitcherWeightG ?? 0) : 0
-                            }
+                            value: steamPage.currentPitcher.pitcherWeightG ?? 0
                             valueColor: Theme.weightColor
                             accessibleName: TranslationManager.translate("steam.label.pitcherWeight.accessible", "Milk pitcher weight")
                             // tareBtn lives in the scale-gated sub-row; skip straight to
@@ -1929,8 +1927,8 @@ T.Page {
                         }
                         Tr {
                             Layout.fillWidth: true
-                            key: "steam.weightTimed.summaryBeforeSteam"
-                            fallback: "Weigh the milk before steaming. The app uses that weight to set the steam time; hold and move the pitcher while steaming. Calibrate once using a weighed steam or enter the steam rate by hand."
+                            key: "steam.weightTimed.summaryPerPitcher"
+                            fallback: "Weigh the milk before steaming. The app uses that weight to set the steam time; hold and move the pitcher while steaming. Calibrate each pitcher using a weighed steam or enter its steam rate by hand."
                             wrapMode: Text.WordWrap
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.labelFont.pixelSize
@@ -1990,18 +1988,18 @@ T.Page {
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
-                    // ── Steam rate calibration (GLOBAL — applies to every pitcher).
-                    // One "seconds per gram of milk" replaces the old per-pitcher
-                    // reference-milk scaling: calibrate once, every pitcher (same steam
-                    // flow) finishes at the same temperature. Shows the current rate,
-                    // a "Calibrate from last steam" button, and a manual ± adjust. ──
+                    // ── Steam rate: the selected pitcher's own seconds per gram of milk.
+                    // "Use last steam" is offered only for the pitcher that steam was with. ──
                     ColumnLayout {
                         id: steamRateSection
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
                         visible: !steamPage.currentPitcherDisabled
-                        readonly property bool calibrated: SteamService.state.steamSecondsPerGram > 0
-                        readonly property bool hasLast: SteamService.state.lastSteamMilkG > 0 && SteamService.state.lastSteamTimeS > 0
+                        readonly property bool calibrated: steamPage.currentPitcherRate > 0
+                        readonly property bool hasLast: SteamService.state.lastSteamPourMilkG > 0 && SteamService.state.lastSteamTimeS > 0
+                        readonly property string lastPitcherName: hasLast ? SteamService.state.lastSteamPitcherName : ""
+                        readonly property bool lastIsThisPitcher: lastPitcherName !== ""
+                                                                  && lastPitcherName === steamPage.currentPitcherName
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -2016,9 +2014,10 @@ T.Page {
                                 }
                                 Text {
                                     text: steamRateSection.calibrated
-                                          ? TranslationManager.translate("steam.rate.value", "%1 sec per gram of milk")
-                                                .arg(SteamService.state.steamSecondsPerGram.toFixed(2))
-                                          : TranslationManager.translate("steam.rate.uncalibrated", "Not yet calibrated — weight-timed steaming is off until you calibrate.")
+                                          ? TranslationManager.translate("steam.rate.valueFor", "%1: %2 sec per gram of milk")
+                                                .arg(steamPage.currentPitcherName).arg(steamPage.currentPitcherRate.toFixed(2))
+                                          : TranslationManager.translate("steam.rate.uncalibratedFor", "%1 is not calibrated yet. It steams for its set duration until you calibrate it.")
+                                                .arg(steamPage.currentPitcherName)
                                     color: Theme.textSecondaryColor
                                     font: Theme.labelFont
                                 }
@@ -2037,32 +2036,22 @@ T.Page {
                                 stepSize: 0.01
                                 decimals: 2
                                 suffix: TranslationManager.translate("steam.rate.suffix", " s/g")
-                                value: SteamService.state.steamSecondsPerGram
+                                value: steamPage.currentPitcherRate
                                 valueColor: Theme.primaryColor
                                 accessibleName: TranslationManager.translate("steam.rate.title.accessible", "Steam rate seconds per gram")
                                 KeyNavigation.tab: pitcherRepeater.count > 0 ? steamPage.pitcherFocusTarget(0) : addPitcherButton
                                 KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
                                 onValueCommitted: function(newValue) {
-                                    steamPage.beginEditorRequest("set-steam-seconds-per-gram",
-                                        { value: newValue }, "")
+                                    steamPage.beginEditorRequest("set-preset-seconds-per-gram",
+                                        { index: SteamService.state.selectedSteamPitcher,
+                                          expectedName: steamPage.currentPitcherName,
+                                          value: newValue }, "")
                                 }
                             }
                         }
 
-                        // Honest framing: one global rate across all pitchers is a
-                        // simplification, since presets still carry independent flow/temp.
-                        Tr {
-                            key: "steam.rate.note"
-                            fallback: "Simplification: the rate is calibrated once and applied to every pitcher. Presets can still carry their own flow and temperature, so this is a simpler mental model rather than an exact physical guarantee."
-                            Layout.fillWidth: true
-                            color: Theme.textSecondaryColor
-                            font: Theme.labelFont
-                            opacity: 0.85
-                            wrapMode: Text.WordWrap
-                        }
-
-                        // Calibrate from the last actual steam session (milk + time) —
-                        // derives the global seconds-per-gram and turns weight-timing on.
+                        // Calibrate this pitcher from the last actual steam session
+                        // (milk + time); also turns weight-timing on.
                         RowLayout {
                             id: useLastSteamRow
                             Layout.fillWidth: true
@@ -2070,10 +2059,13 @@ T.Page {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: steamRateSection.hasLast
+                                text: steamRateSection.lastIsThisPitcher
                                       ? TranslationManager.translate("steam.lastSteam.valuesGlobal", "Last steam: %1 g milk → %2 s")
-                                            .arg(SteamService.state.lastSteamMilkG.toFixed(0)).arg(Math.round(SteamService.state.lastSteamTimeS))
-                                      : TranslationManager.translate("steam.lastSteam.none", "Steam a weighed pitcher to your liking first, then come back here.")
+                                            .arg(SteamService.state.lastSteamPourMilkG.toFixed(0)).arg(Math.round(SteamService.state.lastSteamTimeS))
+                                      : steamRateSection.lastPitcherName !== ""
+                                        ? TranslationManager.translate("steam.lastSteam.otherPitcher", "The last steam was with %1. Select it to calibrate from that steam.")
+                                              .arg(steamRateSection.lastPitcherName)
+                                        : TranslationManager.translate("steam.lastSteam.none", "Steam a weighed pitcher to your liking first, then come back here.")
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
                                 wrapMode: Text.WordWrap
@@ -2082,9 +2074,9 @@ T.Page {
                             AccessibleButton {
                                 Layout.preferredHeight: Theme.scaled(44)
                                 text: TranslationManager.translate("steam.lastSteam.use", "Use last steam")
-                                accessibleName: TranslationManager.translate("steam.lastSteam.useAccessibleGlobal", "Calibrate the global steam rate from your last steam session")
+                                accessibleName: TranslationManager.translate("steam.lastSteam.useAccessiblePitcher", "Calibrate this pitcher's steam rate from your last steam session")
                                 primary: true
-                                enabled: steamRateSection.hasLast
+                                enabled: steamRateSection.lastIsThisPitcher
                                 onClicked: {
                                     steamPage.beginEditorRequest("calibrate-from-last-steam", {}, "")
                                 }

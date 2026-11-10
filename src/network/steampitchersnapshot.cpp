@@ -15,8 +15,8 @@
 #include <utility>
 
 namespace {
-constexpr auto kPresetFields = std::array<const char*, 8>{
-    "name", "duration", "flow", "temperature", "pitcherWeightG",
+constexpr std::array kPresetFields{
+    "name", "duration", "flow", "temperature", "pitcherWeightG", "secondsPerGram",
     "calibMilkG", "disabled", "builtin"
 };
 

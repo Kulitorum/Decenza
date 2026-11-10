@@ -46,9 +46,19 @@ inline bool steamPitcherNameTaken(const QVariantList& presets, const QString& na
     return nameTakenIn(presets, name, ignoreIndex);
 }
 
+// Upper bound for a rate ENTERED by hand or over MCP. A rate measured from a
+// pour, or carried over from the old global setting, is stored as it is.
+inline constexpr double kMaxSecondsPerGram = 2.0;
+
+// A preset's own steam rate in seconds per gram of milk. 0 = uncalibrated.
+inline double presetSecondsPerGram(const QVariantMap& preset)
+{
+    const double rate = preset.value(QStringLiteral("secondsPerGram")).toDouble();
+    return std::isfinite(rate) && rate > 0.0 ? rate : 0.0;
+}
+
 // Why a milk weight cannot scale this preset's steam time, or nullptr when it can.
-inline const char* steamScalingBlocker(const QVariantMap& preset, bool milkAutoCaptureEnabled,
-                                       double secondsPerGram)
+inline const char* steamScalingBlocker(const QVariantMap& preset, bool milkAutoCaptureEnabled)
 {
     if (!milkAutoCaptureEnabled)
         return "weight-timed steaming off";
@@ -56,18 +66,17 @@ inline const char* steamScalingBlocker(const QVariantMap& preset, bool milkAutoC
         return "no pitcher preset selected";
     if (preset.value(QStringLiteral("disabled")).toBool())
         return "heater-off preset";
-    if (!std::isfinite(secondsPerGram) || secondsPerGram <= 0.0)
-        return "no steam seconds-per-gram rate";
+    if (presetSecondsPerGram(preset) <= 0.0)
+        return "pitcher has no steam seconds-per-gram rate";
     return nullptr;
 }
 
-inline int scaledSteamTime(const QVariantMap& preset, bool milkAutoCaptureEnabled,
-                           double secondsPerGram, double milkG)
+inline int scaledSteamTime(const QVariantMap& preset, bool milkAutoCaptureEnabled, double milkG)
 {
-    if (steamScalingBlocker(preset, milkAutoCaptureEnabled, secondsPerGram)
+    if (steamScalingBlocker(preset, milkAutoCaptureEnabled)
         || !std::isfinite(milkG) || milkG <= 0.0)
         return 0;
-    const double bounded = qBound(5.0, secondsPerGram * milkG, 120.0);
+    const double bounded = qBound(5.0, presetSecondsPerGram(preset) * milkG, 120.0);
     return qRound(bounded);
 }
 
@@ -81,8 +90,7 @@ struct SteamDuration {
 };
 
 inline SteamDuration effectiveSteamDuration(const QVariantMap& preset,
-                                             bool milkAutoCaptureEnabled,
-                                             double secondsPerGram, double milkG)
+                                             bool milkAutoCaptureEnabled, double milkG)
 {
     SteamDuration result;
     result.presetMissing = preset.isEmpty();
@@ -92,8 +100,7 @@ inline SteamDuration effectiveSteamDuration(const QVariantMap& preset,
     if (result.heaterOff)
         return result;
 
-    result.scaledSeconds = scaledSteamTime(preset, milkAutoCaptureEnabled,
-                                           secondsPerGram, milkG);
+    result.scaledSeconds = scaledSteamTime(preset, milkAutoCaptureEnabled, milkG);
     if (result.scaledSeconds > 0) {
         result.effectiveSeconds = result.scaledSeconds;
         return result;

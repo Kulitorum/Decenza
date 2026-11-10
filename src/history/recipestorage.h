@@ -30,7 +30,7 @@ class SerialDbWorker;
 // recipe's grind. Grind-less drink types (tea) store none.
 //
 // Steam: steamJson holds the drink's steam block, serialized as
-// {hasMilk, milkWeightG, pitcherName, durationSec, flow, temperatureC, pitcherWeightG}. The
+// {hasMilk, milkWeightG, pitcherName, durationSec, flow, temperatureC, pitcherWeightG, secondsPerGram}. The
 // pitcher is snapshotted BY VALUE (name + duration/flow/temperature) — never a
 // preset-list reference — per the Bean Base snapshot-not-reference rule.
 //

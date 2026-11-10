@@ -1593,7 +1593,8 @@ namespace {
 // The recipe steam block's JSON shape, shared by activation, the shot-save
 // snapshot, the composer prefill, MCP, and the web UI:
 //   { "hasMilk": bool, "milkWeightG": n, "heaterOff": bool, "pitcherName": s,
-//     "durationSec": n, "flow": n, "temperatureC": n, "pitcherWeightG": n }
+//     "durationSec": n, "flow": n, "temperatureC": n, "pitcherWeightG": n,
+//     "secondsPerGram": n }
 //
 // "heaterOff" is the built-in "Heater off" entry chosen deliberately, and is
 // mutually exclusive with the pitcher fields — it carries no values of its own.
@@ -2304,10 +2305,14 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     // recreating it as a user preset would put two "Heater off"
                     // rows in the picker.
                     const int countBefore = brew->steamPitcherCount();
-                    brew->addSteamPitcherPreset(pitcherName,
+                    // With its rate: without one the recreated pitcher
+                    // weighs milk and then steams for the fixed time.
+                    // The count check below is what reports a refused add.
+                    (void)brew->tryAddSteamPitcherPreset(pitcherName,
                                                 steam.value("durationSec").toInt(),
                                                 steam.value("flow").toInt(),
-                                                steam.value("temperatureC").toDouble());
+                                                steam.value("temperatureC").toDouble(),
+                                                steam.value("secondsPerGram").toDouble());
                     index = brew->steamPitcherCount() - 1;
                     // Without its empty weight, milk capture skips the pitcher and
                     // weight-timed steaming falls back to the fixed time (#2185).
@@ -2741,6 +2746,8 @@ QString MainController::currentSteamSpecJson() const {
         o.insert("temperatureC", pitcher.value("temperature").toDouble());
         if (pitcher.value("pitcherWeightG").toDouble() > 0)
             o.insert("pitcherWeightG", pitcher.value("pitcherWeightG").toDouble());
+        if (pitcher.value("secondsPerGram").toDouble() > 0)
+            o.insert("secondsPerGram", pitcher.value("secondsPerGram").toDouble());
     }
     if (brew->lastSteamMilkG() > 0)
         o.insert("milkWeightG", brew->lastSteamMilkG());

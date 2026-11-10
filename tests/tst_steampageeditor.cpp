@@ -76,7 +76,8 @@ private slots:
         case 3: brew->setSteamTimeout(brew->steamTimeout() + 1); break;
         case 4: brew->setSteamFlow(brew->steamFlow() + 1); break;
         case 5: brew->setMilkAutoCaptureEnabled(!brew->milkAutoCaptureEnabled()); break;
-        case 6: brew->setSteamSecondsPerGram(brew->steamSecondsPerGram() + 0.01); break;
+        case 6: QVERIFY(brew->trySetSteamPitcherSecondsPerGram(0, QString(), 0.21)
+                        == SettingsBrew::PresetMutationResult::Applied); break;
         }
         const QString current = f.revision();
         QVERIFY(current != previous);
@@ -139,6 +140,60 @@ private slots:
         QCOMPARE(temperatureCommit.size(), 1);
         QCOMPARE(temperatureCommit.first().first().toDouble(), 154.0);
         QCOMPARE(brew->getSteamPitcherPreset(0).value(QStringLiteral("temperature")).toDouble(), 154.0);
+    }
+
+    void rateEditChangesOnlyTheSelectedPitcher()
+    {
+        Fixture f;
+        auto* brew = f.settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Oat"), 30, 150, 160.0);
+
+        QVERIFY(f.editor.setPresetSecondsPerGram(f.requestId(), f.revision(), 0,
+                                                 QStringLiteral("Test pitcher"), 0.14));
+        QCOMPARE(brew->getSteamPitcherPreset(0).value(QStringLiteral("secondsPerGram")).toDouble(), 0.14);
+        QVERIFY(!brew->getSteamPitcherPreset(1).contains(QStringLiteral("secondsPerGram")));
+
+        // A pitcher that is not the selected one is refused, as for the other tuning edits.
+        QSignalSpy completed(&f.editor, &SteamPageEditor::operationCompleted);
+        f.editor.setPresetSecondsPerGram(f.requestId(), f.revision(), 1, QStringLiteral("Oat"), 0.3);
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(!brew->getSteamPitcherPreset(1).contains(QStringLiteral("secondsPerGram")));
+
+        // A pitcher added from the page starts with the selected pitcher's rate.
+        QVERIFY(f.editor.createPreset(f.requestId(), f.revision(), QStringLiteral("Large")));
+        QCOMPARE(brew->getSteamPitcherPreset(2).value(QStringLiteral("secondsPerGram")).toDouble(), 0.14);
+    }
+
+    void lastSteamCalibratesOnlyThePitcherItWasSteamedWith()
+    {
+        Fixture f;
+        auto* brew = f.settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Oat"), 30, 150, 160.0);
+        brew->setMilkAutoCaptureEnabled(false);
+        brew->setLastSteamPourMilkG(250.0);
+        brew->setLastSteamTimeS(35.0);
+        QSignalSpy completed(&f.editor, &SteamPageEditor::operationCompleted);
+
+        // No pitcher recorded with the pour: nothing to calibrate.
+        brew->setLastSteamPitcherName(QString());
+        f.editor.calibrateFromLastSteam(f.requestId(), f.revision());
+        QVERIFY(!completed.last().at(2).toBool());
+
+        // Steamed with Oat while Test pitcher is selected: refused.
+        brew->setLastSteamPitcherName(QStringLiteral("Oat"));
+        f.editor.calibrateFromLastSteam(f.requestId(), f.revision());
+        QVERIFY(!completed.last().at(2).toBool());
+        QVERIFY(!brew->getSteamPitcherPreset(0).contains(QStringLiteral("secondsPerGram")));
+        QVERIFY(!brew->milkAutoCaptureEnabled());
+
+        brew->setSelectedSteamCup(1);
+        QVERIFY(f.editor.calibrateFromLastSteam(f.requestId(), f.revision()));
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(brew->getSteamPitcherPreset(1).value(QStringLiteral("secondsPerGram")).toDouble(),
+                 35.0 / 250.0);
+        QVERIFY(!brew->getSteamPitcherPreset(0).contains(QStringLiteral("secondsPerGram")));
+        QVERIFY(brew->milkAutoCaptureEnabled());
     }
 
     void storeCurrentWeightIsCapturedByHostAndReturned()

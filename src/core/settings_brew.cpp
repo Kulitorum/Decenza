@@ -11,6 +11,8 @@
 #include <QJsonObject>
 #include <QtMath>
 
+#include <cmath>
+
 static_assert(SettingsBrew::HeaterOffPitcherIndex == SteamPitcherSelection::HeaterOffIndex);
 
 SettingsBrew::SettingsBrew(QObject* parent)
@@ -80,6 +82,15 @@ SettingsBrew::SettingsBrew(QObject* parent)
         defaults.append(thorough);
 
         m_settings.setValue("flush/presets", QJsonDocument(defaults).toJson());
+    }
+
+    // One-time: the steam rate was one global value; copy it into every pitcher.
+    // An unreadable preset list leaves the flag unset, so this retries next launch.
+    if (!m_settings.contains("migration/steamRatePerPitcher")
+        && seedSteamPitcherRates(m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble())) {
+        m_settings.setValue("migration/steamRatePerPitcher", true);
+        DIAG_INFO(APP, "SettingsBrew") << "one-time steam rate copy done; the global rate was"
+            << m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble() << "s/g";
     }
 
     // Load persistent brew overrides into the cache (Settings used to do this).
@@ -222,23 +233,77 @@ void SettingsBrew::setLastSteamTimeS(double s) {
     }
 }
 
-double SettingsBrew::steamSecondsPerGram() const {
-    return m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble();
+QString SettingsBrew::lastSteamPitcherName() const {
+    return m_settings.value("steam/lastSteamPitcherName").toString();
 }
-void SettingsBrew::setSteamSecondsPerGram(double secPerGram) {
-    if (secPerGram < 0) secPerGram = 0;  // 0 = uncalibrated; never negative
-    if (!qFuzzyCompare(1.0 + steamSecondsPerGram(), 1.0 + secPerGram)) {
-        m_settings.setValue("steam/steamSecondsPerGram", secPerGram);
-        emit steamSecondsPerGramChanged();
+void SettingsBrew::setLastSteamPitcherName(const QString& name) {
+    if (lastSteamPitcherName() != name) {
+        m_settings.setValue("steam/lastSteamPitcherName", name);
+        emit lastSteamPitcherNameChanged();
     }
 }
 
-void SettingsBrew::calibrateSteamFromReference(double milkG, double timeSec) {
-    if (milkG <= 0.0 || timeSec <= 0.0) return;  // guarded — need both to derive a rate
-    setSteamSecondsPerGram(timeSec / milkG);
-    // Weight-timed steaming is off by default; calibrating is the explicit opt-in,
-    // mirroring the old per-pitcher setSteamPitcherCalibration behaviour.
-    setMilkAutoCaptureEnabled(true);
+double SettingsBrew::lastSteamPourMilkG() const {
+    return m_settings.value("steam/lastSteamPourMilkG", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamPourMilkG(double g) {
+    if (g < 0) g = 0;
+    if (lastSteamPourMilkG() != g) {
+        m_settings.setValue("steam/lastSteamPourMilkG", g);
+        emit lastSteamPourMilkGChanged();
+    }
+}
+
+SettingsBrew::PresetMutationResult SettingsBrew::trySetSteamPitcherSecondsPerGram(
+    int index, const QString& expectedName, double secondsPerGram)
+{
+    if (!std::isfinite(secondsPerGram))
+        return PresetMutationResult::Invalid;
+    return updateSteamPitcherPresetFields(index, expectedName,
+        QJsonObject{{QStringLiteral("secondsPerGram"), qMax(0.0, secondsPerGram)}}, false);
+}
+
+SettingsBrew::PresetMutationResult SettingsBrew::tryCalibrateSteamPitcher(
+    int index, const QString& expectedName, double milkG, double timeSec)
+{
+    if (!std::isfinite(milkG) || !std::isfinite(timeSec) || milkG <= 0.0 || timeSec <= 0.0)
+        return PresetMutationResult::Invalid;
+    const PresetMutationResult result =
+        trySetSteamPitcherSecondsPerGram(index, expectedName, timeSec / milkG);
+    // Weight-timed steaming is off by default; calibrating is the explicit opt-in.
+    if (result == PresetMutationResult::Applied || result == PresetMutationResult::NoChange)
+        setMilkAutoCaptureEnabled(true);
+    return result;
+}
+
+double SettingsBrew::steamRateForNewPitcher() const {
+    return SteamCalculations::presetSecondsPerGram(getSteamPitcherPreset(selectedSteamPitcher()));
+}
+
+bool SettingsBrew::seedSteamPitcherRates(double secondsPerGram) {
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    if (parseFailed)
+        return false;
+    if (!std::isfinite(secondsPerGram) || secondsPerGram <= 0.0)
+        return true;   // nothing to copy; an absent rate already reads as uncalibrated
+
+    qsizetype filled = 0;
+    for (qsizetype i = 0; i < arr.size(); ++i) {
+        QJsonObject preset = arr.at(i).toObject();
+        if (preset.contains(QStringLiteral("secondsPerGram")))
+            continue;
+        preset.insert(QStringLiteral("secondsPerGram"), secondsPerGram);
+        arr[i] = preset;
+        ++filled;
+    }
+    DIAG_INFO(APP, "SettingsBrew") << "steam rate" << secondsPerGram << "s/g given to" << filled
+        << "of" << arr.size() << "pitchers; the rest already had their own";
+    if (filled > 0) {
+        m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+        emit steamPitcherPresetsChanged();
+    }
+    return true;
 }
 
 bool SettingsBrew::nameTakenIn(const QJsonArray& arr, const QString& name, int ignoreIndex) {
@@ -558,7 +623,8 @@ int SettingsBrew::resolveRecipePitcherOverride(int recipeIndex) {
 }
 
 SettingsBrew::PresetMutationResult SettingsBrew::tryAddSteamPitcherPreset(
-    const QString& name, int duration, int flow, double temperature)
+    const QString& name, int duration, int flow, double temperature,
+    std::optional<double> secondsPerGram)
 {
     bool parseFailed = false;
     QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
@@ -584,6 +650,9 @@ SettingsBrew::PresetMutationResult SettingsBrew::tryAddSteamPitcherPreset(
     preset["duration"] = duration;
     preset["flow"] = flow;
     preset["temperature"] = temperature;
+    if (secondsPerGram && std::isfinite(*secondsPerGram)) {
+        preset["secondsPerGram"] = qMax(0.0, *secondsPerGram);
+    }
     arr.append(preset);
 
     m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
@@ -631,6 +700,7 @@ SettingsBrew::PresetMutationResult SettingsBrew::updateSteamPitcherPresetFields(
         return PresetMutationResult::Invalid;
     }
 
+    const QString oldName = preset.value(QStringLiteral("name")).toString();
     bool changed = false;
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
         if (!preset.contains(it.key()) || preset.value(it.key()) != it.value()) {
@@ -643,6 +713,11 @@ SettingsBrew::PresetMutationResult SettingsBrew::updateSteamPitcherPresetFields(
 
     arr[index] = preset;
     m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+    // The last pour follows its pitcher through a rename, so the old name can
+    // never come to mean a different pitcher.
+    if (fields.contains(QStringLiteral("name")) && !oldName.isEmpty()
+        && oldName == lastSteamPitcherName())
+        setLastSteamPitcherName(name);
     if (index == selectedSteamPitcher() && fields.contains(QStringLiteral("temperature")))
         syncSelectedSteamPitcherTemperature();
     emit steamPitcherPresetsChanged();
@@ -716,8 +791,12 @@ SettingsBrew::PresetMutationResult SettingsBrew::tryRemoveSteamPitcherPreset(
         && arr.at(index).toObject().value(QStringLiteral("name")).toString() != expectedName)
         return PresetMutationResult::Invalid;
 
+    const QString removedName = arr.at(index).toObject().value(QStringLiteral("name")).toString();
     arr.removeAt(index);
     m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+    // Its pour must not calibrate a later pitcher given the same name.
+    if (removedName == lastSteamPitcherName())
+        setLastSteamPitcherName(QString());
 
     // Both live and parked selections shift through the same index transform.
     setSelectedSteamCup(shiftedForRemoval(selectedSteamPitcher(), index));
@@ -829,13 +908,12 @@ void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
 
 int SettingsBrew::scaledSteamTime(int index, double milkG) const {
     return SteamCalculations::scaledSteamTime(getSteamPitcherPreset(index),
-                                               milkAutoCaptureEnabled(),
-                                               steamSecondsPerGram(), milkG);
+                                               milkAutoCaptureEnabled(), milkG);
 }
 
 int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
     const SteamCalculations::SteamDuration duration = SteamCalculations::effectiveSteamDuration(
-        getSteamPitcherPreset(index), milkAutoCaptureEnabled(), steamSecondsPerGram(), milkG);
+        getSteamPitcherPreset(index), milkAutoCaptureEnabled(), milkG);
     if (duration.scaledSeconds > 0)
         return duration.effectiveSeconds;
     if (duration.presetMissing) {

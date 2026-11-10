@@ -169,7 +169,6 @@ MachineUiSnapshot NativeHostSessionServiceSource::captureMachineUi(DE1Device* m_
         machineUi.brewSteamFlow = m_settings->brew()->steamFlow();
         machineUi.brewSteamAutoFlushSeconds = m_settings->brew()->steamAutoFlushSeconds();
         machineUi.brewMilkAutoCaptureEnabled = m_settings->brew()->milkAutoCaptureEnabled();
-        machineUi.brewSteamSecondsPerGram = m_settings->brew()->steamSecondsPerGram();
         machineUi.brewLastSteamMilkG = m_settings->brew()->lastSteamMilkG();
         machineUi.brewLastSteamTimeS = m_settings->brew()->lastSteamTimeS();
         machineUi.brewDoseCupTareWeight = m_settings->brew()->doseCupTareWeight();

@@ -32,10 +32,11 @@ class tst_PreparationController : public QObject
         {
             settings.brew()->setDoseCupTareWeight(0.0);
             settings.brew()->setMilkAutoCaptureEnabled(false);
-            settings.brew()->setSteamSecondsPerGram(0.0);
             settings.brew()->setDoseCaptureSoundEnabled(false);
             settings.brew()->setLastSteamMilkG(0.0);
             settings.brew()->setLastSteamTimeS(0.0);
+            settings.brew()->setLastSteamPitcherName(QString());
+            settings.brew()->setLastSteamPourMilkG(0.0);
             while (settings.brew()->steamPitcherCount() > 0)
                 settings.brew()->removeSteamPitcherPreset(0);
             device.setSimulationMode(true);
@@ -67,13 +68,21 @@ class tst_PreparationController : public QObject
             advance(1000);
         }
 
+        // The selected pitcher's own steam rate.
+        void setRate(double secondsPerGram)
+        {
+            QVERIFY(settings.brew()->trySetSteamPitcherSecondsPerGram(
+                        settings.brew()->selectedSteamPitcher(), QString(), secondsPerGram)
+                    != SettingsBrew::PresetMutationResult::Invalid);
+        }
+
         void addTestPitcher()
         {
             settings.brew()->addSteamPitcherPreset(QStringLiteral("Test pitcher"), 20, 20, 160.0);
             settings.brew()->setSteamPitcherWeight(0, 50.0);
             settings.brew()->setSteamPitcherCalibration(0, 100.0);
-            settings.brew()->setSteamSecondsPerGram(0.2);
             settings.brew()->setSelectedSteamCup(0);
+            setRate(0.2);
             QVERIFY(settings.brew()->applySteamPitcherValues(0, 0.0)
                     == SettingsBrew::PitcherApply::Applied);
         }
@@ -490,6 +499,8 @@ private slots:
         QVERIFY(!f.preparation.milkAttemptOpen());
         QCOMPARE(f.settings.brew()->lastSteamMilkG(), 100.0);
         QVERIFY(f.settings.brew()->lastSteamTimeS() >= 1.0);
+        QCOMPARE(f.settings.brew()->lastSteamPitcherName(), QStringLiteral("Test pitcher"));
+        QCOMPARE(f.settings.brew()->lastSteamPourMilkG(), 100.0);
         QVERIFY(f.preparation.milkTimeLocked());
     }
 
@@ -504,7 +515,7 @@ private slots:
         f.setWeight(160.0); // 110 g net
         f.setWeight(0.0); // Pitcher lifted; scale stays connected.
         f.preparation.evaluateForTesting();
-        f.settings.brew()->setSteamSecondsPerGram(0.3);
+        f.setRate(0.3);
 
         QSignalSpy immediate(&f.preparation,
                               &PreparationController::steamTimeoutImmediateRequested);
@@ -570,10 +581,10 @@ private slots:
         Fixture f;
         f.prepareMilkCapture();
         f.captureMilk();
-        f.settings.brew()->setSteamSecondsPerGram(0.0);
+        f.setRate(0.0);
         QTest::ignoreMessage(QtInfoMsg, QRegularExpression(QStringLiteral(
-            "Steam start: preset duration \\d+ s, not scaled: no steam seconds-per-gram rate "
-            "\\[milk=100\\.0 g weight-timed=on rate=0 s/g pitcher=Test pitcher empty=50\\.0 g\\]")));
+            "Steam start: preset duration \\d+ s, not scaled: pitcher has no steam seconds-per-gram rate "
+            "\\[milk=100\\.0 g weight-timed=on pitcher-rate=0 s/g pitcher=Test pitcher empty=50\\.0 g\\]")));
         QSignalSpy phaseChanged(&f.machine, &MachineState::phaseChanged);
         f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
         QTRY_VERIFY(phaseChanged.count() > 0);
@@ -584,7 +595,7 @@ private slots:
     {
         Fixture f;
         f.prepareMilkCapture();
-        f.settings.brew()->setSteamSecondsPerGram(0.27);
+        f.setRate(0.27);
         f.captureMilk();
         QCOMPARE(f.settings.brew()->steamTimeout(), 27); // 100 g x 0.27 s/g; the preset is 20 s
 
@@ -654,7 +665,7 @@ private slots:
         Fixture f;
         f.prepareMilkCapture();
         f.settings.brew()->setMilkAutoCaptureEnabled(true);
-        f.settings.brew()->setSteamSecondsPerGram(0.27);
+        f.setRate(0.27);
         f.settings.brew()->setLastSteamMilkG(220.91);
         const QStringList capturedFirst{QStringLiteral("resting"), QStringLiteral("captured"),
             QStringLiteral("reselect"), QStringLiteral("modeRoundTrip"), QStringLiteral("otherPitcher")};
@@ -690,7 +701,7 @@ private slots:
         const auto* brew = f.settings.brew();
         const auto cachedPitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
         QCOMPARE(f.preparation.plannedSteamDurationSec(cachedPitcher,
-            brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), brew->steamTimeout()),
+            brew->milkAutoCaptureEnabled(), brew->steamTimeout()),
             expectedSeconds);
         QSignalSpy immediate(&f.preparation, &PreparationController::steamTimeoutImmediateRequested);
         QSignalSpy started(&f.machine, &MachineState::shotStarted);
@@ -705,13 +716,13 @@ private slots:
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
         // Once running, later milk/rate changes must not advertise a different
         // duration from the timeout actually controlling this operation.
-        f.settings.brew()->setSteamSecondsPerGram(0.5);
+        f.setRate(0.5);
         f.setWeight(250.0);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
         f.settings.brew()->setSteamTimeout(70);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), 70);
         QCOMPARE(f.preparation.plannedSteamDurationSec(cachedPitcher,
-            brew->milkAutoCaptureEnabled(), brew->steamSecondsPerGram(), 70), 70);
+            brew->milkAutoCaptureEnabled(), 70), 70);
     }
 
     // #2058: the scale reads -450 g empty because nothing tares it, and the pitcher

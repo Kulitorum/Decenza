@@ -64,7 +64,6 @@ QJsonObject validObject()
         {QStringLiteral("brewSteamFlow"), 150},
         {QStringLiteral("brewSteamAutoFlushSeconds"), 4},
         {QStringLiteral("brewMilkAutoCaptureEnabled"), true},
-        {QStringLiteral("brewSteamSecondsPerGram"), 0.15},
         {QStringLiteral("brewLastSteamMilkG"), 200.0},
         {QStringLiteral("brewLastSteamTimeS"), 30.0},
         {QStringLiteral("brewDoseCupTareWeight"), 12.75},
@@ -141,7 +140,6 @@ private slots:
         source.brewSteamFlow = 150;
         source.brewSteamAutoFlushSeconds = 4;
         source.brewMilkAutoCaptureEnabled = true;
-        source.brewSteamSecondsPerGram = 0.15;
         source.brewLastSteamMilkG = 200.0;
         source.brewLastSteamTimeS = 30.0;
         source.de1IsHeadless = true;
@@ -305,7 +303,6 @@ private slots:
             {"brewSteamFlow", false},
             {"brewSteamAutoFlushSeconds", false},
             {"brewMilkAutoCaptureEnabled", 1},
-            {"brewSteamSecondsPerGram", false},
             {"brewLastSteamMilkG", false},
             {"brewLastSteamTimeS", false},
             {"de1IsHeadless", 1},
@@ -396,7 +393,7 @@ private slots:
             "cumulativeVolume", "preinfusionVolume", "pourVolume",
             "steamAutoFlushCountdown",
             "brewTemperatureOverride", "brewSteamTemperature", "brewDoseCupTareWeight",
-            "brewSteamSecondsPerGram", "brewLastSteamMilkG", "brewLastSteamTimeS",
+            "brewLastSteamMilkG", "brewLastSteamTimeS",
             "profileTargetTemperature", "profileTargetWeight", "profileEffectiveTargetWeight", "profileBrewByRatio",
             "profileBrewByRatioDose", "activeBaselineYieldG", "activeRecipeTempOffsetC", "portalEcRaw"
         };

@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "settings_app.h"
 #include "settings_brew.h"
+#include "steamcalculations.h"
 #include "settings_dye.h"
 #include "settings_network.h"
 #include "settings_mqtt.h"
@@ -79,7 +80,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
     steam["milkAutoCaptureEnabled"] = settings->brew()->milkAutoCaptureEnabled();
-    steam["steamSecondsPerGram"] = settings->brew()->steamSecondsPerGram();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
@@ -102,6 +102,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         // The weight-based-steaming feature is keyed on these, so they must round-trip.
         if (m.contains("pitcherWeightG")) p["pitcherWeightG"] = m["pitcherWeightG"].toDouble();
         if (m.contains("calibMilkG")) p["calibMilkG"] = m["calibMilkG"].toDouble();
+        // Always written, 0 included: its presence is what tells an import this
+        // backup has per-pitcher rates and must not be seeded from a global one.
+        p["secondsPerGram"] = SteamCalculations::presetSecondsPerGram(m);
         if (m.contains("disabled")) p["disabled"] = m["disabled"].toBool();
         pitcherPresets.append(p);
     }
@@ -526,6 +529,12 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                     const int idx = after - 1;
                     if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
                     if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
+                    if (p.contains("secondsPerGram")) {
+                        // A refused rate leaves the pitcher uncalibrated, which
+                        // steams for its fixed duration.
+                        (void)settings->brew()->trySetSteamPitcherSecondsPerGram(
+                            idx, QString(), p["secondsPerGram"].toDouble());
+                    }
                 }
             }
         }
@@ -534,8 +543,11 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // calibrated preset clobber a backup where the user had the feature OFF.
         // The serialized value must win.
         if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
+        // A backup from before per-pitcher rates carries one global rate: give
+        // it to every pitcher that came without its own. Unreadable presets
+        // were already reported by the loop above.
         if (steam.contains("steamSecondsPerGram"))
-            settings->brew()->setSteamSecondsPerGram(steam["steamSecondsPerGram"].toDouble());
+            (void)settings->brew()->seedSteamPitcherRates(steam["steamSecondsPerGram"].toDouble());
         // Apply the selected pitcher AFTER any preset rebuild (and regardless of
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.
