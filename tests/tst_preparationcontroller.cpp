@@ -211,7 +211,6 @@ private slots:
         f.prepareMilkCapture();
         f.captureMilk();
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
-        // The capture closed the offer; the surface still withdraws when it closes.
         QVERIFY(f.preparation.cancelMilkAttempt(kIdleRow));
         f.settleBaseline();
 
@@ -245,6 +244,7 @@ private slots:
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 2);
         QCOMPARE(f.preparation.snapshot().lastMilkGrams, 110.0);
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 110.0);
+        f.setWeight(0.0);
         QVERIFY(!f.preparation.milkAttemptOpen());
     }
 
@@ -266,8 +266,8 @@ private slots:
         QVERIFY(f.preparation.startMilkAttempt(kIdleRow));
         f.captureMilk();
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
-        QVERIFY(!f.preparation.milkAttemptOpen());
         f.setWeight(0.0);
+        QVERIFY(!f.preparation.milkAttemptOpen());
         f.advance(1000);
         f.setWeight(400.0);
         f.advance(5000);
@@ -289,6 +289,36 @@ private slots:
         QVERIFY(!f.preparation.milk()->active());
         QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), f.settings.brew()->steamTimeout());
+    }
+
+    // #2058: milk poured with the pitcher on the scale. A pause mid-pour captures, and
+    // the rest of the pour has to replace that capture rather than be ignored.
+    void toppedUpMilkReplacesTheCaptureUntilThePitcherIsLifted()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        QSignalSpy apply(&f.preparation, &PreparationController::applySteamSettingsRequested);
+        f.captureMilk();
+        const int firstTimeout = f.settings.brew()->steamTimeout();
+        QVERIFY(f.preparation.milkAttemptOpen());
+
+        f.setWeight(200.0); // topped up to 150 g of milk
+        f.advance(2500);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 2);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 150.0);
+        QCOMPARE(apply.count(), 2);
+        QVERIFY(f.settings.brew()->steamTimeout() > firstTimeout);
+
+        // A manual +/-5 is kept: a later top-up is weighed but does not re-time.
+        QVERIFY(f.preparation.setMilkTimeLocked(false));
+        f.setWeight(220.0);
+        f.advance(2500);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 170.0);
+        QCOMPARE(apply.count(), 2);
+
+        f.setWeight(0.0);
+        QVERIFY(!f.preparation.milkAttemptOpen());
+        QVERIFY(!f.preparation.milk()->active());
     }
 
     // The host holds one attempt for every surface and client that offered it.
@@ -371,11 +401,12 @@ private slots:
         f.setWeight(150.0);
         f.advance(2500);
         QVERIFY(f.preparation.snapshot().milk.loadPresent);
-        QVERIFY(!f.preparation.milkAttemptOpen());
+        QCOMPARE(f.preparation.milkAttemptOpen(), offered);
         QVERIFY(f.preparation.setMilkTimeLocked(false));
 
         f.setWeight(0.0);
         QVERIFY(f.preparation.milkTimeLocked());
+        QVERIFY(!f.preparation.milkAttemptOpen());
     }
 
     void steamEndClearsTransientMilkAndLearnsElapsedPair()
@@ -410,7 +441,7 @@ private slots:
         f.captureMilk();
         QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
 
-        // The sample is taken, so a later reading is not measured as milk.
+        // A reading that never settles is not measured as milk.
         f.setWeight(160.0); // 110 g net
         f.setWeight(0.0); // Pitcher lifted; scale stays connected.
         f.preparation.evaluateForTesting();

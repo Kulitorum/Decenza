@@ -51,7 +51,7 @@ Column {
             if (HomePresetActions.tapSteamRowEntry(index))
                 root.operationStarted()
             else if (root.milkSurface !== "")
-                // A capture closed the offer and was the old pitcher's: weigh again.
+                // The earlier capture was the old pitcher's: weigh again.
                 HomePresetActions.offerMilkSample(root.milkSurface)
         }
 

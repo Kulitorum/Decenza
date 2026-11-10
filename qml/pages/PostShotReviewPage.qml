@@ -1884,7 +1884,8 @@ T.Page {
                     property bool showPitcherName: false
                     onArmedChanged: showPitcherName = false
 
-                    // One sample per offer: it ends on capture or when the page is left.
+                    // The offer follows the pitcher: it ends when the pitcher is lifted after a
+                    // capture, or when the page is left.
                     function arm() {
                         return HomePresetActions.offerMilkSample("review")
                     }
@@ -1904,7 +1905,7 @@ T.Page {
                     readonly property string labelText: {
                         if (!selectedUsable)
                             return TranslationManager.translate("postshotreview.milk.choosePitcher", "Choose pitcher")
-                        if (armed) {
+                        if (armed && !(milkCapture.isCaptured && sessionMilk > 0)) {
                             if (showPitcherName)
                                 return pitcherName
                             if (!milkCapture.loadPresent)
