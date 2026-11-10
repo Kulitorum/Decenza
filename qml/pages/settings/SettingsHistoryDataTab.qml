@@ -858,7 +858,7 @@ KeyboardAwareContainer {
     DecenzaFileDialog {
         id: backupRestoreFileDialog
         title: TranslationManager.translate("settings.data.selectBackupFile", "Select a Decenza backup")
-        nameFilters: ["Decenza backups (*.zip *.dcbackup *.db)"]
+        nameFilters: ["Decenza backups (*.zip *.dcbackup)"]
         onAccepted: {
             restoreConfirmDialog.resetDefaults()
             restoreConfirmDialog.selectedUpload = selectedFile

@@ -69,8 +69,7 @@ inline bool validUploadFilename(const QString& kind, const QString& name)
             QStringLiteral("gif"), QStringLiteral("webp"), QStringLiteral("mp4"),
             QStringLiteral("webm"), QStringLiteral("mov")}.contains(suffix);
     if (kind == QLatin1String("backupArchive"))
-        return suffix == QLatin1String("zip") || suffix == QLatin1String("dcbackup")
-            || suffix == QLatin1String("db");
+        return suffix == QLatin1String("zip") || suffix == QLatin1String("dcbackup");
     return false;
 }
 

@@ -250,17 +250,19 @@ private slots:
     {
         QTest::addColumn<QString>("kind");
         QTest::addColumn<QString>("filename");
-        QTest::newRow("personal-media") << QStringLiteral("personalMediaFile") << QStringLiteral("Holiday.PNG");
-        QTest::newRow("apk") << QStringLiteral("apkFile") << QStringLiteral("app.apk");
-        QTest::newRow("native-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.zip");
-        QTest::newRow("legacy-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.dcbackup");
-        QTest::newRow("old-database-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.db");
+        QTest::addColumn<bool>("supported");
+        QTest::newRow("personal-media") << QStringLiteral("personalMediaFile") << QStringLiteral("Holiday.PNG") << true;
+        QTest::newRow("apk") << QStringLiteral("apkFile") << QStringLiteral("app.apk") << true;
+        QTest::newRow("native-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.zip") << true;
+        QTest::newRow("legacy-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.dcbackup") << true;
+        QTest::newRow("unsupported-database-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.db") << false;
     }
 
     void hostConsumerUploadsRetainOnlyCompleteSingleUseFiles()
     {
         QFETCH(QString, kind);
         QFETCH(QString, filename);
+        QFETCH(bool, supported);
         ShotImporter shots(nullptr);
         ProfileImporter profiles(nullptr, nullptr);
         NativeImportServiceSource transfer(&shots, nullptr);
@@ -272,6 +274,13 @@ private slots:
             transfer.execute(request, QStringLiteral("beginTransfer"),
                 {{QStringLiteral("kind"), kind}, {QStringLiteral("files"), files}});
         };
+        if (!supported) {
+            begin(QStringLiteral("unsupported"), 2);
+            QVERIFY(!completed.last().at(2).toBool());
+            QCOMPARE(completed.last().at(4).toString(), QStringLiteral("invalidFileMetadata"));
+            QVERIFY(!transfer.m_transfer);
+            return;
+        }
         begin(QStringLiteral("oversize"), FileBundlePolicy::maximumUploadFileBytes(kind) + 1);
         QVERIFY(!completed.last().at(2).toBool());
         begin(QStringLiteral("fractional"), 2.5);

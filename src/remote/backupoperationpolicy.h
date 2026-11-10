@@ -4,25 +4,13 @@
 #include <QString>
 #include <QVariantMap>
 #include <QCryptographicHash>
-#include <QDate>
-#include <QRegularExpression>
 
 #include "servicevalue.h"
 #include "filebundlepolicy.h"
+#include "core/backupfilepolicy.h"
 
 namespace BackupOperationPolicy {
-inline bool safeBackupFilename(const QString& filename)
-{
-    static const QRegularExpression pattern(QStringLiteral("^shots_backup_([0-9]{8})\\.(zip|db)$"));
-    const auto match = pattern.match(filename);
-    return match.hasMatch() && QDate::fromString(match.captured(1), QStringLiteral("yyyyMMdd")).isValid();
-}
-
-inline bool downloadableBackupFilename(const QString& filename)
-{
-    return safeBackupFilename(filename)
-        && filename.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive);
-}
+using BackupFilePolicy::safeBackupFilename;
 
 inline QString backupIdForFilename(const QString& filename)
 {
