@@ -1593,7 +1593,7 @@ namespace {
 // The recipe steam block's JSON shape, shared by activation, the shot-save
 // snapshot, the composer prefill, MCP, and the web UI:
 //   { "hasMilk": bool, "milkWeightG": n, "heaterOff": bool, "pitcherName": s,
-//     "durationSec": n, "flow": n, "temperatureC": n }
+//     "durationSec": n, "flow": n, "temperatureC": n, "pitcherWeightG": n }
 //
 // "heaterOff" is the built-in "Heater off" entry chosen deliberately, and is
 // mutually exclusive with the pitcher fields — it carries no values of its own.
@@ -2308,6 +2308,11 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                                                 steam.value("flow").toInt(),
                                                 steam.value("temperatureC").toDouble());
                     index = brew->steamPitcherCount() - 1;
+                    // Without its empty weight, milk capture skips the pitcher and
+                    // weight-timed steaming falls back to the fixed time (#2185).
+                    const double pitcherWeightG = steam.value("pitcherWeightG").toDouble();
+                    if (pitcherWeightG > 0)
+                        brew->setSteamPitcherWeight(index, pitcherWeightG);
                     DIAG_DEBUG(RECIPES, "MainController") << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
                 }
                 overrideIndex = index;
@@ -2731,6 +2736,8 @@ QString MainController::currentSteamSpecJson() const {
         o.insert("durationSec", pitcher.value("duration").toInt());
         o.insert("flow", pitcher.value("flow").toInt());
         o.insert("temperatureC", pitcher.value("temperature").toDouble());
+        if (pitcher.value("pitcherWeightG").toDouble() > 0)
+            o.insert("pitcherWeightG", pitcher.value("pitcherWeightG").toDouble());
     }
     if (brew->lastSteamMilkG() > 0)
         o.insert("milkWeightG", brew->lastSteamMilkG());
