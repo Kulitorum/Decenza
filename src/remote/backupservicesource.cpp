@@ -19,7 +19,6 @@
 #include <QMetaObject>
 #include <QMetaType>
 #include <QPointer>
-#include <QRegularExpression>
 #include <QRunnable>
 #include <QScopeGuard>
 #include <QThreadPool>
@@ -106,15 +105,13 @@ QVariantMap NativeBackupServiceSource::capture() const
 {
     QVariantList backups;
     if (m_manager) {
-        static const QRegularExpression rowPattern(QStringLiteral("^(.+)\\|(shots_backup_[0-9]{8}\\.(?:zip|db))$"));
         for (const QString& row : m_manager->availableBackups()) {
-            const auto match = rowPattern.match(row);
-            if (!match.hasMatch() || !BackupOperationPolicy::safeBackupFilename(match.captured(2))) continue;
+            const QString filename = BackupFilePolicy::filenameFromCatalogRow(row);
+            if (filename.isEmpty()) continue;
             backups.append(QVariantMap{
-                {QStringLiteral("id"), BackupOperationPolicy::backupIdForFilename(match.captured(2))},
-                {QStringLiteral("displayName"), match.captured(1).left(128)},
-                {QStringLiteral("downloadable"),
-                 BackupOperationPolicy::downloadableBackupFilename(match.captured(2))}
+                {QStringLiteral("id"), BackupOperationPolicy::backupIdForFilename(filename)},
+                {QStringLiteral("displayName"), row.left(row.lastIndexOf(QLatin1Char('|'))).left(128)},
+                {QStringLiteral("downloadable"), true}
             });
         }
     }
@@ -152,12 +149,10 @@ void NativeBackupServiceSource::refresh()
 QString NativeBackupServiceSource::backupFilenameForId(const QString& id) const
 {
     if (!m_manager || !BackupOperationPolicy::validBackupId(id)) return {};
-    static const QRegularExpression rowPattern(QStringLiteral("^(.+)\\|(shots_backup_[0-9]{8}\\.(?:zip|db))$"));
     for (const QString& row : m_manager->availableBackups()) {
-        const auto match = rowPattern.match(row);
-        if (match.hasMatch() && BackupOperationPolicy::safeBackupFilename(match.captured(2))
-            && BackupOperationPolicy::backupIdForFilename(match.captured(2)) == id)
-            return match.captured(2);
+        const QString filename = BackupFilePolicy::filenameFromCatalogRow(row);
+        if (!filename.isEmpty() && BackupOperationPolicy::backupIdForFilename(filename) == id)
+            return filename;
     }
     return {};
 }
@@ -246,8 +241,7 @@ void NativeBackupServiceSource::prepareBackupDownload(const QString& requestId,
     const QString operation = QStringLiteral("prepareBackupDownload");
     if (!admitDownloadPreparation(requestId, clientId, operation)) return;
     const QString filename = backupFilenameForId(backupId);
-    const QString sourcePath = BackupOperationPolicy::downloadableBackupFilename(filename)
-        ? m_manager->backupPathForFilename(filename) : QString();
+    const QString sourcePath = m_manager->backupPathForFilename(filename);
     if (sourcePath.isEmpty()) {
         finishFileOperation(requestId, operation, false, {}, QStringLiteral("unknownBackup"));
         return;

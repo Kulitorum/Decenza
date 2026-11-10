@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "databasebackupmanager.h"
+#include "backupfilepolicy.h"
 #include "appsettings.h"
 #include "settings.h"
 #include "translationmanager.h"
@@ -24,7 +25,6 @@
 #include <QSet>
 #include <QHash>
 #include <QUuid>
-#include <QRegularExpression>
 #include <QSettings>
 #include <QDebug>
 #include <QThread>
@@ -237,10 +237,7 @@ QString DatabaseBackupManager::databasePath() const
 
 QString DatabaseBackupManager::backupPathForFilename(const QString& filename) const
 {
-    static const QRegularExpression pattern(QStringLiteral("^shots_backup_([0-9]{8})\\.zip$"));
-    const auto match = pattern.match(filename);
-    if (!match.hasMatch() || !QDate::fromString(match.captured(1), QStringLiteral("yyyyMMdd")).isValid()
-        || QFileInfo(filename).fileName() != filename)
+    if (!BackupFilePolicy::safeBackupFilename(filename))
         return {};
 
     const QString suffix = QLatin1Char('|') + filename;
@@ -265,17 +262,11 @@ void DatabaseBackupManager::cleanOldBackups(const QString& backupDir)
     }
 
     QDate cutoffDate = QDate::currentDate().addDays(-5);
-    QStringList filters;
-    filters << "shots_backup_*.db" << "shots_backup_*.zip";
-
-    QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time);
+    QFileInfoList backups = dir.entryInfoList({BackupFilePolicy::catalogFilter()}, QDir::Files, QDir::Time);
 
     for (const QFileInfo& fileInfo : backups) {
-        // Extract date from filename: shots_backup_YYYYMMDD.{db,zip,txt}
         QString fileName = fileInfo.fileName();
-        if (fileName.length() < 21) {
-            continue;  // Invalid filename format
-        }
+        if (!BackupFilePolicy::safeBackupFilename(fileName)) continue;
 
         QString dateStr = fileName.mid(13, 8);  // Extract YYYYMMDD
         QDate backupDate = QDate::fromString(dateStr, "yyyyMMdd");
@@ -650,15 +641,13 @@ QStringList DatabaseBackupManager::getAvailableBackups() const
     }
 
     // Get all backup files, sorted newest first (QDir::Time default)
-    QStringList filters;
-    filters << "shots_backup_*.zip" << "shots_backup_*.db";
-    QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time);
+    QFileInfoList backups = dir.entryInfoList({BackupFilePolicy::catalogFilter()}, QDir::Files, QDir::Time);
 
     QStringList result;
     for (const QFileInfo& fileInfo : backups) {
         // Extract date from filename for display
         QString fileName = fileInfo.fileName();
-        if (fileName.length() >= 21) {
+        if (BackupFilePolicy::safeBackupFilename(fileName)) {
             QString dateStr = fileName.mid(13, 8);  // Extract YYYYMMDD
             QDate backupDate = QDate::fromString(dateStr, "yyyyMMdd");
             if (backupDate.isValid()) {
@@ -676,31 +665,12 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                           bool restoreShots, bool restoreSettings,
                                           bool restoreProfiles, bool restoreMedia)
 {
-    QString backupDir = getBackupDirectory();
-    if (backupDir.isEmpty()) {
-        QString error = tr_("backup.error.accessDirFailed", "Failed to access backup directory");
-        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
-        emit restoreFailed(error);
-        return false;
-    }
-    static const QRegularExpression pattern(
-        QStringLiteral("^shots_backup_([0-9]{8})\\.(zip|db)$"));
-    const auto match = pattern.match(filename);
-    if (!match.hasMatch() || !QDate::fromString(match.captured(1), QStringLiteral("yyyyMMdd")).isValid()
-        || QFileInfo(filename).fileName() != filename) {
+    const QString path = backupPathForFilename(filename);
+    if (path.isEmpty()) {
         emit restoreFailed(tr_("backup.error.fileNotFound", "Backup file not found: %1").arg(filename));
         return false;
     }
-    bool cached = false;
-    const QString suffix = QLatin1Char('|') + filename;
-    for (const QString& row : m_cachedBackups) {
-        if (row.endsWith(suffix)) { cached = true; break; }
-    }
-    if (!cached) {
-        emit restoreFailed(tr_("backup.error.fileNotFound", "Backup file not found: %1").arg(filename));
-        return false;
-    }
-    return restoreBackupFile(QDir(backupDir).filePath(filename), merge, restoreShots,
+    return restoreBackupFile(path, merge, restoreShots,
                              restoreSettings, restoreProfiles, restoreMedia);
 }
 
@@ -725,8 +695,7 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
     }
     const QFileInfo zipInfo(path);
     if (!zipInfo.isFile() || zipInfo.isSymLink()
-        || (zipInfo.suffix().compare(QLatin1String("zip"), Qt::CaseInsensitive) != 0
-            && zipInfo.suffix().compare(QLatin1String("db"), Qt::CaseInsensitive) != 0)) {
+        || zipInfo.suffix().compare(QLatin1String("zip"), Qt::CaseInsensitive) != 0) {
         const QString error = tr_("backup.error.fileNotFound", "Backup file not found: %1")
             .arg(zipInfo.fileName());
         DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
@@ -737,10 +706,6 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
     m_restoreInProgress = true;
     const QString filename = zipInfo.fileName();
     const QString zipPath = path;
-    if (zipInfo.suffix().compare(QLatin1String("db"), Qt::CaseInsensitive) == 0) {
-        // A raw shot database contains no other backup categories or sibling files.
-        restoreSettings = restoreProfiles = restoreMedia = false;
-    }
 
     // Collect restore target paths on main thread (some accessors may use JNI/platform APIs)
     QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
@@ -776,33 +741,19 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
         QVector<QPair<QString, QString>> errors;
         bool shotsImported = false;
         ShotHistoryStorage::ImportResult shotImport;
-        bool isRawDb = filename.endsWith(".db", Qt::CaseInsensitive);
-
-        if (isRawDb) {
-            if (!restoreShots) {
-                QDir(tempDir).removeRecursively();
-                QMetaObject::invokeMethod(callbackContext, [managerGuard, filename, destroyed]() {
-                    if (!managerGuard || *destroyed) return;
-                    managerGuard->m_restoreInProgress = false;
-                    emit managerGuard->restoreCompleted(filename);
-                }, Qt::QueuedConnection);
-                return;
-            }
-        } else {
-            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Extracting" << zipPath << "to" << tempDir;
-            if (!extractZip(zipPath, tempDir)) {
-                QDir(tempDir).removeRecursively();
-                QMetaObject::invokeMethod(callbackContext, [managerGuard, destroyed]() {
-                    if (!managerGuard || *destroyed) return;
-                    managerGuard->m_restoreInProgress = false;
-                    emit managerGuard->restoreFailed(managerGuard->tr_(
-                        "backup.error.extractFailed", "Failed to extract backup file"));
-                }, Qt::QueuedConnection);
-                return;
-            }
+        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Extracting" << zipPath << "to" << tempDir;
+        if (!extractZip(zipPath, tempDir)) {
+            QDir(tempDir).removeRecursively();
+            QMetaObject::invokeMethod(callbackContext, [managerGuard, destroyed]() {
+                if (!managerGuard || *destroyed) return;
+                managerGuard->m_restoreInProgress = false;
+                emit managerGuard->restoreFailed(managerGuard->tr_(
+                    "backup.error.extractFailed", "Failed to extract backup file"));
+            }, Qt::QueuedConnection);
+            return;
         }
 
-        const QString restoreDir = isRawDb ? QFileInfo(zipPath).absolutePath() : tempDir;
+        const QString restoreDir = tempDir;
         QJsonObject settingsJson;
         TranslationManager::PreparedImport languageImport;
         QStringList languageOverrides;
@@ -871,18 +822,13 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                                     QStringLiteral("Backup contains invalid AI conversations"));
         }
         QString tempDbPath;
-        if (isRawDb) {
-            tempDbPath = zipPath;
-            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Using raw .db backup:" << tempDbPath;
+        QDir tempDirObj(tempDir);
+        QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+        if (!dbFiles.isEmpty()) {
+            tempDbPath = tempDir + "/" + dbFiles.first();
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
         } else {
-            QDir tempDirObj(tempDir);
-            QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
-            if (!dbFiles.isEmpty()) {
-                tempDbPath = tempDir + "/" + dbFiles.first();
-                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Found DB file:" << tempDbPath;
-            } else {
-                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup";
-            }
+            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup";
         }
         // Whatever categories were chosen: settings and profiles beside a shot database that
         // is below the floor, or cannot be confirmed above it, are refused too.

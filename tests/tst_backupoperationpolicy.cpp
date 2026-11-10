@@ -886,18 +886,15 @@ private slots:
 
         const QString rawDbPath = uploaded->filePath(QStringLiteral("shots_backup_20261023.db"));
         QVERIFY(!ShotHistoryStorage::createBackupStatic(storage.databasePath(), rawDbPath).isEmpty());
-        QFile siblingSettings(uploaded->filePath(QStringLiteral("settings.json")));
-        QVERIFY(siblingSettings.open(QIODevice::WriteOnly));
-        siblingSettings.write("{\"scale\":{\"address\":\"unrelated-sibling-settings\"}}");
-        siblingSettings.close();
-        QVERIFY(manager.restoreBackupFile(rawDbPath, false, true, true, true, true, uploaded));
-        QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 2, 10000);
-        QCOMPARE(failed.size(), 0);
-        QCOMPARE(restored.last().at(0).toString(), QStringLiteral("shots_backup_20261023.db"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*Backup file not found.*")));
+        QVERIFY(!manager.restoreBackupFile(rawDbPath, false, true, true, true, true, uploaded));
+        QCOMPARE(restored.size(), 1);
+        QCOMPARE(failed.size(), 1);
         QCOMPARE(settings.scaleAddress(), QStringLiteral("uploaded-zip-scale"));
         QVERIFY(QFile::exists(profile.fileName()));
         QCOMPARE(media.getPersonalMediaList(), mediaItems);
         QVERIFY(!manager.isRestoreInProgress());
+        failed.clear();
 
         manager.m_backupDirectoryForTests = uploaded->filePath(QStringLiteral("snapshots"));
         QVERIFY(QDir().mkpath(manager.m_backupDirectoryForTests));
@@ -914,7 +911,7 @@ private slots:
             QStringLiteral(".*SettingsSerializer.*importFromJson replacing.*favorites.*")));
         QVERIFY(manager.restoreBackupFile(created.first().first().toString(),
                                           false, true, true, true, true));
-        QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 3, 10000);
+        QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 2, 10000);
         QCOMPARE(failed.size(), 0);
         QCOMPARE(settings.scaleAddress(), QStringLiteral("uploaded-zip-scale"));
         conversationSettings.sync();
@@ -986,16 +983,53 @@ private slots:
         const QString id = BackupOperationPolicy::backupIdForFilename(QStringLiteral("shots_backup_20261022.zip"));
         QVERIFY(BackupOperationPolicy::validBackupId(id));
         QCOMPARE(id, BackupOperationPolicy::backupIdForFilename(QStringLiteral("shots_backup_20261022.zip")));
-        QVERIFY(BackupOperationPolicy::safeBackupFilename(QStringLiteral("shots_backup_20261022.db")));
-        QVERIFY(BackupOperationPolicy::downloadableBackupFilename(
-            QStringLiteral("shots_backup_20261022.zip")));
-        QVERIFY(!BackupOperationPolicy::downloadableBackupFilename(
-            QStringLiteral("shots_backup_20261022.db")));
+        QVERIFY(!BackupOperationPolicy::safeBackupFilename(QStringLiteral("shots_backup_20261022.db")));
+        QVERIFY(BackupOperationPolicy::backupIdForFilename(QStringLiteral("shots_backup_20261022.db")).isEmpty());
+        QVERIFY(FileBundlePolicy::validUploadFilename(QStringLiteral("backupArchive"), QStringLiteral("backup.zip")));
+        QVERIFY(FileBundlePolicy::validUploadFilename(QStringLiteral("backupArchive"), QStringLiteral("backup.dcbackup")));
+        QVERIFY(!FileBundlePolicy::validUploadFilename(QStringLiteral("backupArchive"), QStringLiteral("backup.db")));
         QVERIFY(!BackupOperationPolicy::safeBackupFilename(QStringLiteral("shots_backup_20260231.zip")));
         QVERIFY(!BackupOperationPolicy::safeBackupFilename(QStringLiteral("../shots_backup_20261022.zip")));
         QVERIFY(!BackupOperationPolicy::safeBackupFilename(QStringLiteral("/Users/test/shots_backup_20261022.zip")));
         QVERIFY(!BackupOperationPolicy::validBackupId(QString(64, QLatin1Char('G'))));
         QVERIFY(!BackupOperationPolicy::validBackupId(QStringLiteral("shots_backup_20261022.zip")));
+    }
+
+    void legacyDatabaseBackupsAreNotCatalogued()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString rawFilename = QStringLiteral("shots_backup_%1.db")
+            .arg(QDate::currentDate().addDays(-10).toString(QStringLiteral("yyyyMMdd")));
+        QFile rawDatabase(directory.filePath(rawFilename));
+        QVERIFY(rawDatabase.open(QIODevice::WriteOnly));
+        QCOMPARE(rawDatabase.write("legacy"), qint64(6));
+        rawDatabase.close();
+
+        DatabaseBackupManager manager(nullptr, nullptr);
+        manager.m_backupDirectoryForTests = directory.path();
+        manager.refreshBackupList();
+        QVERIFY(manager.availableBackups().isEmpty());
+        QVERIFY(manager.backupPathForFilename(rawFilename).isEmpty());
+        NativeBackupServiceSource source(&manager, nullptr);
+        QVERIFY(source.snapshot().value(QStringLiteral("backups")).toList().isEmpty());
+
+        const QString zipFilename = QStringLiteral("shots_backup_%1.zip")
+            .arg(QDate::currentDate().toString(QStringLiteral("yyyyMMdd")));
+        QuaZip archive(directory.filePath(zipFilename));
+        QVERIFY(archive.open(QuaZip::mdCreate));
+        archive.close();
+        manager.refreshBackupList();
+        QCOMPARE(manager.availableBackups().size(), 1);
+        source.refresh();
+        const QVariantList backups = source.snapshot().value(QStringLiteral("backups")).toList();
+        QCOMPARE(backups.size(), 1);
+        QCOMPARE(backups.first().toMap().value(QStringLiteral("id")).toString(),
+                 BackupOperationPolicy::backupIdForFilename(zipFilename));
+        QVERIFY(backups.first().toMap().value(QStringLiteral("downloadable")).toBool());
+
+        manager.cleanOldBackups(directory.path());
+        QVERIFY(QFile::exists(rawDatabase.fileName()));
     }
 
     void backupBundleIsBoundToAdmittedClientAndReleasedOnClose()

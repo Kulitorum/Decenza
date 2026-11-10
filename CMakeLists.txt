@@ -1293,6 +1293,7 @@ set(HEADERS
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
+    src/core/backupfilepolicy.h
     src/core/fullbackuprestore.h
     src/core/personalmediapreparation.h
     src/core/documentformatter.h

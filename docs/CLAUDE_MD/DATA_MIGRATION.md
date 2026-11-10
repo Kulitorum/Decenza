@@ -41,6 +41,9 @@ A source below the upgrade floor (`src/history/upgradefloor.h`: shot schema 41) 
 - `GET /api/backup/full` - Download full backup archive
 
 ### Import Options
+
+Backup restore accepts `.zip` and `.dcbackup` archives. Legacy standalone `.db` backups are not listed or accepted by backup restore/upload.
+
 - **Import All**: Settings, profiles, shots, media, AI conversations (merged with existing data)
 - **Replace All**: Downloads a full backup and runs the existing replace restore. A confirmation warns that current data will be replaced; cancellation is unavailable once restore begins.
 - **Individual**: Import only specific data types (Settings, Profiles, Shots, Media, AI Conversations buttons)
