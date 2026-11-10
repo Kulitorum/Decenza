@@ -2719,8 +2719,7 @@ int main(int argc, char *argv[])
 #endif
 
     // Scale auto-reconnect after disconnect: backoff ramp 5s → 30s → 60s, then
-    // the 60s tail repeats while the scale stays disconnected — slowing to 5min
-    // once it is clear the scale is not coming back this sitting (see below).
+    // the 60s tail repeats for as long as the scale stays disconnected.
     // First retry is quick (5s); the 30s/60s delays exceed BLE's 20s connection
     // timeout so each attempt completes before the next fires. We never give up
     // permanently (matches de1app): a scale powered back on hours later is
@@ -2732,37 +2731,15 @@ int main(int argc, char *argv[])
     scaleReconnectTimer.setSingleShot(true);
     const std::vector<int> reconnectDelays = {5000, 30000, 60000};
 
-    // …but the 60 s tail runs at that cadence for a bounded number of cycles,
-    // then drops to 5 minutes. kScaleFastTailAttempts counts TOTAL attempts, so
-    // with a 3-step ramp the 60 s branch runs 8 times and the crossing lands at
-    // 5 + 30 + 60×8 ≈ 8.6 min. A saved scale still absent by then is not "about
-    // to appear" — it is off, out of range, or (the case that prompted this) a
-    // WiFi scale whose host is not on this network at all, failing every dial
-    // with HostNotFoundError. Each cycle is not free: when the WiFi dial fails
-    // and the cached IP is stale, the cycle also runs an mDNS resolve and then
-    // the ~15 s BLE-scan fallback (beginWifiFallbackToBleScan) — once a minute,
-    // for as long as the app is open. MQTT next door already ramps 5→60 s and
-    // then holds at 15 min for exactly this reason (see MAX_FAST_RECONNECT_-
-    // ATTEMPTS in mqttclient.h, also 10); this is the same shape, kept much
-    // shorter because a scale that IS powered back on should still be picked up
-    // promptly.
+    // The tail never slows while the app is awake. It used to drop to 5 min after
+    // ten attempts (#1700), and a scale woken after that sat unconnected through
+    // a hot-water pour that read 0 g (#2058). The screensaver pauses the ladder
+    // outright (see the timer slot), so an app left idle does not scan all night.
+    // With the machine idle the delays below are not waited out at all: the
+    // scaleRetryNeeded handler chains the next attempt as each one fails.
     //
-    // Nothing is given up by slowing down: every event that means "a scale
-    // might be here now" restarts the ramp at 5 s with the counter cleared —
-    // app resume, screensaver exit, and DE1 wake. A user-initiated scan and a
-    // successful connect also clear the counter, but they STOP the ladder
-    // rather than restarting it, which is correct for both. The worst case is a
-    // scale switched on while the app sits untouched in the foreground, which
-    // waits up to 5 min instead of up to 1.
-    //
-    // Each of those three restart sites used to be gated on the reconnect timer
-    // being idle. That gate silently voided all three: the timer is single-shot
-    // and re-armed at the end of every tick, so it is ALWAYS active while the
-    // ladder runs, which is precisely when a restart is wanted. Do not
-    // reintroduce it — QTimer::start() on an active single-shot timer just
-    // restarts it, so no guard is needed.
-    const int kScaleFastTailAttempts = 10;
-    const int kScaleSlowTailMs = 300000;  // 5 min
+    // Do not gate a ramp restart on the timer being idle: it is single-shot and
+    // re-armed every tick, so it is always active while the ladder runs.
 
     // When Settings.keepScaleOn is false we deliberately disconnect the scale
     // on DE1 sleep. The connectedChanged handler below normally schedules an
@@ -2883,30 +2860,12 @@ int main(int argc, char *argv[])
         // (issue #1303). The saved scale auto-connects when seen in a scan.
         bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         scaleReconnectAttempt++;
-        // Persistent reconnect: walk the ramp, hold on the last (60s) delay for
-        // kScaleFastTailAttempts cycles, then hold on the 5-minute delay
-        // forever. Stops naturally when the scale connects (connectedChanged),
-        // the user forgets it (scaleAddress empty, above), or the user scans for
-        // a different scale.
-        if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
-            scaleReconnectTimer.start(reconnectDelays[scaleReconnectAttempt]);
-        } else if (scaleReconnectAttempt < kScaleFastTailAttempts) {
-            scaleReconnectTimer.start(reconnectDelays.back());
-        } else {
-            // Announce the one crossing, not every slow cycle — the 5-minute
-            // tail runs forever and the scale log is a 1000-entry ring buffer.
-            // `==` rather than `>=` is what makes it one-shot, and it re-arms by
-            // itself when a genuine reset event clears the counter.
-            if (scaleReconnectAttempt == kScaleFastTailAttempts) {
-                const QString msg =
-                    QString("Scale still absent after %1 attempts — slowing retries to every %2 min")
-                        .arg(scaleReconnectAttempt).arg(kScaleSlowTailMs / 60000);
-                // INFO: it explains a log that otherwise looks like the reconnect
-                // died, but a scale that is switched off is not a fault.
-                bleManager.scaleInfo(msg, QStringLiteral("main"));
-            }
-            scaleReconnectTimer.start(kScaleSlowTailMs);
-        }
+        // Persistent reconnect: walk the ramp, then hold on the last (60s) delay.
+        // Stops naturally when the scale connects (connectedChanged), the user
+        // forgets it (scaleAddress empty, above), or the user scans for a
+        // different scale.
+        scaleReconnectTimer.start(reconnectDelays[
+            std::min(scaleReconnectAttempt, static_cast<int>(reconnectDelays.size()) - 1)]);
     });
 
     // Arm the scale retry timer when a startup direct-connect attempt times out.
@@ -2987,10 +2946,30 @@ int main(int argc, char *argv[])
     // screensaver: no re-arm while it is up, and its exit restarts the ramp.
     QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded, handlerScope.get(),
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
-                      &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager]() {
+                      &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager,
+                      &machineState]() {
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) return;
-        if (scaleReconnectTimer.isActive()) return;
+        // Hunt: with the machine idle, the next scan starts as this one ends, so a
+        // scale switched on at any moment is seen within one attempt (the R2 hunt's
+        // shape). During an operation the spaced tail stands, so scanning does not
+        // compete with the DE1 link. BLE only: for a wifi: scale an attempt is a
+        // dial plus an mDNS resolve, and this signal can fire without a scan
+        // having run. For a BLE scale it fires only from the 20 s attempt timeout,
+        // which is what keeps this from spinning.
+        const bool hunt = !machineState.isOperating() && !screensaverManager.screensaverActive()
+            && bleManager.isBluetoothAvailable()
+            && !settings.scaleAddress().startsWith(QLatin1String("wifi:"), Qt::CaseInsensitive);
+        if (scaleReconnectTimer.isActive()) {
+            if (hunt) {
+                if (scaleReconnectAttempt == 1)
+                    bleManager.scaleInfo(QStringLiteral("Scale not found — scanning back-to-back "
+                                                        "while the machine is idle"),
+                                         QStringLiteral("main"));
+                scaleReconnectTimer.start(0);
+            }
+            return;
+        }
         // A scan that was in flight when the screensaver started ends here.
         if (screensaverManager.screensaverActive()) {
             bleManager.scaleInfo(QStringLiteral("Scale not found; reconnect paused until the "
@@ -2998,17 +2977,12 @@ int main(int argc, char *argv[])
                                  QStringLiteral("main"));
             return;
         }
-        // Move the counter UP to the end of the ramp, never down. It doubles as
-        // the slow-tail budget (see kScaleFastTailAttempts), and a connection
-        // failure is not evidence the scale is coming back — so a plain
-        // assignment here let any path that idles the timer (notably the
-        // scale-type change in the scaleDiscovered handler) reset the budget to
-        // 2 and make the 5-min tail unreachable.
+        // Move the counter UP to the end of the ramp, never down: a connection
+        // failure is not a reason to retry sooner than the tail does.
         const int rampTailIndex = static_cast<int>(reconnectDelays.size()) - 1;
         if (scaleReconnectAttempt < rampTailIndex)
             scaleReconnectAttempt = rampTailIndex;
-        const int retryDelayMs = scaleReconnectAttempt >= kScaleFastTailAttempts
-                                     ? kScaleSlowTailMs : reconnectDelays.back();
+        const int retryDelayMs = hunt ? 0 : reconnectDelays.back();
         scaleReconnectTimer.start(retryDelayMs);
         bleManager.scaleInfo(QStringLiteral("Scheduling reconnect in %1 s (retry after failure)")
                                  .arg(retryDelayMs / 1000),
@@ -3132,11 +3106,9 @@ int main(int argc, char *argv[])
         }
         // Clamp the counter at the cap so it doesn't grow without bound across
         // days of slow retries; once capped we stay on the slow tier. Track
-        // whether THIS tick is the one that reached the cap — unlike the scale
-        // ladder's counter (unclamped, so `== kScaleFastTailAttempts` is
-        // naturally one-shot), this one stops moving once capped, so an
-        // uncorrected `==` check below would be true on every slow tick forever
-        // rather than once.
+        // whether THIS tick is the one that reached the cap: the counter stops
+        // moving once capped, so an uncorrected `==` check below would be true on
+        // every slow tick forever rather than once.
         const bool justHitCap = de1ReconnectAttempt < kDE1MaxReconnectAttempts
                                  && ++de1ReconnectAttempt == kDE1MaxReconnectAttempts;
         bleManager.de1Debug(QStringLiteral("DE1 reconnect: attempt %1 of %2")
@@ -3350,9 +3322,8 @@ int main(int argc, char *argv[])
                 // increments the counter. With a wifi: primary and a BLE Decent
                 // scale in range that never completes a connect, the type
                 // alternates "decent-wifi" ↔ "decent" every cycle, so clearing
-                // here pinned the counter near the bottom of the ramp and the
-                // 5-min tail was unreachable (and the one-shot crossing log
-                // could re-fire). The user-driven cases that DO warrant a clear
+                // here pinned the counter near the bottom of the ramp, retrying
+                // every 5 s. The user-driven cases that DO warrant a clear
                 // go through disconnectScaleRequested, which clears it there.
             } else {
                 // Re-wire to use physical scale
@@ -5027,11 +4998,11 @@ int main(int argc, char *argv[])
                              << "suppressed=" << scaleAutoReconnectSuppressed
                              << "lcdRestorePending=" << scaleLcdRestorePending << ")";
 
-                    // …but "mid-reconnect" may mean "deep in the 5-min tail",
+                    // …but "mid-reconnect" may mean "on the 60 s tail",
                     // and a DE1 that just woke is a strong signal the user is
                     // back at the machine with the scale switched on. Restart
                     // the ramp from the top so the scale is picked up in 5 s
-                    // rather than up to 5 min. Only when the ladder is actually
+                    // rather than up to 60 s. Only when the ladder is actually
                     // running: with no saved scale, or a USB primary (owned by
                     // UsbScaleManager), there is nothing to re-arm.
                     // isActive stays a caller gate: the ladder is deliberately
