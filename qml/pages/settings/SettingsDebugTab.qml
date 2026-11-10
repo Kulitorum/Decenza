@@ -28,6 +28,14 @@ Item {
     property var profileProgress: ({})
     readonly property var debugPreferences: SettingsPreferencesService.preferences || ({})
     readonly property var languageSnapshot: LanguageService.snapshot || ({})
+    readonly property var backupSnapshot: BackupService.ready ? BackupService.snapshot : ({})
+    readonly property var latestBackup: {
+        const backups = backupSnapshot.backups || []
+        for (const backup of backups) {
+            if (backup.downloadable === true) return backup
+        }
+        return null
+    }
 
     StatusToast { id: localApkResult }
     ConversationArchiveDialog {
@@ -248,27 +256,32 @@ Item {
         }
     }
 
-    StatusToast { id: databaseDownloadResult }
+    StatusToast { id: troubleshootingDownloadResult }
     HostFileDownload {
-        id: databaseDownload
+        id: troubleshootingDownload
         ready: BackupService.ready
         executeOperation: function(operation, args) { return BackupService.execute(operation, args) }
         onFinished: function(success, reason) {
             if (!success && (reason === "saveCancelled" || reason === "cancelled")) return
-            databaseDownloadResult.error = !success
+            troubleshootingDownloadResult.error = !success
+            const isBackup = troubleshootingDownload.prepareOperation === "prepareBackupDownload"
             const message = success
-                ? TranslationManager.translate("settings.debug.databaseSaved", "The shot database was saved.")
+                ? (isBackup
+                    ? TranslationManager.translate("settings.data.backupSaved", "Backup saved.")
+                    : TranslationManager.translate("settings.debug.databaseSaved", "The shot database was saved."))
                 : reason === "busy"
                     ? TranslationManager.translate("settings.data.backupDownloadBusy", "Another backup operation is in progress. Try again when it finishes.")
-                    : TranslationManager.translate("settings.debug.databaseSaveFailed", "The shot database could not be saved (%1).").arg(reason)
-            databaseDownloadResult.show(message)
+                    : (isBackup
+                        ? TranslationManager.translate("settings.data.backupDownloadFailed", "The backup could not be saved. Check the connection and try again.")
+                        : TranslationManager.translate("settings.debug.databaseSaveFailed", "The shot database could not be saved (%1).").arg(reason))
+            troubleshootingDownloadResult.show(message)
             AccessibilityManager.announce(message)
         }
     }
     Connections {
         target: BackupService
         function onOperationCompleted(requestId, operation, success, result, reason) {
-            databaseDownload.completeOperation(requestId, operation, success, result, reason)
+            troubleshootingDownload.completeOperation(requestId, operation, success, result, reason)
         }
     }
 
@@ -356,22 +369,31 @@ Item {
             SettingsCard {
                 searchId: "debugTroubleshootingData"
                 title: TranslationManager.translate("settings.debug.troubleshootingData", "Troubleshooting data")
-                keywords: ["database", "sqlite", "db", "export", "memory", "ram", "leak"]
+                keywords: ["backup", "download", "database", "sqlite", "db", "export", "memory", "ram", "leak"]
                 spacing: Theme.scaled(12)
                 Flow {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(12)
                     AccessibleButton {
+                        accessibleName: TranslationManager.translate("settings.debug.downloadLatestBackup", "Download latest backup")
+                        text: accessibleName
+                        enabled: troubleshootingDownload.ready && !troubleshootingDownload.busy
+                                 && !debugTab.backupSnapshot.activeOperation && debugTab.latestBackup !== null
+                        onClicked: troubleshootingDownload.prepare("prepareBackupDownload", {
+                            "backupId": debugTab.latestBackup.id
+                        })
+                    }
+                    AccessibleButton {
                         accessibleName: TranslationManager.translate("settings.debug.saveDatabase", "Save shot database")
                         text: accessibleName
-                        enabled: databaseDownload.ready && !databaseDownload.busy
-                        onClicked: databaseDownload.prepare("prepareDatabaseDownload", {})
+                        enabled: troubleshootingDownload.ready && !troubleshootingDownload.busy
+                        onClicked: troubleshootingDownload.prepare("prepareDatabaseDownload", {})
                     }
                     AccessibleButton {
                         accessibleName: TranslationManager.translate("common.cancel", "Cancel")
                         text: accessibleName
-                        visible: databaseDownload.busy
-                        onClicked: databaseDownload.cancel()
+                        visible: troubleshootingDownload.busy
+                        onClicked: troubleshootingDownload.cancel()
                     }
                     AccessibleButton {
                         id: memoryButton
@@ -380,14 +402,28 @@ Item {
                         onClicked: memoryUsage.open()
                     }
                 }
+                Text {
+                    Layout.fillWidth: true
+                    text: debugTab.latestBackup !== null
+                        ? TranslationManager.translate("settings.debug.latestBackupDescription", "Save the latest backup (%1) to this device.").arg(debugTab.latestBackup.displayName)
+                        : TranslationManager.translate("settings.debug.noBackupAvailable", "No backups available. Create one in Settings → History & Data.")
+                    visible: BackupService.ready
+                    wrapMode: Text.WordWrap
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
                 ProgressBar {
                     Layout.fillWidth: true
-                    visible: databaseDownload.busy
-                    indeterminate: !databaseDownload.fileDownload.busy
+                    visible: troubleshootingDownload.busy
+                    indeterminate: !troubleshootingDownload.fileDownload.busy
                     from: 0
-                    to: Math.max(1, databaseDownload.fileDownload.totalBytes)
-                    value: databaseDownload.fileDownload.offset
-                    Accessible.name: TranslationManager.translate("settings.debug.preparingDatabase", "Preparing shot database download")
+                    to: Math.max(1, troubleshootingDownload.fileDownload.totalBytes)
+                    value: troubleshootingDownload.fileDownload.offset
+                    Accessible.name: troubleshootingDownload.prepareOperation === "prepareBackupDownload"
+                        ? TranslationManager.translate("settings.debug.preparingBackup", "Preparing backup download")
+                        : TranslationManager.translate("settings.debug.preparingDatabase", "Preparing shot database download")
                 }
             }
 
