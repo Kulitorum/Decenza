@@ -1983,6 +1983,27 @@ T.Page {
                         }
                     }
 
+                    // The Brew dialog's bell: one preference for the dose and the milk ding.
+                    StyledSwitch {
+                        id: captureSoundSwitch
+                        SettingsSearch.route: "steam"
+                        SettingsSearch.title: TranslationManager.translate("steam.weightTimed.captureSound", "Play a sound when a weight is captured")
+                        SettingsSearch.keywords: ["steam", "milk", "sound", "bell", "beep", "ding"]
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("steam.weightTimed.captureSound", "Play a sound when a weight is captured")
+                        accessibleName: text
+                        enabled: RecipeContext.ready
+                        checked: RecipeContext.preferences.doseCaptureSoundEnabled === true
+                        onToggled: {
+                            RecipeContext.setPreference(RecipeContext.newRequestId(), "doseCaptureSoundEnabled",
+                                                        checked, RecipeContext.revision)
+                            // The toggle replaced the binding; the host's answer sets the value.
+                            checked = Qt.binding(function() {
+                                return RecipeContext.preferences.doseCaptureSoundEnabled === true
+                            })
+                        }
+                    }
+
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // ── Steam rate calibration (GLOBAL — applies to every pitcher).

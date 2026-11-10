@@ -13,6 +13,7 @@ A milk capture ends its request on the first reading that holds for the dwell. A
 - A manual ±5 is still kept until the pitcher is lifted: a later top-up is weighed but does not re-time the steam.
 - The review-page button shows the captured weight while the pitcher is still on the scale.
 - Home's milk-captured message moves from a banner under the top bar to the app's bottom toast.
+- The Steam page gains a switch for the capture sound, which until now could only be turned on from the Brew dialog's bell.
 
 ## Capabilities
 

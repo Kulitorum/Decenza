@@ -8,6 +8,7 @@
 - [x] 1.3a Review fixes: the lift close ignores a tare or dropout and logs at INFO; a pitcher change drops the standing capture; a re-settle within 2 g is not a new capture; the review button does not announce a capture twice. Tests: three `pitcherChangeKeepsAttemptOpenAndScaleBaseline` rows, an early lift, a disconnect, the 2 g boundary.
 - [x] 1.4 Build and run the full suite through Qt Creator (ask first). Verify: `succeeded: true`, `QML diagnostics gate passed`, no failures.
 - [x] 1.3b Home's milk-captured message uses the shared `StatusToast` at window level instead of a banner pinned under the top bar.
+- [x] 1.3c Steam page: a "Play a sound when a weight is captured" switch under the weight-timed toggle, writing the Brew dialog bell's preference.
 - [ ] 1.5 Device check, rides the next beta: pour with the pitcher on the scale, pause, pour more, lift. Verify: two captures, the second weight is the one steamed, and the message shows bottom-centre clear of the bars.
 
 ## Workflow follow-up
