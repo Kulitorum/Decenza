@@ -450,8 +450,8 @@ T.Page {
                     Tr {
                         visible: page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        key: "hotwater.dispensing.flowmeter"
-                        fallback: "Dispensing (flowmeter)"
+                        key: "hotwater.dispensing.byVolume"
+                        fallback: "Dispensing by volume"
                         color: Theme.textSecondaryColor
                         font: Theme.labelFont
                     }
