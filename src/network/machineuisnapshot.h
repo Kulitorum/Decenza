@@ -62,7 +62,6 @@
     INT_FIELD(brewSteamFlow, 0)                \
     INT_FIELD(brewSteamAutoFlushSeconds, 0)    \
     BOOL_FIELD(brewMilkAutoCaptureEnabled)     \
-    DOUBLE_FIELD(brewSteamSecondsPerGram)      \
     DOUBLE_FIELD(brewLastSteamMilkG)           \
     DOUBLE_FIELD(brewLastSteamTimeS)           \
     DOUBLE_FIELD(brewDoseCupTareWeight)        \

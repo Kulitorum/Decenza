@@ -125,6 +125,26 @@ private slots:
     // MainController::selectSteamPitcher — stubbed in this file — and the rule
     // itself is asserted against SettingsBrew in tst_settings. Asserting it
     // through this tool would only re-test the stub.
+    void steamRateBelongsToEachPitcher() {
+        const int whole = call("steam_pitcher", {{"action", "add"}, {"name", "Whole"}, {"secPerGramMilk", 0.14}})["selectedIndex"].toInt();
+        // No rate given: a new pitcher starts with the selected pitcher's.
+        const int oat = call("steam_pitcher", {{"action", "add"}, {"name", "Oat"}})["selectedIndex"].toInt();
+        QJsonArray presets = call("steam_pitcher", {{"action", "list"}})["presets"].toArray();
+        QCOMPARE(presets[oat].toObject()["secPerGramMilk"].toDouble(), 0.14);
+
+        QVERIFY(call("steam_pitcher", {{"action", "update"}, {"index", oat}, {"secPerGramMilk", 0.18}})["success"].toBool());
+        presets = call("steam_pitcher", {{"action", "list"}})["presets"].toArray();
+        QCOMPARE(presets[oat].toObject()["secPerGramMilk"].toDouble(), 0.18);
+        QCOMPARE(presets[whole].toObject()["secPerGramMilk"].toDouble(), 0.14);
+
+        QVERIFY(call("steam_pitcher", {{"action", "update"}, {"index", oat}, {"secPerGramMilk", 3.0}})["error"]
+                    .toString().contains("secPerGramMilk"));
+        QCOMPARE(call("steam_pitcher", {{"action", "list"}})["presets"].toArray()[oat]
+                     .toObject()["secPerGramMilk"].toDouble(), 0.18);
+        QVERIFY(call("steam_pitcher", {{"action", "add"}, {"name", "Soy"}, {"secPerGramMilk", 3.0}})["error"]
+                    .toString().contains("secPerGramMilk"));
+    }
+
     void steamSelectIsControlLevelButEditingIsNot() {
         const int a = call("steam_pitcher", {{"action", "add"}, {"name", "A"}, {"temperatureC", 130.0}})["selectedIndex"].toInt();
         call("steam_pitcher", {{"action", "add"}, {"name", "B"}, {"temperatureC", 150.0}});

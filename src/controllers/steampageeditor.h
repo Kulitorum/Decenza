@@ -51,8 +51,8 @@ public:
                                         int index, const QString& expectedName);
     Q_INVOKABLE bool setMilkAutoCaptureEnabled(const QString& requestId, const QString& expectedRevision,
                                                bool enabled);
-    Q_INVOKABLE bool setSteamSecondsPerGram(const QString& requestId, const QString& expectedRevision,
-                                            double value);
+    Q_INVOKABLE bool setPresetSecondsPerGram(const QString& requestId, const QString& expectedRevision,
+                                             int index, const QString& expectedName, double value);
     Q_INVOKABLE bool calibrateFromLastSteam(const QString& requestId, const QString& expectedRevision);
 
     // ShotServer validates the wire request and calls the same host operation

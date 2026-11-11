@@ -104,7 +104,6 @@ private:
     int m_origSelectedPitcher = 0;
     int m_origStandingPitcher = SettingsBrew::NoStandingPitcher;
     bool m_origMilkAutoCapture;
-    double m_origSteamSecPerGram;
     int m_origActiveRecipeId;
     int m_origAutoLoadRecipeId;
     QString m_origLayoutConfiguration;
@@ -316,8 +315,6 @@ private slots:
         // Mutated directly by the effectiveSteamDurationSec tests AND as a side effect of
         // setSteamPitcherCalibration (calibrating re-enables weight-timed steaming).
         m_origMilkAutoCapture = m_settings.brew()->milkAutoCaptureEnabled();
-        // Weight-timed scaling is now driven by a GLOBAL seconds-per-gram rate.
-        m_origSteamSecPerGram = m_settings.brew()->steamSecondsPerGram();
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray();
@@ -355,7 +352,6 @@ private slots:
         m_settings.brew()->setWaterTemperature(m_origWaterTemperature);
         m_settings.app()->setTemperatureUnit(m_origTemperatureUnit);
         m_settings.brew()->setMilkAutoCaptureEnabled(m_origMilkAutoCapture);
-        m_settings.brew()->setSteamSecondsPerGram(m_origSteamSecPerGram);
         { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
@@ -1326,11 +1322,10 @@ private slots:
         // effective duration must be the preset's fixed duration, not 0.
         m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
         const int idx = m_settings.brew()->steamPitcherCount() - 1;
-        m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);
-        // Disable AFTER calibrating — setSteamPitcherCalibration re-enables the toggle
-        // as its explicit opt-in side effect, which would put this test back on the
-        // scaled path. Milk (600) ≠ calibration (300) so scaled (90) and base (45)
-        // are distinguishable: only the toggle-off gate can produce 45 here.
+        QVERIFY(m_settings.brew()->tryCalibrateSteamPitcher(idx, QString(), 300.0, 45.0)
+                == SettingsBrew::PresetMutationResult::Applied);
+        // Disable AFTER calibrating, which turns the toggle on. With the rate set,
+        // 600 g would scale to 90 s: only the toggle-off gate can produce 45 here.
         m_settings.brew()->setMilkAutoCaptureEnabled(false);
 
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 600.0), 45);
@@ -1338,11 +1333,11 @@ private slots:
 
     void effectiveSteamDurationSecClampsScaledTime() {
         // The scaled path is clamped to [5,120]s; a large rate × milk product
-        // must cap at 120, not program a multi-minute steam. Scaling is now the
-        // GLOBAL seconds-per-gram rate, not per-pitcher reference milk.
+        // must cap at 120, not program a multi-minute steam.
         m_settings.brew()->addSteamPitcherPreset("Jug", 30, 150, 135.0);
         const int idx = m_settings.brew()->steamPitcherCount() - 1;
-        m_settings.brew()->calibrateSteamFromReference(100.0, 30.0);  // 0.30 s/g; also enables the toggle
+        QVERIFY(m_settings.brew()->tryCalibrateSteamPitcher(idx, QString(), 100.0, 30.0)
+                == SettingsBrew::PresetMutationResult::Applied);  // 0.30 s/g; also enables the toggle
 
         // Unclamped: 0.30 * 600 = 180 → clamped to 120.
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 600.0), 120);
@@ -1363,13 +1358,14 @@ private slots:
     }
 
     void effectiveSteamDurationSecUsesScaledTimeWhenAvailable() {
-        // Weight-timed steaming ON + a global rate + positive milk: the scaled
-        // value wins over the base duration (the PR's core new behavior).
+        // Weight-timed steaming ON + the pitcher's rate + positive milk: the scaled
+        // value wins over the base duration.
         m_settings.brew()->addSteamPitcherPreset("Latte", 30, 150, 135.0);
         const int idx = m_settings.brew()->steamPitcherCount() - 1;
-        m_settings.brew()->calibrateSteamFromReference(200.0, 30.0);  // 0.15 s/g; also enables the toggle
+        QVERIFY(m_settings.brew()->tryCalibrateSteamPitcher(idx, QString(), 200.0, 30.0)
+                == SettingsBrew::PresetMutationResult::Applied);  // 0.15 s/g; also enables the toggle
 
-        // secPerGram * milk = 0.15 * 400 = 60 (pitcher-agnostic; base 30s is ignored).
+        // secPerGram * milk = 0.15 * 400 = 60 (base 30s is ignored).
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 400.0), 60);
     }
 
@@ -1403,68 +1399,191 @@ private slots:
     }
 
     void effectiveSteamDurationSecFallsBackWhenUncalibrated() {
-        // Weight-timing on but no global rate recorded: scaledSteamTime() yields 0
-        // (steamSecondsPerGram <= 0), so the base duration must be used, not 0. Set
-        // the rate to 0 explicitly so the test exercises the uncalibrated gate rather
-        // than relying on the ambient store value.
+        // Weight-timing on but this pitcher has no rate: the base duration, not 0.
         m_settings.brew()->setMilkAutoCaptureEnabled(true);
-        m_settings.brew()->setSteamSecondsPerGram(0.0);
         m_settings.brew()->addSteamPitcherPreset("Cortado", 20, 150, 135.0);
         const int idx = m_settings.brew()->steamPitcherCount() - 1;
 
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 20);
     }
 
-    void steamSecondsPerGramClampsNegativeToZero() {
-        // A negative rate is nonsensical; the setter must clamp it to 0 (uncalibrated).
-        m_settings.brew()->setSteamSecondsPerGram(-1.0);
-        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.0);
+    void eachPitcherScalesAtItsOwnRate() {
+        auto* brew = m_settings.brew();
+        brew->setMilkAutoCaptureEnabled(true);
+        brew->addSteamPitcherPreset("Whole milk", 30, 150, 135.0);
+        const int whole = brew->steamPitcherCount() - 1;
+        brew->addSteamPitcherPreset("Oat", 30, 150, 135.0);
+        const int oat = whole + 1;
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(whole, "Whole milk", 0.14)
+                == SettingsBrew::PresetMutationResult::Applied);
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(oat, "Oat", 0.18)
+                == SettingsBrew::PresetMutationResult::Applied);
+
+        QCOMPARE(brew->scaledSteamTime(whole, 200.0), 28);
+        QCOMPARE(brew->scaledSteamTime(oat, 200.0), 36);
+
+        // A negative rate stores 0; the other pitcher is untouched.
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(oat, "Oat", -1.0)
+                == SettingsBrew::PresetMutationResult::Applied);
+        QCOMPARE(brew->getSteamPitcherPreset(oat)["secondsPerGram"].toDouble(), 0.0);
+        QCOMPARE(brew->getSteamPitcherPreset(whole)["secondsPerGram"].toDouble(), 0.14);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("built-in Heater off entry cannot be modified")));
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(SettingsBrew::HeaterOffPitcherIndex,
+                                                       QString(), 0.2)
+                == SettingsBrew::PresetMutationResult::Invalid);
     }
 
-    void steamSecondsPerGramEmitsOnChangeOnly() {
-        // NOTIFY fires once on a real change and stays silent on a no-op re-set.
-        m_settings.brew()->setSteamSecondsPerGram(0.10);
-        QSignalSpy spy(m_settings.brew(), &SettingsBrew::steamSecondsPerGramChanged);
-        m_settings.brew()->setSteamSecondsPerGram(0.20);   // change -> 1 emit
-        QCOMPARE(spy.count(), 1);
-        m_settings.brew()->setSteamSecondsPerGram(0.20);   // no-op -> no further emit
-        QCOMPARE(spy.count(), 1);
+    void calibratingAPitcherSetsItsRateAndEnables() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset("Latte", 30, 150, 135.0);
+        const int idx = brew->steamPitcherCount() - 1;
+        brew->setMilkAutoCaptureEnabled(false);
+
+        // Non-positive input must neither divide by zero nor opt the user in.
+        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 0.0, 30.0)
+                == SettingsBrew::PresetMutationResult::Invalid);
+        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 200.0, 0.0)
+                == SettingsBrew::PresetMutationResult::Invalid);
+        QVERIFY(!brew->milkAutoCaptureEnabled());
+
+        // Above kMaxSecondsPerGram: a measured rate is stored as measured.
+        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 30.0, 70.0)
+                == SettingsBrew::PresetMutationResult::Applied);
+        QCOMPARE(brew->getSteamPitcherPreset(idx)["secondsPerGram"].toDouble(), 70.0 / 30.0);
+        QVERIFY(brew->milkAutoCaptureEnabled());
+
+        // The same pour again changes no rate and still opts back in.
+        brew->setMilkAutoCaptureEnabled(false);
+        QVERIFY(brew->tryCalibrateSteamPitcher(idx, "Latte", 30.0, 70.0)
+                == SettingsBrew::PresetMutationResult::NoChange);
+        QVERIFY(brew->milkAutoCaptureEnabled());
     }
 
-    void calibrateSteamFromReferenceSetsRateAndEnables() {
-        // The happy path: rate = timeSec / milkG, and weight-timing is turned on as the
-        // explicit calibrate opt-in.
-        m_settings.brew()->setMilkAutoCaptureEnabled(false);
-        m_settings.brew()->setSteamSecondsPerGram(0.0);
-        m_settings.brew()->calibrateSteamFromReference(200.0, 30.0);  // 0.15 s/g
-        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.15);
-        QVERIFY(m_settings.brew()->milkAutoCaptureEnabled());
+    // The last pour belongs to a pitcher, not to a name: it follows a rename and
+    // dies with a delete, so it can never calibrate a pitcher that took the name.
+    void lastPourFollowsItsPitcherThroughRenameAndDelete() {
+        auto* brew = m_settings.brew();
+        const QString origName = brew->lastSteamPitcherName();
+        const auto restore = qScopeGuard([&] { brew->setLastSteamPitcherName(origName); });
+        brew->addSteamPitcherPreset("Oat", 30, 150, 135.0);
+        const int oat = brew->steamPitcherCount() - 1;
+        brew->setLastSteamPitcherName("Oat");
+
+        QVERIFY(brew->tryRenameSteamPitcherPreset(oat, "Oat", "Oat barista")
+                == SettingsBrew::PresetMutationResult::Applied);
+        QCOMPARE(brew->lastSteamPitcherName(), QString("Oat barista"));
+
+        QVERIFY(brew->tryRemoveSteamPitcherPreset(oat, "Oat barista")
+                == SettingsBrew::PresetMutationResult::Applied);
+        QCOMPARE(brew->lastSteamPitcherName(), QString());
     }
 
-    void calibrateSteamFromReferenceGuardsNonPositive() {
-        // With either argument non-positive the call is a no-op — no divide-by-zero
-        // rate, and (critically) it must NOT enable weight-timing off a bad calibration.
-        m_settings.brew()->setMilkAutoCaptureEnabled(false);
-        m_settings.brew()->setSteamSecondsPerGram(0.0);
-        m_settings.brew()->calibrateSteamFromReference(0.0, 30.0);    // no milk
-        m_settings.brew()->calibrateSteamFromReference(200.0, 0.0);   // no time
-        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.0);
-        QVERIFY(!m_settings.brew()->milkAutoCaptureEnabled());
+    void newPitcherRateComesFromTheSelectedPitcher() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset("Flat white", 30, 150, 135.0);
+        const int small = brew->steamPitcherCount() - 1;
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(small, "Flat white", 0.14)
+                == SettingsBrew::PresetMutationResult::Applied);
+        brew->setSelectedSteamCup(small);
+        QCOMPARE(brew->steamRateForNewPitcher(), 0.14);
+        brew->setSelectedSteamCup(SettingsBrew::HeaterOffPitcherIndex);
+        QCOMPARE(brew->steamRateForNewPitcher(), 0.0);
     }
 
-    void steamSecondsPerGramRoundTrip() {
-        // The global rate must survive an export -> import cycle (it's the whole
-        // weight-timed-steam calibration — losing it on a device migration would
-        // silently disable the feature).
-        m_settings.brew()->setSteamSecondsPerGram(0.22);
-        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+    // The upgrade from one global steam rate: every pitcher takes it, once.
+    void globalSteamRateIsCopiedIntoEveryPitcherOnce() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QVariant origLegacy = raw.value("steam/steamSecondsPerGram");
+        const auto restore = qScopeGuard([&] {
+            if (origLegacy.isValid()) raw.setValue("steam/steamSecondsPerGram", origLegacy);
+            else raw.remove("steam/steamSecondsPerGram");
+            raw.setValue("migration/steamRatePerPitcher", true);
+            raw.sync();
+        });
+        QJsonArray presets{
+            QJsonObject{{"name", "Small"}, {"duration", 30}, {"flow", 150}},
+            QJsonObject{{"name", "Oat"}, {"duration", 30}, {"flow", 150}, {"secondsPerGram", 0.18}}};
+        raw.setValue("steam/pitcherPresets", QJsonDocument(presets).toJson());
+        raw.setValue("steam/steamSecondsPerGram", 0.14);
+        raw.remove("migration/steamRatePerPitcher");
+        raw.sync();
 
-        m_settings.brew()->setSteamSecondsPerGram(0.99);   // mutate to prove import overwrites
+        {
+            Settings upgraded;
+            QCOMPARE(upgraded.brew()->getSteamPitcherPreset(0)["secondsPerGram"].toDouble(), 0.14);
+            QCOMPARE(upgraded.brew()->getSteamPitcherPreset(1)["secondsPerGram"].toDouble(), 0.18);
+        }
+        raw.sync();
+        QVERIFY(raw.value("migration/steamRatePerPitcher").toBool());
+
+        // A pitcher added later without a rate is not picked up by a second launch.
+        presets.append(QJsonObject{{"name", "Later"}, {"duration", 30}, {"flow", 150}});
+        raw.setValue("steam/pitcherPresets", QJsonDocument(presets).toJson());
+        raw.sync();
+        Settings secondLaunch;
+        QVERIFY(!secondLaunch.brew()->getSteamPitcherPreset(2).contains("secondsPerGram"));
+    }
+
+    void unreadablePitchersLeaveTheRateCopyPending() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QVariant origLegacy = raw.value("steam/steamSecondsPerGram");
+        const auto restore = qScopeGuard([&] {
+            if (origLegacy.isValid()) raw.setValue("steam/steamSecondsPerGram", origLegacy);
+            else raw.remove("steam/steamSecondsPerGram");
+            raw.setValue("migration/steamRatePerPitcher", true);
+            raw.sync();
+        });
+        raw.setValue("steam/pitcherPresets", QByteArray("{not json"));
+        raw.setValue("steam/steamSecondsPerGram", 0.14);
+        raw.remove("migration/steamRatePerPitcher");
+        raw.sync();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("could not parse steam/pitcherPresets")));
+        Settings upgraded;
+        raw.sync();
+        QVERIFY(!raw.contains("migration/steamRatePerPitcher"));
+        QCOMPARE(raw.value("steam/pitcherPresets").toByteArray(), QByteArray("{not json"));
+    }
+
+    void pitcherSteamRatesRoundTrip() {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset("Whole milk", 30, 150, 135.0);
+        const int whole = brew->steamPitcherCount() - 1;
+        brew->addSteamPitcherPreset("Oat", 30, 150, 135.0);
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(whole, "Whole milk", 0.14)
+                == SettingsBrew::PresetMutationResult::Applied);
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(whole + 1, "Oat", 0.18)
+                == SettingsBrew::PresetMutationResult::Applied);
+        const QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        QVERIFY(brew->trySetSteamPitcherSecondsPerGram(whole, "Whole milk", 0.99)
+                == SettingsBrew::PresetMutationResult::Applied);   // prove import overwrites
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+        QCOMPARE(brew->getSteamPitcherPreset(whole)["secondsPerGram"].toDouble(), 0.14);
+        QCOMPARE(brew->getSteamPitcherPreset(whole + 1)["secondsPerGram"].toDouble(), 0.18);
 
-        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.22);
+        // A backup from before per-pitcher rates: one global rate, none on the presets.
+        QJsonObject oldBundle = bundle;
+        QJsonObject steam = oldBundle["steam"].toObject();
+        QJsonArray oldPresets;
+        for (const QJsonValue& v : steam["pitcherPresets"].toArray()) {
+            QJsonObject preset = v.toObject();
+            preset.remove("secondsPerGram");
+            oldPresets.append(preset);
+        }
+        steam["pitcherPresets"] = oldPresets;
+        steam["steamSecondsPerGram"] = 0.16;
+        oldBundle["steam"] = steam;
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer.* importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, oldBundle));
+        QCOMPARE(brew->getSteamPitcherPreset(whole)["secondsPerGram"].toDouble(), 0.16);
+        QCOMPARE(brew->getSteamPitcherPreset(whole + 1)["secondsPerGram"].toDouble(), 0.16);
     }
 
     // applySteamPitcherValues is THE definition of "apply this pitcher": which

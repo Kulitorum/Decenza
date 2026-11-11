@@ -55,8 +55,9 @@ QJsonObject validFields(const QString& operation)
         return {{QStringLiteral("index"), 0}, {QStringLiteral("expectedName"), QStringLiteral("Small")}};
     if (operation == QLatin1String("set-milk-auto-capture"))
         return {{QStringLiteral("enabled"), true}};
-    if (operation == QLatin1String("set-steam-seconds-per-gram"))
-        return {{QStringLiteral("value"), 0.15}};
+    if (operation == QLatin1String("set-preset-seconds-per-gram"))
+        return {{QStringLiteral("index"), 0}, {QStringLiteral("expectedName"), QStringLiteral("Small")},
+                {QStringLiteral("value"), 0.15}};
     return {};
 }
 
@@ -84,6 +85,10 @@ private slots:
         row.insert(QStringLiteral("pitcherWeightG"), 120.0);
         changedPitchers.presets[0] = row;
         QVERIFY(initial != SteamEditRequest::editorRevision(changedPitchers, sourceUi));
+        row = sourcePitchers.presets.first().toMap();
+        row.insert(QStringLiteral("secondsPerGram"), 0.25);
+        changedPitchers.presets[0] = row;
+        QVERIFY(initial != SteamEditRequest::editorRevision(changedPitchers, sourceUi));
 
         const auto changeUi = [&sourceUi](auto setter) {
             MachineUiSnapshot changed = sourceUi;
@@ -98,8 +103,6 @@ private slots:
             changeUi([](MachineUiSnapshot& ui) { ui.brewSteamTemperature += 0.5; })));
         QVERIFY(initial != SteamEditRequest::editorRevision(sourcePitchers,
             changeUi([](MachineUiSnapshot& ui) { ui.brewMilkAutoCaptureEnabled = true; })));
-        QVERIFY(initial != SteamEditRequest::editorRevision(sourcePitchers,
-            changeUi([](MachineUiSnapshot& ui) { ui.brewSteamSecondsPerGram = 0.25; })));
 
         MachineUiSnapshot unrelated = sourceUi;
         unrelated.temperature = 99.0;
@@ -114,7 +117,7 @@ private slots:
             QStringLiteral("create-preset"), QStringLiteral("delete-preset"),
             QStringLiteral("move-preset"), QStringLiteral("set-pitcher-weight"),
             QStringLiteral("store-current-pitcher-weight"), QStringLiteral("clear-pitcher-weight"),
-            QStringLiteral("set-milk-auto-capture"), QStringLiteral("set-steam-seconds-per-gram"),
+            QStringLiteral("set-milk-auto-capture"), QStringLiteral("set-preset-seconds-per-gram"),
             QStringLiteral("calibrate-from-last-steam")
         };
         for (const QString& name : operations) {
@@ -153,6 +156,16 @@ private slots:
         fields = validFields(QStringLiteral("set-preset-temperature"));
         fields.insert(QStringLiteral("temperatureC"), 1000.0);
         QVERIFY(!SteamEditRequest::validateFields(QStringLiteral("set-preset-temperature"), fields).valid);
+        const QString rateOp = QStringLiteral("set-preset-seconds-per-gram");
+        fields = validFields(rateOp);
+        fields.insert(QStringLiteral("value"), 2.01);
+        QVERIFY(!SteamEditRequest::validateFields(rateOp, fields).valid);
+        fields.insert(QStringLiteral("value"), -0.01);
+        QVERIFY(!SteamEditRequest::validateFields(rateOp, fields).valid);
+        fields = validFields(rateOp);
+        fields.remove(QStringLiteral("expectedName"));
+        QVERIFY(!SteamEditRequest::validateFields(rateOp, fields).valid);
+
         fields = validFields(QStringLiteral("create-preset"));
         fields.insert(QStringLiteral("name"), QString(129, QLatin1Char('x')));
         QVERIFY(!SteamEditRequest::validateFields(QStringLiteral("create-preset"), fields).valid);

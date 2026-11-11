@@ -181,7 +181,7 @@ int SteamService::effectiveSteamDurationSec(int index, double milkG) const
     if (!ready())
         return 0;
     return SteamCalculations::effectiveSteamDuration(getSteamPitcherPreset(index),
-        m_state->milkAutoCaptureEnabled(), m_state->steamSecondsPerGram(), milkG)
+        m_state->milkAutoCaptureEnabled(), milkG)
         .effectiveSeconds;
 }
 

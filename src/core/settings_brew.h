@@ -6,6 +6,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <optional>
+
 // Forward-declared rather than included: only the private preset-array helper
 // below needs it, and settings.h now includes this header (see CLAUDE.md).
 class QJsonArray;
@@ -39,15 +41,15 @@ class SettingsBrew : public QObject {
     // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
     // off — toggled by the bell on the Dose cup row.
     Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged FINAL)
-    // Last actual steam session (milk weight + steam time), saved so the steam
-    // setup can adopt them as a new reference baseline.
+    // The milk weight a steam is planned for: a recipe's, or the last one measured.
     Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged FINAL)
     Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged FINAL)
-    // Global weight-timed steam rate (seconds of steam per gram of milk). One
-    // calibration for every pitcher (assumes a consistent steam flow — a
-    // simplification, not a physical guarantee), replacing per-pitcher
-    // reference-milk scaling. 0 = uncalibrated. Clamped >= 0.
-    Q_PROPERTY(double steamSecondsPerGram READ steamSecondsPerGram WRITE setSteamSecondsPerGram NOTIFY steamSecondsPerGramChanged FINAL)
+    // The pitcher the last steam session was steamed with, so its pour can only
+    // calibrate that pitcher. Empty = not a usable pour.
+    Q_PROPERTY(QString lastSteamPitcherName READ lastSteamPitcherName WRITE setLastSteamPitcherName NOTIFY lastSteamPitcherNameChanged FINAL)
+    // That pour's own milk weight. lastSteamMilkG cannot serve: recipe activation
+    // overwrites it with the recipe's planned milk.
+    Q_PROPERTY(double lastSteamPourMilkG READ lastSteamPourMilkG WRITE setLastSteamPourMilkG NOTIFY lastSteamPourMilkGChanged FINAL)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged FINAL)
@@ -152,12 +154,10 @@ public:
     double lastSteamTimeS() const;
     void setLastSteamTimeS(double s);
 
-    double steamSecondsPerGram() const;
-    void setSteamSecondsPerGram(double secPerGram);
-    // Calibrate the global steam rate from one observed steam: secPerGram =
-    // timeSec / milkG. Guarded (both > 0). Turns weight-timed steaming on, matching
-    // the old per-pitcher calibrate opt-in.
-    Q_INVOKABLE void calibrateSteamFromReference(double milkG, double timeSec);
+    QString lastSteamPitcherName() const;
+    void setLastSteamPitcherName(const QString& name);
+    double lastSteamPourMilkG() const;
+    void setLastSteamPourMilkG(double g);
 
     // Steam
     double steamTemperature() const;
@@ -203,8 +203,22 @@ public:
 
     // Result-returning variants for host operations that must distinguish a
     // successful write from the legacy void mutators' silent rejection paths.
+    // `secondsPerGram` unset stores no rate, which reads as uncalibrated.
     PresetMutationResult tryAddSteamPitcherPreset(const QString& name, int duration,
-                                                   int flow, double temperature);
+                                                   int flow, double temperature,
+                                                   std::optional<double> secondsPerGram = std::nullopt);
+    // A pitcher's steam rate, seconds per gram of milk. 0 = uncalibrated; negative
+    // stores 0. Callers taking user input bound it to kMaxSecondsPerGram.
+    PresetMutationResult trySetSteamPitcherSecondsPerGram(int index, const QString& expectedName,
+                                                           double secondsPerGram);
+    // Rate = timeSec / milkG from one observed steam. Turns weight-timed steaming on.
+    PresetMutationResult tryCalibrateSteamPitcher(int index, const QString& expectedName,
+                                                   double milkG, double timeSec);
+    // What a pitcher created now starts with: the selected pitcher's rate.
+    double steamRateForNewPitcher() const;
+    // Gives `secondsPerGram` to every pitcher that has no rate of its own.
+    // False when the stored presets could not be read (nothing written).
+    bool seedSteamPitcherRates(double secondsPerGram);
     PresetMutationResult tryUpdateSteamPitcherPreset(int index, const QString& name,
                                                       int duration, int flow, double temperature);
     PresetMutationResult trySetSteamPitcherDuration(int index, const QString& expectedName,
@@ -294,8 +308,7 @@ public:
     // As waterVesselNameTaken: for a dialog to check before it calls a setter.
     Q_INVOKABLE bool steamPitcherNameTaken(const QString& name, int ignoreIndex = -1) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
-    // Weight-scaled steaming: pair a reference milk weight with this preset's
-    // duration. At steam time the duration is scaled by the actual milk weight.
+    // Legacy reference milk weight. Stored and round-tripped; scales nothing.
     Q_INVOKABLE void setSteamPitcherCalibration(int index, double calibMilkG);
     // Single source of truth for weight-timed steam scaling. Returns the scaled steam
     // time (s) clamped to [5,120], or 0 — meaning "use the preset's fixed duration" —
@@ -412,7 +425,8 @@ signals:
     void doseCaptureSoundEnabledChanged();
     void lastSteamMilkGChanged();
     void lastSteamTimeSChanged();
-    void steamSecondsPerGramChanged();
+    void lastSteamPitcherNameChanged();
+    void lastSteamPourMilkGChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();

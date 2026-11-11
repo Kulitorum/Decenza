@@ -27,7 +27,6 @@ public:
     using SteamStateSimpleSource::setSelectedSteamPitcher;
     using SteamStateSimpleSource::setSelectedSteamPitcherDisplayIndex;
     using SteamStateSimpleSource::setMilkAutoCaptureEnabled;
-    using SteamStateSimpleSource::setSteamSecondsPerGram;
     using SteamStateSimpleSource::setLastSteamMilkG;
     using SteamStateSimpleSource::setDeviceConnected;
     using SteamStateSimpleSource::setSteamTemperatureActual;
@@ -178,14 +177,14 @@ private slots:
     void pitcherReadoutsAndDurationUseTheSharedSteamState()
     {
         const QVariantMap pitcher{{QStringLiteral("name"), QStringLiteral("Small pitcher")},
-            {QStringLiteral("duration"), 180}, {QStringLiteral("pitcherWeightG"), 310.0}};
+            {QStringLiteral("duration"), 180}, {QStringLiteral("pitcherWeightG"), 310.0},
+            {QStringLiteral("secondsPerGram"), 0.15}};
         const QVariantMap off{{QStringLiteral("disabled"), true}, {QStringLiteral("builtin"), true}};
         TestSteamSource source;
         source.setSteamPitcherPresets({pitcher, off});
         source.setSelectedSteamPitcher(0);
         source.setSelectedSteamPitcherDisplayIndex(0);
         source.setMilkAutoCaptureEnabled(true);
-        source.setSteamSecondsPerGram(0.15);
         source.setLastSteamMilkG(200.0);
         source.setSteamTimeout(65);
         source.setPlannedSteamDurationSec(65);
@@ -277,7 +276,9 @@ private slots:
         QCOMPARE(service->effectiveSteamDurationSec(0, std::numeric_limits<double>::quiet_NaN()), 180);
         QCOMPARE(service->effectiveSteamDurationSec(-1, 100.0), 0);
 
-        source.setSteamSecondsPerGram(0.25);
+        QVariantMap fasterPitcher = pitcher;
+        fasterPitcher.insert(QStringLiteral("secondsPerGram"), 0.25);
+        source.setSteamPitcherPresets({fasterPitcher, off});
         QTRY_COMPARE(service->effectiveSteamDurationSec(0, 100.0), 25);
         // A historical/captured milk label cannot override the host's chosen
         // timeout. Only the host's preparation policy publishes a new duration.

@@ -554,21 +554,21 @@ int PreparationController::scaledSteamDurationAtStart(QString* source) const
         return 0;
     }
     return scaledSteamDurationAtStart(m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher()),
-        m_brew->milkAutoCaptureEnabled(), m_brew->steamSecondsPerGram(), source);
+        m_brew->milkAutoCaptureEnabled(), source);
 }
 
 int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher,
-    bool milkAutoCaptureEnabled, double secondsPerGram, QString* source) const
+    bool milkAutoCaptureEnabled, QString* source) const
 {
     // Only a capture changes the time: a load on the scale at steam start (a cup
     // on the drip tray) is not milk.
     const double milk = m_snapshot.sessionMeasuredMilkG;
     const int seconds = m_snapshot.milkTimeLocked
-        ? SteamCalculations::scaledSteamTime(pitcher, milkAutoCaptureEnabled, secondsPerGram, milk)
+        ? SteamCalculations::scaledSteamTime(pitcher, milkAutoCaptureEnabled, milk)
         : 0;
     if (source) {
         const char* blocker = SteamCalculations::steamScalingBlocker(
-            pitcher, milkAutoCaptureEnabled, secondsPerGram);
+            pitcher, milkAutoCaptureEnabled);
         QString why;
         if (seconds > 0) {
             why = QStringLiteral("%1 g captured").arg(formatGrams(milk));
@@ -583,9 +583,9 @@ int PreparationController::scaledSteamDurationAtStart(const QVariantMap& pitcher
                      m_snapshot.milk.loadPresent ? QLatin1String("load on scale")
                                                  : QLatin1String("scale empty"));
         }
-        *source = why + QStringLiteral(" [milk=%1 g weight-timed=%2 rate=%3 s/g pitcher=%4 empty=%5 g]")
+        *source = why + QStringLiteral(" [milk=%1 g weight-timed=%2 pitcher-rate=%3 s/g pitcher=%4 empty=%5 g]")
             .arg(formatGrams(milk), milkAutoCaptureEnabled ? QLatin1String("on") : QLatin1String("off"),
-                 QString::number(secondsPerGram, 'g', 3),
+                 QString::number(SteamCalculations::presetSecondsPerGram(pitcher), 'g', 3),
                  pitcher.isEmpty() ? QStringLiteral("none")
                                    : pitcher.value(QStringLiteral("name")).toString(),
                  formatGrams(selectedPitcherWeight()));
@@ -600,17 +600,17 @@ int PreparationController::plannedSteamDurationSec() const
     if (m_machineState && m_machineState->phase() == MachineState::Phase::Steaming)
         return m_brew->steamTimeout();
     return plannedSteamDurationSec(m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher()),
-        m_brew->milkAutoCaptureEnabled(), m_brew->steamSecondsPerGram(), m_brew->steamTimeout());
+        m_brew->milkAutoCaptureEnabled(), m_brew->steamTimeout());
 }
 
 int PreparationController::plannedSteamDurationSec(const QVariantMap& pitcher,
-    bool milkAutoCaptureEnabled, double secondsPerGram, int timeoutSec) const
+    bool milkAutoCaptureEnabled, int timeoutSec) const
 {
     if (!m_brew)
         return 0;
     if (m_machineState && m_machineState->phase() == MachineState::Phase::Steaming)
         return timeoutSec;
-    const int scaled = scaledSteamDurationAtStart(pitcher, milkAutoCaptureEnabled, secondsPerGram);
+    const int scaled = scaledSteamDurationAtStart(pitcher, milkAutoCaptureEnabled);
     return scaled > 0 ? scaled : timeoutSec;
 }
 
@@ -635,6 +635,19 @@ void PreparationController::finishSteamSession()
     if (m_steamElapsedTracker >= 1.0 && m_snapshot.sessionMeasuredMilkG > 0.0 && m_brew) {
         m_brew->setLastSteamMilkG(m_snapshot.sessionMeasuredMilkG);
         m_brew->setLastSteamTimeS(m_steamElapsedTracker);
+        m_brew->setLastSteamPourMilkG(m_snapshot.sessionMeasuredMilkG);
+        const int selected = m_brew->selectedSteamPitcher();
+        QString pitcherName = m_brew->getSteamPitcherPreset(selected)
+                                  .value(QStringLiteral("name")).toString();
+        // Duplicate names from before names had to be unique are left in
+        // storage; a shared name cannot say which pitcher the pour was with.
+        if (m_brew->steamPitcherNameTaken(pitcherName, selected))
+            pitcherName.clear();
+        m_brew->setLastSteamPitcherName(pitcherName);
+        DIAG_INFO(STEAM, "PreparationController").noquote()
+            << QStringLiteral("Steam pour recorded: %1 g milk, %2 s, pitcher=%3")
+                   .arg(m_snapshot.sessionMeasuredMilkG, 0, 'f', 1)
+                   .arg(m_steamElapsedTracker, 0, 'f', 1).arg(pitcherName);
     }
     m_steamElapsedTracker = 0.0;
     m_snapshot.sessionMeasuredMilkG = 0.0;
@@ -717,7 +730,7 @@ const char* PreparationController::steamTimeBlocker() const
         return "time unlocked";
     return SteamCalculations::steamScalingBlocker(
         m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher()),
-        m_brew->milkAutoCaptureEnabled(), m_brew->steamSecondsPerGram());
+        m_brew->milkAutoCaptureEnabled());
 }
 
 const char* PreparationController::milkSampleBlocker() const

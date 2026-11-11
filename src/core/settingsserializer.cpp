@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "settings_app.h"
 #include "settings_brew.h"
+#include "steamcalculations.h"
 #include "settings_dye.h"
 #include "settings_network.h"
 #include "settings_mqtt.h"
@@ -17,6 +18,8 @@
 #include <QJsonDocument>
 #include <QSettings>
 #include <QDebug>
+
+#include <optional>
 
 QStringList SettingsSerializer::sensitiveKeys()
 {
@@ -79,7 +82,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
     steam["milkAutoCaptureEnabled"] = settings->brew()->milkAutoCaptureEnabled();
-    steam["steamSecondsPerGram"] = settings->brew()->steamSecondsPerGram();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
@@ -99,9 +101,11 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         if (!SettingsBrew::isHeaterOffPitcher(m))
             p["temperature"] = m.contains("temperature") ? m["temperature"].toDouble()
                                                          : settings->brew()->steamTemperature();
-        // The weight-based-steaming feature is keyed on these, so they must round-trip.
         if (m.contains("pitcherWeightG")) p["pitcherWeightG"] = m["pitcherWeightG"].toDouble();
         if (m.contains("calibMilkG")) p["calibMilkG"] = m["calibMilkG"].toDouble();
+        // Always written, 0 included: its presence is what tells an import this
+        // backup has per-pitcher rates and must not be seeded from a global one.
+        p["secondsPerGram"] = SteamCalculations::presetSecondsPerGram(m);
         if (m.contains("disabled")) p["disabled"] = m["disabled"].toBool();
         pitcherPresets.append(p);
     }
@@ -511,22 +515,32 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                const int before = settings->brew()->steamPitcherCount();
                 // Legacy presets predate the per-pitcher temperature field; fall
                 // back to the device's current global steam temperature.
                 const double presetTemp = p.contains("temperature") ? p["temperature"].toDouble()
                                                                     : settings->brew()->steamTemperature();
-                settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(),
-                                                        p["flow"].toInt(), presetTemp);
-                // Restore weight + milk calibration ONLY when the add actually
-                // appended one entry — if a corrupt store no-ops the add, never
-                // onto the wrong/previous one.
-                const int after = settings->brew()->steamPitcherCount();
-                if (after == before + 1) {
-                    const int idx = after - 1;
-                    if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
-                    if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
+                // A rate that is not a number is treated as absent, so the old
+                // global rate below can still fill it.
+                std::optional<double> rate;
+                if (p["secondsPerGram"].isDouble())
+                    rate = p["secondsPerGram"].toDouble();
+                const auto added = settings->brew()->tryAddSteamPitcherPreset(
+                    p["name"].toString(), p["duration"].toInt(), p["flow"].toInt(), presetTemp, rate);
+                if (added != SettingsBrew::PresetMutationResult::Applied) {
+                    // Weight and calibration go only onto the pitcher just
+                    // appended, never onto the previous one. A refused name
+                    // (a duplicate, or the built-in "Heater off" row) is logged by the add;
+                    // an unreadable store loses every pitcher and fails the import.
+                    if (added == SettingsBrew::PresetMutationResult::Unreadable) {
+                        importOk = false;
+                        DIAG_WARN(STORAGE, "SettingsSerializer") << "steam pitcher" << p["name"].toString()
+                                   << "not imported: the stored pitcher list could not be read";
+                    }
+                    continue;
                 }
+                const int idx = settings->brew()->steamPitcherCount() - 1;
+                if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
+                if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
             }
         }
         // Apply the master toggle AFTER the preset loop: setSteamPitcherCalibration()
@@ -534,8 +548,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // calibrated preset clobber a backup where the user had the feature OFF.
         // The serialized value must win.
         if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
-        if (steam.contains("steamSecondsPerGram"))
-            settings->brew()->setSteamSecondsPerGram(steam["steamSecondsPerGram"].toDouble());
+        // A backup from before per-pitcher rates carries one global rate: give
+        // it to every pitcher that came without its own.
+        if (steam.contains("steamSecondsPerGram")
+            && !settings->brew()->seedSteamPitcherRates(steam["steamSecondsPerGram"].toDouble())) {
+            importOk = false;
+            DIAG_WARN(STORAGE, "SettingsSerializer")
+                << "imported steam rate not applied: the stored pitcher list could not be read";
+        }
         // Apply the selected pitcher AFTER any preset rebuild (and regardless of
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.

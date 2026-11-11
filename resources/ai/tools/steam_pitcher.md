@@ -2,22 +2,24 @@
 
 Steam pitcher presets. `action` is `list`, `add`, `update`, `delete` or `select`.
 
-A preset carries `name`, `durationSec`, `flowMlPerSec` and `temperatureC` (a per-pitcher steam
-temperature). `select` makes one active and sends its values to the machine; `add` also selects
+A preset carries `name`, `durationSec`, `flowMlPerSec`, `temperatureC` (a per-pitcher steam
+temperature) and `secPerGramMilk`. `select` makes one active and sends its values to the machine; `add` also selects
 what it just added.
 
-## Fields with history
+## Fields
 
 - `pitcherWeightG` — the saved empty-pitcher weight, used for net-milk capture.
-- `calibMilkG` — a legacy per-pitcher reference weight. It no longer scales anything:
-  weight-timed steaming uses one global rate (`steamSecondsPerGram` in settings), not
-  per-pitcher calibration.
+- `secPerGramMilk` — this pitcher's weight-timed steam rate: seconds of steam per gram of
+  milk, 0 to 2. Each pitcher has its own, so presets for different fluids or target
+  temperatures steam for different times. 0 means uncalibrated: the pitcher steams for
+  `durationSec`. `add` without it copies the selected pitcher's rate.
+- `calibMilkG` — a legacy per-pitcher reference weight, reported when stored. It no longer
+  scales anything.
 
-## "Off" presets
+## Heater off
 
-`add` with `disabled: true` creates an "Off" preset that turns the steam heater off; the other
-fields are ignored. A disabled preset reports only `name` and `disabled`, and CANNOT be edited —
-delete it and add a new one.
+Every machine has one built-in "Heater off" entry, last in `list`, reporting only `name` and
+`disabled`. `select` it to turn the steam heater off. It cannot be added, edited or deleted.
 
 ## Indexes
 

@@ -11,6 +11,8 @@ The end-user manual lives in the GitHub wiki at https://github.com/Kulitorum/Dec
 
 This needs saying because the failure is one-directional and constant: an assistant writing docs will produce four paragraphs where four sentences do, every time, and each one reads as reasonable in isolation. When you finish a manual entry, cut it by half before committing it. If something in the cut half is genuinely load-bearing, it is usually a sign the FEATURE needs to be clearer, not the doc longer.
 
+**Less is best, and a change to an existing feature is an edit, not an addition.** Rewrite the sentence that is now wrong, in the voice of the sentences around it, and stop. Aim for no net growth: the per-pitcher steam rate changed two lines of the manual, after a first draft that added four sentences and a clause to a setup step that did not need it. Leave out anything the screen already says for itself (a disabled button, a message explaining why), and anything true only in an edge case.
+
 **When adding or changing a user-visible feature, update the wiki manual as part of that work** — add a task for it in the change's `tasks.md` (or do it directly for small fixes). Don't leave it as an afterthought; a shipped feature with no manual entry is incomplete.
 
 ## Reference Documents

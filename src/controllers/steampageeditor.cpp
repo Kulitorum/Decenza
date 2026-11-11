@@ -1,5 +1,6 @@
 #include "steampageeditor.h"
 
+#include "core/diagnosticlogging.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../machine/machinestate.h"
@@ -51,8 +52,7 @@ SteamPageEditor::SteamPageEditor(SettingsBrew* brew, MachineState* machineState,
                         &SettingsBrew::steamTemperatureChanged,
                         &SettingsBrew::steamTimeoutChanged,
                         &SettingsBrew::steamFlowChanged,
-                        &SettingsBrew::milkAutoCaptureEnabledChanged,
-                        &SettingsBrew::steamSecondsPerGramChanged}) {
+                        &SettingsBrew::milkAutoCaptureEnabledChanged}) {
         connect(m_brew, signal, this, [this] {
             m_revisionValid = false;
             emit editorRevisionChanged();
@@ -72,7 +72,6 @@ QString SteamPageEditor::editorRevision() const
     machineUi.brewSteamTimeout = m_brew->steamTimeout();
     machineUi.brewSteamFlow = m_brew->steamFlow();
     machineUi.brewMilkAutoCaptureEnabled = m_brew->milkAutoCaptureEnabled();
-    machineUi.brewSteamSecondsPerGram = m_brew->steamSecondsPerGram();
     const SteamPitcherSnapshot pitchers = SteamPitcherSnapshot::project(
         m_brew->steamPitcherPresets(), m_brew->selectedSteamPitcher());
     m_cachedRevision = SteamEditRequest::editorRevision(pitchers, machineUi);
@@ -192,11 +191,13 @@ bool SteamPageEditor::setMilkAutoCaptureEnabled(const QString& requestId,
                   {{QStringLiteral("enabled"), enabled}}, requestId, revision);
 }
 
-bool SteamPageEditor::setSteamSecondsPerGram(const QString& requestId,
-                                             const QString& revision, double value)
+bool SteamPageEditor::setPresetSecondsPerGram(const QString& requestId, const QString& revision,
+                                              int index, const QString& expectedName, double value)
 {
-    return submit(QStringLiteral("set-steam-seconds-per-gram"),
-                  {{QStringLiteral("value"), value}}, requestId, revision);
+    return submit(QStringLiteral("set-preset-seconds-per-gram"),
+                  {{QStringLiteral("index"), index},
+                   {QStringLiteral("expectedName"), expectedName},
+                   {QStringLiteral("value"), value}}, requestId, revision);
 }
 
 bool SteamPageEditor::calibrateFromLastSteam(const QString& requestId,
@@ -241,25 +242,27 @@ bool SteamPageEditor::dispatch(const SteamEditRequest::Command& command,
         return !preset.isEmpty() && !preset.value(QStringLiteral("disabled")).toBool()
             && preset.value(QStringLiteral("name")).toString() == expectedName;
     };
+    // The tuning edits act on the pitcher the user is looking at, and only on it.
+    const auto commandTargetsSelectedPitcher = [&] {
+        if (command.index == m_brew->selectedSteamPitcher()
+            && currentPresetMatches(command.index, command.expectedName))
+            return true;
+        message = QStringLiteral("The selected steam pitcher changed. Review it and try again.");
+        return false;
+    };
 
     switch (command.operation) {
     case SteamEditRequest::Operation::SetPresetDuration:
-        if (command.index != m_brew->selectedSteamPitcher()
-            || !currentPresetMatches(command.index, command.expectedName)) {
-            message = QStringLiteral("The selected steam pitcher changed. Review it and try again.");
+        if (!commandTargetsSelectedPitcher())
             break;
-        }
         success = failMutation(m_brew->trySetSteamPitcherDuration(
             command.index, command.expectedName, command.durationSec));
         if (success)
             m_brew->setSteamTimeout(command.durationSec);
         break;
     case SteamEditRequest::Operation::SetPresetFlow:
-        if (command.index != m_brew->selectedSteamPitcher()
-            || !currentPresetMatches(command.index, command.expectedName)) {
-            message = QStringLiteral("The selected steam pitcher changed. Review it and try again.");
+        if (!commandTargetsSelectedPitcher())
             break;
-        }
         success = failMutation(m_brew->trySetSteamPitcherFlow(
             command.index, command.expectedName, command.flow));
         if (success) {
@@ -268,11 +271,8 @@ bool SteamPageEditor::dispatch(const SteamEditRequest::Command& command,
         }
         break;
     case SteamEditRequest::Operation::SetPresetTemperature:
-        if (command.index != m_brew->selectedSteamPitcher()
-            || !currentPresetMatches(command.index, command.expectedName)) {
-            message = QStringLiteral("The selected steam pitcher changed. Review it and try again.");
+        if (!commandTargetsSelectedPitcher())
             break;
-        }
         success = failMutation(m_brew->trySetSteamPitcherTemperature(
             command.index, command.expectedName, command.temperatureC));
         if (success)
@@ -285,7 +285,8 @@ bool SteamPageEditor::dispatch(const SteamEditRequest::Command& command,
     case SteamEditRequest::Operation::CreatePreset: {
         const int index = m_brew->steamPitcherCount();
         success = failMutation(m_brew->tryAddSteamPitcherPreset(
-            command.newName, 30, 150, m_brew->steamTemperature()));
+            command.newName, 30, 150, m_brew->steamTemperature(),
+            m_brew->steamRateForNewPitcher()));
         if (success) {
             m_brew->setSelectedSteamCup(index);
             result.insert(QStringLiteral("index"), index);
@@ -332,19 +333,30 @@ bool SteamPageEditor::dispatch(const SteamEditRequest::Command& command,
         m_brew->setMilkAutoCaptureEnabled(command.enabled);
         success = true;
         break;
-    case SteamEditRequest::Operation::SetSteamSecondsPerGram:
-        m_brew->setSteamSecondsPerGram(command.value);
-        success = true;
+    case SteamEditRequest::Operation::SetPresetSecondsPerGram:
+        if (!commandTargetsSelectedPitcher())
+            break;
+        success = failMutation(m_brew->trySetSteamPitcherSecondsPerGram(
+            command.index, command.expectedName, command.value));
         break;
     case SteamEditRequest::Operation::CalibrateFromLastSteam: {
-        const double milkG = m_brew->lastSteamMilkG();
+        const double milkG = m_brew->lastSteamPourMilkG();
         const double timeS = m_brew->lastSteamTimeS();
         if (!std::isfinite(milkG) || !std::isfinite(timeS) || milkG <= 0.0 || timeS <= 0.0) {
             message = QStringLiteral("A completed weighed steam session is required for calibration.");
             break;
         }
-        m_brew->calibrateSteamFromReference(milkG, timeS);
-        success = true;
+        // The pour may only calibrate the pitcher it was steamed with, and only
+        // while that pitcher is the one the user is looking at.
+        const int selected = m_brew->selectedSteamPitcher();
+        const QVariantMap pitcher = m_brew->getSteamPitcherPreset(selected);
+        const QString pitcherName = pitcher.value(QStringLiteral("name")).toString();
+        if (SettingsBrew::isHeaterOffPitcher(pitcher) || pitcherName.isEmpty()
+            || pitcherName != m_brew->lastSteamPitcherName()) {
+            message = QStringLiteral("The last steam was not with the selected pitcher.");
+            break;
+        }
+        success = failMutation(m_brew->tryCalibrateSteamPitcher(selected, pitcherName, milkG, timeS));
         break;
     }
     }
@@ -359,6 +371,10 @@ bool SteamPageEditor::dispatch(const SteamEditRequest::Command& command,
 void SteamPageEditor::finish(const QString& requestId, const QString& operation,
                              bool success, const QString& message, const QVariantMap& result)
 {
+    // The client is shown `message`; a submitted log would otherwise hold no
+    // trace of a refused edit.
+    if (!success)
+        DIAG_INFO(STEAM, "SteamPageEditor") << operation << "refused:" << message;
     setErrorMessage(success ? QString() : message);
     emit operationCompleted(requestId, operation, success, message, result, editorRevision());
 }

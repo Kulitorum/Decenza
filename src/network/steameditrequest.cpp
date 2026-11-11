@@ -1,5 +1,7 @@
 #include "steameditrequest.h"
 
+#include "core/steamcalculations.h"
+
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QStringList>
@@ -29,7 +31,7 @@ constexpr OperationInfo kOperations[] = {
     {Operation::StoreCurrentPitcherWeight, "store-current-pitcher-weight", "index,expectedName"},
     {Operation::ClearPitcherWeight, "clear-pitcher-weight", "index,expectedName"},
     {Operation::SetMilkAutoCapture, "set-milk-auto-capture", "enabled"},
-    {Operation::SetSteamSecondsPerGram, "set-steam-seconds-per-gram", "value"},
+    {Operation::SetPresetSecondsPerGram, "set-preset-seconds-per-gram", "index,expectedName,value"},
     {Operation::CalibrateFromLastSteam, "calibrate-from-last-steam", ""}
 };
 
@@ -92,8 +94,7 @@ bool readNonemptyString(const QJsonObject& object, const QString& key,
 QString editorRevision(const SteamPitcherSnapshot& pitchers,
                        const MachineUiSnapshot& machineUi)
 {
-    if (!std::isfinite(machineUi.brewSteamTemperature)
-        || !std::isfinite(machineUi.brewSteamSecondsPerGram))
+    if (!std::isfinite(machineUi.brewSteamTemperature))
         return {};
     const QJsonObject ui = machineUi.toJson();
     QJsonObject editorState{
@@ -101,8 +102,7 @@ QString editorRevision(const SteamPitcherSnapshot& pitchers,
         {QStringLiteral("brewSteamTemperature"), ui.value(QStringLiteral("brewSteamTemperature"))},
         {QStringLiteral("brewSteamTimeout"), ui.value(QStringLiteral("brewSteamTimeout"))},
         {QStringLiteral("brewSteamFlow"), ui.value(QStringLiteral("brewSteamFlow"))},
-        {QStringLiteral("brewMilkAutoCaptureEnabled"), ui.value(QStringLiteral("brewMilkAutoCaptureEnabled"))},
-        {QStringLiteral("brewSteamSecondsPerGram"), ui.value(QStringLiteral("brewSteamSecondsPerGram"))}
+        {QStringLiteral("brewMilkAutoCaptureEnabled"), ui.value(QStringLiteral("brewMilkAutoCaptureEnabled"))}
     };
     const QByteArray canonical = QJsonDocument(editorState).toJson(QJsonDocument::Compact);
     return QString::fromLatin1(
@@ -221,8 +221,11 @@ Result validateFields(const QString& name, const QJsonObject& fields)
     case Operation::SetMilkAutoCapture:
         result.valid = fields.value(QStringLiteral("enabled")).isBool();
         break;
-    case Operation::SetSteamSecondsPerGram:
-        result.valid = readFinite(fields, QStringLiteral("value"), 0.0, 2.0, &number);
+    case Operation::SetPresetSecondsPerGram:
+        result.valid = readInt(fields, QStringLiteral("index"), 0, 10000, &index)
+            && readNonemptyString(fields, QStringLiteral("expectedName"))
+            && readFinite(fields, QStringLiteral("value"), 0.0,
+                          SteamCalculations::kMaxSecondsPerGram, &number);
         break;
     case Operation::CalibrateFromLastSteam:
         result.valid = true;
@@ -281,8 +284,11 @@ Result validateFields(const QString& name, const QJsonObject& fields)
         case Operation::SetMilkAutoCapture:
             result.command.enabled = fields.value(QStringLiteral("enabled")).toBool();
             break;
-        case Operation::SetSteamSecondsPerGram:
-            readFinite(fields, QStringLiteral("value"), 0.0, 2.0, &result.command.value);
+        case Operation::SetPresetSecondsPerGram:
+            readInt(fields, QStringLiteral("index"), 0, 10000, &result.command.index);
+            result.command.expectedName = fields.value(QStringLiteral("expectedName")).toString();
+            readFinite(fields, QStringLiteral("value"), 0.0,
+                       SteamCalculations::kMaxSecondsPerGram, &result.command.value);
             break;
         case Operation::CalibrateFromLastSteam:
             break;

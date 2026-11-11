@@ -30,10 +30,11 @@ class SteamState
     PROP(int plannedSteamDurationSec READONLY)
     PROP(int steamFlow READONLY)
     PROP(int steamAutoFlushSeconds READONLY)
-    PROP(double steamSecondsPerGram READONLY)
     PROP(bool milkAutoCaptureEnabled READONLY)
     PROP(double lastSteamMilkG READONLY)
     PROP(double lastSteamTimeS READONLY)
+    PROP(QString lastSteamPitcherName READONLY)
+    PROP(double lastSteamPourMilkG READONLY)
 
     PROP(bool steamTwoTapStop READONLY)
     PROP(QString steamViewMode READONLY)
