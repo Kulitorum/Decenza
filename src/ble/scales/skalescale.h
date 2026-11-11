@@ -24,7 +24,7 @@ public slots:
     // No keep-alive override, deliberately: PR Kulitorum/Decenza#1897's 30 s CCCD rewrite did not
     // stop the #1896 drops, and one unanswered rewrite wedges Android (#1965).
     void sleep() override;
-    void wake() override { enableLcd(); }
+    void wake() override { m_displayOff = false; enableLcd(); }
 
     // Skale-specific functions
     void enableLcd();
@@ -48,4 +48,5 @@ private:
     QString m_name = "Skale";
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
+    bool m_displayOff = false;  // disableLcd() until wake()
 };

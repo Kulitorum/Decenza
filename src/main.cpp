@@ -2817,7 +2817,12 @@ int main(int argc, char *argv[])
         // in flight re-armed it on failure and scanned all night (#1976). Every
         // arming of this timer lands in this tick, so it is the backstop; the
         // screensaver-exit handler restarts the ramp.
-        if (screensaverManager.screensaverActive()) {
+        // With keepScaleOn the ramp's first scans still run: the tablet's stack
+        // drops a still-on Skale mid-sleep, and left unconnected it powers off
+        // before anyone wakes the screen. Past the ramp it pauses for #1976.
+        const bool keepScaleRamp = settings.keepScaleOn()
+            && scaleReconnectAttempt < static_cast<int>(reconnectDelays.size());
+        if (screensaverManager.screensaverActive() && !keepScaleRamp) {
             DIAG_DEBUG(SCALE, "main") << "Screensaver active - scale reconnect stays paused";
             return;
         }
@@ -3520,9 +3525,14 @@ int main(int argc, char *argv[])
                 // Restore the LCD now. WiFi never sets this flag (its onConnected
                 // sends "display on" on the reconnect handshake instead).
                 if (scaleLcdRestorePending) {
-                    DIAG_DEBUG(SCALE, "main") << "Scale reconnected with LCD-restore pending - waking";
-                    physicalScale->wake();
-                    scaleLcdRestorePending = false;
+                    if (machineState.phase() == MachineState::Phase::Sleep) {
+                        DIAG_DEBUG(SCALE, "main") << "Scale reconnected during DE1 sleep - keeping LCD off";
+                        physicalScale->disableLcd();
+                    } else {
+                        DIAG_DEBUG(SCALE, "main") << "Scale reconnected with LCD-restore pending - waking";
+                        physicalScale->wake();
+                        scaleLcdRestorePending = false;
+                    }
                 }
                 // Scale connected - use physical scale
                 machineState.setScale(physicalScale.get());

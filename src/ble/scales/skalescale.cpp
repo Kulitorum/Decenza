@@ -106,8 +106,10 @@ void SkaleScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servic
     // 3. After 2000ms: Enable button notifications
     // 4. After 3000ms: Enable LCD again
 
+    // setConnected() above may have had main.cpp turn the display off (a
+    // reconnect during DE1 sleep); the sequence then leaves it off.
     SKALE_LOG("Starting de1app-style wake sequence");
-    enableLcd();
+    if (!m_displayOff) enableLcd();
 
     QTimer::singleShot(1000, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
@@ -124,7 +126,7 @@ void SkaleScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servic
     QTimer::singleShot(3000, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
         SKALE_LOG("Enabling LCD again (3000ms)");
-        enableLcd();
+        if (!m_displayOff) enableLcd();
         enableGrams();
         SKALE_LOG("Wake sequence complete, waiting for weight data");
     });
@@ -205,6 +207,7 @@ void SkaleScale::sleep() {
 }
 
 void SkaleScale::disableLcd() {
+    m_displayOff = true;
     sendCommand(0xEE);
 }
 
