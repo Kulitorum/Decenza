@@ -2462,6 +2462,7 @@ void BLEManager::resetScaleConnectionState() {
 
 void BLEManager::cancelScaleReconnectAttempt() {
     resetScaleConnectionState();
+    m_scaleConnectDeferred = false;  // a deferred GATT-queue release
     // The fallback scan may be shared with a DE1 scan, so leave it running and
     // close the gate that lets it take a saved BLE Decent scale.
     m_wifiFallbackToBleActive = false;
@@ -2472,13 +2473,10 @@ void BLEManager::cancelScaleReconnectAttempt() {
 void BLEManager::clearSavedScale() {
     scaleInfo(QStringLiteral("Forgetting scale %1 (%2)").arg(m_savedScaleName, m_savedScaleAddress));
     cancelManualWifiValidation();
-    resetScaleConnectionState();
-    // Cancel every pending attempt tied to the address being forgotten — a
-    // deferred GATT-queue release, an in-flight WiFi fallback, or a manual
-    // WiFi/BLE connect — so none of them can land against a scale the user
-    // just discarded.
-    m_scaleConnectDeferred = false;
-    m_wifiFallbackToBleActive = false;
+    // Cancel every pending attempt tied to the address being forgotten, plus a
+    // manual WiFi/BLE connect, so none of them can land against a scale the
+    // user just discarded.
+    cancelScaleReconnectAttempt();
     m_manualWifiConnect = false;
     m_manualBleConnect = false;
     // Route through the one funnel every saved-address change goes through

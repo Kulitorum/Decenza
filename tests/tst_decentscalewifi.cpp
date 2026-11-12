@@ -474,7 +474,6 @@ private slots:
         QSignalSpy driverConnected(&driver, &ScaleDevice::connectedChanged);
         QSignalSpy checkInArrived(&server, &FakeHdsServer::clientConnected);
         QSignalSpy checkInGone(&server, &FakeHdsServer::clientDisconnected);
-        // checkInNow: the first check-in goes out at once, not after the interval.
         driver.beginSleepKeepAwake(/*checkInNow=*/true);
         QVERIFY(checkInArrived.wait(2000));
         server.sendJson({{ "grams", 1.5 }, { "ms", 2 }});
