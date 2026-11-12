@@ -4917,7 +4917,8 @@ int main(int argc, char *argv[])
     //                                stale dirty disconnect). With no client
     //                                the HDS powers itself off after 15 min,
     //                                so the driver checks in periodically for
-    //                                the sleep interval (beginSleepKeepAwake).
+    //                                the sleep interval (beginSleepKeepAwake),
+    //                                also when the WS had already dropped.
     //                                LCD comes back on via
     //                                DecentScaleWifi::onConnected's "display
     //                                on" when the WS reconnects on DE1 wake.
@@ -4949,29 +4950,30 @@ int main(int argc, char *argv[])
             if (de1EverAwake) {
                 wasInSleep = true;
             }
-            if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
+            auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get());
+            if (de1EverAwake && wifi && settings.keepScaleOn()) {
+                // Close the WS so the tablet's WiFi radio can park and the HDS
+                // doesn't reap us mid-sleep, and check in instead. Also when the
+                // WS had already dropped: nothing reconnects a WiFi scale while
+                // the DE1 sleeps, so without check-ins it powers itself off.
+                DIAG_DEBUG(SCALE, "main") << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
+                if (wifi->isConnected())
+                    wifi->disableLcd();
+                scaleAutoReconnectSuppressed = true;
+                scaleReconnectTimer.stop();
+                wifi->disconnectFromScale();
+                wifi->beginSleepKeepAwake();
+            } else if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
                 if (settings.keepScaleOn()) {
                     DIAG_DEBUG(SCALE, "main") << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
                     physicalScale->disableLcd();
-                    // WiFi only: also gracefully close the WS so the tablet's
-                    // WiFi radio can park and the HDS doesn't reap us mid-sleep.
-                    // BT stays connected — the BLE radio doesn't have the same
+                    // BT stays connected — the BLE radio doesn't have the WiFi
                     // idle-park pathology, and BT users have years of expecting
-                    // the link to survive the screensaver. See comment above
-                    // and DecentScaleWifi::onConnected for the LCD-restore.
-                    if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
-                        DIAG_DEBUG(SCALE, "main") << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
-                        scaleAutoReconnectSuppressed = true;
-                        wifi->disconnectFromScale();
-                        wifi->beginSleepKeepAwake();
-                    } else {
-                        // BT: track that the LCD is off so connectedChanged can
-                        // restore it if the BLE link drops mid-sleep and reconnects
-                        // after DE1 wake — the phaseChanged wake handler can only
-                        // fire wake() if the scale is connected at the moment of
-                        // the first non-Sleep phase transition.
-                        scaleLcdRestorePending = true;
-                    }
+                    // the link to survive the screensaver. Track that the LCD is
+                    // off so connectedChanged can restore it if the link drops
+                    // mid-sleep and reconnects after DE1 wake — the wake handler
+                    // can only fire wake() on a scale connected at that moment.
+                    scaleLcdRestorePending = true;
                 } else {
                     DIAG_DEBUG(SCALE, "main") << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
                     // Suppress the reconnect timer that connectedChanged would
