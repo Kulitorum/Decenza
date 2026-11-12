@@ -105,7 +105,7 @@ void SkaleScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servic
     // 2. After 1000ms: Enable weight notifications
     // 3. After 2000ms: Enable button notifications
     // 4. After 3000ms: Enable LCD again
-    // Both LCD steps are skipped while displayHeldOff() (a reconnect during DE1 sleep).
+    // Both LCD steps are skipped while displayHeldOff() (a connect under the screensaver).
 
     SKALE_LOG("Starting de1app-style wake sequence");
     if (!displayHeldOff()) enableLcd();

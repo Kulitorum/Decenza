@@ -230,8 +230,8 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     sendHeartbeat();
 
     // LCD enable at 200ms
-    // Both LCD steps are skipped while displayHeldOff() (a reconnect during DE1
-    // sleep). Nothing else is lost: the heartbeat started above, and the watchdog
+    // Both LCD steps are skipped while displayHeldOff() (a connect under the
+    // screensaver). Nothing else is lost: the heartbeat started above, and the watchdog
     // is armed by onNotificationsIssued().
     QTimer::singleShot(200, this, [this]() {
         if (!m_transport || !m_characteristicsReady || displayHeldOff()) return;

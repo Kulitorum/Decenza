@@ -57,9 +57,9 @@ public:
     ScaleBleTransport* bleTransport() const { return m_bleTransport; }
     void setBleTransport(ScaleBleTransport* transport) { m_bleTransport = transport; }
 
-    // Whether the display stays off for this connection. main.cpp sets it from
-    // connectedChanged (true while the DE1 sleeps) and clears it on DE1 wake; a
-    // driver's connect handshake checks it instead of turning the display on.
+    // Whether the display stays off. main.cpp keeps it equal to "the screensaver
+    // is up" (set on connect and on each screensaver edge, cleared on DE1 wake);
+    // a driver's connect handshake checks it instead of turning the display on.
     bool displayHeldOff() const { return m_displayHeldOff; }
     void setDisplayHeldOff(bool off) { m_displayHeldOff = off; }
 

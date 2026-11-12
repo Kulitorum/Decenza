@@ -361,6 +361,11 @@ bool scaleAddressIsLadderDialable(const QString& address)
         && !address.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
 }
 
+bool scaleAddressIsWifi(const QString& address)
+{
+    return address.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive);
+}
+
 // Wires a WiFi scale driver to its collaborators. Called from BOTH places that
 // create or re-adopt one, because the set of things a driver needs injected is a
 // property of the driver, not of the call site — and it was already drifting:
@@ -2735,10 +2740,13 @@ int main(int argc, char *argv[])
     // for the ramp's first scans only. The tablet's stack drops a still-on Skale
     // mid-sleep, and left unconnected it powers off before anyone wakes the
     // screen; past the ramp it pauses, which bounds the scanning #1976 traced
-    // DE1 write failures to.
+    // DE1 write failures to. Not for a WiFi scale: a socket it opened would stay
+    // open all night, bypassing the close-and-check-in the DE1-sleep handler
+    // gives WiFi.
     const auto scaleRampRunsUnderScreensaver =
         [&settings, &scaleReconnectAttempt, &reconnectDelays]() {
             return settings.keepScaleOn()
+                && !scaleAddressIsWifi(settings.scaleAddress())
                 && scaleReconnectAttempt < static_cast<int>(reconnectDelays.size());
         };
 
@@ -3052,7 +3060,7 @@ int main(int argc, char *argv[])
     // Flushing, Refill, Descaling, Cleaning) blocks the switch so the scale is
     // never disrupted mid-operation.
     auto onWifiBackupAndIdle = [&settings, &physicalScale, &machineState]() -> bool {
-        if (!settings.scaleAddress().startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive))
+        if (!scaleAddressIsWifi(settings.scaleAddress()))
             return false;                                  // primary isn't WiFi
         if (!physicalScale || !physicalScale->isConnected())
             return false;                                  // nothing connected → reconnect machinery owns it
@@ -3265,7 +3273,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered, handlerScope.get(),
-                     [&physicalScale, &flowScale, &machineState, &mainController, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending, &wasInSleep
+                     [&physicalScale, &flowScale, &machineState, &mainController, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending, &screensaverManager
                      // By value: this lambda outlives nothing, but the scale
                      // connection it makes below needs the same lifetime guard.
                      , handlerScopePtr = handlerScope.get()
@@ -3516,7 +3524,7 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged, handlerScopePtr,
-                         [&physicalScale, &flowScale, &machineState, &bleManager, &mainController, &timingController, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending, &wasInSleep]() {
+                         [&physicalScale, &flowScale, &machineState, &bleManager, &mainController, &timingController, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending, &screensaverManager]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();
@@ -3525,14 +3533,16 @@ int main(int argc, char *argv[])
                 // suppression (e.g. scale reconnected during DE1 sleep via a
                 // manual scan).
                 scaleAutoReconnectSuppressed = false;
-                // A scale that connects while the DE1 sleeps keeps its display
-                // off, whatever started the connect: the driver's handshake skips
-                // its display-on steps, and the DE1-wake handler calls wake().
-                // wasInSleep, not phase() == Sleep: it survives the Disconnected
-                // phase the DE1 passes through when the tablet drops both links.
-                physicalScale->setDisplayHeldOff(wasInSleep);
-                if (wasInSleep) {
-                    DIAG_DEBUG(SCALE, "main") << "Scale connected during DE1 sleep - keeping its display off";
+                // A scale that connects while the screensaver is up keeps its
+                // display off: the driver's handshake skips its display-on steps,
+                // and screensaver exit or DE1 wake calls wake(). The screensaver,
+                // not the DE1 phase, because it is what says nobody is looking: a
+                // scale switched on after a tap stays lit even if the DE1 is
+                // still asleep or unreachable.
+                const bool holdDisplay = screensaverManager.screensaverActive();
+                physicalScale->setDisplayHeldOff(holdDisplay);
+                if (holdDisplay) {
+                    DIAG_DEBUG(SCALE, "main") << "Scale connected under the screensaver - keeping its display off";
                     physicalScale->disableLcd();
                 } else if (scaleLcdRestorePending) {
                     // BT keepScaleOn=true: the LCD was turned off at DE1 sleep and
@@ -4850,8 +4860,17 @@ int main(int argc, char *argv[])
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
                      handlerScope.get(), [&screensaverManager, &bleManager, &settings,
                       &scaleReconnectTimer, &reconnectDelays, scaleRampRunsUnderScreensaver,
+                      &physicalScale,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         const bool active = screensaverManager.screensaverActive();
+        // Covers a scale still mid-handshake when the screensaver starts, and on
+        // exit lights a display held off by a connect under the screensaver.
+        if (physicalScale) {
+            const bool wasHeld = physicalScale->displayHeldOff();
+            physicalScale->setDisplayHeldOff(active);
+            if (!active && wasHeld && physicalScale->isConnected())
+                physicalScale->wake();
+        }
         if (active) {
             if (scaleReconnectTimer.isActive() && !scaleRampRunsUnderScreensaver()) {
                 DIAG_DEBUG(SCALE, "main") << "Screensaver entered - pausing scale reconnect loop";
