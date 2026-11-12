@@ -57,6 +57,12 @@ public:
     ScaleBleTransport* bleTransport() const { return m_bleTransport; }
     void setBleTransport(ScaleBleTransport* transport) { m_bleTransport = transport; }
 
+    // Whether the display stays off. main.cpp keeps it equal to "the screensaver
+    // is up" (set on connect and on each screensaver edge, cleared on DE1 wake);
+    // a driver's connect handshake checks it instead of turning the display on.
+    bool displayHeldOff() const { return m_displayHeldOff; }
+    void setDisplayHeldOff(bool off) { m_displayHeldOff = off; }
+
 public slots:
     virtual void tare() = 0;
     virtual void startTimer() {}
@@ -162,6 +168,7 @@ private:
     // Consumed (and cleared) by the next disconnect — see markExpectedDisconnect().
     bool m_expectedDisconnect = false;
     bool m_simulationMode = false;
+    bool m_displayHeldOff = false;
     double m_weight = 0.0;
     double m_flowRate = 0.0;
     int m_batteryLevel = -1;  // -1 = not reported by this scale

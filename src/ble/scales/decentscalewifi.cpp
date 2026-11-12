@@ -613,8 +613,9 @@ void DecentScaleWifi::onConnected() {
     // keepScaleOn=true+WiFi path, where disableLcd() was sent before the WS
     // was gracefully closed. Not a full wake(): soft_sleep off isn't needed
     // here because sleep() (which would have soft-slept) wasn't called on
-    // that path — only the LCD was disabled.
-    send(QStringLiteral("display on"));
+    // that path — only the LCD was disabled. Skipped while displayHeldOff().
+    if (!displayHeldOff())
+        send(QStringLiteral("display on"));
 }
 
 void DecentScaleWifi::onDisconnected() {
