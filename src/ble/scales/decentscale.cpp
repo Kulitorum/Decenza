@@ -230,8 +230,11 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     sendHeartbeat();
 
     // LCD enable at 200ms
+    // Both LCD steps are skipped while displayHeldOff() (a reconnect during DE1
+    // sleep). Nothing else is lost: the heartbeat started above, and the watchdog
+    // is armed by onNotificationsIssued().
     QTimer::singleShot(200, this, [this]() {
-        if (!m_transport || !m_characteristicsReady) return;
+        if (!m_transport || !m_characteristicsReady || displayHeldOff()) return;
         DECENT_LOG("Sending wake/LCD command (200ms)");
         wake();
     });
@@ -245,7 +248,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
 
     // LCD enable again at 500ms (in case first was dropped)
     QTimer::singleShot(500, this, [this]() {
-        if (!m_transport || !m_characteristicsReady) return;
+        if (!m_transport || !m_characteristicsReady || displayHeldOff()) return;
         DECENT_LOG("Sending wake/LCD command again (500ms)");
         wake();
     });
