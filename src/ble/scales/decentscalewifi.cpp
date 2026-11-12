@@ -53,6 +53,7 @@ DecentScaleWifi::DecentScaleWifi(QObject* parent)
 }
 
 DecentScaleWifi::~DecentScaleWifi() {
+    endSleepKeepAwake();  // a scale swap mid-sleep still logs the check-in summary
     if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
         return;
     if (m_socket->state() == QAbstractSocket::ConnectedState) {
@@ -503,10 +504,11 @@ void DecentScaleWifi::disconnectFromScale() {
     recreateSocket();
 }
 
-void DecentScaleWifi::beginSleepKeepAwake() {
+void DecentScaleWifi::beginSleepKeepAwake(bool checkInNow) {
     if (m_lastRecognizedUrl.isEmpty()) {
-        WIFI_WARN(QString("No recognized address for %1 — cannot keep it awake while the DE1 sleeps; "
-                          "it will power itself off after 15 min unless it is on USB power")
+        // INFO, not WARN: reached nightly when the scale was simply off all session.
+        WIFI_INFO(QString("%1 has not answered this session — no keep-awake check-ins while the "
+                          "DE1 sleeps, so it powers itself off after 15 min unless it is on USB power")
                       .arg(m_hostname));
         return;
     }
@@ -518,6 +520,8 @@ void DecentScaleWifi::beginSleepKeepAwake() {
                       "15-min auto-off does not fire")
                   .arg(m_lastRecognizedUrl.host())
                   .arg(kKeepAwakeIntervalMs / 60000));
+    if (checkInNow)
+        checkInToStayAwake();
 }
 
 void DecentScaleWifi::endSleepKeepAwake() {

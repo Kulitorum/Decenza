@@ -469,13 +469,12 @@ private slots:
         driver.disconnectFromScale();
         QVERIFY(firstGone.wait(2000));
         QTRY_VERIFY(!driver.isConnected());
-        driver.beginSleepKeepAwake();
         server.clearReceived();
 
         QSignalSpy driverConnected(&driver, &ScaleDevice::connectedChanged);
         QSignalSpy checkInArrived(&server, &FakeHdsServer::clientConnected);
         QSignalSpy checkInGone(&server, &FakeHdsServer::clientDisconnected);
-        driver.checkInToStayAwake();
+        driver.beginSleepKeepAwake(/*checkInNow=*/true);
         QVERIFY(checkInArrived.wait(2000));
         server.sendJson({{ "grams", 1.5 }, { "ms", 2 }});
         QVERIFY(checkInGone.wait(2000));  // closed once the scale answered
