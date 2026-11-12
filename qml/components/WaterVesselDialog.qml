@@ -132,7 +132,7 @@ DecenzaDialog {
             ColumnLayout {
                 id: form
                 enabled: !writer.pending
-                width: parent.width
+                width: editorFlickable.width - editorFlickable.ScrollBar.vertical.width
                 spacing: Theme.spacingMedium
                 Label {
                     Layout.fillWidth: true

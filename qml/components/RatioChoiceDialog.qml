@@ -58,6 +58,7 @@ DecenzaDialog {
     }
 
     contentItem: Flickable {
+        id: ratioFlick
         contentWidth: width
         contentHeight: contentCol.implicitHeight
         clip: true
@@ -66,7 +67,7 @@ DecenzaDialog {
 
         ColumnLayout {
             id: contentCol
-            width: parent.width
+            width: ratioFlick.width - ratioFlick.ScrollBar.vertical.width
             spacing: Theme.spacingSmall
 
             Text {

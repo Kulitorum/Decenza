@@ -84,6 +84,7 @@ DecenzaDialog {
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            rightPadding: effectiveScrollBarWidth
             contentWidth: availableWidth
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 

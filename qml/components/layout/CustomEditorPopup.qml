@@ -304,7 +304,7 @@ DecenzaDialog {
 
             ColumnLayout {
                 id: mainColumn
-                width: parent.width
+                width: editorFlickable.width - editorFlickable.ScrollBar.vertical.width
                 spacing: Theme.scaled(4)
 
                 Text {

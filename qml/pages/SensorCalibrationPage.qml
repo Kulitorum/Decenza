@@ -262,6 +262,7 @@ T.Page {
         anchors.margins: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.scaled(80)
+        rightPadding: effectiveScrollBarWidth
         contentWidth: availableWidth
         clip: true
 

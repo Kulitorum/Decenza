@@ -485,6 +485,7 @@ SharedDecenzaDialog {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
+                    rightPadding: effectiveScrollBarWidth
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                     ColumnLayout {

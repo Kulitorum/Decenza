@@ -2460,15 +2460,20 @@ Item {
             clip: true
 
             Flickable {
+                id: scaleFlick
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                contentWidth: width
                 contentHeight: scaleColumn.implicitHeight
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             ColumnLayout {
                 id: scaleColumn
-                width: parent.width
+                // Qt places the scrollbar over the viewport edge (qquickscrollbar.cpp:1139-1146).
+                // Reserve its full hit area even after it fades (material/ScrollBar.qml:48-54).
+                width: scaleFlick.width - scaleFlick.ScrollBar.vertical.width
                 spacing: Theme.scaled(10)
 
                 // === Scale view (BLE / WiFi / USB — all transports share this

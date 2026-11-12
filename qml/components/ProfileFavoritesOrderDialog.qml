@@ -164,6 +164,7 @@ DecenzaDialog {
             Layout.leftMargin: Theme.scaled(16)
             Layout.rightMargin: Theme.scaled(16)
             clip: true
+            rightPadding: effectiveScrollBarWidth
             contentWidth: availableWidth
 
             FavoritesListView {

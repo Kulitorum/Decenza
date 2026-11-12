@@ -322,7 +322,7 @@ Item {
     RowLayout {
         id: debugColumns
         parent: debugScroll.contentItem
-        width: debugScroll.width
+        width: debugScroll.width - debugScroll.ScrollBar.vertical.width
         height: Math.max(implicitHeight, debugScroll.height)
         spacing: Theme.scaled(15)
 

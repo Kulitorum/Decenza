@@ -431,7 +431,7 @@ T.Page {
 
                     ColumnLayout {
                         id: sectionsColumn
-                        width: editorScrollView.width - Theme.scaled(14)
+                        width: editorScrollView.width - Math.max(Theme.scaled(14), editorScrollView.effectiveScrollBarWidth)
                         spacing: Theme.scaled(18)
 
                         // === Core Settings ===

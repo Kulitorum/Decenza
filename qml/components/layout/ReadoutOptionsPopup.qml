@@ -191,7 +191,7 @@ DecenzaDialog {
 
             ColumnLayout {
                 id: optionsCol
-                width: optionsFlick.width
+                width: optionsFlick.width - optionsFlick.ScrollBar.vertical.width
                 spacing: Theme.spacingMedium
 
                 Text {

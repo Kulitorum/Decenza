@@ -216,7 +216,7 @@ DecenzaDialog {
                 delegate: AccessibleButton {
                     id: archiveRow
                     required property var modelData
-                    width: archiveList.width
+                    width: archiveList.width - archiveList.ScrollBar.vertical.width
                     height: rowText.implicitHeight + archiveRow.topPadding + archiveRow.bottomPadding
                     enabled: !archive.busy && !download.busy
                     primary: archive.selectedKey === archiveRow.modelData.key

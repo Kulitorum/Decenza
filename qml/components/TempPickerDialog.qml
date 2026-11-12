@@ -47,6 +47,7 @@ DecenzaDialog {
     }
 
     contentItem: Flickable {
+        id: temperatureFlick
         contentWidth: width
         contentHeight: contentCol.implicitHeight
         clip: true
@@ -55,7 +56,7 @@ DecenzaDialog {
 
         ColumnLayout {
             id: contentCol
-            width: parent.width
+            width: temperatureFlick.width - temperatureFlick.ScrollBar.vertical.width
             spacing: Theme.spacingSmall
 
             // --- Header ---

@@ -323,6 +323,7 @@ Item {
             ScrollView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                rightPadding: effectiveScrollBarWidth
                 contentWidth: availableWidth
 
                 ColumnLayout {
@@ -596,6 +597,7 @@ Item {
                 Layout.preferredWidth: Math.max(Theme.scaled(380), layoutTab.width * 0.42)
                 Layout.minimumWidth: Theme.scaled(340)
                 Layout.fillHeight: true
+                rightPadding: effectiveScrollBarWidth
                 contentWidth: availableWidth
                 contentHeight: rightContent.implicitHeight
                 clip: true
