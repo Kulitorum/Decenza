@@ -1774,13 +1774,15 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
     const QString kbId = ShotSummarizer::computeProfileKbId(profileTitle);
     if (packageId <= 0 || kbId.isEmpty())
         return {};
+    // A bag with no roaster can pass a null QString, bound as SQL NULL, which equals
+    // nothing: COALESCE it like the column (tst_dialing_blocks grindSuggestion_*).
     // A dated bag is one roast batch; an undated one is the bean.
     const bool dated = !roastDate.trimmed().isEmpty() && roastDate.trimmed() != QLatin1String("--");
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
         "SELECT id FROM shots WHERE equipment_id = :pkg "
-        "AND LOWER(TRIM(COALESCE(bean_brand, ''))) = LOWER(TRIM(:brand)) "
-        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(:type)) ")
+        "AND LOWER(TRIM(COALESCE(bean_brand, ''))) = LOWER(TRIM(COALESCE(:brand, ''))) "
+        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(COALESCE(:type, ''))) ")
         + (dated ? QStringLiteral("AND TRIM(roast_date) = TRIM(:roast) ") : QString())
         + QStringLiteral("ORDER BY timestamp DESC LIMIT 1"));
     q.bindValue(QStringLiteral(":pkg"), packageId);

@@ -2550,6 +2550,14 @@ private slots:
             QCOMPARE(av.value(QStringLiteral("anchorProfileName")).toString(), QStringLiteral("Gentle & Sweet"));
             QVERIFY2(suggest("TestRoaster", "TurboTurbo").isEmpty(), "outside the range: no number");
             QVERIFY2(suggest("OtherRoaster", "Adaptive v2").isEmpty(), "no shot of this bag: no number");
+
+            // A bag with no roaster: its shots store '' and the caller passes a null
+            // QString, which binds SQL NULL. It must still find the bag's shots.
+            QSqlQuery blank(db);
+            QVERIFY(blank.exec(QStringLiteral("UPDATE shots SET bean_brand = ''")));
+            const QVariantMap noRoaster = DialingBlocks::grindSuggestionFor(db, pkg, QString(),
+                QStringLiteral("TestBean"), QString(), QStringLiteral("Adaptive v2"));
+            QCOMPARE(noRoaster.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
         });
     }
 
