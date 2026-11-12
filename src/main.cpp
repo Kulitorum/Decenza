@@ -3027,8 +3027,9 @@ int main(int argc, char *argv[])
         if (physicalScale && physicalScale->isConnected()) return;
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) {
-            bleManager.scaleInfo(QStringLiteral("%1 — scale reconnect held until the DE1 wakes")
-                                     .arg(reason), QStringLiteral("main"));
+            // DEBUG: the screensaver usually closes BECAUSE the DE1 woke, a few
+            // ms before the wake handler clears the hold and logs the restart.
+            DIAG_DEBUG(SCALE, "main") << reason << "- scale reconnect held until the DE1 wakes";
             return;
         }
         const int delayMs = firstDelayMs >= 0 ? firstDelayMs : reconnectDelays[0];
