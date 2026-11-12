@@ -2460,6 +2460,12 @@ void BLEManager::resetScaleConnectionState() {
     m_scaleDirectAbortTimer->stop();
 }
 
+void BLEManager::cancelScaleReconnectAttempt() {
+    resetScaleConnectionState();
+    if (m_reconnectDiscovery)
+        m_reconnectDiscovery->stopBrowse();
+}
+
 void BLEManager::clearSavedScale() {
     scaleInfo(QStringLiteral("Forgetting scale %1 (%2)").arg(m_savedScaleName, m_savedScaleAddress));
     cancelManualWifiValidation();

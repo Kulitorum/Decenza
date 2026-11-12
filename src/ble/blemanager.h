@@ -558,6 +558,10 @@ public:
 
     // Reset connection state flags so retry attempts can proceed
     void resetScaleConnectionState();
+    // Abandon an in-flight background scale attempt: its 20 s timeout (which
+    // would start the WiFi->BLE fallback) and the reconnect browse (whose hit
+    // emits scaleDiscovered). For holding the ladder, e.g. across a DE1 sleep.
+    void cancelScaleReconnectAttempt();
 
     // Share the system log (debug.log) — the only log share there is now.
     // clearScaleLog(), shareScaleLog(), getScaleLogPath() and appendScaleLog() are

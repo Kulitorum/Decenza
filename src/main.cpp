@@ -2761,11 +2761,9 @@ int main(int argc, char *argv[])
     // Do not gate a ramp restart on the timer being idle: it is single-shot and
     // re-armed every tick, so it is always active while the ladder runs.
 
-    // When Settings.keepScaleOn is false we deliberately disconnect the scale
-    // on DE1 sleep. The connectedChanged handler below normally schedules an
-    // auto-reconnect 5 s after any disconnect — this flag suppresses that for
-    // our deliberate path. Cleared on DE1 wake (Idle), app resume, and user-
-    // initiated scan so normal reconnect behaviour resumes.
+    // Set by a deliberate DE1-sleep disconnect (keepScaleOn=false, or a WiFi
+    // scale with keepScaleOn) to hold every reconnect path until the DE1 wakes.
+    // Also cleared by app resume, a user scan, and any successful connect.
     bool scaleAutoReconnectSuppressed = false;
 
     // Tracks whether disableLcd() was called on a BT scale during DE1 sleep
@@ -3028,7 +3026,11 @@ int main(int argc, char *argv[])
                                                      int firstDelayMs) {
         if (physicalScale && physicalScale->isConnected()) return;
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
-        if (scaleAutoReconnectSuppressed) return;
+        if (scaleAutoReconnectSuppressed) {
+            bleManager.scaleInfo(QStringLiteral("%1 — scale reconnect held until the DE1 wakes")
+                                     .arg(reason), QStringLiteral("main"));
+            return;
+        }
         const int delayMs = firstDelayMs >= 0 ? firstDelayMs : reconnectDelays[0];
         scaleReconnectAttempt = 0;
         scaleHunting = false;
@@ -4904,34 +4906,16 @@ int main(int argc, char *argv[])
     // Manage scale power state when the DE1 sleeps/wakes. This is the only
     // place a DE1 sleep touches the scale, whatever started it (app, GHC,
     // MCP, REST, MQTT) — all of them land here as a Sleep phase.
-    //   keepScaleOn=true  (default): send disableLcd(). On BT the link stays
-    //                                connected and LCD re-enables via wake() on
-    //                                resume. On WiFi we additionally close the
-    //                                WS (after disableLcd) so the tablet's WiFi
-    //                                radio can park during DE1 sleep — there's
-    //                                no reason to keep a live TCP session open
-    //                                to the scale while the app is idle, and
-    //                                Android's WiFi power-save reliably kills
-    //                                the radio anyway (HDS AsyncTCP then reaps
-    //                                us at 30 s of unacked data, leaving a
-    //                                stale dirty disconnect). With no client
-    //                                the HDS powers itself off after 15 min,
-    //                                so the driver checks in periodically for
-    //                                the sleep interval (beginSleepKeepAwake),
-    //                                also when the WS had already dropped.
-    //                                LCD comes back on via
-    //                                DecentScaleWifi::onConnected's "display
-    //                                on" when the WS reconnects on DE1 wake.
-    //   keepScaleOn=false: send sleep() then drop the link once the write
-    //                      completes. Matches de1app's default for battery-only
-    //                      scales. Auto-reconnect is suppressed via
-    //                      scaleAutoReconnectSuppressed until the DE1 wakes.
-    // de1EverAwake: suppress Sleep reaction on initial connect (DE1's default
-    // BLE state is Sleep, so MachineState transitions Disconnected→Sleep before
-    // the real state arrives).
-    // de1EverAwake + wasInSleep are declared at the top of main() (see the
-    // "DE1-phase tracking flags" block) so the disconnectScaleRequested
-    // handler can clear them when the user swaps to a different scale.
+    //   keepScaleOn=true (default): LCD off. BT stays connected and wake()
+    //     restores the LCD. WiFi holds the WS closed so the tablet's radio can
+    //     park (Android power-save kills it anyway, and the HDS then reaps the
+    //     session), and checks in instead, since the HDS powers itself off after
+    //     15 min with no client. DecentScaleWifi::onConnected's "display on"
+    //     restores its LCD on the wake reconnect.
+    //   keepScaleOn=false: sleep(), then drop the link once the write completes
+    //     (de1app's default for battery-only scales).
+    // Either deliberate disconnect sets scaleAutoReconnectSuppressed until wake.
+    // de1EverAwake/wasInSleep: see "DE1-phase tracking flags".
     QObject::connect(&machineState, &MachineState::phaseChanged, handlerScope.get(),
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
                       &wasInSleep, &scaleLcdRestorePending, &bleManager,
@@ -4952,15 +4936,19 @@ int main(int argc, char *argv[])
             }
             auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get());
             if (de1EverAwake && wifi && settings.keepScaleOn()) {
-                // Close the WS so the tablet's WiFi radio can park and the HDS
-                // doesn't reap us mid-sleep, and check in instead. Also when the
-                // WS had already dropped: nothing reconnects a WiFi scale while
-                // the DE1 sleeps, so without check-ins it powers itself off.
-                DIAG_DEBUG(SCALE, "main") << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
-                if (wifi->isConnected())
+                // Hold the WS closed and check in instead, also when it had
+                // already dropped: the ladder is held until wake either way, so
+                // without check-ins the HDS powers itself off.
+                if (wifi->isConnected()) {
+                    DIAG_DEBUG(SCALE, "main") << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
                     wifi->disableLcd();
+                } else {
+                    bleManager.scaleInfo(QStringLiteral(
+                        "Scale reconnect paused until the DE1 wakes"), QStringLiteral("main"));
+                }
                 scaleAutoReconnectSuppressed = true;
                 scaleReconnectTimer.stop();
+                bleManager.cancelScaleReconnectAttempt();
                 wifi->disconnectFromScale();
                 wifi->beginSleepKeepAwake();
             } else if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
@@ -4989,12 +4977,8 @@ int main(int argc, char *argv[])
                 }
             }
         } else {
-            // Any non-Sleep, non-Disconnected phase (Idle / Heating / Ready /
-            // EspressoPreheating / Pouring / …). Fire the wake actions exactly
-            // once on the first transition out of Sleep — the destination phase
-            // is typically Phase::Heating or Phase::Ready and may never reach
-            // Phase::Idle in a single session, so the previous Phase::Idle-only
-            // gate missed the wake event entirely.
+            // Fire the wake actions once, on the first non-Sleep phase: the DE1
+            // usually wakes into Heating or Ready and may never reach Idle.
             if (wasInSleep) {
                 wasInSleep = false;
                 if (physicalScale)
@@ -5022,11 +5006,9 @@ int main(int argc, char *argv[])
                     // the DE1 is back. A fresh reconnect's onConnected() will
                     // send `display on` itself, so no wake() needed here.
                     scaleAutoReconnectSuppressed = false;
-                    // Short first attempt on this path only: the WiFi scale is
-                    // known alive (we closed the WS ourselves) and a powered-off
-                    // BT scale fails fast into the normal backoff. reconnectDelays[0]
-                    // was sized for unexpected drops where the radio might need to
-                    // settle; neither applies here.
+                    // Short first attempt on this path only: the sleep check-ins
+                    // kept a WiFi scale awake, and a powered-off BT scale fails
+                    // fast into the normal backoff.
                     constexpr int kWakeReconnectFirstAttemptMs = 200;
                     bleManager.requestScaleReconnectRampRestart(
                         QStringLiteral("DE1 woke up"), kWakeReconnectFirstAttemptMs);

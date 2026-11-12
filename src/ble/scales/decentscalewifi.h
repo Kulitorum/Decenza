@@ -120,7 +120,7 @@ public:
     // kKeepAwakeIntervalMs this opens a separate, short-lived WS to the last
     // recognized address and closes it on the first frame. It sends no command
     // and never reports the scale connected. Ended by endSleepKeepAwake(),
-    // connectToHost() and disconnectFromScale().
+    // connectToHost(), disconnectFromScale() and the destructor.
     void beginSleepKeepAwake();
     void endSleepKeepAwake();
 
