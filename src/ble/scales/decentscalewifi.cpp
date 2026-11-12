@@ -504,7 +504,7 @@ void DecentScaleWifi::disconnectFromScale() {
     recreateSocket();
 }
 
-void DecentScaleWifi::beginSleepKeepAwake() {
+void DecentScaleWifi::beginSleepKeepAwake(bool checkInNow) {
     if (m_lastRecognizedUrl.isEmpty()) {
         // INFO, not WARN: reached nightly when the scale was simply off all session.
         WIFI_INFO(QString("%1 has not answered this session — no keep-awake check-ins while the "
@@ -520,6 +520,8 @@ void DecentScaleWifi::beginSleepKeepAwake() {
                       "15-min auto-off does not fire")
                   .arg(m_lastRecognizedUrl.host())
                   .arg(kKeepAwakeIntervalMs / 60000));
+    if (checkInNow)
+        checkInToStayAwake();
 }
 
 void DecentScaleWifi::endSleepKeepAwake() {

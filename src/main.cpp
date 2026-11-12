@@ -4940,7 +4940,8 @@ int main(int argc, char *argv[])
                 // Hold the WS closed and check in instead, also when it had
                 // already dropped: the ladder is held until wake either way, so
                 // without check-ins the HDS powers itself off.
-                if (wifi->isConnected()) {
+                const bool wasConnected = wifi->isConnected();
+                if (wasConnected) {
                     DIAG_DEBUG(SCALE, "main") << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
                     wifi->disableLcd();
                 } else {
@@ -4951,7 +4952,7 @@ int main(int argc, char *argv[])
                 scaleReconnectTimer.stop();
                 bleManager.cancelScaleReconnectAttempt();
                 wifi->disconnectFromScale();
-                wifi->beginSleepKeepAwake();
+                wifi->beginSleepKeepAwake(/*checkInNow=*/!wasConnected);
             } else if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
                 if (settings.keepScaleOn()) {
                     DIAG_DEBUG(SCALE, "main") << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";

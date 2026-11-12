@@ -121,7 +121,9 @@ public:
     // recognized address and closes it on the first frame. It sends no command
     // and never reports the scale connected. Ended by endSleepKeepAwake(),
     // connectToHost(), disconnectFromScale() and the destructor.
-    void beginSleepKeepAwake();
+    // checkInNow: the WS was already down, so the scale's 15-min countdown may
+    // have started up to 15 min ago and cannot wait for the first interval.
+    void beginSleepKeepAwake(bool checkInNow);
     void endSleepKeepAwake();
 
 signals:
