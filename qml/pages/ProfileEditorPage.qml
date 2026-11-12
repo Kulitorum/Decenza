@@ -1235,7 +1235,7 @@ T.Page {
                    profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex] : null
 
             ColumnLayout {
-                width: stepEditorScroll.width - Theme.scaled(24)
+                width: stepEditorScroll.width - Math.max(Theme.scaled(24), stepEditorScroll.effectiveScrollBarWidth)
                 spacing: Theme.scaled(4)
 
                 // Frame name

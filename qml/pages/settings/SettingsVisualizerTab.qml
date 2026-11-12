@@ -226,7 +226,7 @@ KeyboardAwareContainer {
 
         GridLayout {
             id: uploadGrid
-            width: uploadFlick.width
+            width: uploadFlick.width - uploadFlick.ScrollBar.vertical.width
             columns: visualizerTab.wide ? 2 : 1
             columnSpacing: Theme.spacingMedium
             rowSpacing: Theme.spacingMedium

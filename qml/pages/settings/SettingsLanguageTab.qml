@@ -150,6 +150,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                rightPadding: effectiveScrollBarWidth
                 contentWidth: availableWidth   // vertical only; never scroll sideways
 
                 ColumnLayout {
@@ -557,6 +558,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                rightPadding: effectiveScrollBarWidth
                 contentWidth: availableWidth
 
             ColumnLayout {

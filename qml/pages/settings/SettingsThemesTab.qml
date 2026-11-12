@@ -464,6 +464,7 @@ KeyboardAwareContainer {
                     Layout.fillHeight: true
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                     ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                    rightPadding: effectiveScrollBarWidth
                     contentWidth: availableWidth
                     clip: true
 

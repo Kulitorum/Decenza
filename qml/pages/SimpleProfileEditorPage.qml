@@ -438,7 +438,7 @@ T.Page {
                     }
 
                     ColumnLayout {
-                        width: editorScrollView.width - Theme.scaled(14)
+                        width: editorScrollView.width - Math.max(Theme.scaled(14), editorScrollView.effectiveScrollBarWidth)
                         spacing: Theme.scaled(14)
 
                         // === Profile Temperature ===

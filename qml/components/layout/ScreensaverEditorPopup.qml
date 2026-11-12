@@ -306,7 +306,7 @@ DecenzaDialog {
 
             ColumnLayout {
                 id: settingsCol
-                width: settingsFlick.width
+                width: settingsFlick.width - settingsFlick.ScrollBar.vertical.width
                 spacing: Theme.spacingMedium
 
                 // Size slider (only for flip clock)

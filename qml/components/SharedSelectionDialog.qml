@@ -94,13 +94,14 @@ SharedDecenzaDialog {
                 clip: true
                 model: root._snapshot
                 C.ScrollBar.vertical: C.ScrollBar {
+                    id: optionScrollBar
                     policy: dialogList.contentHeight > dialogList.height ? C.ScrollBar.AlwaysOn : C.ScrollBar.AsNeeded
                 }
                 delegate: Rectangle {
                     id: optionDelegate
                     required property var modelData
                     required property int index
-                    width: dialogList.width
+                    width: dialogList.width - optionScrollBar.width
                     height: root.dialogStyle.scaled(48)
                     property string rawText: modelData || ""
                     property string displayText: rawText.length > 0 ? rawText : root.emptyItemText

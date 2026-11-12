@@ -499,6 +499,7 @@ Item {
             // it for today's strings would only move the problem. Matches the Flickable pattern
             // in SettingsMachineTab.
             Flickable {
+                id: displayFlick
                 anchors.fill: parent
                 contentHeight: column1Layout.implicitHeight
                 clip: true
@@ -508,7 +509,7 @@ Item {
 
             ColumnLayout {
                 id: column1Layout
-                width: parent.width
+                width: displayFlick.width - displayFlick.ScrollBar.vertical.width
                 spacing: Theme.scaled(10)
 
             // Screen card (Sleep only)
@@ -871,7 +872,7 @@ Item {
                         id: delegate
                         required property var modelData
 
-                        width: ListView.view ? ListView.view.width : 0
+                        width: categoryList.width - categoryList.ScrollBar.vertical.width
                         height: Theme.scaled(36)
                         highlighted: delegate.modelData && delegate.modelData.id === screensaverTab.screenPreference("selectedCategoryId", "")
 
@@ -961,7 +962,7 @@ Item {
 
             ColumnLayout {
                 id: screensaverControlsLayout
-                width: parent.width
+                width: screensaverControlsFlickable.width - screensaverControlsFlickable.ScrollBar.vertical.width
                 spacing: Theme.scaled(15)
 
             // Overlay chip group — the readouts/link shown on top of whichever

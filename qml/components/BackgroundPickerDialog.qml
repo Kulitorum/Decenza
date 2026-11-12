@@ -359,6 +359,7 @@ DecenzaDialog {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                rightPadding: effectiveScrollBarWidth
                 contentWidth: availableWidth
                 ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
@@ -636,7 +637,8 @@ DecenzaDialog {
                         clip: true
                         interactive: contentHeight > height
                         boundsBehavior: Flickable.StopAtBounds
-                        cellWidth: Theme.scaled(112)
+                        rightMargin: ScrollBar.vertical.width
+                        cellWidth: Math.min(Theme.scaled(112), Math.max(1, width - rightMargin))
                         cellHeight: Theme.scaled(92)
                         cacheBuffer: Theme.scaled(92)
                         model: popup._images
