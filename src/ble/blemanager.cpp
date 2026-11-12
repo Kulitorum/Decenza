@@ -2462,6 +2462,9 @@ void BLEManager::resetScaleConnectionState() {
 
 void BLEManager::cancelScaleReconnectAttempt() {
     resetScaleConnectionState();
+    // The fallback scan may be shared with a DE1 scan, so leave it running and
+    // close the gate that lets it take a saved BLE Decent scale.
+    m_wifiFallbackToBleActive = false;
     if (m_reconnectDiscovery)
         m_reconnectDiscovery->stopBrowse();
 }
