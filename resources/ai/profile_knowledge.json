@@ -725,11 +725,6 @@
         "Pour over basket/V60 22g in, 375g out",
         "Pour over basket/Cold brew 22g in, 375ml out"
       ],
-      "ugs": {
-        "value": 7.5,
-        "inferred": true,
-        "note": "High-flow filter/pour-over territory."
-      },
       "analysisFlags": [
         "flow_trend_ok"
       ],

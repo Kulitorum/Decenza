@@ -15,6 +15,7 @@
 // fields (id, grinder/bean strings, ratios, change diffs) are compared
 // directly to expected JSON literals.
 
+#include <cmath>
 #include <QtTest>
 #include <tuple>
 #include <QSet>
@@ -4069,6 +4070,15 @@ private slots:
 
             QCOMPARE(ShotSummarizer::expertBandForKbId(kbId).has_value(), row.hasBand);
         }
+
+        // Filter grinds sit far off the espresso chart (around UGS 65), so a pour-over
+        // profile must carry no UGS rather than an inferred espresso-range value.
+        const QString pourOver = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("Pour over basket/V60 15g in, 250g out"));
+        QCOMPARE(pourOver, QStringLiteral("pour-over-basket"));
+        QVERIFY2(std::isnan(ShotSummarizer::ugsForKbId(pourOver)),
+                 qPrintable(QStringLiteral("pour-over-basket has UGS %1")
+                     .arg(ShotSummarizer::ugsForKbId(pourOver))));
     }
 
     // -------------------------------------------------------------------
