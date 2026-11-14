@@ -494,6 +494,10 @@ void DecentScaleWifi::disconnectFromScale() {
     if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
         return;
     if (m_socket->state() == QAbstractSocket::ConnectedState) {
+        // A peer reset while our close completes reaches onError, which would
+        // evict a cached IP and dial the hostname. It says nothing about the address.
+        disconnect(m_socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
+                   this, nullptr);
         m_socket->close();
         return;
     }
@@ -1342,7 +1346,7 @@ void DecentScaleWifi::onError() {
             // to the event loop so signal handlers remain re-entrant-safe.
             QMetaObject::invokeMethod(this,
                 [this, generation = m_resolveGeneration]() {
-                    if (generation == m_resolveGeneration)  // not superseded by a disconnect
+                    if (generation == m_resolveGeneration)  // not superseded by a connect or disconnect
                         attemptHostname();
                 },
                 Qt::QueuedConnection);
