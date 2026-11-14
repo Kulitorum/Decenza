@@ -491,22 +491,28 @@ void DecentScaleWifi::disconnectFromScale() {
     m_recognitionTimer->stop();
     m_pendingHostnameFallback = false;
     endSleepKeepAwake();
-    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
-        return;
-    if (m_socket->state() == QAbstractSocket::ConnectedState) {
+    if (m_socket && m_socket->state() == QAbstractSocket::ConnectedState) {
         // A peer reset while our close completes reaches onError, which would
         // evict a cached IP and dial the hostname. It says nothing about the address.
         disconnect(m_socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
                    this, nullptr);
-        m_socket->close();
+        m_socket->close();  // onDisconnected reports the drop
         return;
     }
-    // Still connecting. close() would flush a close frame onto the unconnected
-    // socket (Qt warns "QNativeSocketEngine::write() was not called in
-    // ConnectedState"), and the error that follows reaches onError as "a peer
-    // answered", which evicted the cached IP and dialed the hostname for a
-    // connection we were abandoning. recreateSocket() detaches and aborts it.
-    recreateSocket();
+    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+        // Still connecting. close() would flush a close frame onto the unconnected
+        // socket (Qt warns "QNativeSocketEngine::write() was not called in
+        // ConnectedState"), and the error that follows reaches onError as "a peer
+        // answered", which evicted the cached IP and dialed the hostname for a
+        // connection we were abandoning. recreateSocket() detaches and aborts it.
+        recreateSocket();
+    }
+    // Neither path reaches onDisconnected, and a hostname fallback in flight
+    // still reads as connected (it skips setConnected(false)): report the drop.
+    if (isConnected()) {
+        markExpectedDisconnect();
+        setConnected(false);
+    }
 }
 
 void DecentScaleWifi::beginSleepKeepAwake(bool checkInNow) {

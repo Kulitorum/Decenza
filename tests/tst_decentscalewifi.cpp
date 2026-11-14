@@ -561,6 +561,29 @@ private slots:
         QVERIFY(!driver.isConnected());  // a pending fallback skips setConnected(false)
     }
 
+    // A non-HDS peer at the cached IP reports connected at the handshake; its
+    // recognition timeout starts the hostname fallback without reporting the
+    // drop. Cancelling that fallback must report it, or the scale reads as
+    // connected forever and nothing reconnects it (main.cpp's wake ramp skips it).
+    void disconnectDuringHostnameFallbackReportsDisconnected() {
+        SilentServer silent;
+        DecentScaleWifi driver;
+        driver.setIpResolver([&](const QString&) { return silent.host(); });
+        QSignalSpy upgraded(&silent, &SilentServer::clientConnected);
+        driver.connectToHost(QStringLiteral("decenza-nonexistent-xyz.local"));
+        QVERIFY(upgraded.wait(2000));
+        QTRY_VERIFY(driver.isConnected());
+
+        const int generation = driver.m_resolveGeneration;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*No recognizable HDS frame.*")));
+        driver.onRecognitionTimeout();
+        QTRY_VERIFY(driver.m_resolveGeneration != generation);  // the .local resolve is in flight
+        QVERIFY(driver.isConnected());
+
+        driver.disconnectFromScale();
+        QVERIFY(!driver.isConnected());
+    }
+
     void disconnectDropsQueuedHostnameFallback() {
         DecentScaleWifi driver;
         // onError's already-unconnected branch: a cached IP that is not an HDS
