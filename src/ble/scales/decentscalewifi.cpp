@@ -1321,9 +1321,12 @@ void DecentScaleWifi::onError() {
     // early-return at the top of this function (the first thing onError checks),
     // which still short-circuits ahead of both this branch and the transient
     // classification above.
+    // A drop after recognition (a reset, a dead battery) proves nothing against
+    // an address the scale has already answered on.
     const bool cachedIpAttempt = !m_currentTargetIsHostname
                               && !m_triedHostnameFallback
-                              && !m_pendingHostnameFallback;
+                              && !m_pendingHostnameFallback
+                              && !m_recognized;
     if (cachedIpAttempt) {
         WIFI_LOG(QString("Cached IP %1 answered but is not an HDS (%2) — evicting cache "
                          "and falling back to hostname %3")

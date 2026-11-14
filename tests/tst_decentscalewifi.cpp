@@ -516,16 +516,20 @@ private slots:
         QVERIFY(!driver.m_recognitionTimer->isActive());  // its expiry dials the hostname
     }
 
-    // A socket error while our own close completes (the peer hanging up, or
-    // resetting) is not evidence against the cached IP, and must not dial.
-    void disconnectIgnoresErrorsWhileClosing_data() {
-        QTest::addColumn<bool>("peerResets");
-        QTest::newRow("peer closes") << false;
-        QTest::newRow("peer resets") << true;
+    // A socket error is evidence against a cached IP only before the scale was
+    // recognized, and never during our own close. Otherwise a reset must not
+    // evict the address or dial the hostname.
+    void cachedIpSurvivesAReset_data() {
+        QTest::addColumn<bool>("recognized");
+        QTest::addColumn<bool>("weClose");
+        QTest::newRow("mid-attempt, we close") << false << true;  // DE1 sleep mid-attempt
+        QTest::newRow("recognized, we close") << true << true;
+        QTest::newRow("recognized, scale drops") << true << false;
     }
 
-    void disconnectIgnoresErrorsWhileClosing() {
-        QFETCH(bool, peerResets);
+    void cachedIpSurvivesAReset() {
+        QFETCH(bool, recognized);
+        QFETCH(bool, weClose);
         FakeHdsServer server;
         DecentScaleWifi driver;
         driver.setIpResolver([&](const QString&) { return server.host(); });  // via the cached IP
@@ -535,21 +539,26 @@ private slots:
         QSignalSpy arrived(&server, &FakeHdsServer::clientConnected);
         driver.connectToHost(QStringLiteral("hds.invalid"));
         QVERIFY(arrived.wait(2000));
-        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
-        server.sendJson({{ "grams", 1.5 }, { "ms", 1 }});
-        QVERIFY(weightSpy.wait(2000));
+        QTRY_VERIFY(driver.m_wsHandshakeDone);
+        if (recognized) {
+            server.sendJson({{ "grams", 1.5 }, { "ms", 1 }});
+            QVERIFY(weightSpy.wait(2000));
+        }
         cacheWrites.clear();
 
         QSignalSpy gone(&server, &FakeHdsServer::clientDisconnected);
-        driver.disconnectFromScale();
-        if (peerResets)
-            server.abortClient();
+        if (weClose)
+            driver.disconnectFromScale();
+        else  // an unexpected drop still warns
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*WebSocket error.*")));
+        server.abortClient();
         QVERIFY(gone.count() > 0 || gone.wait(4000));
         QTRY_COMPARE(driver.m_socket->state(), QAbstractSocket::UnconnectedState);
         QCoreApplication::processEvents();
 
         QVERIFY2(cacheWrites.isEmpty(), "the cached IP was evicted");
         QVERIFY(!driver.m_currentTargetIsHostname);  // and no hostname dial began
+        QVERIFY(!driver.isConnected());  // a pending fallback skips setConnected(false)
     }
 
     void disconnectDropsQueuedHostnameFallback() {
