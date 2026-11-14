@@ -265,8 +265,10 @@ private:
     // 240 × 1 s heartbeat). Reset on each connect cycle.
     static constexpr int kBatteryPollKeepAliveTicks = 8;
     // Margin under the firmware's fixed 15 min (the status frame's
-    // auto_sleep_minutes), so one late or failed check-in is survivable.
+    // auto_sleep_minutes), so one late check-in is survivable. A failed one is
+    // retried after kCheckInRetryMs instead (finishCheckIn).
     static constexpr int kKeepAwakeIntervalMs = 10 * 60 * 1000;
+    static constexpr int kCheckInRetryMs = 30 * 1000;
 
     QWebSocket* m_socket = nullptr;
     QTimer* m_recognitionTimer = nullptr;
