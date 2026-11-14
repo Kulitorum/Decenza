@@ -558,9 +558,9 @@ public:
 
     // Reset connection state flags so retry attempts can proceed
     void resetScaleConnectionState();
-    // Abandon an in-flight background scale attempt: its 20 s timeout, a
-    // deferred connect, the WiFi->BLE fallback and the reconnect browse — each
-    // can emit scaleDiscovered. For a DE1-sleep hold and for forgetting a scale.
+    // Abandon an in-flight scale attempt: a pending manual WiFi validation, its
+    // 20 s timeout, a deferred connect, the WiFi->BLE fallback and the reconnect
+    // browse — each can emit scaleDiscovered or leave a request open.
     void cancelScaleReconnectAttempt();
 
     // Share the system log (debug.log) — the only log share there is now.
