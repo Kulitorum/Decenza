@@ -1,6 +1,6 @@
 ---
 name: audit-code
-description: Principal-engineer audit of a diff, commit, PR, set of files, directory or the whole repo, judged against Decenza's own CLAUDE.md rules and reported in six sections (architecture, security and error handling, performance, readability, test simplification, prioritised action plan with fix snippets). Defaults to the current diff. Use when the user asks to audit, review in depth, assess code quality, find tech debt, or wants a severity-ranked list of what to fix; prefer it over /code-review when they want structure, ranking, repo-rule compliance or test-suite advice.
+description: Principal-engineer audit of a diff, commit, PR, set of files, directory or the whole repo, judged against Decenza's own CLAUDE.md rules and reported in six sections (architecture, security and error handling, performance, readability, test simplification, prioritised action plan with fix snippets). Defaults to the current diff. Decenza's code-review tool: use it whenever the user asks to review, audit or check code, a diff, a commit or a PR, assess code quality or find tech debt, in place of /code-review or /pr-review-toolkit:review-pr.
 ---
 
 <!-- Adapted from DeviceSide's audit-code skill (https://github.com/DeviceSide/DeviceSide), MIT License, Copyright (c) 2026 jasonmx. -->
