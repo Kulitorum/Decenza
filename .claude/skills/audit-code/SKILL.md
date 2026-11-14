@@ -13,13 +13,13 @@ Claude Code or Codex; both load this file (`.agents/skills/audit-code` links her
 
 **Model floor:** Claude Opus 5.5 or newer, or Codex `gpt-6.1-sol` at high reasoning effort. Before step 1:
 - **Claude:** state the model you are running on; if it is below the floor, say so and stop. Reviewer subagents run on the same model.
-- **Codex:** you cannot see your own model or effort, so ask the user to confirm the session meets the floor, and stop if they can't. A run started with the command below is pinned by its flags and needs no confirmation.
+- **Codex:** you cannot see your own model or effort, so ask the user to confirm the session meets the floor, and stop if they can't. A run started with the command below is pinned by its flags, and its prompt says so.
 
 To have Codex run it from a Claude Code session, start it as a tracked background command so its report comes back when it ends, then verify its findings as in §4:
 
 ```bash
 codex exec -m gpt-6.1-sol -c model_reasoning_effort=high -s read-only -C <repo> -o <report.md> \
-  "Use the audit-code skill to audit <target>. Output only the final report."
+  "Use the audit-code skill to audit <target>. This command pins gpt-6.1-sol at high effort, so the model floor is met. Output only the final report."
 ```
 
 ## 1. Resolve the target
