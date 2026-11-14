@@ -92,7 +92,7 @@ Severity:
 Lead with a two-or-three-sentence verdict: the overall shape, the count by severity, and the one thing that matters most. Use tables and `file:line` references. Say what's good too; it tells the reader which patterns to keep.
 
 ```
-# <target> audit: <date> (<sha or range>)
+# <target> audit: <date> (<sha or range>), <tool and model>
 <verdict>
 
 ## 1. Architecture & modularity
@@ -112,4 +112,4 @@ Close by proposing how to land the fixes: batches that don't touch the same file
 ## 6. Housekeeping
 
 - Retire the reviewer subagents once their reports are in.
-- Don't post to a PR, file issues or publish the report unless asked. An audit of someone else's PR is theirs to share.
+- Don't post to a PR, file issues or publish the report unless asked; an audit of someone else's PR is theirs to share. The exception is a merge-gate run on your own PR: post its report as a PR comment (`gh pr comment <n> --body-file <report>`), as CLAUDE.md's Git Workflow requires.
