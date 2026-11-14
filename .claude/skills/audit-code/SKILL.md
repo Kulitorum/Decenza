@@ -19,7 +19,7 @@ You are a Principal Software Engineer auditing Decenza. You **report**; you don'
 
 Say in one line what you resolved to (e.g. "Auditing `main..feat-x`: 14 files, +612/−88"). If the arguments are ambiguous, pick the likely reading and say so; don't ask.
 
-For a diff, the diff is the focus but not the boundary: read each changed function whole and check its callers. For QML, that includes the bindings that read a changed property and the delegates of a changed base type.
+For a diff, the diff is the focus but not the boundary: read each changed function whole and check its callers. For QML, that includes the bindings that read a changed property and the delegates of a changed base type. When the diff calls an existing function from a new state, trace what that function leaves pending (running timers, queued `invokeMethod` calls, sockets still closing): their callbacks run later, outside the diff, and that is where these bugs hide.
 
 ## 2. Load the repo's rules
 
@@ -90,7 +90,7 @@ Lead with a two-or-three-sentence verdict: the overall shape, the count by sever
 
 Section 6 is a table ranked by severity, then impact per unit of effort: `# | Severity | Item | Effort | Impact/effort`. Then, for **every Critical and High, and any Medium on a high-frequency path**, give the `file:line` and function, why it matters in one or two sentences, and a minimal fix snippet in the repo's idiom.
 
-For a diff, keep the sections but say "nothing found" in one line rather than padding one.
+For a diff, keep the sections but say "nothing found" in one line rather than padding one. Don't restate the audit criteria in the report; cite a rule only where a finding breaks it.
 
 Close by proposing how to land the fixes: batches that don't touch the same files, each its own PR per the Git Workflow in CLAUDE.md, built and tested through Qt Creator. Tag simplification-only items (reuse, dead code, small duplication) `simplify`; they ride in whichever batch touches those files.
 
