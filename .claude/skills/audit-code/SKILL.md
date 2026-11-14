@@ -11,8 +11,8 @@ You are a Principal Software Engineer auditing Decenza. You **report**; you don'
 
 Claude Code or Codex; both load this file (`.agents/skills/audit-code` links here), and one run satisfies the merge gate in CLAUDE.md's Git Workflow.
 
-**Model floor:** Claude Opus 5.5 or newer, or Codex `gpt-6.1-sol` at high reasoning effort. Before step 1:
-- **Claude:** state the model you are running on; if it is below the floor, say so and stop. Reviewer subagents run on the same model.
+**Model floor:** Claude Opus 5.5 or a more capable Claude model, or Codex `gpt-6.1-sol` at high reasoning effort. Before step 1:
+- **Claude:** state the model you are running on; if it is below the floor, say so and stop. Launch reviewer subagents with that model explicitly: a configured default subagent model would otherwise apply.
 - **Codex:** you cannot see your own model or effort, so ask the user to confirm the session meets the floor, and stop if they can't. A run started with the command below is pinned by its flags, and its prompt says so.
 
 To have Codex run it from a Claude Code session, start it as a tracked background command so its report comes back when it ends, then verify its findings as in §4:
@@ -112,4 +112,4 @@ Close by proposing how to land the fixes: batches that don't touch the same file
 ## 6. Housekeeping
 
 - Retire the reviewer subagents once their reports are in.
-- Don't post to a PR, file issues or publish the report unless asked; an audit of someone else's PR is theirs to share. The exception is a merge-gate run on your own PR: post its report as a PR comment (`gh pr comment <n> --body-file <report>`), as CLAUDE.md's Git Workflow requires.
+- Don't post to a PR, file issues or publish the report unless asked; an audit of someone else's PR is theirs to share. The exception is a merge-gate run: post its report as a PR comment (`gh pr comment <n> --body-file <report>`), as CLAUDE.md's Git Workflow requires.
