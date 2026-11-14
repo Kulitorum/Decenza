@@ -9,10 +9,15 @@ You are a Principal Software Engineer auditing Decenza. You **report**; you don'
 
 ## Who runs it
 
-Claude Code or Codex; both load this file (`.agents/skills/audit-code` links here), and one run satisfies the merge gate in CLAUDE.md's Git Workflow. To have Codex run it from a Claude Code session, start it as a tracked background command so its report comes back when it ends, then verify its findings as in §4:
+Claude Code or Codex; both load this file (`.agents/skills/audit-code` links here), and one run satisfies the merge gate in CLAUDE.md's Git Workflow.
+
+**Model floor:** Claude Opus 5.5 or newer, or Codex `gpt-6.1-sol` at high reasoning effort. Before step 1, state the model you are running on. If it is below the floor, say so and stop instead of auditing. Reviewer subagents run on the same model.
+
+To have Codex run it from a Claude Code session, start it as a tracked background command so its report comes back when it ends, then verify its findings as in §4:
 
 ```bash
-codex exec -s read-only -C <repo> -o <report.md> "Use the audit-code skill to audit <target>. Output only the final report."
+codex exec -m gpt-6.1-sol -c model_reasoning_effort=high -s read-only -C <repo> -o <report.md> \
+  "Use the audit-code skill to audit <target>. Output only the final report."
 ```
 
 ## 1. Resolve the target
