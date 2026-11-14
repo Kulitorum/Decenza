@@ -18,4 +18,4 @@
 
 ## Audit
 
-<!-- Who ran audit-code (tool and model), on which commit, and every finding left open with its severity. -->
+<!-- Link the comment with the final-commit audit-code report (tool, model, commit), or say who should audit it. -->
