@@ -52,7 +52,7 @@ codex exec -m gpt-6.1-sol -c model_reasoning_effort=high -s read-only -C <repo> 
 |---|---|
 | none | uncommitted changes (`git diff HEAD`); if clean, the branch against its merge-base with `main`; if that's empty too, `HEAD`'s commit |
 | commit sha or `A..B` range | `git show <sha>` / `git diff A..B` |
-| PR number or URL | `gh pr diff <n> --repo Kulitorum/Decenza` (and `gh pr view <n>` for intent, plus its OpenSpec change if it names one) |
+| PR number or URL | `gh pr diff <n> --repo Kulitorum/Decenza` (and `gh pr view <n> --repo Kulitorum/Decenza` for intent, plus its OpenSpec change if it names one) |
 | paths or globs | those files, read in full |
 | `repo` / `.` / "whole codebase" | every tracked file under `src/`, `qml/`, `tests/` and `scripts/` |
 
