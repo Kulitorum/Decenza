@@ -485,23 +485,34 @@ void DecentScaleWifi::disconnectFromScale() {
     // (Reconnect is owned by main.cpp's scaleReconnectTimer — this flag
     // does not gate reconnect anymore; it just controls the log line.)
     m_userInitiatedShutdown = true;
-    // Invalidate any in-flight mDNS resolve so its late callback can't reopen
-    // the socket after the user has asked to disconnect.
+    // Invalidate any in-flight mDNS resolve or queued fallback, and any
+    // recognition deadline, so none can reopen the socket after this close.
     ++m_resolveGeneration;
+    m_recognitionTimer->stop();
+    m_pendingHostnameFallback = false;
     endSleepKeepAwake();
-    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
-        return;
-    if (m_socket->state() == QAbstractSocket::ConnectedState) {
-        m_socket->close();
+    if (m_socket && m_socket->state() == QAbstractSocket::ConnectedState) {
+        // A peer reset while our close completes reaches onError, which would
+        // evict a cached IP and dial the hostname. It says nothing about the address.
+        disconnect(m_socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
+                   this, nullptr);
+        m_socket->close();  // onDisconnected reports the drop
         return;
     }
-    // Still connecting. close() would flush a close frame onto the unconnected
-    // socket (Qt warns "QNativeSocketEngine::write() was not called in
-    // ConnectedState"), and the error that follows reaches onError as "a peer
-    // answered", which evicted the cached IP and dialed the hostname for a
-    // connection we were abandoning. recreateSocket() detaches and aborts it.
-    m_pendingHostnameFallback = false;
-    recreateSocket();
+    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+        // Still connecting. close() would flush a close frame onto the unconnected
+        // socket (Qt warns "QNativeSocketEngine::write() was not called in
+        // ConnectedState"), and the error that follows reaches onError as "a peer
+        // answered", which evicted the cached IP and dialed the hostname for a
+        // connection we were abandoning. recreateSocket() detaches and aborts it.
+        recreateSocket();
+    }
+    // Neither path reaches onDisconnected, and a hostname fallback in flight
+    // still reads as connected (it skips setConnected(false)): report the drop.
+    if (isConnected()) {
+        markExpectedDisconnect();
+        setConnected(false);
+    }
 }
 
 void DecentScaleWifi::beginSleepKeepAwake(bool checkInNow) {
@@ -565,6 +576,11 @@ void DecentScaleWifi::finishCheckIn(bool reached, const QString& failure) {
             WIFI_WARN(QString("Keep-awake check-in to %1 failed: %2 — the scale may have powered off")
                           .arg(m_lastRecognizedUrl.host(), failure));
     }
+    // A run's first failure retries soon: the next interval would land past the
+    // scale's 15-min auto-off. A second failure means it is off; back to the interval.
+    if (m_keepAwakeTimer->isActive())
+        m_keepAwakeTimer->start(!reached && !m_lastCheckInFailed ? kCheckInRetryMs
+                                                                 : kKeepAwakeIntervalMs);
     m_lastCheckInFailed = !reached;
 }
 
@@ -1311,9 +1327,12 @@ void DecentScaleWifi::onError() {
     // early-return at the top of this function (the first thing onError checks),
     // which still short-circuits ahead of both this branch and the transient
     // classification above.
+    // A drop after recognition (a reset, a dead battery) proves nothing against
+    // an address the scale has already answered on.
     const bool cachedIpAttempt = !m_currentTargetIsHostname
                               && !m_triedHostnameFallback
-                              && !m_pendingHostnameFallback;
+                              && !m_pendingHostnameFallback
+                              && !m_recognized;
     if (cachedIpAttempt) {
         WIFI_LOG(QString("Cached IP %1 answered but is not an HDS (%2) — evicting cache "
                          "and falling back to hostname %3")
@@ -1335,7 +1354,10 @@ void DecentScaleWifi::onError() {
             // pending flag set). Dial the hostname fallback ourselves, queued
             // to the event loop so signal handlers remain re-entrant-safe.
             QMetaObject::invokeMethod(this,
-                [this]() { attemptHostname(); },
+                [this, generation = m_resolveGeneration]() {
+                    if (generation == m_resolveGeneration)  // not superseded by a connect or disconnect
+                        attemptHostname();
+                },
                 Qt::QueuedConnection);
         }
     }

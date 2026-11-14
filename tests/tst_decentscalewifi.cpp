@@ -484,6 +484,123 @@ private slots:
         driver.endSleepKeepAwake();
     }
 
+    // The 10-min interval alone would put the next try past the 15-min auto-off,
+    // so a failed check-in retries soon, once per run of failures.
+    void failedCheckInRetriesSoonOnce() {
+        DecentScaleWifi driver;
+        driver.m_lastRecognizedUrl = QUrl(QStringLiteral("ws://127.0.0.1:1/snapshot"));  // no listener
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*Keep-awake check-in to .* failed.*")));
+        driver.beginSleepKeepAwake(/*checkInNow=*/true);
+        QTRY_COMPARE(driver.m_checkInsFailed, 1);
+        QCOMPARE(driver.m_keepAwakeTimer->interval(), DecentScaleWifi::kCheckInRetryMs);
+
+        driver.checkInToStayAwake();  // the retry fails too: the scale is off
+        QTRY_COMPARE(driver.m_checkInsFailed, 2);
+        QCOMPARE(driver.m_keepAwakeTimer->interval(), DecentScaleWifi::kKeepAwakeIntervalMs);
+        driver.endSleepKeepAwake();
+    }
+
+    // main.cpp's DE1-sleep handler disconnects mid-attempt. Nothing the attempt
+    // left pending may dial afterwards: a connect clears the sleep hold.
+    void disconnectStopsPendingRecognitionFallback() {
+        SilentServer silent;  // answers the upgrade, never sends a frame
+        DecentScaleWifi driver;
+        driver.setIpResolver([&](const QString&) { return silent.host(); });
+        QSignalSpy upgraded(&silent, &SilentServer::clientConnected);
+        driver.connectToHost(QStringLiteral("hds.invalid"));
+        QVERIFY(upgraded.wait(2000));
+        QTRY_VERIFY(driver.m_wsHandshakeDone);
+        QVERIFY(driver.m_recognitionTimer->isActive());
+
+        driver.disconnectFromScale();
+        QVERIFY(!driver.m_recognitionTimer->isActive());  // its expiry dials the hostname
+    }
+
+    // A socket error is evidence against a cached IP only before the scale was
+    // recognized, and never during our own close. Otherwise a reset must not
+    // evict the address or dial the hostname.
+    void cachedIpSurvivesAReset_data() {
+        QTest::addColumn<bool>("recognized");
+        QTest::addColumn<bool>("weClose");
+        QTest::newRow("mid-attempt, we close") << false << true;  // DE1 sleep mid-attempt
+        QTest::newRow("recognized, we close") << true << true;
+        QTest::newRow("recognized, scale drops") << true << false;
+    }
+
+    void cachedIpSurvivesAReset() {
+        QFETCH(bool, recognized);
+        QFETCH(bool, weClose);
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        driver.setIpResolver([&](const QString&) { return server.host(); });  // via the cached IP
+        QList<QString> cacheWrites;
+        driver.setIpCacheUpdate([&](const QString&, const QString& ip) { cacheWrites.append(ip); });
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        QSignalSpy arrived(&server, &FakeHdsServer::clientConnected);
+        driver.connectToHost(QStringLiteral("hds.invalid"));
+        QVERIFY(arrived.wait(2000));
+        QTRY_VERIFY(driver.m_wsHandshakeDone);
+        if (recognized) {
+            server.sendJson({{ "grams", 1.5 }, { "ms", 1 }});
+            QVERIFY(weightSpy.wait(2000));
+        }
+        cacheWrites.clear();
+
+        QSignalSpy gone(&server, &FakeHdsServer::clientDisconnected);
+        if (weClose)
+            driver.disconnectFromScale();
+        else  // an unexpected drop still warns
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*WebSocket error.*")));
+        server.abortClient();
+        QVERIFY(gone.count() > 0 || gone.wait(4000));
+        QTRY_COMPARE(driver.m_socket->state(), QAbstractSocket::UnconnectedState);
+        QCoreApplication::processEvents();
+
+        QVERIFY2(cacheWrites.isEmpty(), "the cached IP was evicted");
+        QVERIFY(!driver.m_currentTargetIsHostname);  // and no hostname dial began
+        QVERIFY(!driver.isConnected());  // a pending fallback skips setConnected(false)
+    }
+
+    // A non-HDS peer at the cached IP reports connected at the handshake; its
+    // recognition timeout starts the hostname fallback without reporting the
+    // drop. Cancelling that fallback must report it, or the scale reads as
+    // connected forever and nothing reconnects it (main.cpp's wake ramp skips it).
+    void disconnectDuringHostnameFallbackReportsDisconnected() {
+        SilentServer silent;
+        DecentScaleWifi driver;
+        driver.setIpResolver([&](const QString&) { return silent.host(); });
+        QSignalSpy upgraded(&silent, &SilentServer::clientConnected);
+        driver.connectToHost(QStringLiteral("decenza-nonexistent-xyz.local"));
+        QVERIFY(upgraded.wait(2000));
+        QTRY_VERIFY(driver.isConnected());
+
+        const int generation = driver.m_resolveGeneration;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*No recognizable HDS frame.*")));
+        driver.onRecognitionTimeout();
+        QTRY_VERIFY(driver.m_resolveGeneration != generation);  // the .local resolve is in flight
+        QVERIFY(driver.isConnected());
+
+        driver.disconnectFromScale();
+        QVERIFY(!driver.isConnected());
+    }
+
+    void disconnectDropsQueuedHostnameFallback() {
+        DecentScaleWifi driver;
+        // onError's already-unconnected branch: a cached IP that is not an HDS
+        // queues the hostname dial.
+        driver.m_hostname = QStringLiteral("hds.invalid");
+        driver.m_currentTarget = QStringLiteral("127.0.0.1");
+        driver.m_currentTargetIsHostname = false;
+        driver.m_triedHostnameFallback = false;
+        driver.recreateSocket();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral(".*WebSocket error.*")));
+        driver.onError();
+
+        driver.disconnectFromScale();
+        QCoreApplication::processEvents();
+        QVERIFY(!driver.m_currentTargetIsHostname);  // the queued dial did not run
+    }
+
     void setLedFormatsAndClamps() {
         FakeHdsServer server;
         DecentScaleWifi driver;
