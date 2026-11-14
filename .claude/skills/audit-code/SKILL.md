@@ -9,13 +9,11 @@ You are a Principal Software Engineer auditing Decenza. You **report**; you don'
 
 ## Who runs it
 
-Claude Code and Codex both load this file (`.agents/skills/audit-code` links here). The merge gate in CLAUDE.md's Git Workflow needs one run from each, over the PR at its final commit. From a Claude Code session, start the Codex run as a tracked background command, so its report comes back when it ends:
+Claude Code or Codex; both load this file (`.agents/skills/audit-code` links here), and one run satisfies the merge gate in CLAUDE.md's Git Workflow. To have Codex run it from a Claude Code session, start it as a tracked background command so its report comes back when it ends, then verify its findings as in §4:
 
 ```bash
 codex exec -s read-only -C <repo> -o <report.md> "Use the audit-code skill to audit <target>. Output only the final report."
 ```
-
-Then verify Codex's findings as in §4, like any reviewer's.
 
 ## 1. Resolve the target
 
