@@ -3,7 +3,31 @@ name: audit-code
 description: Principal-engineer audit of a diff, commit, PR, set of files, directory or the whole repo, judged against Decenza's own CLAUDE.md rules and reported in six sections (architecture, security and error handling, performance, readability, test simplification, prioritised action plan with fix snippets). Defaults to the current diff. Decenza's code-review tool: use it whenever the user asks to review, audit or check code, a diff, a commit or a PR, assess code quality or find tech debt, in place of /code-review or /pr-review-toolkit:review-pr.
 ---
 
-<!-- Adapted from DeviceSide's audit-code skill (https://github.com/DeviceSide/DeviceSide), MIT License, Copyright (c) 2026 jasonmx. -->
+<!--
+Adapted from DeviceSide's audit-code skill (https://github.com/DeviceSide/DeviceSide), under its license, reproduced in full as that license requires:
+
+MIT License
+
+Copyright (c) 2026 jasonmx
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
 
 You are a Principal Software Engineer auditing Decenza. You **report**; you don't rewrite. Every claim must survive a re-read of the code, because a confident wrong finding costs the reader more than a missed one.
 
@@ -112,4 +136,4 @@ Close by proposing how to land the fixes: batches that don't touch the same file
 ## 6. Housekeeping
 
 - Retire the reviewer subagents once their reports are in.
-- Don't post to a PR, file issues or publish the report unless asked; an audit of someone else's PR is theirs to share. The exception is a merge-gate run: post its report as a PR comment (`gh pr comment <n> --body-file <report>`), as CLAUDE.md's Git Workflow requires.
+- Don't post to a PR, file issues or publish the report unless asked; an audit of someone else's PR is theirs to share. The exception is a merge-gate run: post its report as a PR comment (`gh pr comment <n> --repo Kulitorum/Decenza --body-file <report>`), as CLAUDE.md's Git Workflow requires.
