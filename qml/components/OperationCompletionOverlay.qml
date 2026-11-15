@@ -31,17 +31,16 @@ Rectangle {
     // Save rate runs the steam page's "Use last steam" editor operation. It is
     // offered only when this steam recorded a weighed pour: otherwise the
     // last-steam values still hold an earlier steam's.
-    property bool _awaitingPour: false
-    property bool _pourRecorded: false
     property string _saveRateRequestId: ""
     property bool _rateSaved: false
     // Its own var property: qmlcachegen 6.12.0 segfaults when this call sits
-    // inside the bool binding below.
+    // inside the bool binding below (QTBUG-152061, fixed for 6.12.2).
     readonly property var _selectedPitcher: {
         var _list = SteamService.state.steamPitcherPresets
         return SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher) || ({})
     }
-    readonly property bool _canSaveRate: _pourRecorded && _selectedPitcher.disabled !== true
+    readonly property bool _canSaveRate: SteamService.state.steamPourRecorded
+        && _selectedPitcher.disabled !== true
         && (_selectedPitcher.name ?? "") !== ""
         && _selectedPitcher.name === SteamService.state.lastSteamPitcherName
 
@@ -112,19 +111,8 @@ Rectangle {
     Connections {
         target: SteamService.state
         function onIsSteamingChanged() {
-            if (SteamService.state.isSteaming) {
-                root._awaitingPour = true
-                root._pourRecorded = false
+            if (SteamService.state.isSteaming)
                 root._rateSaved = false
-            }
-        }
-        // Written only when a steam ends with a weighed pour. A replica's first
-        // sync also changes it, so only a change after a steam started counts.
-        function onLastSteamTimeSChanged() {
-            if (!root._awaitingPour)
-                return
-            root._awaitingPour = false
-            root._pourRecorded = true
         }
     }
 
@@ -137,6 +125,9 @@ Rectangle {
             root._rateSaved = success
             if (!success)
                 root._actionError = message || SteamService.errorMessage
+            // Count down again so the result is seen before the window leaves.
+            if (completionState.pending && !root._purging)
+                completionState.showCompletion(completionState.message, completionState.completionType)
         }
     }
 
@@ -149,6 +140,8 @@ Rectangle {
         if (_saveRateRequestId === "")
             _actionError = SteamService.errorMessage
                 || TranslationManager.translate("steam.editor.notReady", "The steam setting was not saved. Wait for the current request to finish or reconnect, then try again.")
+        else
+            completionState.hold()
     }
 
     function _startPurge() {

@@ -48,6 +48,7 @@ class SteamState
     PROP(bool steamSoftStopped READONLY)
     PROP(double steamAutoFlushCountdown READONLY)
     PROP(bool steamTimeoutScaled READONLY)
+    PROP(bool steamPourRecorded READONLY)
     PROP(double milkScaleLoadG READONLY)
     PROP(int lastSteamEffectiveDurationSec READONLY)
 

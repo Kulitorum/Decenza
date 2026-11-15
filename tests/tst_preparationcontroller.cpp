@@ -505,6 +505,15 @@ private slots:
         QCOMPARE(f.settings.brew()->lastSteamPitcherName(), QStringLiteral("Test pitcher"));
         QCOMPARE(f.settings.brew()->lastSteamPourMilkG(), 100.0);
         QVERIFY(f.preparation.milkTimeLocked());
+        QVERIFY(f.preparation.steamPourRecorded());
+
+        // An unweighed steam leaves the old pour in settings, but not as this steam's.
+        f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
+        QTRY_VERIFY(!f.preparation.steamPourRecorded());
+        f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_VERIFY(f.machine.phase() != MachineState::Phase::Steaming);
+        QVERIFY(!f.preparation.steamPourRecorded());
+        QCOMPARE(f.settings.brew()->lastSteamPourMilkG(), 100.0);
     }
 
     void steamStartUsesCapturedMilkOnce()
