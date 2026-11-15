@@ -18,4 +18,4 @@ Each pull request does one thing a reviewer can judge on its own: one fix, one f
 
 ## After you open it
 
-Codex reviews every pull request automatically when it is opened, and leaves its findings as inline threads, each badged P1, P2 or P3. Read them. For every P1 and P2, fix it or reply on the thread with why it doesn't hold, then resolve the thread. A pull request merges only when Codex has reviewed its latest commit and all of its P1 and P2 threads show as resolved. Codex may skip a push it judges minor; if it hasn't reviewed your latest commit, comment `@codex review`.
+Codex reviews every pull request automatically when it is opened, and leaves its findings as inline threads, each badged P1, P2 or P3. Read them. For every P1 and P2, fix it or reply on the thread with why it doesn't hold, then resolve the thread. A pull request merges only when all of its P1 and P2 threads show as resolved and Codex has reviewed its latest commit. Codex may skip a push it judges minor: if it hasn't started within 10 minutes, don't wait for it.
