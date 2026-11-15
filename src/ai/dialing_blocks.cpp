@@ -1774,8 +1774,8 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
     const QString kbId = ShotSummarizer::computeProfileKbId(profileTitle);
     if (packageId <= 0 || kbId.isEmpty())
         return {};
-    // A bag with no roaster can pass a null QString, bound as SQL NULL, which equals
-    // nothing: COALESCE it like the column (tst_dialing_blocks grindSuggestion_*).
+    // A bag with no roaster can pass a null QString, which QSQLITE binds as SQL NULL
+    // (qsql_sqlite.cpp:506, qsqlresult.cpp:604-605) and which equals nothing.
     // A dated bag is one roast batch; an undated one is the bean.
     const bool dated = !roastDate.trimmed().isEmpty() && roastDate.trimmed() != QLatin1String("--");
     QSqlQuery q(db);
