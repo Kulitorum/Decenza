@@ -89,7 +89,7 @@ SettingsBrew::SettingsBrew(QObject* parent)
     if (!m_settings.contains("migration/steamRatePerPitcher")
         && seedSteamPitcherRates(m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble())) {
         m_settings.setValue("migration/steamRatePerPitcher", true);
-        DIAG_INFO(APP, "SettingsBrew") << "one-time steam rate copy done; the global rate was"
+        DIAG_INFO(STEAM, "SettingsBrew") << "one-time steam rate copy done; the global rate was"
             << m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble() << "s/g";
     }
 
@@ -263,7 +263,7 @@ SettingsBrew::PresetMutationResult SettingsBrew::trySetSteamPitcherSecondsPerGra
     const PresetMutationResult result = updateSteamPitcherPresetFields(index, expectedName,
         QJsonObject{{QStringLiteral("secondsPerGram"), rate}}, false);
     if (result == PresetMutationResult::Applied) {
-        DIAG_INFO(APP, "SettingsBrew") << "steam rate of pitcher"
+        DIAG_INFO(STEAM, "SettingsBrew") << "steam rate of pitcher"
             << getSteamPitcherPreset(index).value(QStringLiteral("name")).toString()
             << "set to" << rate << "s/g";
     }
@@ -304,7 +304,7 @@ bool SettingsBrew::seedSteamPitcherRates(double secondsPerGram) {
         arr[i] = preset;
         ++filled;
     }
-    DIAG_INFO(APP, "SettingsBrew") << "steam rate" << secondsPerGram << "s/g given to" << filled
+    DIAG_INFO(STEAM, "SettingsBrew") << "steam rate" << secondsPerGram << "s/g given to" << filled
         << "of" << arr.size() << "pitchers; the rest already had their own";
     if (filled > 0) {
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
@@ -544,7 +544,7 @@ bool SettingsBrew::rejectsBuiltInPitcher(int index, const char* verb) const {
     // there would silently edit or delete a real pitcher.
     if (!isHeaterOffPitcher(index))
         return false;
-    DIAG_WARN(APP, "SettingsBrew").noquote() << "the built-in Heater off entry cannot be"
+    DIAG_WARN(STEAM, "SettingsBrew").noquote() << "the built-in Heater off entry cannot be"
                          << QString::fromUtf8(verb);
     return true;
 }
@@ -647,7 +647,7 @@ SettingsBrew::PresetMutationResult SettingsBrew::tryAddSteamPitcherPreset(
     // Existing duplicates already in storage are left alone: this rejects new
     // ones, it does not delete anyone's data.
     if (SteamCalculations::steamPitcherNameTaken(arr.toVariantList(), name, -1)) {
-        DIAG_WARN(APP, "SettingsBrew") << "refusing a duplicate steam pitcher named" << name
+        DIAG_WARN(STEAM, "SettingsBrew") << "refusing a duplicate steam pitcher named" << name
                    << "- that name is already in use";
         return PresetMutationResult::Invalid;
     }
@@ -702,7 +702,7 @@ SettingsBrew::PresetMutationResult SettingsBrew::updateSteamPitcherPresetFields(
     const QString name = fields.value(QStringLiteral("name")).toString();
     if (fields.contains(QStringLiteral("name"))
         && SteamCalculations::steamPitcherNameTaken(arr.toVariantList(), name, index)) {
-        DIAG_WARN(APP, "SettingsBrew") << "refusing a duplicate steam pitcher named" << name
+        DIAG_WARN(STEAM, "SettingsBrew") << "refusing a duplicate steam pitcher named" << name
                    << "- that name is already in use";
         return PresetMutationResult::Invalid;
     }
@@ -927,7 +927,7 @@ int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
         // A stale/out-of-range selection index (e.g. every preset deleted). Unlike a
         // disabled preset, this is never a deliberate state — warn so the resulting
         // 0s steam timeout is diagnosable.
-        DIAG_WARN(APP, "SettingsBrew") << "no steam pitcher preset at index" << index
+        DIAG_WARN(STEAM, "SettingsBrew") << "no steam pitcher preset at index" << index
                    << "— steam timeout will be 0s";
         return 0;
     }
@@ -935,7 +935,7 @@ int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
     // An enabled preset with no positive duration is corrupt (hand-edited/failed import);
     // returning 0 here silently programs a 0s steam target, so make it loud.
     if (duration.baseSeconds <= 0)
-        DIAG_WARN(APP, "SettingsBrew") << "enabled steam pitcher preset" << index
+        DIAG_WARN(STEAM, "SettingsBrew") << "enabled steam pitcher preset" << index
                    << "has no positive duration — steam timeout will be 0s";
     return duration.baseSeconds;
 }
