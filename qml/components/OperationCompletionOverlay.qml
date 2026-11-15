@@ -111,8 +111,12 @@ Rectangle {
     Connections {
         target: SteamService.state
         function onIsSteamingChanged() {
-            if (SteamService.state.isSteaming)
+            // A reply still due belongs to the previous steam; forgetting its id
+            // makes the handler below ignore it.
+            if (SteamService.state.isSteaming) {
                 root._rateSaved = false
+                root._saveRateRequestId = ""
+            }
         }
     }
 
