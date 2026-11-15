@@ -273,6 +273,7 @@ void NativeSteamServiceSource::refreshSnapshot()
     setSteamSoftStopped(m_controller->steamSoftStopped());
     setSteamAutoFlushCountdown(m_controller->steamAutoFlushCountdown());
     setSteamTimeoutScaled(m_preparation->steamTimeoutScaled());
+    setSteamPourRecorded(m_preparation->steamPourRecorded());
     setMilkScaleLoadG(m_preparation->milkScaleLoadG());
     const auto* coach = m_controller->liveSteamCoach();
     setCueText(coach ? coach->cueText() : QString());

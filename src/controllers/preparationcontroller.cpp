@@ -616,6 +616,7 @@ int PreparationController::plannedSteamDurationSec(const QVariantMap& pitcher,
 
 void PreparationController::beginSteamSession()
 {
+    m_snapshot.steamPourRecorded = false;
     QString source;
     const int seconds = scaledSteamDurationAtStart(&source);
     DIAG_INFO(STEAM, "PreparationController")
@@ -632,7 +633,9 @@ void PreparationController::beginSteamSession()
 
 void PreparationController::finishSteamSession()
 {
-    if (m_steamElapsedTracker >= 1.0 && m_snapshot.sessionMeasuredMilkG > 0.0 && m_brew) {
+    m_snapshot.steamPourRecorded = m_steamElapsedTracker >= 1.0
+        && m_snapshot.sessionMeasuredMilkG > 0.0 && m_brew;
+    if (m_snapshot.steamPourRecorded) {
         m_brew->setLastSteamMilkG(m_snapshot.sessionMeasuredMilkG);
         m_brew->setLastSteamTimeS(m_steamElapsedTracker);
         m_brew->setLastSteamPourMilkG(m_snapshot.sessionMeasuredMilkG);

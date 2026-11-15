@@ -25,6 +25,8 @@ struct PreparationSnapshot {
     bool milkAttemptOpen = false;
     double sessionMeasuredMilkG = 0;
     bool steamTimeoutScaled = false;
+    // The steam that ended last recorded a weighed pour. Cleared when a steam starts.
+    bool steamPourRecorded = false;
     double lastBeanGrams = 0;
     double lastMilkGrams = 0;
     int lastMilkSeconds = 0;
@@ -82,6 +84,7 @@ class PreparationState : public QObject {
     Q_PROPERTY(WeightCaptureState* milk READ milk CONSTANT FINAL)
     Q_PROPERTY(double sessionMeasuredMilkG READ sessionMeasuredMilkG NOTIFY changed FINAL)
     Q_PROPERTY(bool steamTimeoutScaled READ steamTimeoutScaled NOTIFY changed FINAL)
+    Q_PROPERTY(bool steamPourRecorded READ steamPourRecorded NOTIFY changed FINAL)
     Q_PROPERTY(double milkScaleLoadG READ milkScaleLoadG NOTIFY changed FINAL)
     Q_PROPERTY(bool milkTimeLocked READ milkTimeLocked NOTIFY changed FINAL)
     Q_PROPERTY(bool milkAttemptOpen READ milkAttemptOpen NOTIFY changed FINAL)
@@ -93,6 +96,7 @@ public:
     WeightCaptureState* milk() { return &m_milk; }
     double sessionMeasuredMilkG() const { return m_snapshot.sessionMeasuredMilkG; }
     bool steamTimeoutScaled() const { return m_snapshot.steamTimeoutScaled; }
+    bool steamPourRecorded() const { return m_snapshot.steamPourRecorded; }
     double milkScaleLoadG() const;
     // What is on the scale above the empty reading the milk capture learned: the
     // scale's own zero is not the empty scale once nothing tares it (#2058). The

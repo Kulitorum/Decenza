@@ -28,6 +28,22 @@ Rectangle {
     // The host's reason when Purge or Back failed, shown under the buttons.
     property string _actionError: ""
 
+    // Save rate runs the steam page's "Use last steam" editor operation. It is
+    // offered only when this steam recorded a weighed pour: otherwise the
+    // last-steam values still hold an earlier steam's.
+    property string _saveRateRequestId: ""
+    property bool _rateSaved: false
+    // Its own var property: qmlcachegen 6.12.0 segfaults when this call sits
+    // inside the bool binding below (QTBUG-152061, fixed for 6.12.2).
+    readonly property var _selectedPitcher: {
+        var _list = SteamService.state.steamPitcherPresets
+        return SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher) || ({})
+    }
+    readonly property bool _canSaveRate: SteamService.state.steamPourRecorded
+        && _selectedPitcher.disabled !== true
+        && (_selectedPitcher.name ?? "") !== ""
+        && _selectedPitcher.name === SteamService.state.lastSteamPitcherName
+
     // A long black's hot water is only the first step: its completion waits until
     // the drink resolves, and is dropped if the espresso starts (its page replaces
     // this one). Shown only if the machine is still idle, i.e. the espresso was
@@ -90,6 +106,46 @@ Rectangle {
                     root._resumeAfterFailure(message)
             }
         }
+    }
+
+    Connections {
+        target: SteamService.state
+        function onIsSteamingChanged() {
+            // A reply still due belongs to the previous steam; forgetting its id
+            // makes the handler below ignore it.
+            if (SteamService.state.isSteaming) {
+                root._rateSaved = false
+                root._saveRateRequestId = ""
+            }
+        }
+    }
+
+    Connections {
+        target: SteamService
+        function onCompleted(requestId, operation, success, message, result, newRevision) {
+            if (requestId !== root._saveRateRequestId)
+                return
+            root._saveRateRequestId = ""
+            root._rateSaved = success
+            if (!success)
+                root._actionError = message || SteamService.errorMessage
+            // Count down again so the result is seen before the window leaves.
+            if (completionState.pending && !root._purging)
+                completionState.showCompletion(completionState.message, completionState.completionType)
+        }
+    }
+
+    function _saveRate() {
+        if (_saveRateRequestId || _rateSaved)
+            return
+        _actionError = ""
+        _saveRateRequestId = SteamService.request("steam-editor",
+            { editorOperation: "calibrate-from-last-steam", fields: {} }, SteamService.editorRevision)
+        if (_saveRateRequestId === "")
+            _actionError = SteamService.errorMessage
+                || TranslationManager.translate("steam.editor.notReady", "The steam setting was not saved. Wait for the current request to finish or reconnect, then try again.")
+        else
+            completionState.hold()
     }
 
     function _startPurge() {
@@ -221,6 +277,17 @@ Rectangle {
                 accessibleName: TranslationManager.translate("steam.accessible.purgeWand",
                                                              "Purge the steam wand")
                 onClicked: root._startPurge()
+            }
+            AccessibleButton {
+                visible: root._canSaveRate
+                enabled: !root._rateSaved && root._saveRateRequestId === ""
+                text: root._rateSaved
+                      ? TranslationManager.translate("steam.completion.rateSaved", "Rate saved")
+                      : TranslationManager.translate("steam.completion.saveRate", "Save rate")
+                accessibleName: root._rateSaved
+                      ? TranslationManager.translate("steam.completion.rateSavedAccessible", "Steam rate saved for this pitcher")
+                      : TranslationManager.translate("steam.completion.saveRateAccessible", "Save this steam as this pitcher's steam rate")
+                onClicked: root._saveRate()
             }
             AccessibleButton {
                 text: TranslationManager.translate("common.button.done", "Done")

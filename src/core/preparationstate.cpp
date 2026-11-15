@@ -69,6 +69,7 @@ QJsonObject PreparationSnapshot::toJson() const
             {QStringLiteral("milkAttemptOpen"), milkAttemptOpen},
             {QStringLiteral("sessionMeasuredMilkG"), sessionMeasuredMilkG},
             {QStringLiteral("steamTimeoutScaled"), steamTimeoutScaled},
+            {QStringLiteral("steamPourRecorded"), steamPourRecorded},
             {QStringLiteral("lastBeanGrams"), lastBeanGrams},
             {QStringLiteral("lastMilkGrams"), lastMilkGrams},
             {QStringLiteral("lastMilkSeconds"), lastMilkSeconds},
@@ -96,6 +97,7 @@ bool PreparationSnapshot::parse(const QJsonObject& object, PreparationSnapshot* 
     if (!readBool(object, QStringLiteral("milkTimeLocked"), &state.milkTimeLocked)) return bad("milkTimeLocked");
     if (!readBool(object, QStringLiteral("milkAttemptOpen"), &state.milkAttemptOpen)) return bad("milkAttemptOpen");
     if (!readBool(object, QStringLiteral("steamTimeoutScaled"), &state.steamTimeoutScaled)) return bad("steamTimeoutScaled");
+    if (!readBool(object, QStringLiteral("steamPourRecorded"), &state.steamPourRecorded)) return bad("steamPourRecorded");
     if (!grams("sessionMeasuredMilkG", &state.sessionMeasuredMilkG)) return bad("sessionMeasuredMilkG");
     if (!grams("lastBeanGrams", &state.lastBeanGrams)) return bad("lastBeanGrams");
     if (!grams("lastMilkGrams", &state.lastMilkGrams)) return bad("lastMilkGrams");
