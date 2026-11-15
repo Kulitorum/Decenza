@@ -15,3 +15,7 @@ Each pull request does one thing a reviewer can judge on its own: one fix, one f
 - Build and run the full test suite ([TESTING.md](docs/CLAUDE_MD/TESTING.md)). A fix comes with a test that fails without it, or the pull request says why it can't have one.
 - If you use Claude Code or Codex, run the `audit-code` skill on your diff, fix every Critical and High finding, and post the final run's report as a comment on the pull request; otherwise, ask for an audit in it. [CLAUDE.md](CLAUDE.md) holds the rules coding agents follow here.
 - A user-visible change also updates the [manual](https://github.com/Kulitorum/Decenza/wiki/Manual).
+
+## After you open it
+
+Codex reviews every pull request automatically, when it is opened and again after each push, and leaves its findings as inline threads, each badged P1, P2 or P3. Read them. For every P1 and P2, fix it or reply on the thread with why it doesn't hold, then resolve the thread. A pull request merges only when Codex has reviewed its latest commit and all of its P1 and P2 threads show as resolved.

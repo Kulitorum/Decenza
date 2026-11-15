@@ -19,3 +19,4 @@
 ## Audit
 
 <!-- Link the comment with the final-commit audit-code report (tool, model, commit), or say who should audit it. -->
+<!-- After opening: resolve every P1 and P2 thread from the automatic Codex review. It is a merge gate. -->
