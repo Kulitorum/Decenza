@@ -120,7 +120,29 @@ ColumnLayout {
     }
 
     // The page owns saving pending edits before a mark, so it handles this.
-    signal markRequested(string side)
+    // A full pair exists and this shot holds neither side: marking would start a
+    // new pair, so ask first, in place under the mark buttons.
+    property string pendingRecreateSide: ""
+    readonly property string _recreatePromptText: TranslationManager.translate("grindcalibration.recreatePrompt",
+        "You already have anchor points set for this grinder. Would you like to recreate them?")
+
+    // The review page steps between shots in place; a question asked about one shot
+    // must not be answered for the next.
+    onShotIdChanged: pendingRecreateSide = ""
+
+    signal markRequested(string side, bool replacePair)
+
+    function requestMark(side) {
+        if (root._hasAnchors && root.calib.fine.shotId > 0 && root.calib.coarse.shotId > 0
+                && !root._isAnchorShot(root.shotId))
+        {
+            root.pendingRecreateSide = side
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(root._recreatePromptText)
+        }
+        else
+            root.markRequested(side, false)
+    }
 
     ExternalUrlOpener { id: guideUrlOpener }
 
@@ -274,7 +296,7 @@ ColumnLayout {
             enabled: root.serviceReady && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markFine", "Mark as fine anchor")
             accessibleName: text
-            onClicked: root.markRequested("fine")
+            onClicked: root.requestMark("fine")
         }
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
@@ -282,7 +304,7 @@ ColumnLayout {
             enabled: root.serviceReady && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markCoarse", "Mark as coarse anchor")
             accessibleName: text
-            onClicked: root.markRequested("coarse")
+            onClicked: root.requestMark("coarse")
         }
         Item { Layout.fillWidth: true }
         AccessibleButton {
@@ -291,6 +313,45 @@ ColumnLayout {
             text: TranslationManager.translate("grindcalibration.openEquipment", "Equipment")
             accessibleName: TranslationManager.translate("grindcalibration.openEquipmentAccessible", "Open the Equipment page to see the full grind calibration")
             onClicked: AppShell.equipmentRequested()
+        }
+    }
+
+    ColumnLayout {
+        visible: root.pendingRecreateSide !== ""
+        Layout.fillWidth: true
+        spacing: Theme.scaled(6)
+
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: root._recreatePromptText
+            font: Theme.captionFont
+            color: Theme.textColor
+        }
+        RowLayout {
+            spacing: Theme.scaled(6)
+            AccessibleButton {
+                Layout.preferredHeight: Theme.scaled(32)
+                _customFontSize: Theme.captionFont.pixelSize
+                text: TranslationManager.translate("grindcalibration.recreateNo", "No")
+                accessibleName: TranslationManager.translate("grindcalibration.recreateNoAccessible",
+                    "No, keep the current anchor points")
+                onClicked: root.pendingRecreateSide = ""
+            }
+            AccessibleButton {
+                Layout.preferredHeight: Theme.scaled(32)
+                _customFontSize: Theme.captionFont.pixelSize
+                primary: true
+                enabled: root.serviceReady
+                text: TranslationManager.translate("grindcalibration.recreateYes", "Yes")
+                accessibleName: TranslationManager.translate("grindcalibration.recreateYesAccessible",
+                    "Yes, clear the anchor points and start again from this shot")
+                onClicked: {
+                    const side = root.pendingRecreateSide
+                    root.pendingRecreateSide = ""
+                    root.markRequested(side, true)
+                }
+            }
         }
     }
 }

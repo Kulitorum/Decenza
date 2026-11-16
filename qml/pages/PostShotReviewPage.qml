@@ -484,6 +484,7 @@ T.Page {
         _pendingAnchorSide = ""
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
+        _pendingAnchorReplace = false
         // Retain the current shot, draft and lease until the replacement loads.
         _stepping = true
         _pendingStepShotId = shotId
@@ -993,6 +994,7 @@ T.Page {
                         postShotReviewPage._pendingAnchorSide = ""
                         postShotReviewPage._pendingAnchorShotId = -1
                         postShotReviewPage._pendingAnchorPackageId = -1
+                        postShotReviewPage._pendingAnchorReplace = false
                         WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", metadataShotId, reason].map(String).join(" "))
                         postShotReviewPage._saveFailed = true
                         if (AccessibilityManager.enabled)
@@ -1451,35 +1453,53 @@ T.Page {
     property string _pendingAnchorSide: ""
     property int _pendingAnchorShotId: -1
     property int _pendingAnchorPackageId: -1
-    function markGrindAnchor(side) {
+    property bool _pendingAnchorReplace: false
+    // The last mark sent replaced the pair, so its success asks for the other side.
+    property bool _anchorReplaceSent: false
+    function markGrindAnchor(side, replacePair) {
         if (hasUnsavedChanges)
             saveEditedShot()
         if (Object.keys(_pendingMetadataWrites).length > 0) {
             _pendingAnchorSide = side
             _pendingAnchorShotId = editShotId
             _pendingAnchorPackageId = editEquipmentId
+            _pendingAnchorReplace = replacePair
             return
         }
-        if (!_saveFailed)
-            EquipmentService.requestSetGrindAnchor(editShotId, side, editEquipmentId)
+        if (!_saveFailed) {
+            _anchorReplaceSent = replacePair
+            EquipmentService.requestSetGrindAnchor(editShotId, side, editEquipmentId, replacePair)
+        }
     }
     function _sendPendingGrindAnchor() {
         if (_pendingAnchorSide === "") return
         var side = _pendingAnchorSide
         var shotId = _pendingAnchorShotId
         var packageId = _pendingAnchorPackageId
+        var replacePair = _pendingAnchorReplace
         _pendingAnchorSide = ""
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
-        if (!_saveFailed && shotId === editShotId)
-            EquipmentService.requestSetGrindAnchor(shotId, side, packageId)
+        _pendingAnchorReplace = false
+        if (!_saveFailed && shotId === editShotId) {
+            _anchorReplaceSent = replacePair
+            EquipmentService.requestSetGrindAnchor(shotId, side, packageId, replacePair)
+        }
     }
 
     Connections {
         target: EquipmentService
         function onGrindAnchorMarked(shotId, side, error) {
             if (shotId !== postShotReviewPage.editShotId) return
-            var msg = error === ""
+            var replaced = postShotReviewPage._anchorReplaceSent
+            postShotReviewPage._anchorReplaceSent = false
+            var msg = error === "" && replaced
+                ? (side === "fine"
+                   ? TranslationManager.translate("grindcalibration.markedFineNew",
+                       "Fine anchor set. Now mark a shot on a coarser profile as the coarse anchor.")
+                   : TranslationManager.translate("grindcalibration.markedCoarseNew",
+                       "Coarse anchor set. Now mark a shot on a finer profile as the fine anchor."))
+                : error === ""
                 ? (side === "fine"
                    ? TranslationManager.translate("grindcalibration.markedFine", "Marked as the fine anchor")
                    : TranslationManager.translate("grindcalibration.markedCoarse", "Marked as the coarse anchor"))
@@ -3373,7 +3393,7 @@ T.Page {
                     compact: true
                     packageId: postShotReviewPage.editShotData.equipmentId || -1
                     shotId: postShotReviewPage.editShotId
-                    onMarkRequested: function(side) { postShotReviewPage.markGrindAnchor(side) }
+                    onMarkRequested: function(side, replacePair) { postShotReviewPage.markGrindAnchor(side, replacePair) }
                 }
             }
 

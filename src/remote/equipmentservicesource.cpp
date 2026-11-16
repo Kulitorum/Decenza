@@ -279,18 +279,21 @@ void NativeEquipmentServiceSource::execute(QString requestId, QString operation,
                || operation == QLatin1String("clearGrindAnchor")) {
         const QString side = fields.value(QStringLiteral("side")).toString();
         const bool clear = operation == QLatin1String("clearGrindAnchor");
+        const QVariant replaceField = fields.value(QStringLiteral("replacePair"));
+        const bool replacePair = !clear && replaceField.metaType().id() == QMetaType::Bool
+                                 && replaceField.toBool();
         qint64 expectedPackageId = 0;
         const bool validId = clear
             || positiveSafeId(fields.value(QStringLiteral("expectedPackageId")), &expectedPackageId);
         if (packageId <= 0 || !noExpected || makeActive
             || fields.value(QStringLiteral("side")).metaType().id() != QMetaType::QString
             || (side != QLatin1String("fine") && side != QLatin1String("coarse"))
-            || fields.size() != (clear ? 1 : 2)
+            || fields.size() != (clear ? 1 : replacePair ? 3 : 2)
             || !validId) {
             reject(packageId, QStringLiteral("invalidRequest"));
             return;
         }
-        writeGrindAnchor(requestId, packageId, side, expectedPackageId, clear);
+        writeGrindAnchor(requestId, packageId, side, expectedPackageId, clear, replacePair);
         return;
     } else if (operation == QLatin1String("remove")
                || operation == QLatin1String("restore")
@@ -427,7 +430,8 @@ void NativeEquipmentServiceSource::requestGrindContext(
 }
 
 void NativeEquipmentServiceSource::writeGrindAnchor(
-    const QString& requestId, qint64 id, const QString& side, qint64 expectedPackageId, bool clear)
+    const QString& requestId, qint64 id, const QString& side, qint64 expectedPackageId, bool clear,
+    bool replacePair)
 {
     const QString dbPath = m_history ? m_history->databasePath()
         : m_storage ? m_storage->databasePath() : QString();
@@ -436,7 +440,8 @@ void NativeEquipmentServiceSource::writeGrindAnchor(
         return;
     }
     const QPointer<NativeEquipmentServiceSource> self(this);
-    QThread* thread = QThread::create([self, requestId, dbPath, id, side, expectedPackageId, clear] {
+    QThread* thread = QThread::create([self, requestId, dbPath, id, side, expectedPackageId, clear,
+                                       replacePair] {
         QString reason = QStringLiteral("dbUnavailable");
         qint64 packageId = clear ? id : expectedPackageId;
         withTempDb(dbPath, "equipment_grind_write", [&](QSqlDatabase& db) {
@@ -444,7 +449,7 @@ void NativeEquipmentServiceSource::writeGrindAnchor(
                 ? EquipmentStorage::setCalibrationAnchorStatic(db, id, side, 0)
                     ? QString() : QStringLiteral("writeFailed")
                 : DialingBlocks::markGrindCalibrationAnchor(db, id, side, &packageId,
-                                                           expectedPackageId);
+                                                           expectedPackageId, replacePair);
         });
         QMetaObject::invokeMethod(qApp, [self, requestId, packageId, reason] {
             if (!self) return;

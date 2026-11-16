@@ -1815,7 +1815,8 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
 }
 
 QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,
-                                   qint64* packageIdOut, qint64 expectedPackageId)
+                                   qint64* packageIdOut, qint64 expectedPackageId,
+                                   bool replacePair)
 {
     if (side != QLatin1String("fine") && side != QLatin1String("coarse"))
         return QStringLiteral("badSide");
@@ -1833,6 +1834,12 @@ QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QStrin
     const QString bev = shot.beverageType.toLower();
     if (!bev.isEmpty() && bev != QLatin1String("espresso")) return QStringLiteral("notEspresso");
     if (shot.grinderModel.isEmpty()) return QStringLiteral("noGrinder");
+    // Inside the transaction, so a refusal below rolls the clear back too.
+    if (replacePair
+        && !EquipmentStorage::setCalibrationAnchorStatic(
+               db, shot.equipmentId,
+               side == QLatin1String("fine") ? QStringLiteral("coarse") : QStringLiteral("fine"), 0))
+        return QStringLiteral("writeFailed");
 
     // Evaluate the package as if this shot already held the side: the same
     // computation the block and the equipment card use.

@@ -827,6 +827,16 @@ private slots:
             QCOMPARE(operations.size(), 1);
             QCOMPARE(operations.takeFirst().at(3).toString(), QStringLiteral("invalidRequest"));
         }
+        // replacePair must be a real bool true; anything else is a malformed request.
+        for (const QVariant& badReplace : QVariantList{QStringLiteral("true"), 1, false}) {
+            source.execute(QStringLiteral("invalid-replace-%1").arg(++request),
+                QStringLiteral("setGrindAnchor"), shotId,
+                {{QStringLiteral("side"), QStringLiteral("fine")},
+                 {QStringLiteral("expectedPackageId"), packageId},
+                 {QStringLiteral("replacePair"), badReplace}}, {}, false);
+            QCOMPARE(operations.size(), 1);
+            QCOMPARE(operations.takeFirst().at(3).toString(), QStringLiteral("invalidRequest"));
+        }
         QVariantMap query{{QStringLiteral("packageId"), packageId},
                           {QStringLiteral("beanBrand"), QStringLiteral("Roaster")},
                           {QStringLiteral("beanType"), QStringLiteral("Coffee")},
@@ -892,19 +902,25 @@ private slots:
         QCOMPARE(source.lastOperation, QStringLiteral("setGrindAnchor"));
         QCOMPARE(source.lastId, 42);
         QCOMPARE(source.lastFields.value(QStringLiteral("expectedPackageId")).toLongLong(), 7);
+        QVERIFY(!source.lastFields.contains(QStringLiteral("replacePair")));
         emit source.operationCompleted(source.lastRequestId, false, 7, QStringLiteral("notInPackage"));
         QTRY_COMPARE_WITH_TIMEOUT(marked.size(), 1, 5000);
         QCOMPARE(marked.first().at(0).toLongLong(), 42);
         QCOMPARE(marked.first().at(1).toString(), QStringLiteral("fine"));
         QCOMPARE(marked.first().at(2).toString(), QStringLiteral("notInPackage"));
         QVERIFY(otherMarked.isEmpty());
+        first->requestSetGrindAnchor(43, QStringLiteral("coarse"), 7, true);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls, 2, 5000);
+        QCOMPARE(source.lastFields.value(QStringLiteral("replacePair")), QVariant(true));
+        emit source.operationCompleted(source.lastRequestId, true, 7, QString());
+        QTRY_COMPARE_WITH_TIMEOUT(marked.size(), 2, 5000);
 
         QSignalSpy cleared(first, &EquipmentService::grindAnchorCleared);
         QSignalSpy archivedFailures(first, &EquipmentService::archivedFailed);
         first->requestClearGrindAnchor(7, QStringLiteral("coarse"));
         first->requestArchived();
         first->requestGrindCalibration(7);
-        QTRY_COMPARE_WITH_TIMEOUT(source.calls, 2, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls, 3, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(source.archivedReads.size(), 1, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(source.grindReads.size(), 3, 5000);
         const QString pendingWrite = source.lastRequestId;
@@ -922,7 +938,7 @@ private slots:
         emit source.grindContextResult(source.grindReads.last(), {}, {});
         emit source.archivedResult(source.archivedReads.last(), {}, {});
         QCoreApplication::processEvents();
-        QCOMPARE(source.calls, 2);
+        QCOMPARE(source.calls, 3);
         QCOMPARE(source.grindReads.size(), 3);
         QCOMPARE(source.archivedReads.size(), 1);
         QCOMPARE(cleared.size(), 1);

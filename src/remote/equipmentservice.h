@@ -47,8 +47,9 @@ public:
     Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
                                            const QString& beanType, const QString& roastDate,
                                            const QString& profileTitle);
+    // `replacePair` clears the other side first (DialingBlocks::markGrindCalibrationAnchor).
     Q_INVOKABLE void requestSetGrindAnchor(qint64 shotId, const QString& side,
-                                          qint64 expectedPackageId);
+                                          qint64 expectedPackageId, bool replacePair = false);
     Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
     Q_INVOKABLE void createPackage(const QVariantMap& fields, bool makeActive, const QString& requestId);
     Q_INVOKABLE void updatePackage(qint64 id, const QVariantMap& fields,

@@ -35,7 +35,8 @@ private:
     void publishOptions();
     void startInventoryRead();
     void writeGrindAnchor(const QString& requestId, qint64 id,
-                          const QString& side, qint64 expectedPackageId, bool clear);
+                          const QString& side, qint64 expectedPackageId, bool clear,
+                          bool replacePair);
 
     QPointer<EquipmentStorage> m_storage;
     QPointer<SettingsDye> m_dye;

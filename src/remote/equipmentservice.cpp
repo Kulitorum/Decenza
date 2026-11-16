@@ -186,13 +186,14 @@ void EquipmentService::reportGrindContext(const QVariantMap& query, QVariantMap 
 }
 
 void EquipmentService::requestSetGrindAnchor(qint64 shotId, const QString& side,
-                                             qint64 expectedPackageId)
+                                             qint64 expectedPackageId, bool replacePair)
 {
     const QString requestId = newRequestId();
     m_grindWrites.insert(requestId, side);
-    send(QStringLiteral("setGrindAnchor"), shotId,
-         {{QStringLiteral("side"), side}, {QStringLiteral("expectedPackageId"), expectedPackageId}},
-         {}, false, requestId);
+    QVariantMap fields{{QStringLiteral("side"), side},
+                       {QStringLiteral("expectedPackageId"), expectedPackageId}};
+    if (replacePair) fields.insert(QStringLiteral("replacePair"), true);
+    send(QStringLiteral("setGrindAnchor"), shotId, fields, {}, false, requestId);
 }
 
 void EquipmentService::requestClearGrindAnchor(qint64 packageId, const QString& side)
