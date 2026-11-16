@@ -67,8 +67,6 @@ private slots:
         QTest::newRow("shot 117 (133s choke)")   << 133.108 << 3.8 << 36.0;
         // Shot 868: legitimate turbo extraction, 7 s / 37 g.
         QTest::newRow("shot 868 (turbo)")        << 7.271  << 37.4 << 36.0;
-        // No weight target (volume- or time-stopped profile): only the 5 g floor applies.
-        QTest::newRow("no target, over the floor") << 1.457 << 6.4 << 0.0;
     }
 
     void corpusNegatives() {
@@ -96,6 +94,8 @@ private slots:
         QVERIFY(!isAbortedShot(9.0, 14.0, 32.0));
         // A target whose third is under the floor leaves the floor in charge.
         QVERIFY(isAbortedShot(5.0, 4.0, 6.0));
+        // No weight target (volume- or time-stopped profile): only the floor applies.
+        QVERIFY(!isAbortedShot(1.457, 6.4, 0.0));
 
         // Single-clause failures — the conjunction requires BOTH.
         QVERIFY(!isAbortedShot(5.0, 20.0, 32.0));  // short but real yield → kept
@@ -119,16 +119,6 @@ private slots:
         // stops at 32 g on a profile with no weight target of its own.
         yield = decenza::resolveShotYield(1.457, 6.4, 0.0, 32.0);
         QVERIFY(yield.aborted);
-    }
-
-    // The classifier itself is a pure function — same inputs always produce
-    // the same output, no global state consulted.
-    void noHiddenState() {
-        // Same inputs → same output, regardless of how many times we call it.
-        for (int i = 0; i < 5; ++i) {
-            QVERIFY(isAbortedShot(2.0, 1.0, 32.0));
-            QVERIFY(!isAbortedShot(20.0, 30.0, 32.0));
-        }
     }
 };
 

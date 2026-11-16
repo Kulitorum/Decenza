@@ -4858,9 +4858,10 @@ void MainController::onShotEnded() {
     if (finalWeight > 0)
         finalWeight = std::round(finalWeight * 10.0) / 10.0;
 
+    const double verdictTargetG = liveStopTargetG > 0.0 ? liveStopTargetG : shotTargetWeight;
     const decenza::ShotYield shotYield = decenza::resolveShotYield(
         duration, finalWeight, m_profileManager->currentProfile().targetWeight(),
-        liveStopTargetG > 0.0 ? liveStopTargetG : shotTargetWeight);
+        verdictTargetG);
     finalWeight = shotYield.recordedG;
 
     // Trim trailing zero-pressure samples from SAW settling period before saving.
@@ -4881,9 +4882,9 @@ void MainController::onShotEnded() {
     //
     // Gated on the aborted-shot verdict, which is otherwise not reached until
     // the classifier further down. A false start, or a group flush pulled with
-    // an espresso profile loaded, is under 10 s and yields under 5 g — so no
-    // window is even considered (kMinWindowStartTime) and the shot records a
-    // rejection. It is then DISCARDED and never written to history, leaving the
+    // an espresso profile loaded, is classified aborted (abortedshotclassifier.h)
+    // — so no window is even considered (kMinWindowStartTime) and the shot records
+    // a rejection. It is then DISCARDED and never written to history, leaving the
     // rejection counter pointing at shots the user cannot find anywhere. That is
     // the same wrong-place-to-look the counter exists to prevent.
     const bool shotWasAborted = shotYield.aborted;
@@ -4920,9 +4921,6 @@ void MainController::onShotEnded() {
     // value, and recording that would claim the shot ran at a multiplier it
     // produced. 0 here means the shot never latched, and saves as NULL.
     metadata.flowCalibration = shotFlowCalibration;
-
-    // Before the fallback below, so the log can say there was no weight target.
-    const double stopTargetG = shotTargetWeight;
 
     // #1161: classify why the shot ended so the dial-in advisor
     // can discount yield/duration on manually-stopped shots (their
@@ -4978,7 +4976,7 @@ void MainController::onShotEnded() {
             .arg(QString::number(duration, 'f', 3),
                  // A discarded shot records nothing: report the weight that decided it.
                  QString::number(aborted ? shotYield.measuredG : finalWeight, 'f', 1),
-                 stopTargetG > 0 ? QString::number(stopTargetG, 'f', 1) : QStringLiteral("none"),
+                 verdictTargetG > 0 ? QString::number(verdictTargetG, 'f', 1) : QStringLiteral("none"),
                  stoppedBy,
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),
                  aborted ? QStringLiteral("discarded") : QStringLiteral("saved"));
