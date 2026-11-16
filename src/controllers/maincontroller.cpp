@@ -4729,6 +4729,9 @@ void MainController::onShotEnded() {
     // Clear any mid-shot adjustment applied via bumpTargetWeight() so MachineState::targetWeight
     // matches the profile again before the next shot. Doing this at shot end (rather
     // than at next-shot start) avoids depending on signal-handler connection order.
+    // Read first: the aborted-shot verdict judges against the target the shot
+    // ended on, which a mid-shot bump moved away from the start-of-shot snapshot.
+    const double liveStopTargetG = m_machineState ? m_machineState->targetWeight() : 0.0;
     if (m_machineState && m_profileManager) {
         m_machineState->setTargetWeight(m_profileManager->targetWeight());
     }
@@ -4855,8 +4858,10 @@ void MainController::onShotEnded() {
     if (finalWeight > 0)
         finalWeight = std::round(finalWeight * 10.0) / 10.0;
 
+    const double verdictTargetG = liveStopTargetG > 0.0 ? liveStopTargetG : shotTargetWeight;
     const decenza::ShotYield shotYield = decenza::resolveShotYield(
-        duration, finalWeight, m_profileManager->currentProfile().targetWeight());
+        duration, finalWeight, m_profileManager->currentProfile().targetWeight(),
+        verdictTargetG);
     finalWeight = shotYield.recordedG;
 
     // Trim trailing zero-pressure samples from SAW settling period before saving.
@@ -4877,9 +4882,9 @@ void MainController::onShotEnded() {
     //
     // Gated on the aborted-shot verdict, which is otherwise not reached until
     // the classifier further down. A false start, or a group flush pulled with
-    // an espresso profile loaded, is under 10 s and yields under 5 g — so no
-    // window is even considered (kMinWindowStartTime) and the shot records a
-    // rejection. It is then DISCARDED and never written to history, leaving the
+    // an espresso profile loaded, is classified aborted (abortedshotclassifier.h)
+    // — so no window is even considered (kMinWindowStartTime) and the shot records
+    // a rejection. It is then DISCARDED and never written to history, leaving the
     // rejection counter pointing at shots the user cannot find anywhere. That is
     // the same wrong-place-to-look the counter exists to prevent.
     const bool shotWasAborted = shotYield.aborted;
@@ -4916,9 +4921,6 @@ void MainController::onShotEnded() {
     // value, and recording that would claim the shot ran at a multiplier it
     // produced. 0 here means the shot never latched, and saves as NULL.
     metadata.flowCalibration = shotFlowCalibration;
-
-    // Before the fallback below, so the log can say there was no weight target.
-    const double stopTargetG = shotTargetWeight;
 
     // #1161: classify why the shot ended so the dial-in advisor
     // can discount yield/duration on manually-stopped shots (their
@@ -4957,9 +4959,8 @@ void MainController::onShotEnded() {
     // Capture once so both the async callback and synchronous code use the same value
     bool showPostShot = m_settings->visualizer()->visualizerShowAfterShot();
 
-    // Aborted-shot classifier: drop shots that did not start (extraction < 10s AND yield < 5g).
-    // Always on — validated against an 882-shot corpus, 5/882 (0.57%) discarded, all genuine
-    // "did not start" cases. See openspec/specs/shot-save-filter/spec.md.
+    // Aborted-shot classifier: drop shots that did not start. Always on; the rule and its
+    // evidence are in abortedshotclassifier.h.
     {
         const bool aborted = shotWasAborted;
         // Prefix is deliberately NOT bracketed. A leading "[token]" is the
@@ -4975,7 +4976,7 @@ void MainController::onShotEnded() {
             .arg(QString::number(duration, 'f', 3),
                  // A discarded shot records nothing: report the weight that decided it.
                  QString::number(aborted ? shotYield.measuredG : finalWeight, 'f', 1),
-                 stopTargetG > 0 ? QString::number(stopTargetG, 'f', 1) : QStringLiteral("none"),
+                 verdictTargetG > 0 ? QString::number(verdictTargetG, 'f', 1) : QStringLiteral("none"),
                  stoppedBy,
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),
                  aborted ? QStringLiteral("discarded") : QStringLiteral("saved"));

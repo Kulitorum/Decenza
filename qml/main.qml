@@ -3536,9 +3536,8 @@ T.ApplicationWindow {
 
     // ============ DISCARDED ABORTED SHOT TOAST ============
     // Shown when MainController's aborted-shot classifier drops a shot that did
-    // not start (extraction < 10 s AND yield < 5 g). Notification only — there
-    // is no recovery path; the shot is intentionally not recorded. See issue
-    // #899 and openspec/changes/add-discard-aborted-shots.
+    // not start (rule in src/controllers/abortedshotclassifier.h). Notification
+    // only — there is no recovery path; the shot is intentionally not recorded.
     Tr { id: trDiscardedShotToast; key: "main.toast.shotDiscarded"; fallback: "Shot did not start — not recorded"; visible: false }
 
     StatusToast { id: discardedShotToast }

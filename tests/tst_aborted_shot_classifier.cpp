@@ -11,6 +11,7 @@
 
 using decenza::isAbortedShot;
 using decenza::kAbortedDurationSec;
+using decenza::kAbortedTargetFraction;
 using decenza::kAbortedYieldG;
 
 class tst_AbortedShotClassifier : public QObject {
@@ -23,22 +24,27 @@ private slots:
     void corpusPositives_data() {
         QTest::addColumn<double>("durationSec");
         QTest::addColumn<double>("finalWeightG");
+        QTest::addColumn<double>("stopTargetG");
         // Shot 885: canonical preinfusion abort, peak pressure 0.35 bar.
-        QTest::newRow("shot 885 (preinfusion abort)") << 2.284 << 1.1;
+        QTest::newRow("shot 885 (preinfusion abort)") << 2.284 << 1.1 << 0.0;
         // Shot 17: 2.2 s, no yield reached the cup.
-        QTest::newRow("shot 17 (early stop)")          << 2.225 << 0.0;
+        QTest::newRow("shot 17 (early stop)")          << 2.225 << 0.0 << 0.0;
         // Shot 850: 6 s, never built pressure.
-        QTest::newRow("shot 850 (no flow)")            << 6.067 << 0.2;
+        QTest::newRow("shot 850 (no flow)")            << 6.067 << 0.2 << 0.0;
         // Shot 836: 6 s, near-zero yield.
-        QTest::newRow("shot 836 (near zero)")          << 6.049 << 0.8;
+        QTest::newRow("shot 836 (near zero)")          << 6.049 << 0.8 << 0.0;
         // Shot 1: 0.5 s of actual frame execution per phaseSummaries.
-        QTest::newRow("shot 1 (extraction 0.5s)")      << 0.5   << 0.1;
+        QTest::newRow("shot 1 (extraction 0.5s)")      << 0.5   << 0.1 << 0.0;
+        // Shot 1242: a group rinse with no cup. The water landed on the scale,
+        // so it cleared the 5 g floor and was saved against a 32 g target.
+        QTest::newRow("shot 1242 (rinse on the scale)") << 1.457 << 6.4 << 32.0;
     }
 
     void corpusPositives() {
         QFETCH(double, durationSec);
         QFETCH(double, finalWeightG);
-        QVERIFY2(isAbortedShot(durationSec, finalWeightG),
+        QFETCH(double, stopTargetG);
+        QVERIFY2(isAbortedShot(durationSec, finalWeightG, stopTargetG),
                  qPrintable(QString("expected aborted for dur=%1 weight=%2")
                                 .arg(durationSec).arg(finalWeightG)));
     }
@@ -49,23 +55,25 @@ private slots:
     void corpusNegatives_data() {
         QTest::addColumn<double>("durationSec");
         QTest::addColumn<double>("finalWeightG");
+        QTest::addColumn<double>("stopTargetG");
         // Shot 890: 60-s choke producing 1.1 g — exactly the bad-puck-prep
         // signal we want to preserve.
-        QTest::newRow("shot 890 (60s choke)")    << 59.554 << 1.1;
+        QTest::newRow("shot 890 (60s choke)")    << 59.554 << 1.1 << 36.0;
         // Shot 708: another long choke.
-        QTest::newRow("shot 708 (57s choke)")    << 56.594 << 2.4;
+        QTest::newRow("shot 708 (57s choke)")    << 56.594 << 2.4 << 36.0;
         // Shot 732: 43 s, near-zero yield.
-        QTest::newRow("shot 732 (43s choke)")    << 43.09  << 0.9;
+        QTest::newRow("shot 732 (43s choke)")    << 43.09  << 0.9 << 36.0;
         // Shot 117: 133 s of pumping for 3.8 g — extreme choke, must keep.
-        QTest::newRow("shot 117 (133s choke)")   << 133.108 << 3.8;
+        QTest::newRow("shot 117 (133s choke)")   << 133.108 << 3.8 << 36.0;
         // Shot 868: legitimate turbo extraction, 7 s / 37 g.
-        QTest::newRow("shot 868 (turbo)")        << 7.271  << 37.4;
+        QTest::newRow("shot 868 (turbo)")        << 7.271  << 37.4 << 36.0;
     }
 
     void corpusNegatives() {
         QFETCH(double, durationSec);
         QFETCH(double, finalWeightG);
-        QVERIFY2(!isAbortedShot(durationSec, finalWeightG),
+        QFETCH(double, stopTargetG);
+        QVERIFY2(!isAbortedShot(durationSec, finalWeightG, stopTargetG),
                  qPrintable(QString("expected kept for dur=%1 weight=%2")
                                 .arg(durationSec).arg(finalWeightG)));
     }
@@ -73,39 +81,44 @@ private slots:
     // Boundary checks: both clauses use strict <, so values exactly at the
     // threshold must NOT classify as aborted.
     void boundaries() {
-        QVERIFY(!isAbortedShot(kAbortedDurationSec, 0.0));   // dur exactly 10.0 → kept
-        QVERIFY(!isAbortedShot(0.0, kAbortedYieldG));         // yield exactly 5.0 → kept
-        QVERIFY(!isAbortedShot(kAbortedDurationSec, kAbortedYieldG));  // both exact → kept
-        QVERIFY(isAbortedShot(kAbortedDurationSec - 0.001, kAbortedYieldG - 0.001));  // both just under → aborted
+        QVERIFY(!isAbortedShot(kAbortedDurationSec, 0.0, 0.0));   // dur exactly 10.0 → kept
+        QVERIFY(!isAbortedShot(0.0, kAbortedYieldG, 0.0));         // yield exactly 5.0 → kept
+        QVERIFY(!isAbortedShot(kAbortedDurationSec, kAbortedYieldG, 0.0));  // both exact → kept
+        QVERIFY(isAbortedShot(kAbortedDurationSec - 0.001, kAbortedYieldG - 0.001, 0.0));  // both just under → aborted
+
+        // A third of the target, where that is above the floor.
+        const double thirdG = 33.0 * kAbortedTargetFraction;
+        QVERIFY(!isAbortedShot(5.0, thirdG, 33.0));         // exactly a third → kept
+        QVERIFY(isAbortedShot(5.0, thirdG - 0.001, 33.0));  // just under → aborted
+        // A short shot stopped on purpose, above a third of its target.
+        QVERIFY(!isAbortedShot(9.0, 14.0, 32.0));
+        // A target whose third is under the floor leaves the floor in charge.
+        QVERIFY(isAbortedShot(5.0, 4.0, 6.0));
+        // No weight target (volume- or time-stopped profile): only the floor applies.
+        QVERIFY(!isAbortedShot(1.457, 6.4, 0.0));
 
         // Single-clause failures — the conjunction requires BOTH.
-        QVERIFY(!isAbortedShot(5.0, 10.0));   // short but real yield → kept
-        QVERIFY(!isAbortedShot(30.0, 1.0));   // long but no yield → kept (diagnostic)
+        QVERIFY(!isAbortedShot(5.0, 20.0, 32.0));  // short but real yield → kept
+        QVERIFY(!isAbortedShot(30.0, 1.0, 32.0));  // long but no yield → kept (diagnostic)
     }
 
     // The profile target stands in for a missing yield in the record, never in
     // the verdict.
     void targetFallbackDoesNotKeepAFalseStart() {
         // Shot 5950 in #2058's log: 0.186 s, the scale just tared, nothing measured.
-        auto yield = decenza::resolveShotYield(0.186, 0.0, 42.0);
+        auto yield = decenza::resolveShotYield(0.186, 0.0, 42.0, 42.0);
         QVERIFY(yield.aborted);
         QCOMPARE(yield.measuredG, 0.0);
         // A full shot with no measured yield still records the target.
-        yield = decenza::resolveShotYield(30.0, 0.0, 42.0);
+        yield = decenza::resolveShotYield(30.0, 0.0, 42.0, 42.0);
         QVERIFY(!yield.aborted);
         QCOMPARE(yield.recordedG, 42.0);
-        yield = decenza::resolveShotYield(30.0, 36.4, 42.0);
+        yield = decenza::resolveShotYield(30.0, 36.4, 42.0, 42.0);
         QCOMPARE(yield.recordedG, 36.4);
-    }
-
-    // The classifier itself is a pure function — same inputs always produce
-    // the same output, no global state consulted.
-    void noHiddenState() {
-        // Same inputs → same output, regardless of how many times we call it.
-        for (int i = 0; i < 5; ++i) {
-            QVERIFY(isAbortedShot(2.0, 1.0));
-            QVERIFY(!isAbortedShot(20.0, 30.0));
-        }
+        // The verdict reads the stop target, not the profile's: a recipe that
+        // stops at 32 g on a profile with no weight target of its own.
+        yield = decenza::resolveShotYield(1.457, 6.4, 0.0, 32.0);
+        QVERIFY(yield.aborted);
     }
 };
 

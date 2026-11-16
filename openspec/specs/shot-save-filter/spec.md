@@ -1,17 +1,19 @@
 # shot-save-filter Specification
 
 ## Purpose
-Defines the classifier that discards espresso shots which never really started (extraction under 10 s AND final weight under 5 g) before they reach `ShotHistoryStorage` or visualizer auto-upload, with a toast notifying the user of the discard. Also covers the equipment and active-bag fields (`equipment_id`, rpm, `bagId`/`frozenDate`/`defrostDate`, dose/yield stamping) snapshotted onto shots that are kept.
+Defines the classifier that discards espresso shots which never really started (extraction under 10 s AND final weight under the larger of 5 g and a third of the stop target) before they reach `ShotHistoryStorage` or visualizer auto-upload, with a toast notifying the user of the discard. Also covers the equipment and active-bag fields (`equipment_id`, rpm, `bagId`/`frozenDate`/`defrostDate`, dose/yield stamping) snapshotted onto shots that are kept.
 
 ## Requirements
+
 ### Requirement: The application SHALL classify and discard espresso shots that did not start
 
 When an espresso extraction reaches the save path, the application SHALL
 classify the shot as *aborted* if and only if `extractionDuration < 10.0 s` AND
-`finalWeight < 5.0 g`. A long, low-yield shot (e.g. 1 g over 60 s) MUST NOT be
-classified as aborted. When the verdict is *aborted*, the application SHALL skip
-saving the shot to `ShotHistoryStorage` and SHALL skip any visualizer auto-
-upload for it.
+`finalWeight` is below the yield threshold. The yield threshold SHALL be the
+larger of `5.0 g` and one third of the weight the shot was set to stop at; a shot with
+no weight target SHALL use `5.0 g`. When the verdict is *aborted*, the
+application SHALL skip saving the shot to `ShotHistoryStorage` and SHALL skip
+any visualizer auto-upload for it.
 
 #### Scenario: Canonical preinfusion abort is discarded
 
@@ -21,6 +23,18 @@ upload for it.
 - **AND** `ShotHistoryStorage::saveShot()` SHALL NOT be called for this shot
 - **AND** any visualizer auto-upload SHALL NOT run for this shot
 - **AND** the application SHALL emit a UI signal that a discard occurred
+
+#### Scenario: A rinse that wets the scale is discarded
+
+- **GIVEN** an espresso cycle ends with `extractionDuration = 1.5 s` and `finalWeight = 6.4 g` against a 32 g stop target
+- **WHEN** `endShot()` reaches the save path
+- **THEN** the classifier SHALL return *aborted* (6.4 g is under a third of 32 g)
+
+#### Scenario: No weight target falls back to the fixed threshold
+
+- **GIVEN** an espresso shot with no weight target ends with `extractionDuration = 1.5 s` and `finalWeight = 6.4 g`
+- **WHEN** `endShot()` reaches the save path
+- **THEN** the classifier SHALL return *kept* (yield ≥ 5 g)
 
 #### Scenario: Long, low-yield choke is preserved
 
@@ -33,7 +47,7 @@ upload for it.
 
 - **GIVEN** an espresso shot ends with `extractionDuration = 7.3 s` and `finalWeight = 37.4 g` (turbo-style)
 - **WHEN** `endShot()` reaches the save path
-- **THEN** the classifier SHALL return *kept* (yield ≥ 5 g)
+- **THEN** the classifier SHALL return *kept* (yield at or above a third of the target)
 - **AND** the shot SHALL be saved normally to history
 
 #### Scenario: Boundary — exactly at threshold is preserved
@@ -68,16 +82,14 @@ hot water, flush and cleaning operations SHALL NOT be evaluated against it.
 
 ### Requirement: The aborted-shot thresholds are fixed and the classifier is unconditional
 
-The two thresholds (`10.0 s`, `5.0 g`) SHALL be hard-coded constants in the C++
-source and SHALL NOT be user-tunable settings. The classifier SHALL run
-unconditionally, with no user-facing opt-out.
+The thresholds (`10.0 s`, `5.0 g`, one third of the stop target) SHALL be hard-coded
+constants in the C++ source and SHALL NOT be user-tunable settings. The
+classifier SHALL run unconditionally, with no user-facing opt-out.
 
 #### Scenario: No setting disables or retunes the classifier
 
 - **WHEN** the user reviews the application settings
 - **THEN** no setting exposes the thresholds or turns the classifier off
-
----
 
 ### Requirement: The application SHALL surface a notification toast whenever a shot is discarded
 
@@ -128,4 +140,3 @@ The existing filter that excludes `cleaning`, `descale`, and `calibrate` profile
 #### Scenario: Maintenance shot excluded
 - **WHEN** a shot ends for a profile with `beverageType` of `"cleaning"`, `"descale"`, or `"calibrate"`
 - **THEN** no shot record SHALL be created, no bag grinder auto-write SHALL run, and `m_extractionStarted` SHALL be reset to false
-
