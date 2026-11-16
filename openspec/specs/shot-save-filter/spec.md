@@ -11,8 +11,7 @@ When an espresso extraction reaches the save path, the application SHALL
 classify the shot as *aborted* if and only if `extractionDuration < 10.0 s` AND
 `finalWeight` is below the yield threshold. The yield threshold SHALL be the
 larger of `5.0 g` and one third of the weight the shot was set to stop at; a shot with
-no weight target SHALL use `5.0 g`. A long, low-yield shot (e.g. 1 g over 60 s)
-MUST NOT be classified as aborted. When the verdict is *aborted*, the
+no weight target SHALL use `5.0 g`. When the verdict is *aborted*, the
 application SHALL skip saving the shot to `ShotHistoryStorage` and SHALL skip
 any visualizer auto-upload for it.
 
