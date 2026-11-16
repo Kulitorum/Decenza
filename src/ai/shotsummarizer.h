@@ -269,7 +269,8 @@ public:
     static QStringList roastAffinityForTitle(const QString& profileTitle);
     // Relative grind direction from sourceTitle's profile to targetTitle's,
     // per KB UGS ordering: "finer" | "coarser" | "same" | "" (either UGS
-    // unknown). DIRECTION ONLY — per the KB's own cross-profile rule, UGS
+    // unknown). A filter-family profile counts as coarser than any profile
+    // with a UGS. DIRECTION ONLY — per the KB's own cross-profile rule, UGS
     // distance never translates to a grinder-click count; concrete numbers
     // come from shot history alone. Drives the wizard's grind hint.
     static QString grindDirectionBetween(const QString& sourceTitle, const QString& targetTitle);

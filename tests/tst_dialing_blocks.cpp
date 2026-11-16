@@ -3861,6 +3861,20 @@ private slots:
         QCOMPARE(ShotSummarizer::grindDirectionBetween(
                      QStringLiteral("D-Flow / default"), QStringLiteral("D-Flow / default")),
                  QStringLiteral("same"));
+        // Filter profiles carry no UGS but sit coarser than every espresso
+        // profile, Allongé (UGS 8) included.
+        const QString pourOver = QStringLiteral("Pour over basket/V60 15g in, 250g out");
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("D-Flow / default"), pourOver),
+                 QStringLiteral("coarser"));
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("Rao Allongé"), pourOver),
+                 QStringLiteral("coarser"));
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     pourOver, QStringLiteral("Cremina lever machine")),
+                 QStringLiteral("finer"));
+        QVERIFY(ShotSummarizer::grindDirectionBetween(
+                    pourOver, QStringLiteral("Filter 2.0")).isEmpty());
         // Either side unresolved or UGS-less → empty (no fabricated direction).
         QVERIFY(ShotSummarizer::grindDirectionBetween(
                     QStringLiteral("No Such Profile XYZ"), QStringLiteral("Rao Allongé")).isEmpty());
