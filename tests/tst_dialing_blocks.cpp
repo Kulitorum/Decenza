@@ -15,6 +15,7 @@
 // fields (id, grinder/bean strings, ratios, change diffs) are compared
 // directly to expected JSON literals.
 
+#include <cmath>
 #include <QtTest>
 #include <tuple>
 #include <QSet>
@@ -3860,6 +3861,20 @@ private slots:
         QCOMPARE(ShotSummarizer::grindDirectionBetween(
                      QStringLiteral("D-Flow / default"), QStringLiteral("D-Flow / default")),
                  QStringLiteral("same"));
+        // Filter profiles carry no UGS but sit coarser than every espresso
+        // profile, Allongé (UGS 8) included.
+        const QString pourOver = QStringLiteral("Pour over basket/V60 15g in, 250g out");
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("D-Flow / default"), pourOver),
+                 QStringLiteral("coarser"));
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("Rao Allongé"), pourOver),
+                 QStringLiteral("coarser"));
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     pourOver, QStringLiteral("Cremina lever machine")),
+                 QStringLiteral("finer"));
+        QVERIFY(ShotSummarizer::grindDirectionBetween(
+                    pourOver, QStringLiteral("Filter 2.0")).isEmpty());
         // Either side unresolved or UGS-less → empty (no fabricated direction).
         QVERIFY(ShotSummarizer::grindDirectionBetween(
                     QStringLiteral("No Such Profile XYZ"), QStringLiteral("Rao Allongé")).isEmpty());
@@ -4069,6 +4084,15 @@ private slots:
 
             QCOMPARE(ShotSummarizer::expertBandForKbId(kbId).has_value(), row.hasBand);
         }
+
+        // Filter grinds sit far off the espresso chart, so a pour-over profile must
+        // carry no UGS rather than an inferred espresso-range value.
+        const QString pourOver = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("Pour over basket/V60 15g in, 250g out"));
+        QCOMPARE(pourOver, QStringLiteral("pour-over-basket"));
+        QVERIFY2(std::isnan(ShotSummarizer::ugsForKbId(pourOver)),
+                 qPrintable(QStringLiteral("pour-over-basket has UGS %1")
+                     .arg(ShotSummarizer::ugsForKbId(pourOver))));
     }
 
     // -------------------------------------------------------------------

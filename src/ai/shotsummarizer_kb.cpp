@@ -461,11 +461,17 @@ QString ShotSummarizer::grindDirectionBetween(const QString& sourceTitle, const 
     const QString srcId = matchProfileKey(s_profileKnowledge, sourceTitle, QString());
     const QString dstId = matchProfileKey(s_profileKnowledge, targetTitle, QString());
     if (srcId.isEmpty() || dstId.isEmpty()) return {};
-    const double srcUgs = s_profileKnowledge.value(srcId).ugs;
-    const double dstUgs = s_profileKnowledge.value(dstId).ugs;
-    if (std::isnan(srcUgs) || std::isnan(dstUgs)) return {};
-    if (srcId == dstId || qFuzzyCompare(srcUgs, dstUgs)) return QStringLiteral("same");
-    return dstUgs > srcUgs ? QStringLiteral("coarser") : QStringLiteral("finer");
+    const ProfileKnowledge src = s_profileKnowledge.value(srcId);
+    const ProfileKnowledge dst = s_profileKnowledge.value(dstId);
+    // Filter profiles carry no UGS because filter grinds sit off the espresso
+    // chart, coarser than all of it, Allongé included.
+    const bool srcFilter = src.family == QLatin1String("filter");
+    const bool dstFilter = dst.family == QLatin1String("filter");
+    if (dstFilter && !srcFilter && !std::isnan(src.ugs)) return QStringLiteral("coarser");
+    if (srcFilter && !dstFilter && !std::isnan(dst.ugs)) return QStringLiteral("finer");
+    if (std::isnan(src.ugs) || std::isnan(dst.ugs)) return {};
+    if (srcId == dstId || qFuzzyCompare(src.ugs, dst.ugs)) return QStringLiteral("same");
+    return dst.ugs > src.ugs ? QStringLiteral("coarser") : QStringLiteral("finer");
 }
 
 QString ShotSummarizer::profileKnowledgeForKbId(const QString& profileKbId)

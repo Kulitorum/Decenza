@@ -157,7 +157,11 @@ For the tea drink type, the profile step SHALL include a fixed "Just hot water" 
 - **THEN** the "Just hot water" card is still shown
 
 ### Requirement: Grind hint names the last grind for the bean
-For coffee drinks the grind section SHALL show a hint: the latest grind dialed for this bean on the selected equipment package regardless of profile, falling back to same-roast-level beans, naming its profile. Without a full-package match it SHALL retry on packages with the same grinder (brand, model, burrs) and basket (brand, model). The hint SHALL NEVER present a computed number for a different profile, only the relative direction when both profiles have UGS positions.
+For coffee drinks the grind section SHALL show a hint: the latest grind dialed for this bean on the selected equipment package regardless of profile, falling back to same-roast-level beans, naming its profile. Without a full-package match it SHALL retry on packages with the same grinder (brand, model, burrs) and basket (brand, model). The hint SHALL NEVER present a computed number for a different profile, only a relative direction where the knowledge base orders the two profiles.
+
+#### Scenario: Filter profile grinds coarser than espresso
+- **WHEN** the bean was last dialed for D-Flow and the user picks a pour-over profile, which has no UGS position
+- **THEN** the hint says the pour-over profile typically grinds coarser, with no computed number
 
 #### Scenario: Grind hint from a same-roast bean
 - **WHEN** no shot with this bean has a grind but a same-roast bean does

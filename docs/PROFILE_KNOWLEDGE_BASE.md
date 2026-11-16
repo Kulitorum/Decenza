@@ -59,7 +59,7 @@ These positions are **not** from the UGS calculator. They are reasoned estimates
 | ~0 | Damian's LRv2, Damian's LRv3 | Pure Londinium-R lever sims — same fine grind as Londinium/LRv3 (UGS 0), finer than D-Flow / default. LRv2 trends slightly coarser than LRv3. |
 | ~0.5 | Damian's LM Leva | La Marzocco Leva recreation, ~8-bar peak — same grind window as D-Flow / default. |
 | ~1.25 | Classic Italian / Gentler 8.4 Bar / Italian Australian | Constant-pressure family, behaves like Flat 9 Bar. `[SRC:bc-classic-italian]` |
-| ~5–7 | Hendon Turbo, TurboBloom, Nu Skool, Pour Over Basket | High-flow turbo/filter territory. |
+| ~5–7 | Hendon Turbo, TurboBloom, Nu Skool | High-flow turbo territory. |
 
 For any profile not listed here or in the UGS chart, say so plainly and lean on `shots_list` history.
 
@@ -902,16 +902,16 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 
 ### Pour Over Basket
 
-- **UGS**: ~7+ (inferred — high-flow filter/basket; coarsest territory)
+- **UGS**: none. Filter grinds sit far off the espresso chart, so this profile is deliberately uncharted.
 - **Category**: Pour over (filter through espresso machine) `[SRC:profile-notes]`
-- **How it works**: Produces filter coffee using a pour-over basket placed under the group head. Multi-pulse brewing with prewet, bloom pause, and several water pulses. Not espresso — pressure stays near 0 bar throughout (gravity-fed). `[SRC:profile-notes]`
+- **How it works**: Produces filter coffee in a standard filter cone (V60, Kalita or similar) under the group head; the machine only pours the water. Multi-pulse brewing with prewet, bloom pause, and several water pulses. Not espresso — pressure stays near 0 bar throughout (gravity-fed). `[SRC:profile-notes]`
 - **Variants**: `[SRC:profile-notes]`
   - *V60 variants*: 8 ml/s high-turbulence flow for 15–22g doses → 250–375g output
   - *Kalita*: 6 ml/s lower flow (prevents choking); suits Ethiopian/decaf beans
   - *Cold brew*: 2–2.5 ml/s flow at 20°C water → ~180s
 - **Temperature**: ~99–100°C (standard), ~20°C (cold brew) `[SRC:profile-notes]`
 - **Duration**: ~70–105s (standard); ~180s (cold brew) `[SRC:profile-notes]`
-- **Grind**: Filter grind (coarser than espresso). Must grind **coarser than you would for a manual V60** — the basket creates much more turbulence than hand-pouring, which increases extraction. Even at very coarse settings (e.g. Baratza Vario+ 8I), some users find flow too restricted. Coarsen further if basket is choking. `[SRC:bc-pour-over]`
+- **Grind**: Start at the grind you use by hand with that dripper: it is a standard filter cone (V60, Kalita or similar), and only the water delivery differs. `[SRC:maintainer]` For cold brew, go a little coarser than that hot-water grind, since cold water slows the flow and often chokes. `[SRC:profile-notes]` The V60 profiles use the highest flow rate for high turbulence; if a brew chokes, coarsen a little, and for decafs and Ethiopians that still choke, use the Kalita recipe. `[SRC:profile-notes]` Even at very coarse settings (e.g. Baratza Vario+ 8I), some users find flow too restricted. `[SRC:bc-pour-over]` With no history on that dripper, Honest Coffee Guide gives the V60 400–700 µm and has settings pages for many grinders. Its figures come from research and community feedback rather than stated measurement, so treat them as a starting point. `[SRC:hcg-grind-chart]`
 - **Output volume**: The default V60 profile pours ~344ml total by design, even though the target output is 250ml. This is intentional — you remove the dripper when target volume is reached (gravity retains more water). To change: add a SAV (stop-at-volume) or delete the final step. `[SRC:bc-pour-over]`
 - **Preheat**: Preheat the water reservoir before brewing (default profiles include this step); allows ~2 minutes. `[SRC:bc-pour-over]`
 - **Height clearance (V60 02)**: The V60 02 dripper is tall — many users cannot fit it under the group head without removing the drip tray and rotating the machine 90 degrees. `[SRC:bc-pour-over]`
@@ -1125,6 +1125,7 @@ Quick reference for which profiles work across roast levels. All profiles are ma
 | `bc-classic-italian` | Classic Italian community threads — "Classic Italian Style Espresso Profiles" (7987079735), "My latest achievements in Italian classic espresso" (7337357895), "D-Flow / Luca's Italian Style" (7968612029), "7g basket Italian espresso" (7394876404) | https://3.basecamp.com/3671212/buckets/7351439/messages/7987079735 |
 | `bc-ilp` | Innovative Long Preinfusion troubleshooting threads — "Innovative Long Preinfusion Profile is Skipping Preinfusion" (5902713440), "long preinfusion profile" (7219702170) | https://3.basecamp.com/3671212/buckets/7351439/messages/5902713440 |
 | `bc-pour-over` | Pour over basket community threads — John Buckman's V60 intro (6478301972), "Tips for pour over basket?" (8927624349), "Need help with pour over basket!" (8728303973), "Filter 2.1 vs Pour Over basket+V60" (5979806761), "Pour Over basket questions" (6955693508) | https://3.basecamp.com/3671212/buckets/7351439/messages/6478301972 |
+| `hcg-grind-chart` | Honest Coffee Guide grind size chart (V60 400–700 µm), with per-grinder settings pages such as the 1Zpresso J-Ultra's | https://honestcoffeeguide.com/coffee-grind-size-chart/ |
 | `decent-guide` | Your First Decent Espresso — official Decent dial-in guide for Adaptive v2 and Londinium | https://decentespresso.com/first_decent_espresso |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
 | `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 16 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
