@@ -4729,6 +4729,9 @@ void MainController::onShotEnded() {
     // Clear any mid-shot adjustment applied via bumpTargetWeight() so MachineState::targetWeight
     // matches the profile again before the next shot. Doing this at shot end (rather
     // than at next-shot start) avoids depending on signal-handler connection order.
+    // Read first: the aborted-shot verdict judges against the target the shot
+    // ended on, which a mid-shot bump moved away from the start-of-shot snapshot.
+    const double liveStopTargetG = m_machineState ? m_machineState->targetWeight() : 0.0;
     if (m_machineState && m_profileManager) {
         m_machineState->setTargetWeight(m_profileManager->targetWeight());
     }
@@ -4857,7 +4860,7 @@ void MainController::onShotEnded() {
 
     const decenza::ShotYield shotYield = decenza::resolveShotYield(
         duration, finalWeight, m_profileManager->currentProfile().targetWeight(),
-        shotTargetWeight);
+        liveStopTargetG > 0.0 ? liveStopTargetG : shotTargetWeight);
     finalWeight = shotYield.recordedG;
 
     // Trim trailing zero-pressure samples from SAW settling period before saving.
