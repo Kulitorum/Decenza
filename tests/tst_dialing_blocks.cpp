@@ -4071,8 +4071,8 @@ private slots:
             QCOMPARE(ShotSummarizer::expertBandForKbId(kbId).has_value(), row.hasBand);
         }
 
-        // Filter grinds sit far off the espresso chart (around UGS 65), so a pour-over
-        // profile must carry no UGS rather than an inferred espresso-range value.
+        // Filter grinds sit far off the espresso chart, so a pour-over profile must
+        // carry no UGS rather than an inferred espresso-range value.
         const QString pourOver = ShotSummarizer::computeProfileKbId(
             QStringLiteral("Pour over basket/V60 15g in, 250g out"));
         QCOMPARE(pourOver, QStringLiteral("pour-over-basket"));
