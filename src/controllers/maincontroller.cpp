@@ -4856,7 +4856,8 @@ void MainController::onShotEnded() {
         finalWeight = std::round(finalWeight * 10.0) / 10.0;
 
     const decenza::ShotYield shotYield = decenza::resolveShotYield(
-        duration, finalWeight, m_profileManager->currentProfile().targetWeight());
+        duration, finalWeight, m_profileManager->currentProfile().targetWeight(),
+        shotTargetWeight);
     finalWeight = shotYield.recordedG;
 
     // Trim trailing zero-pressure samples from SAW settling period before saving.
@@ -4957,9 +4958,8 @@ void MainController::onShotEnded() {
     // Capture once so both the async callback and synchronous code use the same value
     bool showPostShot = m_settings->visualizer()->visualizerShowAfterShot();
 
-    // Aborted-shot classifier: drop shots that did not start (extraction < 10s AND yield < 5g).
-    // Always on — validated against an 882-shot corpus, 5/882 (0.57%) discarded, all genuine
-    // "did not start" cases. See openspec/specs/shot-save-filter/spec.md.
+    // Aborted-shot classifier: drop shots that did not start. Always on; the rule and its
+    // evidence are in abortedshotclassifier.h.
     {
         const bool aborted = shotWasAborted;
         // Prefix is deliberately NOT bracketed. A leading "[token]" is the
