@@ -126,9 +126,10 @@ ColumnLayout {
     readonly property string _recreatePromptText: TranslationManager.translate("grindcalibration.recreatePrompt",
         "You already have anchor points set for this grinder. Would you like to recreate them?")
 
-    // The review page steps between shots in place; a question asked about one shot
-    // must not be answered for the next.
+    // A question asked about one shot and calibration must not be answered for another:
+    // the page steps between shots in place, and the shot's equipment can be changed.
     onShotIdChanged: pendingRecreateSide = ""
+    onCalibChanged: pendingRecreateSide = ""
 
     signal markRequested(string side, bool replacePair)
 
@@ -293,7 +294,7 @@ ColumnLayout {
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
             _customFontSize: Theme.captionFont.pixelSize
-            enabled: root.serviceReady && (root.calib.error || "") === ""
+            enabled: root.serviceReady && root.calibrationLoaded && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markFine", "Mark as fine anchor")
             accessibleName: text
             onClicked: root.requestMark("fine")
@@ -301,7 +302,7 @@ ColumnLayout {
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
             _customFontSize: Theme.captionFont.pixelSize
-            enabled: root.serviceReady && (root.calib.error || "") === ""
+            enabled: root.serviceReady && root.calibrationLoaded && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markCoarse", "Mark as coarse anchor")
             accessibleName: text
             onClicked: root.requestMark("coarse")
