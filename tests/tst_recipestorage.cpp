@@ -1432,24 +1432,39 @@ private slots:
         });
     }
 
-    // A row stored before a vessel became mandatory must still archive, through
-    // the path the app uses; a patch that touches a water input still re-validates.
-    void legacyVesselLessWaterStillArchives() {
+    // Archive is never refused for what the stored row contains. Each row is
+    // forced past the write-time checks with raw SQL, then archived through the
+    // path the app uses.
+    void malformedRecipeStillArchives_data() {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<QString>("profileTitle");
+        QTest::addColumn<QString>("hotWaterJson");
+        QTest::newRow("water-without-vessel") << "Legacy" << "Espresso" << R"({"hasWater":true,"order":"after"})";
+        QTest::newRow("water-unknown-mode") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":"Cup","amountMode":"unknown"})";
+        QTest::newRow("water-not-json") << "Legacy" << "Espresso" << "{not json";
+        QTest::newRow("no-name") << "" << "Espresso" << "";
+        QTest::newRow("no-profile-no-water") << "Legacy" << "" << "";
+    }
+    void malformedRecipeStillArchives() {
+        QFETCH(QString, name);
+        QFETCH(QString, profileTitle);
+        QFETCH(QString, hotWaterJson);
         const QString path = freshDbPath();
         qint64 id = 0;
-        withRawDb(path, "water_legacy_archive", [&](QSqlDatabase& db) {
+        withRawDb(path, "malformed_archive", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
             Recipe recipe;
-            recipe.name = "Legacy americano";
+            recipe.name = "Valid at insert";
             recipe.profileTitle = "Espresso";
             id = RecipeStorage::insertRecipeStatic(db, recipe);
             QVERIFY(id > 0);
-            QSqlQuery legacy(db);
-            legacy.prepare("UPDATE recipes SET hot_water_json = ? WHERE id = ?");
-            legacy.addBindValue(QStringLiteral(R"({"hasWater":true,"order":"after"})"));
-            legacy.addBindValue(id);
-            QVERIFY(legacy.exec());
-            QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"doseG", 18.0}}));
+            QSqlQuery malform(db);
+            malform.prepare("UPDATE recipes SET name = ?, profile_title = ?, hot_water_json = ? WHERE id = ?");
+            malform.addBindValue(name);
+            malform.addBindValue(profileTitle);
+            malform.addBindValue(hotWaterJson);
+            malform.addBindValue(id);
+            QVERIFY(malform.exec());
         });
         RecipeStorage storage;
         storage.initialize(path);
