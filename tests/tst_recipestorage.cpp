@@ -1326,7 +1326,7 @@ private slots:
                 QCOMPARE(imported.yieldValue, recipe.yieldValue);
                 QCOMPARE(imported.hotWaterJson, recipe.hotWaterJson);
                 QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(destination, imported.id,
-                    {{"name", "Invalid known target"}}, {true, 300.0}));
+                    {{"name", "Invalid known target"}, {"hotWaterJson", recipe.hotWaterJson}}, {true, 300.0}));
                 QCOMPARE(RecipeStorage::loadRecipeStatic(destination, imported.id).name, recipe.name);
             });
         });
@@ -1429,6 +1429,28 @@ private slots:
                 invalid.hotWaterJson = json;
                 QVERIFY(RecipeStorage::insertRecipeStatic(db, invalid) < 0);
             }
+        });
+    }
+
+    // A row stored before a vessel became mandatory must still archive and
+    // rename; only a patch that touches a water input re-validates it.
+    void legacyVesselLessWaterStillArchives() {
+        withRawDb(freshDbPath(), "water_legacy_archive", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe;
+            recipe.name = "Legacy americano";
+            recipe.profileTitle = "Espresso";
+            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+            QSqlQuery legacy(db);
+            legacy.prepare("UPDATE recipes SET hot_water_json = ? WHERE id = ?");
+            legacy.addBindValue(QStringLiteral(R"({"hasWater":true,"order":"after"})"));
+            legacy.addBindValue(id);
+            QVERIFY(legacy.exec());
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"name", "Renamed"}}));
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", true}}));
+            QVERIFY(RecipeStorage::loadRecipeStatic(db, id).archived);
+            QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"doseG", 18.0}}));
         });
     }
 
