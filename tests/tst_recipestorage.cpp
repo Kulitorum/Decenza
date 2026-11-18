@@ -1463,6 +1463,7 @@ private slots:
         QTest::addColumn<QString>("profileTitle");
         QTest::addColumn<QString>("hotWaterJson");
         QTest::newRow("water-without-vessel") << "Legacy" << "Espresso" << kVesselLessWater;
+        QTest::newRow("water-blank-vessel") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":" ","volume":100})";
         QTest::newRow("water-unknown-mode") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":"Cup","amountMode":"unknown"})";
         QTest::newRow("no-name") << "" << "Espresso" << "";
         QTest::newRow("no-profile-no-water") << "Legacy" << "" << "";
