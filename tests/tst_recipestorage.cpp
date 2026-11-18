@@ -1498,7 +1498,9 @@ private slots:
         RecipeStorage storage;
         storage.initialize(path);
         QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
-        storage.requestUpdateRecipe(id, {{"name", "Renamed"}});
+        // Resent unchanged, as a full-snapshot editor does: still a rename.
+        storage.requestUpdateRecipe(id, {{"name", "Renamed"}, {"profileTitle", "Espresso"},
+                                         {"hotWaterJson", kVesselLessWater}});
         QTRY_COMPARE(spy.count(), 1);
         QCOMPARE(spy.at(0).at(1).toBool(), true);
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("would strand recipe"));

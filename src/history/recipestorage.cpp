@@ -1507,13 +1507,15 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
     const Recipe before = loadRecipeStatic(db, recipeId);
     auto merged = before.toVariantMap();
     for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
-    auto error = recipeWaterError(db, Recipe::fromVariantMap(merged), context);
+    const Recipe after = Recipe::fromVariantMap(merged);
+    auto error = recipeWaterError(db, after, context);
     // A row whose STORED water block is malformed (saved before a vessel was
     // mandatory) stays writable, or it could never be archived, renamed or
-    // relinked. A patch that rewrites the block is always held to the rule, and
-    // so is a well-formed block that merely fails to resolve.
-    if (!error.isEmpty() && !fields.contains(QStringLiteral("hotWaterJson"))
-        && !fields.contains(QStringLiteral("profileTitle"))
+    // relinked. A patch that changes the block is always held to the rule, and
+    // so is a well-formed block that merely fails to resolve. Judged by what
+    // CHANGED: full-snapshot editors resend both fields on every save.
+    if (!error.isEmpty() && after.profileTitle == before.profileTitle
+        && writableWaterJson(after.hotWaterJson) == before.hotWaterJson
         && !RecipeEditFields::waterError(before.profileTitle, before.hotWaterJson).isEmpty())
         error.clear();
     if (waterError) *waterError = error;
