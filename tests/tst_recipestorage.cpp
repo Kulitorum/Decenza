@@ -1465,6 +1465,9 @@ private slots:
         QTest::newRow("water-without-vessel") << "Legacy" << "Espresso" << kVesselLessWater;
         QTest::newRow("water-blank-vessel") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":" ","volume":100})";
         QTest::newRow("water-unknown-mode") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":"Cup","amountMode":"unknown"})";
+        // Well formed, but nothing to resolve the ratio against: its profile is gone.
+        QTest::newRow("water-unresolvable") << "Legacy" << "Deleted profile"
+            << R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})";
         QTest::newRow("no-name") << "" << "Espresso" << "";
         QTest::newRow("no-profile-no-water") << "Legacy" << "" << "";
     }
@@ -1477,37 +1480,14 @@ private slots:
         withRawDb(path, "malformed_archive", [&](QSqlDatabase& db) {
             id = insertMalformedRecipe(db, name, profileTitle, hotWaterJson);
             QVERIFY(id > 0);
-            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"doseG", 18.0}}));
         });
         RecipeStorage storage;
         storage.initialize(path);
+        storage.setProfileBrewSnapshotProvider([] { return QHash<QString, WaterAmount::ProfileDefaults>{}; });
         QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
         storage.requestArchiveRecipe(id);
         QTRY_COMPARE(spy.count(), 1);
         QCOMPARE(spy.at(0).at(1).toBool(), true);
-    }
-
-    // A water block that already fails does not excuse the name: each half of
-    // the save rule is still refused when a patch breaks it.
-    void brokenWaterStillRefusesBlankName() {
-        const QString path = freshDbPath();
-        qint64 id = 0;
-        withRawDb(path, "malformed_blank_name", [&](QSqlDatabase& db) {
-            id = insertMalformedRecipe(db, "Legacy", "Espresso", kVesselLessWater);
-        });
-        QVERIFY(id > 0);
-        RecipeStorage storage;
-        storage.initialize(path);
-        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
-        // Resent unchanged, as a full-snapshot editor does: still a rename.
-        storage.requestUpdateRecipe(id, {{"name", "Renamed"}, {"profileTitle", "Espresso"},
-                                         {"hotWaterJson", kVesselLessWater}});
-        QTRY_COMPARE(spy.count(), 1);
-        QCOMPARE(spy.at(0).at(1).toBool(), true);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("would strand recipe"));
-        storage.requestUpdateRecipe(id, {{"name", " "}});
-        QTRY_COMPARE(spy.count(), 2);
-        QCOMPARE(spy.at(1).at(1).toBool(), false);
     }
 
     // Import copies stored rows; a malformed one must not fail the import

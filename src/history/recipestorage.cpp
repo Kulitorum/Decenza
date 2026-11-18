@@ -38,6 +38,14 @@ WaterAmount::ValidationContext waterContext(const QHash<QString, WaterAmount::Pr
     }
     return context;
 }
+// Archiving and restoring never depend on what the row contains: a recipe
+// saved before a vessel was mandatory, or whose profile is gone, must still
+// archive. Every content check on the update path asks this first.
+bool isArchiveOnly(const QVariantMap& fields)
+{
+    return fields.size() == 1 && fields.contains(QStringLiteral("archived"));
+}
+
 QString writableWaterJson(const QString& json)
 {
     if (json.isEmpty()) return {};
@@ -900,18 +908,9 @@ void RecipeStorage::requestUpdateRecipeImpl(
             // route shipped without the MCP tool's early guard, and neither
             // surface caught removing the hot-water block from an already
             // profile-less recipe).
-            //
-            // Each half is refused only when the patch BREAKS it. A row that
-            // already fails one (a water block from before a vessel was
-            // mandatory) must still archive and rename, and stays held to the other.
-            const auto nameAndDrink = [](const Recipe& r) {
-                return RecipeEditFields::hasNameAndDrink(r.name, r.profileTitle, r.hotWaterJson);
-            };
-            const auto waterDefined = [](const Recipe& r) {
-                return RecipeEditFields::waterError(r.profileTitle, r.hotWaterJson).isEmpty();
-            };
-            if ((nameAndDrink(before) && !nameAndDrink(updated))
-                || (waterDefined(before) && !waterDefined(updated))) {
+            if (!isArchiveOnly(patchFields)
+                && !Recipe::saveValidationPasses(updated.name, updated.profileTitle,
+                                                 updated.hotWaterJson)) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "rejecting update that would strand recipe"
                            << recipeId << "(name/profile/hot-water invariant)";
                 *success = false;
@@ -1504,20 +1503,12 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
                                              WaterAmount::ValidationContext context, QString* waterError)
 {
     auto fields = inputFields;
-    const Recipe before = loadRecipeStatic(db, recipeId);
-    auto merged = before.toVariantMap();
-    for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
-    const Recipe after = Recipe::fromVariantMap(merged);
-    auto error = recipeWaterError(db, after, context);
-    // A row whose STORED water block is malformed (saved before a vessel was
-    // mandatory) stays writable, or it could never be archived, renamed or
-    // relinked. A patch that changes the block is always held to the rule, and
-    // so is a well-formed block that merely fails to resolve. Judged by what
-    // CHANGED: full-snapshot editors resend both fields on every save.
-    if (!error.isEmpty() && after.profileTitle == before.profileTitle
-        && after.hotWaterJson == before.hotWaterJson
-        && !RecipeEditFields::waterError(before.profileTitle, before.hotWaterJson).isEmpty())
-        error.clear();
+    QString error;
+    if (!isArchiveOnly(fields)) {
+        auto merged = loadRecipeStatic(db, recipeId).toVariantMap();
+        for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
+        error = recipeWaterError(db, Recipe::fromVariantMap(merged), context);
+    }
     if (waterError) *waterError = error;
     if (!error.isEmpty()) return false;
     if (fields.contains(QStringLiteral("hotWaterJson")))
