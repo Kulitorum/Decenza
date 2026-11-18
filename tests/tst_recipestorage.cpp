@@ -56,6 +56,28 @@ static void insertBeanPair(QSqlDatabase& db, qint64* outFinished, qint64* outOpe
     *outOpen = CoffeeBagStorage::insertBagStatic(db, open);
 }
 
+// What the wizard saved before a vessel became mandatory.
+static const QString kVesselLessWater = QStringLiteral(R"({"hasWater":true,"order":"after"})");
+
+// A row no write path would accept: inserted valid, then overwritten with raw
+// SQL. Returns its id, or -1.
+static qint64 insertMalformedRecipe(QSqlDatabase& db, const QString& name,
+                                    const QString& profileTitle, const QString& hotWaterJson) {
+    if (!RecipeStorage::ensureTableStatic(db))
+        return -1;
+    Recipe recipe;
+    recipe.name = "Valid at insert";
+    recipe.profileTitle = "Espresso";
+    const qint64 id = RecipeStorage::insertRecipeStatic(db, recipe);
+    QSqlQuery malform(db);
+    malform.prepare("UPDATE recipes SET name = ?, profile_title = ?, hot_water_json = ? WHERE id = ?");
+    malform.addBindValue(name);
+    malform.addBindValue(profileTitle);
+    malform.addBindValue(hotWaterJson);
+    malform.addBindValue(id);
+    return id > 0 && malform.exec() ? id : -1;
+}
+
 static Recipe sampleRecipe() {
     Recipe r;
     r.name = "Morning capp";
@@ -1117,6 +1139,7 @@ private slots:
         storage.initialize(path);
         {   // Restore into the taken name -> refused.
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression("already used by another active recipe"));
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("restore of recipe \\d+ refused: \"?nameInUse"));
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
             storage.requestUnarchiveRecipe(idArchived);
             QTRY_COMPARE(spy.count(), 1);
@@ -1326,7 +1349,7 @@ private slots:
                 QCOMPARE(imported.yieldValue, recipe.yieldValue);
                 QCOMPARE(imported.hotWaterJson, recipe.hotWaterJson);
                 QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(destination, imported.id,
-                    {{"name", "Invalid known target"}, {"hotWaterJson", recipe.hotWaterJson}}, {true, 300.0}));
+                    {{"name", "Invalid known target"}}, {true, 300.0}));
                 QCOMPARE(RecipeStorage::loadRecipeStatic(destination, imported.id).name, recipe.name);
             });
         });
@@ -1439,9 +1462,8 @@ private slots:
         QTest::addColumn<QString>("name");
         QTest::addColumn<QString>("profileTitle");
         QTest::addColumn<QString>("hotWaterJson");
-        QTest::newRow("water-without-vessel") << "Legacy" << "Espresso" << R"({"hasWater":true,"order":"after"})";
+        QTest::newRow("water-without-vessel") << "Legacy" << "Espresso" << kVesselLessWater;
         QTest::newRow("water-unknown-mode") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":"Cup","amountMode":"unknown"})";
-        QTest::newRow("water-not-json") << "Legacy" << "Espresso" << "{not json";
         QTest::newRow("no-name") << "" << "Espresso" << "";
         QTest::newRow("no-profile-no-water") << "Legacy" << "" << "";
     }
@@ -1452,19 +1474,9 @@ private slots:
         const QString path = freshDbPath();
         qint64 id = 0;
         withRawDb(path, "malformed_archive", [&](QSqlDatabase& db) {
-            QVERIFY(RecipeStorage::ensureTableStatic(db));
-            Recipe recipe;
-            recipe.name = "Valid at insert";
-            recipe.profileTitle = "Espresso";
-            id = RecipeStorage::insertRecipeStatic(db, recipe);
+            id = insertMalformedRecipe(db, name, profileTitle, hotWaterJson);
             QVERIFY(id > 0);
-            QSqlQuery malform(db);
-            malform.prepare("UPDATE recipes SET name = ?, profile_title = ?, hot_water_json = ? WHERE id = ?");
-            malform.addBindValue(name);
-            malform.addBindValue(profileTitle);
-            malform.addBindValue(hotWaterJson);
-            malform.addBindValue(id);
-            QVERIFY(malform.exec());
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"doseG", 18.0}}));
         });
         RecipeStorage storage;
         storage.initialize(path);
@@ -1472,6 +1484,43 @@ private slots:
         storage.requestArchiveRecipe(id);
         QTRY_COMPARE(spy.count(), 1);
         QCOMPARE(spy.at(0).at(1).toBool(), true);
+    }
+
+    // A water block that already fails does not excuse the name: each half of
+    // the save rule is still refused when a patch breaks it.
+    void brokenWaterStillRefusesBlankName() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "malformed_blank_name", [&](QSqlDatabase& db) {
+            id = insertMalformedRecipe(db, "Legacy", "Espresso", kVesselLessWater);
+        });
+        QVERIFY(id > 0);
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{"name", "Renamed"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(1).toBool(), true);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("would strand recipe"));
+        storage.requestUpdateRecipe(id, {{"name", " "}});
+        QTRY_COMPARE(spy.count(), 2);
+        QCOMPARE(spy.at(1).at(1).toBool(), false);
+    }
+
+    // Import copies stored rows; a malformed one must not fail the import
+    // (the caller rolls back every shot, bag and recipe when it does).
+    void malformedRecipeSurvivesImport() {
+        withRawDb(freshDbPath(), "malformed_import_source", [this](QSqlDatabase& source) {
+            const auto id = insertMalformedRecipe(source, "Legacy", "Espresso", kVesselLessWater);
+            QVERIFY(id > 0);
+            withRawDb(freshDbPath(), "malformed_import_destination", [&](QSqlDatabase& destination) {
+                QVERIFY(RecipeStorage::ensureTableStatic(destination));
+                QVERIFY(CoffeeBagStorage::ensureTableStatic(destination));
+                QHash<qint64, qint64> ids;
+                QVERIFY(RecipeStorage::importRecipesStatic(source, destination, false, ids, {}, {}));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destination, ids.value(id)).hotWaterJson, kVesselLessWater);
+            });
+        });
     }
 
     void malformedWaterModesNeverPersist() {

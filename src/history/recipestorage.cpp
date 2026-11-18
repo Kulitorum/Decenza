@@ -21,7 +21,6 @@
 #include <QDebug>
 #include <QPointer>
 
-#include <algorithm>
 #include <iterator>
 #include <type_traits>
 #include <utility>
@@ -902,13 +901,17 @@ void RecipeStorage::requestUpdateRecipeImpl(
             // surface caught removing the hot-water block from an already
             // profile-less recipe).
             //
-            // Only a patch that BREAKS the row is refused. A row already
-            // unsaveable (a water block from before a vessel was mandatory)
-            // must still archive and rename.
-            if (!Recipe::saveValidationPasses(updated.name, updated.profileTitle,
-                                              updated.hotWaterJson)
-                && Recipe::saveValidationPasses(before.name, before.profileTitle,
-                                                before.hotWaterJson)) {
+            // Each half is refused only when the patch BREAKS it. A row that
+            // already fails one (a water block from before a vessel was
+            // mandatory) must still archive and rename, and stays held to the other.
+            const auto named = [](const Recipe& r) {
+                return RecipeEditFields::hasNameAndDrink(r.name, r.profileTitle, r.hotWaterJson);
+            };
+            const auto waterDefined = [](const Recipe& r) {
+                return RecipeEditFields::waterError(r.profileTitle, r.hotWaterJson).isEmpty();
+            };
+            if ((named(before) && !named(updated))
+                || (waterDefined(before) && !waterDefined(updated))) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "rejecting update that would strand recipe"
                            << recipeId << "(name/profile/hot-water invariant)";
                 *success = false;
@@ -984,7 +987,7 @@ void RecipeStorage::requestUpdateRecipeImpl(
         // terminal status callers wait on.
         [this, recipeId, success, committedRow, failReason, conflictCurrentName,
          complete, emitLegacyCompletionSignals,
-         archiving = fields.value(QStringLiteral("archived")).toBool()](bool) {
+         archivePatch = fields.value(QStringLiteral("archived"))](bool) {
             // Reason first, so a listener can record it before the terminal status.
             if (emitLegacyCompletionSignals && !*success && !failReason->isEmpty())
                 emit recipeUpdateFailed(recipeId, *failReason);
@@ -998,8 +1001,9 @@ void RecipeStorage::requestUpdateRecipeImpl(
                 emit recipesChanged();
             const QString completionReason = !*success && failReason->isEmpty()
                 ? QStringLiteral("updateFailed") : *failReason;
-            if (!*success && archiving)
-                DIAG_WARN(RECIPES, "RecipeStorage") << "archive of recipe" << recipeId
+            if (!*success && archivePatch.isValid())
+                DIAG_WARN(RECIPES, "RecipeStorage") << (archivePatch.toBool() ? "archive" : "restore")
+                                                    << "of recipe" << recipeId
                                                     << "refused:" << completionReason;
             complete(*success, completionReason, *conflictCurrentName);
         });
@@ -1292,6 +1296,11 @@ qint64 RecipeStorage::insertRecipeStatic(QSqlDatabase& db, const Recipe& input,
     const auto error = recipeWaterError(db, input, context);
     if (waterError) *waterError = error;
     if (!error.isEmpty()) return -1;
+    return insertRecipeRowStatic(db, input);
+}
+
+qint64 RecipeStorage::insertRecipeRowStatic(QSqlDatabase& db, const Recipe& input)
+{
     Recipe recipe = input;
     recipe.hotWaterJson = writableWaterJson(recipe.hotWaterJson);
     recipe.equipmentId = liveEquipmentId(db, recipe.equipmentId);
@@ -1495,22 +1504,20 @@ bool RecipeStorage::updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, 
                                              WaterAmount::ValidationContext context, QString* waterError)
 {
     auto fields = inputFields;
-    // Only a patch that touches an input of recipeWaterError is validated. A
-    // row saved before a vessel became mandatory fails that check as stored,
-    // and validating it on every write refused its archive and its rename.
-    static const QStringList waterInputs{
-        QStringLiteral("hotWaterJson"), QStringLiteral("profileTitle"), QStringLiteral("profileJson"),
-        QStringLiteral("bagId"), QStringLiteral("doseG"), QStringLiteral("yieldValue"),
-        QStringLiteral("yieldMode")};
-    const bool touchesWater = std::any_of(waterInputs.cbegin(), waterInputs.cend(),
-        [&fields](const QString& key) { return fields.contains(key); });
-    if (touchesWater) {
-        auto merged = loadRecipeStatic(db, recipeId).toVariantMap();
-        for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
-        const auto error = recipeWaterError(db, Recipe::fromVariantMap(merged), context);
-        if (waterError) *waterError = error;
-        if (!error.isEmpty()) return false;
-    }
+    const Recipe before = loadRecipeStatic(db, recipeId);
+    auto merged = before.toVariantMap();
+    for (auto it = fields.cbegin(); it != fields.cend(); ++it) merged.insert(it.key(), it.value());
+    auto error = recipeWaterError(db, Recipe::fromVariantMap(merged), context);
+    // A row whose STORED water block is malformed (saved before a vessel was
+    // mandatory) stays writable, or it could never be archived, renamed or
+    // relinked. A patch that rewrites the block is always held to the rule, and
+    // so is a well-formed block that merely fails to resolve.
+    if (!error.isEmpty() && !fields.contains(QStringLiteral("hotWaterJson"))
+        && !fields.contains(QStringLiteral("profileTitle"))
+        && !RecipeEditFields::waterError(before.profileTitle, before.hotWaterJson).isEmpty())
+        error.clear();
+    if (waterError) *waterError = error;
+    if (!error.isEmpty()) return false;
     if (fields.contains(QStringLiteral("hotWaterJson")))
         fields.insert(QStringLiteral("hotWaterJson"), writableWaterJson(fields.value(QStringLiteral("hotWaterJson")).toString()));
     const QHash<QString, const RecipeCol*>& kColumnFor = recipeColumnForKey();
@@ -2004,11 +2011,11 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         }
 
         if (destId < 0) {
-            QString waterError;
-            destId = insertRecipeStatic(destDb, recipe, {}, &waterError);
+            // Unvalidated: a stored row is copied as it is. Validating here let
+            // one recipe from before a rule existed roll back the whole import.
+            destId = insertRecipeRowStatic(destDb, recipe);
             if (destId < 0) {
-                DIAG_WARN(RECIPES, "RecipeStorage") << "recipe import: could not insert" << recipe.name
-                                                    << (waterError.isEmpty() ? QStringLiteral("(insert failed)") : waterError);
+                DIAG_WARN(RECIPES, "RecipeStorage") << "recipe import: could not insert" << recipe.name;
                 return false;
             }
             imported++;

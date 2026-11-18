@@ -63,11 +63,18 @@ inline QString waterError(const QString& profileTitle, const QString& hotWaterJs
                                         !profileTitle.trimmed().isEmpty());
 }
 
+// The half of the save rule that is independent of the water definition.
+inline bool hasNameAndDrink(const QString& name, const QString& profileTitle,
+                            const QString& hotWaterJson)
+{
+    return !name.trimmed().isEmpty()
+        && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson));
+}
+
 inline bool saveValidationPasses(const QString& name, const QString& profileTitle,
                                  const QString& hotWaterJson)
 {
-    return !name.trimmed().isEmpty()
-        && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson))
+    return hasNameAndDrink(name, profileTitle, hotWaterJson)
         && waterError(profileTitle, hotWaterJson).isEmpty();
 }
 

@@ -1,5 +1,6 @@
 #include "recipeservicesource.h"
 
+#include "core/diagnosticlogging.h"
 #include "core/recipeeditfields.h"
 #include "core/settings_dye.h"
 #include "history/recipestorage.h"
@@ -386,6 +387,8 @@ void NativeRecipeServiceSource::execute(QString requestId, QString operation,
         || operation == QLatin1String("restore")
         || operation == QLatin1String("relink")) {
         if (recipeId <= 0 || !normalizeEditableSnapshot(&expectedEditable)) {
+            DIAG_WARN(RECIPES, "RecipeService") << operation << "of recipe" << recipeId
+                << "refused: the request carried no usable snapshot of the recipe";
             finishOperation(requestId, operation, false, recipeId,
                             QStringLiteral("invalidExpectedEditable"));
             return;
