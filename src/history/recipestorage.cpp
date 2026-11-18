@@ -901,8 +901,14 @@ void RecipeStorage::requestUpdateRecipeImpl(
             // route shipped without the MCP tool's early guard, and neither
             // surface caught removing the hot-water block from an already
             // profile-less recipe).
+            //
+            // Only a patch that BREAKS the row is refused. A row already
+            // unsaveable (a water block from before a vessel was mandatory)
+            // must still archive and rename.
             if (!Recipe::saveValidationPasses(updated.name, updated.profileTitle,
-                                              updated.hotWaterJson)) {
+                                              updated.hotWaterJson)
+                && Recipe::saveValidationPasses(before.name, before.profileTitle,
+                                                before.hotWaterJson)) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "rejecting update that would strand recipe"
                            << recipeId << "(name/profile/hot-water invariant)";
                 *success = false;

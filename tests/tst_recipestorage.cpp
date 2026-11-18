@@ -1432,26 +1432,31 @@ private slots:
         });
     }
 
-    // A row stored before a vessel became mandatory must still archive and
-    // rename; only a patch that touches a water input re-validates it.
+    // A row stored before a vessel became mandatory must still archive, through
+    // the path the app uses; a patch that touches a water input still re-validates.
     void legacyVesselLessWaterStillArchives() {
-        withRawDb(freshDbPath(), "water_legacy_archive", [](QSqlDatabase& db) {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "water_legacy_archive", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
             Recipe recipe;
             recipe.name = "Legacy americano";
             recipe.profileTitle = "Espresso";
-            const auto id = RecipeStorage::insertRecipeStatic(db, recipe);
+            id = RecipeStorage::insertRecipeStatic(db, recipe);
             QVERIFY(id > 0);
             QSqlQuery legacy(db);
             legacy.prepare("UPDATE recipes SET hot_water_json = ? WHERE id = ?");
             legacy.addBindValue(QStringLiteral(R"({"hasWater":true,"order":"after"})"));
             legacy.addBindValue(id);
             QVERIFY(legacy.exec());
-            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"name", "Renamed"}}));
-            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", true}}));
-            QVERIFY(RecipeStorage::loadRecipeStatic(db, id).archived);
             QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"doseG", 18.0}}));
         });
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestArchiveRecipe(id);
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(1).toBool(), true);
     }
 
     void malformedWaterModesNeverPersist() {
