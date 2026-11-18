@@ -56,6 +56,28 @@ static void insertBeanPair(QSqlDatabase& db, qint64* outFinished, qint64* outOpe
     *outOpen = CoffeeBagStorage::insertBagStatic(db, open);
 }
 
+// What the wizard saved before a vessel became mandatory.
+static const QString kVesselLessWater = QStringLiteral(R"({"hasWater":true,"order":"after"})");
+
+// A row no write path would accept: inserted valid, then overwritten with raw
+// SQL. Returns its id, or -1.
+static qint64 insertMalformedRecipe(QSqlDatabase& db, const QString& name,
+                                    const QString& profileTitle, const QString& hotWaterJson) {
+    if (!RecipeStorage::ensureTableStatic(db))
+        return -1;
+    Recipe recipe;
+    recipe.name = "Valid at insert";
+    recipe.profileTitle = "Espresso";
+    const qint64 id = RecipeStorage::insertRecipeStatic(db, recipe);
+    QSqlQuery malform(db);
+    malform.prepare("UPDATE recipes SET name = ?, profile_title = ?, hot_water_json = ? WHERE id = ?");
+    malform.addBindValue(name);
+    malform.addBindValue(profileTitle);
+    malform.addBindValue(hotWaterJson);
+    malform.addBindValue(id);
+    return id > 0 && malform.exec() ? id : -1;
+}
+
 static Recipe sampleRecipe() {
     Recipe r;
     r.name = "Morning capp";
@@ -1117,6 +1139,7 @@ private slots:
         storage.initialize(path);
         {   // Restore into the taken name -> refused.
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression("already used by another active recipe"));
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("restore of recipe \\d+ refused: \"?nameInUse"));
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
             storage.requestUnarchiveRecipe(idArchived);
             QTRY_COMPARE(spy.count(), 1);
@@ -1429,6 +1452,57 @@ private slots:
                 invalid.hotWaterJson = json;
                 QVERIFY(RecipeStorage::insertRecipeStatic(db, invalid) < 0);
             }
+        });
+    }
+
+    // Archive is never refused for what the stored row contains. Each row is
+    // forced past the write-time checks with raw SQL, then archived through the
+    // path the app uses.
+    void malformedRecipeStillArchives_data() {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<QString>("profileTitle");
+        QTest::addColumn<QString>("hotWaterJson");
+        QTest::newRow("water-without-vessel") << "Legacy" << "Espresso" << kVesselLessWater;
+        QTest::newRow("water-blank-vessel") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":" ","volume":100})";
+        QTest::newRow("water-unknown-mode") << "Legacy" << "Espresso" << R"({"hasWater":true,"vesselName":"Cup","amountMode":"unknown"})";
+        // Well formed, but nothing to resolve the ratio against: its profile is gone.
+        QTest::newRow("water-unresolvable") << "Legacy" << "Deleted profile"
+            << R"({"hasWater":true,"vesselName":"Cup","amountMode":"ratio","waterToEspressoRatio":2.5})";
+        QTest::newRow("no-name") << "" << "Espresso" << "";
+        QTest::newRow("no-profile-no-water") << "Legacy" << "" << "";
+    }
+    void malformedRecipeStillArchives() {
+        QFETCH(QString, name);
+        QFETCH(QString, profileTitle);
+        QFETCH(QString, hotWaterJson);
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "malformed_archive", [&](QSqlDatabase& db) {
+            id = insertMalformedRecipe(db, name, profileTitle, hotWaterJson);
+            QVERIFY(id > 0);
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        storage.setProfileBrewSnapshotProvider([] { return QHash<QString, WaterAmount::ProfileDefaults>{}; });
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestArchiveRecipe(id);
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(1).toBool(), true);
+    }
+
+    // Import copies stored rows; a malformed one must not fail the import
+    // (the caller rolls back every shot, bag and recipe when it does).
+    void malformedRecipeSurvivesImport() {
+        withRawDb(freshDbPath(), "malformed_import_source", [this](QSqlDatabase& source) {
+            const auto id = insertMalformedRecipe(source, "Legacy", "Espresso", kVesselLessWater);
+            QVERIFY(id > 0);
+            withRawDb(freshDbPath(), "malformed_import_destination", [&](QSqlDatabase& destination) {
+                QVERIFY(RecipeStorage::ensureTableStatic(destination));
+                QVERIFY(CoffeeBagStorage::ensureTableStatic(destination));
+                QHash<qint64, qint64> ids;
+                QVERIFY(RecipeStorage::importRecipesStatic(source, destination, false, ids, {}, {}));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destination, ids.value(id)).hotWaterJson, kVesselLessWater);
+            });
         });
     }
 

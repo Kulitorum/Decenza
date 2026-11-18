@@ -413,6 +413,7 @@ private slots:
         // A stale archive CAS must not turn off the currently active recipe.
         dye.setActiveRecipeId(static_cast<int>(id));
         QSignalSpy sourceOperations(&source, &RecipeStateSource::operationCompleted);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("archive of recipe \\d+ refused: \"?expectedEditableConflict"));
         source.execute(QStringLiteral("stale-archive"), QStringLiteral("archive"), id, {}, original);
         QTRY_COMPARE_WITH_TIMEOUT(sourceOperations.size(), 1, 5000);
         QCOMPARE(sourceOperations.first().at(0).toString(), QStringLiteral("stale-archive"));

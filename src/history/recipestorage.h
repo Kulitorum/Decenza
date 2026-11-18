@@ -590,6 +590,8 @@ signals:
     void recipesChanged();
 
 private:
+    // The insert alone, with no validation: for copying rows that are already stored.
+    static qint64 insertRecipeRowStatic(QSqlDatabase& db, const Recipe& recipe);
     std::function<QHash<QString, WaterAmount::ProfileDefaults>()> m_profileBrewSnapshot;
     void requestUpdateRecipeImpl(qint64 recipeId, const QVariantMap& fields,
                                  QObject* completionContext,
