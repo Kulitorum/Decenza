@@ -120,9 +120,6 @@ ColumnLayout {
         return ""
     }
 
-    // The page owns saving pending edits before a mark, so it handles this.
-    signal markRequested(string side, bool replacePair)
-
     // Set while asking whether to start a new pair from this shot, after the service
     // refused a plain mark with `pendingRecreateError`. Dropped when the shot, the
     // package or the stored anchors change, so Yes never answers for another pair.
@@ -132,6 +129,10 @@ ColumnLayout {
         : TranslationManager.translate("grindcalibration.recreatePrompt",
               "Not marked: %1. Clear this equipment's anchor points and start again from this shot?")
               .arg(reasonText(pendingRecreateError))
+
+    // The page owns saving pending edits before a mark, so it handles this.
+    signal markRequested(string side, bool replacePair)
+
     function dropRecreate() {
         pendingRecreateSide = ""
         pendingRecreateError = ""

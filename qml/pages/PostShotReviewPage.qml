@@ -1055,9 +1055,6 @@ T.Page {
     property string editGrinderBurrs: ""
     property string editEquipmentName: ""  // package display name (read-only label)
     property int editEquipmentId: -1
-    // The picker re-points the shot before any save, so the section's own package has
-    // not changed yet; a recreate question asked about the old one must not survive.
-    onEditEquipmentIdChanged: grindCalibrationSection.dropRecreate()
     property int _pendingEquipmentId: -1   // package id awaiting requestPackage resolution
     // Basket + puck prep: read-only display, resolved from the package like the
     // grinder identity; shown in the equipment card, never edited as free text.
@@ -1457,6 +1454,13 @@ T.Page {
     property int _pendingAnchorShotId: -1
     property int _pendingAnchorPackageId: -1
     property bool _pendingAnchorReplace: false
+    // A recreate question was answered by the service for the saved shot. Editing any
+    // input the pair is judged on (unsaved, so the section cannot see it) withdraws it.
+    onEditEquipmentIdChanged: grindCalibrationSection.dropRecreate()
+    onEditBeanBrandChanged: grindCalibrationSection.dropRecreate()
+    onEditBeanTypeChanged: grindCalibrationSection.dropRecreate()
+    onEditRoastDateChanged: grindCalibrationSection.dropRecreate()
+    onEditRpmChanged: grindCalibrationSection.dropRecreate()
     function markGrindAnchor(side, replacePair) {
         if (hasUnsavedChanges)
             saveEditedShot()
