@@ -2497,6 +2497,49 @@ private slots:
         });
     }
 
+    // A full pair blocks a one-sided move to another bag ("differentCoffee"), so
+    // replacePair is the only way to start a new pair; a refusal keeps the old one.
+    void calibrationAnchors_replacePairStartsANewPair()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_anchor_replace"), [&](QSqlDatabase& db) {
+            const qint64 fine = anchorSeed(db, QStringLiteral("p-fine"), 1000,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+            const qint64 coarse = anchorSeed(db, QStringLiteral("p-coarse"), 1100,
+                    QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("18"));
+            const qint64 sameBag = anchorSeed(db, QStringLiteral("p-same"), 1150,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+            const qint64 newBag = anchorSeed(db, QStringLiteral("p-new"), 1200,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("3"),
+                    QStringLiteral("OtherRoaster"));
+            const qint64 unplaced = anchorSeed(db, QStringLiteral("p-custom"), 1300,
+                    QStringLiteral("My Secret Pull"), QString(), QStringLiteral("3"),
+                    QStringLiteral("OtherRoaster"));
+            const auto mark = [&](qint64 id, bool replacePair) {
+                return DialingBlocks::markGrindCalibrationAnchor(db, id, QStringLiteral("fine"),
+                                                                 nullptr, 0, replacePair);
+            };
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, fine, QStringLiteral("fine")), QString());
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, coarse, QStringLiteral("coarse")), QString());
+            const qint64 pkg = projectionForShot(db, fine).equipmentId;
+
+            // A plain mark from the same bag swaps one side and keeps the other.
+            QCOMPARE(mark(sameBag, false), QString());
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(db, pkg).fineShotId, sameBag);
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(db, pkg).coarseShotId, coarse);
+
+            QCOMPARE(mark(newBag, false), QStringLiteral("differentCoffee"));
+            QCOMPARE(mark(unplaced, true), QStringLiteral("noUgs"));
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(db, pkg).coarseShotId, coarse);
+
+            QCOMPARE(mark(newBag, true), QString());
+            const CalibrationAnchors stored = EquipmentStorage::loadCalibrationAnchorsStatic(db, pkg);
+            QCOMPARE(stored.fineShotId, newBag);
+            QCOMPARE(stored.coarseShotId, qint64(0));
+        });
+    }
+
     // An anchor is re-checked on every read: editing it onto another bag later
     // stops the pair counting, and the status says why.
     void calibrationAnchors_editedAnchorStopsCounting()

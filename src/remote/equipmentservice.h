@@ -47,8 +47,9 @@ public:
     Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
                                            const QString& beanType, const QString& roastDate,
                                            const QString& profileTitle);
+    // `replacePair` clears the other side first (DialingBlocks::markGrindCalibrationAnchor).
     Q_INVOKABLE void requestSetGrindAnchor(qint64 shotId, const QString& side,
-                                          qint64 expectedPackageId);
+                                          qint64 expectedPackageId, bool replacePair = false);
     Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
     Q_INVOKABLE void createPackage(const QVariantMap& fields, bool makeActive, const QString& requestId);
     Q_INVOKABLE void updatePackage(qint64 id, const QVariantMap& fields,
@@ -67,7 +68,9 @@ signals:
     void archivedFailed(const QString& reason);
     void grindCalibrationReady(qint64 packageId, const QVariantMap& calibration);
     void grindSuggestionReady(const QVariantMap& suggestion);
-    void grindAnchorMarked(qint64 shotId, const QString& side, const QString& error);
+    // `replacePair` and `expectedPackageId` echo the request this result answers.
+    void grindAnchorMarked(qint64 shotId, const QString& side, const QString& error,
+                           bool replacePair, qint64 expectedPackageId);
     void grindAnchorCleared(qint64 packageId, const QString& side, bool ok);
     void grindCalibrationChanged(qint64 packageId);
     void packageReady(qint64 packageId, const QVariantMap& package);
@@ -95,6 +98,7 @@ private:
     QHash<QString, qint64> m_reads;
     QSet<QString> m_archivedReads;
     QHash<QString, QVariantMap> m_grindReads;
-    QHash<QString, QString> m_grindWrites;
+    struct GrindWrite { QString side; bool replacePair = false; qint64 expectedPackageId = 0; };
+    QHash<QString, GrindWrite> m_grindWrites;
     QVariantList m_notifiedPackages;
 };

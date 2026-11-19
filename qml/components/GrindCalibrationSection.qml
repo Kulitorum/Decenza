@@ -23,6 +23,7 @@ ColumnLayout {
     onServiceReadyChanged: {
         calib = ({})
         calibrationLoaded = false
+        dropRecreate()
         if (serviceReady) refresh()
     }
 
@@ -119,8 +120,40 @@ ColumnLayout {
         return ""
     }
 
+    // Set while asking whether to start a new pair from this shot, after the service
+    // refused a plain mark with `pendingRecreateError`. Dropped when the shot, the
+    // package or the stored anchors change, so Yes never answers for another pair.
+    property string pendingRecreateSide: ""
+    property string pendingRecreateError: ""
+    readonly property string _recreatePromptText: pendingRecreateSide === "" ? ""
+        : TranslationManager.translate("grindcalibration.recreatePrompt",
+              "Not marked: %1. Clear this equipment's anchor points and start again from this shot?")
+              .arg(reasonText(pendingRecreateError))
+
     // The page owns saving pending edits before a mark, so it handles this.
-    signal markRequested(string side)
+    signal markRequested(string side, bool replacePair)
+
+    function dropRecreate() {
+        pendingRecreateSide = ""
+        pendingRecreateError = ""
+    }
+    onShotIdChanged: dropRecreate()
+
+    function requestMark(side) {
+        dropRecreate()
+        root.markRequested(side, false)
+    }
+
+    // True when `error` is a refusal a new pair would get past, and the question is now up.
+    function offerRecreate(side: string, error: string): bool {
+        if (error !== "differentCoffee" && error !== "differentRpm" && error !== "tooClose")
+            return false
+        pendingRecreateError = error
+        pendingRecreateSide = side
+        if (AccessibilityManager.enabled)
+            AccessibilityManager.announce(_recreatePromptText)
+        return true
+    }
 
     ExternalUrlOpener { id: guideUrlOpener }
 
@@ -132,6 +165,7 @@ ColumnLayout {
     onPackageIdChanged: {
         calib = ({})
         calibrationLoaded = false
+        dropRecreate()
         refresh()
     }
     Component.onCompleted: refresh()
@@ -144,7 +178,9 @@ ColumnLayout {
             root.calibrationLoaded = true
         }
         function onGrindCalibrationChanged(pid) {
-            if (pid === root.packageId) root.refresh()
+            if (pid !== root.packageId) return
+            root.dropRecreate()
+            root.refresh()
         }
     }
 
@@ -271,18 +307,18 @@ ColumnLayout {
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
             _customFontSize: Theme.captionFont.pixelSize
-            enabled: root.serviceReady && (root.calib.error || "") === ""
+            enabled: root.serviceReady && root.calibrationLoaded && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markFine", "Mark as fine anchor")
             accessibleName: text
-            onClicked: root.markRequested("fine")
+            onClicked: root.requestMark("fine")
         }
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
             _customFontSize: Theme.captionFont.pixelSize
-            enabled: root.serviceReady && (root.calib.error || "") === ""
+            enabled: root.serviceReady && root.calibrationLoaded && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markCoarse", "Mark as coarse anchor")
             accessibleName: text
-            onClicked: root.markRequested("coarse")
+            onClicked: root.requestMark("coarse")
         }
         Item { Layout.fillWidth: true }
         AccessibleButton {
@@ -291,6 +327,45 @@ ColumnLayout {
             text: TranslationManager.translate("grindcalibration.openEquipment", "Equipment")
             accessibleName: TranslationManager.translate("grindcalibration.openEquipmentAccessible", "Open the Equipment page to see the full grind calibration")
             onClicked: AppShell.equipmentRequested()
+        }
+    }
+
+    ColumnLayout {
+        visible: root.pendingRecreateSide !== ""
+        Layout.fillWidth: true
+        spacing: Theme.scaled(6)
+
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: root._recreatePromptText
+            font: Theme.captionFont
+            color: Theme.textColor
+        }
+        RowLayout {
+            spacing: Theme.scaled(6)
+            AccessibleButton {
+                Layout.preferredHeight: Theme.scaled(32)
+                _customFontSize: Theme.captionFont.pixelSize
+                text: TranslationManager.translate("grindcalibration.recreateNo", "No")
+                accessibleName: TranslationManager.translate("grindcalibration.recreateNoAccessible",
+                    "No, keep the current anchor points")
+                onClicked: root.dropRecreate()
+            }
+            AccessibleButton {
+                Layout.preferredHeight: Theme.scaled(32)
+                _customFontSize: Theme.captionFont.pixelSize
+                primary: true
+                enabled: root.serviceReady && (root.calib.error || "") === ""
+                text: TranslationManager.translate("grindcalibration.recreateYes", "Yes")
+                accessibleName: TranslationManager.translate("grindcalibration.recreateYesAccessible",
+                    "Yes, clear the anchor points and start again from this shot")
+                onClicked: {
+                    const side = root.pendingRecreateSide
+                    root.dropRecreate()
+                    root.markRequested(side, true)
+                }
+            }
         }
     }
 }

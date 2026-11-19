@@ -511,9 +511,11 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
 // success, else the refusal code (the per-shot codes above, notFound, noPackage,
 // noGrinder, writeFailed, or a pair status). Nothing is written on refusal.
 // `expectedPackageId` > 0 refuses ("notInPackage") a shot that now belongs to
-// another package.
+// another package. `replacePair` first clears the other side, so this shot starts a
+// new pair (on any bag) instead of being judged against the old one.
 QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,
-                                   qint64* packageIdOut = nullptr, qint64 expectedPackageId = 0);
+                                   qint64* packageIdOut = nullptr, qint64 expectedPackageId = 0,
+                                   bool replacePair = false);
 
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
 // empty `QJsonObject` when any of the following hold:

@@ -484,6 +484,7 @@ T.Page {
         _pendingAnchorSide = ""
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
+        _pendingAnchorReplace = false
         // Retain the current shot, draft and lease until the replacement loads.
         _stepping = true
         _pendingStepShotId = shotId
@@ -993,6 +994,7 @@ T.Page {
                         postShotReviewPage._pendingAnchorSide = ""
                         postShotReviewPage._pendingAnchorShotId = -1
                         postShotReviewPage._pendingAnchorPackageId = -1
+                        postShotReviewPage._pendingAnchorReplace = false
                         WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", metadataShotId, reason].map(String).join(" "))
                         postShotReviewPage._saveFailed = true
                         if (AccessibilityManager.enabled)
@@ -1451,35 +1453,57 @@ T.Page {
     property string _pendingAnchorSide: ""
     property int _pendingAnchorShotId: -1
     property int _pendingAnchorPackageId: -1
-    function markGrindAnchor(side) {
+    property bool _pendingAnchorReplace: false
+    // A recreate question was answered by the service for the saved shot. Editing any
+    // input the pair is judged on (unsaved, so the section cannot see it) withdraws it.
+    onEditEquipmentIdChanged: grindCalibrationSection.dropRecreate()
+    onEditBeanBrandChanged: grindCalibrationSection.dropRecreate()
+    onEditBeanTypeChanged: grindCalibrationSection.dropRecreate()
+    onEditRoastDateChanged: grindCalibrationSection.dropRecreate()
+    onEditRpmChanged: grindCalibrationSection.dropRecreate()
+    function markGrindAnchor(side, replacePair) {
         if (hasUnsavedChanges)
             saveEditedShot()
         if (Object.keys(_pendingMetadataWrites).length > 0) {
             _pendingAnchorSide = side
             _pendingAnchorShotId = editShotId
             _pendingAnchorPackageId = editEquipmentId
+            _pendingAnchorReplace = replacePair
             return
         }
         if (!_saveFailed)
-            EquipmentService.requestSetGrindAnchor(editShotId, side, editEquipmentId)
+            EquipmentService.requestSetGrindAnchor(editShotId, side, editEquipmentId, replacePair)
     }
     function _sendPendingGrindAnchor() {
         if (_pendingAnchorSide === "") return
         var side = _pendingAnchorSide
         var shotId = _pendingAnchorShotId
         var packageId = _pendingAnchorPackageId
+        var replacePair = _pendingAnchorReplace
         _pendingAnchorSide = ""
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
+        _pendingAnchorReplace = false
         if (!_saveFailed && shotId === editShotId)
-            EquipmentService.requestSetGrindAnchor(shotId, side, packageId)
+            EquipmentService.requestSetGrindAnchor(shotId, side, packageId, replacePair)
     }
 
     Connections {
         target: EquipmentService
-        function onGrindAnchorMarked(shotId, side, error) {
+        function onGrindAnchorMarked(shotId, side, error, replaced, sentPackageId) {
             if (shotId !== postShotReviewPage.editShotId) return
-            var msg = error === ""
+            // A pair refusal of a plain mark becomes the in-place question, unless the
+            // shot's equipment changed while the mark was in flight.
+            if (!replaced && sentPackageId === postShotReviewPage.editEquipmentId
+                    && grindCalibrationSection.offerRecreate(side, error))
+                return
+            var msg = error === "" && replaced
+                ? (side === "fine"
+                   ? TranslationManager.translate("grindcalibration.markedFineNew",
+                       "Fine anchor set. Now mark a shot on a coarser profile as the coarse anchor.")
+                   : TranslationManager.translate("grindcalibration.markedCoarseNew",
+                       "Coarse anchor set. Now mark a shot on a finer profile as the fine anchor."))
+                : error === ""
                 ? (side === "fine"
                    ? TranslationManager.translate("grindcalibration.markedFine", "Marked as the fine anchor")
                    : TranslationManager.translate("grindcalibration.markedCoarse", "Marked as the coarse anchor"))
@@ -3373,7 +3397,7 @@ T.Page {
                     compact: true
                     packageId: postShotReviewPage.editShotData.equipmentId || -1
                     shotId: postShotReviewPage.editShotId
-                    onMarkRequested: function(side) { postShotReviewPage.markGrindAnchor(side) }
+                    onMarkRequested: function(side, replacePair) { postShotReviewPage.markGrindAnchor(side, replacePair) }
                 }
             }
 
