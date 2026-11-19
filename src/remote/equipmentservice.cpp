@@ -189,7 +189,7 @@ void EquipmentService::requestSetGrindAnchor(qint64 shotId, const QString& side,
                                              qint64 expectedPackageId, bool replacePair)
 {
     const QString requestId = newRequestId();
-    m_grindWrites.insert(requestId, side);
+    m_grindWrites.insert(requestId, {side, replacePair, expectedPackageId});
     QVariantMap fields{{QStringLiteral("side"), side},
                        {QStringLiteral("expectedPackageId"), expectedPackageId}};
     if (replacePair) fields.insert(QStringLiteral("replacePair"), true);
@@ -199,7 +199,7 @@ void EquipmentService::requestSetGrindAnchor(qint64 shotId, const QString& side,
 void EquipmentService::requestClearGrindAnchor(qint64 packageId, const QString& side)
 {
     const QString requestId = newRequestId();
-    m_grindWrites.insert(requestId, side);
+    m_grindWrites.insert(requestId, {side});
     send(QStringLiteral("clearGrindAnchor"), packageId, {{QStringLiteral("side"), side}},
          {}, false, requestId);
 }
@@ -238,11 +238,13 @@ void EquipmentService::report(const QString& requestId, const QString& operation
         return;
     }
     if (operation == QStringLiteral("setGrindAnchor")) {
-        emit grindAnchorMarked(id, m_grindWrites.take(requestId), success ? QString() : reason);
+        const GrindWrite write = m_grindWrites.take(requestId);
+        emit grindAnchorMarked(id, write.side, success ? QString() : reason,
+                               write.replacePair, write.expectedPackageId);
         return;
     }
     if (operation == QStringLiteral("clearGrindAnchor"))
-        emit grindAnchorCleared(id, m_grindWrites.take(requestId), success);
+        emit grindAnchorCleared(id, m_grindWrites.take(requestId).side, success);
 }
 void EquipmentService::failPending()
 {

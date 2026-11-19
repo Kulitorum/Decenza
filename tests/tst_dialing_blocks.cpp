@@ -2508,6 +2508,8 @@ private slots:
                     QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
             const qint64 coarse = anchorSeed(db, QStringLiteral("p-coarse"), 1100,
                     QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("18"));
+            const qint64 sameBag = anchorSeed(db, QStringLiteral("p-same"), 1150,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
             const qint64 newBag = anchorSeed(db, QStringLiteral("p-new"), 1200,
                     QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("3"),
                     QStringLiteral("OtherRoaster"));
@@ -2521,6 +2523,11 @@ private slots:
             QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, fine, QStringLiteral("fine")), QString());
             QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, coarse, QStringLiteral("coarse")), QString());
             const qint64 pkg = projectionForShot(db, fine).equipmentId;
+
+            // A plain mark from the same bag swaps one side and keeps the other.
+            QCOMPARE(mark(sameBag, false), QString());
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(db, pkg).fineShotId, sameBag);
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(db, pkg).coarseShotId, coarse);
 
             QCOMPARE(mark(newBag, false), QStringLiteral("differentCoffee"));
             QCOMPARE(mark(unplaced, true), QStringLiteral("noUgs"));

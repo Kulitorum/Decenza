@@ -23,6 +23,7 @@ ColumnLayout {
     onServiceReadyChanged: {
         calib = ({})
         calibrationLoaded = false
+        dropRecreate()
         if (serviceReady) refresh()
     }
 
@@ -120,29 +121,37 @@ ColumnLayout {
     }
 
     // The page owns saving pending edits before a mark, so it handles this.
-    // A full pair exists and this shot holds neither side: marking would start a
-    // new pair, so ask first, in place under the mark buttons.
-    property string pendingRecreateSide: ""
-    readonly property string _recreatePromptText: TranslationManager.translate("grindcalibration.recreatePrompt",
-        "You already have anchor points set for this grinder. Would you like to recreate them?")
-
-    // A question asked about one shot and calibration must not be answered for another:
-    // the page steps between shots in place, and the shot's equipment can be changed.
-    onShotIdChanged: pendingRecreateSide = ""
-    onCalibChanged: pendingRecreateSide = ""
-
     signal markRequested(string side, bool replacePair)
 
+    // Set while asking whether to start a new pair from this shot, after the service
+    // refused a plain mark with `pendingRecreateError`. Dropped when the shot, the
+    // package or the stored anchors change, so Yes never answers for another pair.
+    property string pendingRecreateSide: ""
+    property string pendingRecreateError: ""
+    readonly property string _recreatePromptText: pendingRecreateSide === "" ? ""
+        : TranslationManager.translate("grindcalibration.recreatePrompt",
+              "Not marked: %1. Clear this equipment's anchor points and start again from this shot?")
+              .arg(reasonText(pendingRecreateError))
+    function dropRecreate() {
+        pendingRecreateSide = ""
+        pendingRecreateError = ""
+    }
+    onShotIdChanged: dropRecreate()
+
     function requestMark(side) {
-        if (root._hasAnchors && root.calib.fine.shotId > 0 && root.calib.coarse.shotId > 0
-                && !root._isAnchorShot(root.shotId))
-        {
-            root.pendingRecreateSide = side
-            if (AccessibilityManager.enabled)
-                AccessibilityManager.announce(root._recreatePromptText)
-        }
-        else
-            root.markRequested(side, false)
+        dropRecreate()
+        root.markRequested(side, false)
+    }
+
+    // True when `error` is a refusal a new pair would get past, and the question is now up.
+    function offerRecreate(side: string, error: string): bool {
+        if (error !== "differentCoffee" && error !== "differentRpm" && error !== "tooClose")
+            return false
+        pendingRecreateError = error
+        pendingRecreateSide = side
+        if (AccessibilityManager.enabled)
+            AccessibilityManager.announce(_recreatePromptText)
+        return true
     }
 
     ExternalUrlOpener { id: guideUrlOpener }
@@ -155,6 +164,7 @@ ColumnLayout {
     onPackageIdChanged: {
         calib = ({})
         calibrationLoaded = false
+        dropRecreate()
         refresh()
     }
     Component.onCompleted: refresh()
@@ -167,7 +177,9 @@ ColumnLayout {
             root.calibrationLoaded = true
         }
         function onGrindCalibrationChanged(pid) {
-            if (pid === root.packageId) root.refresh()
+            if (pid !== root.packageId) return
+            root.dropRecreate()
+            root.refresh()
         }
     }
 
@@ -337,19 +349,19 @@ ColumnLayout {
                 text: TranslationManager.translate("grindcalibration.recreateNo", "No")
                 accessibleName: TranslationManager.translate("grindcalibration.recreateNoAccessible",
                     "No, keep the current anchor points")
-                onClicked: root.pendingRecreateSide = ""
+                onClicked: root.dropRecreate()
             }
             AccessibleButton {
                 Layout.preferredHeight: Theme.scaled(32)
                 _customFontSize: Theme.captionFont.pixelSize
                 primary: true
-                enabled: root.serviceReady
+                enabled: root.serviceReady && (root.calib.error || "") === ""
                 text: TranslationManager.translate("grindcalibration.recreateYes", "Yes")
                 accessibleName: TranslationManager.translate("grindcalibration.recreateYesAccessible",
                     "Yes, clear the anchor points and start again from this shot")
                 onClicked: {
                     const side = root.pendingRecreateSide
-                    root.pendingRecreateSide = ""
+                    root.dropRecreate()
                     root.markRequested(side, true)
                 }
             }

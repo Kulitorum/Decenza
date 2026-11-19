@@ -908,12 +908,15 @@ private slots:
         QCOMPARE(marked.first().at(0).toLongLong(), 42);
         QCOMPARE(marked.first().at(1).toString(), QStringLiteral("fine"));
         QCOMPARE(marked.first().at(2).toString(), QStringLiteral("notInPackage"));
+        QCOMPARE(marked.first().at(3).toBool(), false);
+        QCOMPARE(marked.first().at(4).toLongLong(), 7);
         QVERIFY(otherMarked.isEmpty());
         first->requestSetGrindAnchor(43, QStringLiteral("coarse"), 7, true);
         QTRY_COMPARE_WITH_TIMEOUT(source.calls, 2, 5000);
         QCOMPARE(source.lastFields.value(QStringLiteral("replacePair")), QVariant(true));
         emit source.operationCompleted(source.lastRequestId, true, 7, QString());
         QTRY_COMPARE_WITH_TIMEOUT(marked.size(), 2, 5000);
+        QCOMPARE(marked.last().at(3).toBool(), true);
 
         QSignalSpy cleared(first, &EquipmentService::grindAnchorCleared);
         QSignalSpy archivedFailures(first, &EquipmentService::archivedFailed);

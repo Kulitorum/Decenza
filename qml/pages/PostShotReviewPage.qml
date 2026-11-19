@@ -1055,6 +1055,9 @@ T.Page {
     property string editGrinderBurrs: ""
     property string editEquipmentName: ""  // package display name (read-only label)
     property int editEquipmentId: -1
+    // The picker re-points the shot before any save, so the section's own package has
+    // not changed yet; a recreate question asked about the old one must not survive.
+    onEditEquipmentIdChanged: grindCalibrationSection.dropRecreate()
     property int _pendingEquipmentId: -1   // package id awaiting requestPackage resolution
     // Basket + puck prep: read-only display, resolved from the package like the
     // grinder identity; shown in the equipment card, never edited as free text.
@@ -1454,8 +1457,6 @@ T.Page {
     property int _pendingAnchorShotId: -1
     property int _pendingAnchorPackageId: -1
     property bool _pendingAnchorReplace: false
-    // The last mark sent replaced the pair, so its success asks for the other side.
-    property bool _anchorReplaceSent: false
     function markGrindAnchor(side, replacePair) {
         if (hasUnsavedChanges)
             saveEditedShot()
@@ -1466,10 +1467,8 @@ T.Page {
             _pendingAnchorReplace = replacePair
             return
         }
-        if (!_saveFailed) {
-            _anchorReplaceSent = replacePair
+        if (!_saveFailed)
             EquipmentService.requestSetGrindAnchor(editShotId, side, editEquipmentId, replacePair)
-        }
     }
     function _sendPendingGrindAnchor() {
         if (_pendingAnchorSide === "") return
@@ -1481,18 +1480,19 @@ T.Page {
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
         _pendingAnchorReplace = false
-        if (!_saveFailed && shotId === editShotId) {
-            _anchorReplaceSent = replacePair
+        if (!_saveFailed && shotId === editShotId)
             EquipmentService.requestSetGrindAnchor(shotId, side, packageId, replacePair)
-        }
     }
 
     Connections {
         target: EquipmentService
-        function onGrindAnchorMarked(shotId, side, error) {
+        function onGrindAnchorMarked(shotId, side, error, replaced, sentPackageId) {
             if (shotId !== postShotReviewPage.editShotId) return
-            var replaced = postShotReviewPage._anchorReplaceSent
-            postShotReviewPage._anchorReplaceSent = false
+            // A pair refusal of a plain mark becomes the in-place question, unless the
+            // shot's equipment changed while the mark was in flight.
+            if (!replaced && sentPackageId === postShotReviewPage.editEquipmentId
+                    && grindCalibrationSection.offerRecreate(side, error))
+                return
             var msg = error === "" && replaced
                 ? (side === "fine"
                    ? TranslationManager.translate("grindcalibration.markedFineNew",

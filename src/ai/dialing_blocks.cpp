@@ -1862,8 +1862,9 @@ QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QStrin
         || !txn.commit())
         return QStringLiteral("writeFailed");
     EQUIP_INFO_STDERR("GrindCalibration",
-                      QString("package %1 %2 anchor set to shot %3 - pair %4%5")
+                      QString("package %1 %2 anchor set to shot %3%4 - pair %5%6")
                           .arg(shot.equipmentId).arg(side).arg(shotId)
+                          .arg(replacePair ? QStringLiteral(", other side cleared for a new pair") : QString())
                           .arg(st.pairStatus.isEmpty() ? QStringLiteral("incomplete") : st.pairStatus)
                           .arg(st.hasAgreement ? (st.agreesWithHistory ? QStringLiteral(", agrees with history")
                                                                        : QStringLiteral(", DISAGREES with history"))
