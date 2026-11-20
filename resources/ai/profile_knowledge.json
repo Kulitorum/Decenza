@@ -177,9 +177,9 @@
       ],
       "displayName": "Blooming Allonge",
       "ugs": {
-        "value": -0.5,
+        "value": -0.75,
         "inferred": false,
-        "note": "Original at -0.5; an ultralight hybrid variant sits near UGS 7."
+        "note": "Ultra-light coffees, Nordic filter roasts, maximum flavour clarity."
       },
       "analysisFlags": [
         "flow_trend_ok",
@@ -355,9 +355,9 @@
         "Extractamundo Dos!"
       ],
       "ugs": {
-        "value": 1.5,
+        "value": 2.5,
         "inferred": false,
-        "note": "6-bar low pressure allows a coarser, \"juicier\" window."
+        "note": "Low pressure (6 bar) allows this slightly coarser, \"juicier\" window."
       },
       "analysisFlags": [
         "flow_trend_ok",

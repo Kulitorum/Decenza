@@ -12,7 +12,7 @@ Every claim is tagged with a source key (e.g., `[SRC:medium]`). See [Sources](#s
 
 Skip-Catalog: true
 
-The Universal Grind Setting (UGS) chart `[SRC:ugs-chart]` places 16 mainstream DE1 profiles on a relative grind axis. Cremina anchors UGS 0 (finest); Rao Allongé anchors UGS 8 (coarsest). A few profiles fall slightly below 0. The same physical grinder setting will produce very different shots across this range, so when a user switches profiles you should expect — and surface — a directional change in their grind.
+The Universal Grind Setting (UGS) chart `[SRC:ugs-chart]` places 15 mainstream DE1 profiles on a relative grind axis. Cremina anchors UGS 0 (finest); Rao Allongé anchors UGS 8 (coarsest). A few profiles fall slightly below 0. The same physical grinder setting will produce very different shots across this range, so when a user switches profiles you should expect — and surface — a directional change in their grind.
 
 ### CRITICAL: UGS values are NOT grinder clicks
 
@@ -28,8 +28,8 @@ UGS is a **relative scale**, not a unit of grinder adjustment. Mapping UGS dista
 
 | UGS | Profile | Notes |
 |-----|---------|-------|
+| -0.75 | Blooming Allongé | Ultra-light coffees, Nordic filter roasts, maximum flavour clarity. |
 | -0.5 | Blooming Espresso | Finer than Cremina — survives the 30s soak without premature gushing. |
-| -0.5 | Blooming Allongé | Ultra-light Nordic-style filter roasts. |
 | 0 | **Cremina** | Fine anchor. Max puck resistance, high-temp long-contact extraction. |
 | 0 | Londinium / LRv3 | Same fine grind as Cremina for pressurized pre-infusion soak. |
 | 0.5 | D-Flow / default | Fast fill, pressurized soak, nuanced pressure rise. The D-Flow / default profile only — D-Flow / Q (6 bar) is a different D-Flow-editor profile, and Damian's LRv2/LRv3 are separate standalone lever profiles (same author, not D-Flow-editor output); all sit at different grind positions, see the inferred table. |
@@ -38,14 +38,13 @@ UGS is a **relative scale**, not a unit of grinder adjustment. Mapping UGS dista
 | 1.25 | Adaptive v2 | Slightly coarser to favor flow-driven clarity. |
 | 1.25 | Flat 9 Bar (E61) | Constant 9 bar, no pre-infusion. |
 | 1.5 | A-Flow | Long soak "heals" a slightly coarser, faster-flowing puck. |
-| 1.5 | Extractamundo Dos | 6-bar low pressure allows a coarser, "juicier" window. |
 | 2 | Gentle & Sweet | Constant 6 bar, 2–3 ml/s flow. |
+| 2.5 | Extractamundo Dos | Low pressure (6 bar) allows this slightly coarser, "juicier" window. |
 | 5 | Turbo Shot | The "clarity jump" — ~15s with 6-bar ceiling. |
 | 6 | TurboTurbo | Even less resistance; leans toward Allongé flow rate. |
-| 7 | Blooming Allongé (hybrid) | Bloom + high-flow percolation for ultralights. |
 | 8 | **Rao Allongé** | Coarse anchor. Max flow (~4.5 ml/s). |
 
-**Important pattern**: most traditional espresso profiles cluster between 0 and 2 — the difference between Cremina and Gentle & Sweet is only ~2 grinder steps, not a huge swing. There is a large gap between traditional espresso (≤2) and turbo/allongé territory (5+).
+**Important pattern**: most traditional espresso profiles cluster between 0 and 2.5 — the difference between Cremina and Gentle & Sweet is only ~2 grinder steps, not a huge swing. There is a large gap between traditional espresso (≤2.5) and turbo/allongé territory (5+).
 
 ### Inferred positions (not in the UGS chart)
 
@@ -351,7 +350,7 @@ All ship with the generic note *"A-Flow: an alternative profile for D-Flow"* `[S
 
 ### Blooming Allonge
 
-- **UGS**: -0.5 (canonical, original) and 7 (canonical, ultralight hybrid variant) `[SRC:ugs-chart]`
+- **UGS**: -0.75 (canonical) `[SRC:ugs-chart]`
 - **Category**: Blooming/Allonge hybrid `[SRC:eaf-profiling]`
 - **Grind**: Ultra-fine or Turkish `[SRC:eaf-profiling]`
 - **Fill**: ~7-8 ml/s until pressure peaks `[SRC:eaf-profiling]`
@@ -522,7 +521,7 @@ All ship with the generic note *"A-Flow: an alternative profile for D-Flow"* `[S
 
 ### Extractamundo Dos
 
-- **UGS**: 1.5 (canonical) `[SRC:ugs-chart]`
+- **UGS**: 2.5 (canonical) `[SRC:ugs-chart]`
 - **Category**: Pressure `[SRC:light-video]`
 - **How it works**: Very similar to Gentle & Sweet but with a short pre-infusion pause. Fills headspace, pauses for a few seconds (water sits on puck, some dripping occurs), then rises to ~6 bar target pressure. `[SRC:light-video]`
 - **Pressure**: Targets 6 bar, same as G&S. However, with the same grind setting the pre-infusion means it may not quite reach 6 bar — the extra soak creates less puck resistance. Slightly finer grind needed to match G&S pressure. `[SRC:light-video]`
@@ -1128,7 +1127,7 @@ Quick reference for which profiles work across roast levels. All profiles are ma
 | `hcg-grind-chart` | Honest Coffee Guide grind size chart (V60 400–700 µm), with per-grinder settings pages such as the 1Zpresso J-Ultra's | https://honestcoffeeguide.com/coffee-grind-size-chart/ |
 | `decent-guide` | Your First Decent Espresso — official Decent dial-in guide for Adaptive v2 and Londinium | https://decentespresso.com/first_decent_espresso |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
-| `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 16 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
+| `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 15 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
 | `aflow-repo` | A-Flow profile editor source repository — Janek (Jan-Erling Johnsen / Jan3kJ): README editor description, frame structure, key options, and the editor-level dial-in guidance | https://github.com/Jan3kJ/A_Flow |
 | `dflow-author-video` | "Damian's D-Flow Profile" — Decent Espresso livestream (Damian, the D-Flow editor author, + John Buckman); de-duplicated transcript at `docs/dflow_damian_profile_transcript.txt` | https://www.youtube.com/watch?v=3Ib63xBNrzw |
 | `de1app-dflow` | de1app `D_Flow/code.tcl` stock D-Flow profile parameters (fill/infuse/pour/pressure-limit/weight per built-in profile); mirrored in `docs/CLAUDE_MD/PROFILE_EDITORS.md` | *(de1app source: `C:\code\de1app` / `~/Development/GitHub/de1app`)* |
