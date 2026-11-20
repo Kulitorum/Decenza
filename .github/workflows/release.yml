@@ -445,7 +445,11 @@ jobs:
           java-version: '21'
 
       - name: Install minimal host dependencies
-        run: sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
+        # update first: the runner image's package index goes stale, and a
+        # superseded .deb is a 404 on the mirror.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
 
       # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
       # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
