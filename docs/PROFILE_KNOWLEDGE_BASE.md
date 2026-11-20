@@ -76,7 +76,7 @@ When the user changes the **roast** of their bean while staying on the same prof
 2. **When the user transitions between roasts on the same profile**, state the direction the roast change implies, then ground it in their actual shot history by calling `shots_list` filtered by `profileName`. The user's own past pulls on similar roast levels are a stronger anchor than this ordering.
 3. **Concrete grinder numbers come from shot history, not from this table.** When recommending magnitude, either cite a specific reference shot from `shots_list` ("you pulled this profile at grinder setting 7 on a similar bean") or stay qualitative ("a touch coarser", "noticeably coarser"). Never recommend "X UGS coarser" as a grinder-click instruction.
 
-Sources: positions taken verbatim from the UGS calculator's profile list `[SRC:ugs-chart]` (Mark Renowden, see GitHub issue #500). Profiles outside the UGS chart are inferred from the qualitative relationships documented in the per-profile sections below.
+Sources: positions taken verbatim from the UGS calculator's profile list `[SRC:ugs-chart]` (Mark Palmos, https://videoblurb.com; see GitHub issue #500). Profiles outside the UGS chart are inferred from the qualitative relationships documented in the per-profile sections below.
 
 ---
 
@@ -1127,7 +1127,7 @@ Quick reference for which profiles work across roast levels. All profiles are ma
 | `hcg-grind-chart` | Honest Coffee Guide grind size chart (V60 400–700 µm), with per-grinder settings pages such as the 1Zpresso J-Ultra's | https://honestcoffeeguide.com/coffee-grind-size-chart/ |
 | `decent-guide` | Your First Decent Espresso — official Decent dial-in guide for Adaptive v2 and Londinium | https://decentespresso.com/first_decent_espresso |
 | `profile-notes` | Decent profile JSON `notes` field — built-in documentation shipped with each profile | *(embedded in profile JSON files in `resources/profiles/`)* |
-| `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 15 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
+| `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Palmos's relative grind ordering of 15 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
 | `aflow-repo` | A-Flow profile editor source repository — Janek (Jan-Erling Johnsen / Jan3kJ): README editor description, frame structure, key options, and the editor-level dial-in guidance | https://github.com/Jan3kJ/A_Flow |
 | `dflow-author-video` | "Damian's D-Flow Profile" — Decent Espresso livestream (Damian, the D-Flow editor author, + John Buckman); de-duplicated transcript at `docs/dflow_damian_profile_transcript.txt` | https://www.youtube.com/watch?v=3Ib63xBNrzw |
 | `de1app-dflow` | de1app `D_Flow/code.tcl` stock D-Flow profile parameters (fill/infuse/pour/pressure-limit/weight per built-in profile); mirrored in `docs/CLAUDE_MD/PROFILE_EDITORS.md` | *(de1app source: `C:\code\de1app` / `~/Development/GitHub/de1app`)* |
