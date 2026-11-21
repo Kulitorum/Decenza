@@ -2110,6 +2110,7 @@ set(_shared_form_control_sources
     ${CMAKE_SOURCE_DIR}/qml/components/RecipeDrinkCardView.qml
     ${CMAKE_SOURCE_DIR}/qml/components/RecipeDrinkCardStyle.qml
     ${CMAKE_SOURCE_DIR}/qml/components/RecipeCardText.js
+    ${CMAKE_SOURCE_DIR}/qml/components/BagName.js
     ${CMAKE_SOURCE_DIR}/qml/components/DrinkTypeCatalog.js
     ${CMAKE_SOURCE_DIR}/qml/components/RecipeNameEditor.qml
     ${CMAKE_SOURCE_DIR}/qml/components/FormControlStyle.qml
@@ -2138,7 +2139,7 @@ set(_shared_form_control_sources
     ${CMAKE_SOURCE_DIR}/qml/components/SharedSwitchStyle.qml
     ${CMAKE_SOURCE_DIR}/qml/components/SharedStyledSwitch.qml
 )
-foreach(_card_source IN ITEMS SharedMarkdownSource.qml ColorEditor.qml SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
+foreach(_card_source IN ITEMS SharedMarkdownSource.qml ColorEditor.qml SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js BagName.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/qml/components/${_card_source}
         PROPERTIES QT_RESOURCE_ALIAS ${_card_source})
 endforeach()

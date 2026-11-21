@@ -86,7 +86,7 @@ set(shared_qml_files
     ShotGraphView.qml ShotGraphData.qml ShotGraphOptions.qml ShotGraphStyle.qml
     GraphRightAxisLabelsView.qml GraphEndMarkerArea.qml GraphUtils.js
     SharedTextField.qml FormControlStyle.qml SharedSuggestionField.qml RecipeNameEditor.qml
-    RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js ColoredIcon.qml
+    RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js BagName.js DrinkTypeCatalog.js ColoredIcon.qml
     SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js
     SharedBeanThumbnail.qml RecipeSearch.js DateUtils.js GrindSuggestionText.js DrinkType.qml SharedBackgroundSurface.qml
     KeyboardAwareContainer.qml SuggestionField.qml SelectionDialog.qml CardTapArea.qml BeanThumbnail.qml FavoritesRowAction.qml

@@ -20,7 +20,7 @@ When no precondition (3) source exists, the block SHALL still be present but in 
 
 #### Dialed-in qualification filter
 
-A shot qualifies to anchor calibration only when ALL hold:
+A shot qualifies to be mined into calibration pairs only when ALL hold (a shot rated 50+ that fails the weight or badge rule can still be the starting shot or an own setting, per `grinder-ugs-calibration`, but is never mined):
 
 - `final_weight >= 15g`, AND
 - no quality badge is set (`grind_issue_detected = 0`, `channeling_detected = 0`, `pour_truncated_detected = 0`, `skip_first_frame_detected = 0`), AND
@@ -80,7 +80,7 @@ When the resolved shot's own profile has no known canonical UGS, ordering agains
 
 Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` is one of:
 
-- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its top-rated shot rated 75+ or 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting. An own setting from an earlier bag of an undated coffee SHALL carry `earlierBag: true`. A shot rated under 50 SHALL never supply one.
+- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its highest-rated shot rated 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting. An own setting from an earlier bag of an undated coffee SHALL carry `earlierBag: true`. A shot rated under 50 SHALL never supply one.
 - `"derived"` — UGS within the validated range; `rgs` is computed from anchor + conversionKey.
 - `"directional"` — UGS outside the extrapolation window OR no numeric key/anchor available; NO `rgs`; carries `direction` (`"finer"`/`"coarser"`) derived from KB UGS ordering vs the resolved shot's own profile (anchor-free; omitted when the current profile has no canonical UGS).
 

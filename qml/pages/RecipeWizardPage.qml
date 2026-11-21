@@ -13,6 +13,7 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
+import "../components/BagName.js" as BagName
 import "../components/DateUtils.js" as DateUtils
 import "../components/GrindSuggestionText.js" as GrindSuggestionText
 
@@ -2757,7 +2758,7 @@ T.Page {
                                             : TranslationManager.translate("recipes.wizard.addNewCoffee", "Add a new coffee…"))
                                         : bagTile.modelData.isNone
                                             ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
-                                            : (bagTile.modelData.coffeeName || bagTile.modelData.roasterName || "")
+                                            : BagName.shortName(bagTile.modelData)
                                     width: Theme.scaled(170)
                                     height: Theme.scaled(190)
                                     radius: Theme.cardRadius
@@ -2867,7 +2868,7 @@ T.Page {
                                     AccessibleMouseArea {
                                         anchors.fill: parent
                                         accessibleName: bagTile.isGhost ? bagTile.tileTitle
-                                            : (((bagTile.modelData.roasterName || "") + " " + (bagTile.modelData.coffeeName || "")).trim()
+                                            : (BagName.fullName(bagTile.modelData)
                                                + (bagGridFlick.roastAgeLine(bagTile.modelData) !== ""
                                                    ? ", " + bagGridFlick.roastAgeLine(bagTile.modelData) : ""))
                                         accessibleItem: bagTile
@@ -3452,8 +3453,11 @@ T.Page {
                                     // Tap to accept: an estimate can be wrong (#1223),
                                     // so it never fills the field by itself.
                                     AccessibleButton {
+                                        // Also when only the RPM differs: Use pins it too.
                                         visible: wizardPage._hasGrindSuggestion
-                                                 && wizardPage.fGrind.trim() !== wizardPage.grindSuggestion.setting
+                                                 && (wizardPage.fGrind.trim() !== wizardPage.grindSuggestion.setting
+                                                     || (Number(wizardPage.grindSuggestion.startRpm || 0) > 0
+                                                         && wizardPage.fRpmPinned !== Number(wizardPage.grindSuggestion.startRpm)))
                                         Layout.alignment: Qt.AlignVCenter
                                         _customFontSize: Theme.captionFont.pixelSize
                                         text: TranslationManager.translate("recipes.wizard.grindSuggestion.use", "Use %1")

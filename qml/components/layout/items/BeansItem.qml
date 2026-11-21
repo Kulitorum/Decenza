@@ -10,6 +10,7 @@ import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../PillFit.js" as PillFit
+import "../../BagName.js" as BagName
 
 LayoutWidgetItem {
     id: root
@@ -59,7 +60,7 @@ LayoutWidgetItem {
     function _beanPillWidths() {
         var out = []
         for (let i = 0; i < inventoryBags.length; ++i)
-            out.push(beanPillMetrics.advanceWidth(root.bagLabel(inventoryBags[i])) + Theme.scaled(40))
+            out.push(beanPillMetrics.advanceWidth(BagName.shortName(inventoryBags[i])) + Theme.scaled(40))
         return out
     }
     readonly property var _beanPageSizes: {
@@ -81,11 +82,6 @@ LayoutWidgetItem {
         return inventoryBags.slice(start, start + (_beanPageSizes[idx] || 0))
     }
 
-    function bagLabel(bag) {
-        if (!bag) return ""
-        var coffee = bag.coffeeName || ""
-        return coffee.length > 0 ? coffee : (bag.roasterName || "")
-    }
 
     Component.onCompleted: BagService.requestInventory()
 
@@ -233,8 +229,8 @@ LayoutWidgetItem {
             var names = []
             var selectedName = ""
             for (let i = 0; i < bags.length; ++i) {
-                names.push(root.bagLabel(bags[i]))
-                if (bags[i].id === BagService.activeBagId) selectedName = root.bagLabel(bags[i])
+                names.push(BagName.shortName(bags[i]))
+                if (bags[i].id === BagService.activeBagId) selectedName = BagName.shortName(bags[i])
             }
             var announcement = bags.length + " " + TranslationManager.translate("idle.accessible.bags", "bags") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -291,7 +287,7 @@ LayoutWidgetItem {
         contentItem: PresetPillRow {
             id: beansPillRow
             maxWidth: Theme.scaled(600)
-            presets: root.visibleBags.map(function(b) { return { name: root.bagLabel(b) } })
+            presets: root.visibleBags.map(function(b) { return { name: BagName.shortName(b) } })
             selectedIndex: {
                 var list = root.visibleBags
                 for (let i = 0; i < list.length; ++i) {

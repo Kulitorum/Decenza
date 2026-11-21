@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
+import "BagName.js" as BagName
 import "DateUtils.js" as DateUtils
 import "GrindSuggestionText.js" as GrindSuggestionText
 
@@ -62,8 +63,10 @@ DecenzaDialog {
             + "|" + root.profileTitle + "|" + HistoryService.historyRevision
     }
     onRequestKeyChanged: if (root.visible) root.requestSuggestion()
-    // No active bean, or it is gone: start from the most recently used one.
-    onBagsChanged: if (!root.selectedBag && root.bags.length > 0) root.bagId = Number(root.bags[0].id)
+    // No active bean, or it is gone: start from the most recently used one. Tested on
+    // the new list itself: selectedBag may not have re-evaluated yet.
+    onBagsChanged: if (root.bags.length > 0 && !root.bags.some(b => Number(b.id) === root.bagId))
+                       root.bagId = Number(root.bags[0].id)
 
     readonly property string suggestedSetting: String(root.suggestion.setting || "")
     readonly property string alternativeSetting: String(root.suggestion.altSetting || "")
@@ -84,12 +87,27 @@ DecenzaDialog {
         return TranslationManager.translate(key, fallback)
     }
 
-    function bagLabel(bag: var): string {
-        if (!bag) return ""
-        const coffee = String(bag.coffeeName || "")
-        const roaster = String(bag.roasterName || "")
-        if (coffee.length > 0 && roaster.length > 0) return roaster + " · " + coffee
-        return coffee.length > 0 ? coffee : roaster
+    // Tab order (ACCESSIBILITY.md Rule 3): a closed loop over whatever is shown.
+    function focusOrder(): var {
+        const items = [sourceArea, ratedButton, latestButton, alternativeArea, beanButton, profileButton]
+        for (let i = 0; i < choiceList.count; ++i) {
+            const choice = choiceList.itemAtIndex(i)
+            if (choice) items.push(choice)
+        }
+        items.push(cancelButton, applyButton)
+        return items.filter(function(item) { return item.visible && item.enabled })
+    }
+
+    function moveFocus(from: Item, step: int): void {
+        const order = root.focusOrder()
+        if (order.length === 0) return
+        const at = order.indexOf(from)
+        order[(at + step + order.length) % order.length].forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    onOpened: {
+        const order = root.focusOrder()
+        if (order.length > 0) order[0].forceActiveFocus()
     }
 
     function chartedProfileTitles(): var {
@@ -262,6 +280,11 @@ DecenzaDialog {
             root.failApply("grind", "unavailable")
             return
         }
+        // Another client may have switched the bag meanwhile; this grind is not for it.
+        if (BagService.activeBagId !== root.bagId) {
+            root.failApply("grind", "bagChanged")
+            return
+        }
         const values = { "dyeGrinderSetting": root._applySetting }
         // A setting at another RPM is a different grind: carry the shot's RPM with it.
         if (root._applyRpm > 0)
@@ -384,8 +407,9 @@ DecenzaDialog {
             text: root.statusText()
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
-            // Read once: by the tap area when there is a shot to open, else as text.
-            Accessible.ignored: sourceArea.visible
+            // Read once: by the tap area when there is a shot to open, by the number's
+            // name when there is no number, else as text.
+            Accessible.ignored: sourceArea.visible || root.chosenSetting.length === 0
 
             AccessibleMouseArea {
                 id: sourceArea
@@ -394,6 +418,8 @@ DecenzaDialog {
                 enabled: !root.applying
                 accessibleName: sourceLine.text
                 onAccessibleClicked: root.openShot(root._chosenShotId)
+                Keys.onTabPressed: root.moveFocus(sourceArea, 1)
+                Keys.onBacktabPressed: root.moveFocus(sourceArea, -1)
             }
         }
 
@@ -409,18 +435,26 @@ DecenzaDialog {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
                 AccessibleButton {
+                    id: ratedButton
                     Layout.fillWidth: true
                     text: root.suggestedSetting
                     primary: !root.useAlternative
+                    accessibleDescription: !root.useAlternative ? root.tr("accessibility.selected", "selected") : ""
+                    Keys.onTabPressed: root.moveFocus(ratedButton, 1)
+                    Keys.onBacktabPressed: root.moveFocus(ratedButton, -1)
                     accessibleName: root.tr("geniusGrind.alternative.useRated",
                                             "Use %1, from your rated shot").arg(root.suggestedSetting)
                     enabled: !root.applying
                     onClicked: root.useAlternative = false
                 }
                 AccessibleButton {
+                    id: latestButton
                     Layout.fillWidth: true
                     text: root.alternativeSetting
                     primary: root.useAlternative
+                    accessibleDescription: root.useAlternative ? root.tr("accessibility.selected", "selected") : ""
+                    Keys.onTabPressed: root.moveFocus(latestButton, 1)
+                    Keys.onBacktabPressed: root.moveFocus(latestButton, -1)
                     accessibleName: root.tr("geniusGrind.alternative.useLatest",
                                             "Use %1, from your latest shot").arg(root.alternativeSetting)
                     enabled: !root.applying
@@ -444,6 +478,8 @@ DecenzaDialog {
                     enabled: !root.applying
                     accessibleName: alternativeLine.text
                     onAccessibleClicked: root.openShot(root._otherShotId)
+                    Keys.onTabPressed: root.moveFocus(alternativeArea, 1)
+                    Keys.onBacktabPressed: root.moveFocus(alternativeArea, -1)
                 }
             }
         }
@@ -462,8 +498,11 @@ DecenzaDialog {
                 color: Theme.textSecondaryColor
             }
             AccessibleButton {
+                id: beanButton
                 Layout.fillWidth: true
-                text: root.selectedBag ? root.bagLabel(root.selectedBag)
+                Keys.onTabPressed: root.moveFocus(beanButton, 1)
+                Keys.onBacktabPressed: root.moveFocus(beanButton, -1)
+                text: root.selectedBag ? BagName.fullName(root.selectedBag)
                                        : root.tr("geniusGrind.chooseBean", "Choose a bean")
                 labelElide: Text.ElideRight
                 accessibleName: root.tr("geniusGrind.changeBean", "Change bean") + ": " + text
@@ -477,7 +516,10 @@ DecenzaDialog {
                 color: Theme.textSecondaryColor
             }
             AccessibleButton {
+                id: profileButton
                 Layout.fillWidth: true
+                Keys.onTabPressed: root.moveFocus(profileButton, 1)
+                Keys.onBacktabPressed: root.moveFocus(profileButton, -1)
                 text: root.profileTitle.length > 0 ? root.profileTitle
                                                    : root.tr("geniusGrind.chooseProfile", "Choose a profile")
                 labelElide: Text.ElideRight
@@ -510,10 +552,13 @@ DecenzaDialog {
                 readonly property bool isCurrent: choice.isBean
                     ? Number(choice.modelData.id) === root.bagId
                     : String(choice.modelData) === root.profileTitle
-                text: choice.isBean ? root.bagLabel(choice.modelData) : String(choice.modelData)
+                text: choice.isBean ? BagName.fullName(choice.modelData) : String(choice.modelData)
                 labelElide: Text.ElideRight
                 accessibleName: choice.text
+                accessibleDescription: choice.isCurrent ? root.tr("accessibility.selected", "selected") : ""
                 primary: choice.isCurrent
+                Keys.onTabPressed: root.moveFocus(choice, 1)
+                Keys.onBacktabPressed: root.moveFocus(choice, -1)
                 onClicked: {
                     if (choice.isBean) root.bagId = Number(choice.modelData.id)
                     else root.profileTitle = String(choice.modelData)
@@ -530,16 +575,22 @@ DecenzaDialog {
             spacing: Theme.spacingMedium
 
             AccessibleButton {
+                id: cancelButton
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
+                Keys.onTabPressed: root.moveFocus(cancelButton, 1)
+                Keys.onBacktabPressed: root.moveFocus(cancelButton, -1)
                 text: root.tr("common.button.cancel", "Cancel")
                 accessibleName: root.tr("geniusGrind.cancel", "Cancel without changes")
                 enabled: !root.applying
                 onClicked: root.close()
             }
             AccessibleButton {
+                id: applyButton
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
+                Keys.onTabPressed: root.moveFocus(applyButton, 1)
+                Keys.onBacktabPressed: root.moveFocus(applyButton, -1)
                 primary: true
                 enabled: root.chosenSetting.length > 0 && !root.applying
                 text: root.tr("geniusGrind.apply", "Apply")

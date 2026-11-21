@@ -1,4 +1,5 @@
 .pragma library
+.import "BagName.js" as BagName
 
 // Pure card-row formatting shared by native and browser host adapters.
 // Translation and drink-type policy remain caller supplied so this module has
@@ -23,7 +24,7 @@ function drinkLine(recipe, drinkType, steam, hotWater, isHotWaterOnly,
 function beanLine(recipe, shotsWord) {
     recipe = recipe || ({})
     var parts = []
-    var bean = ((recipe.roasterName || "") + " " + (recipe.coffeeName || "")).trim()
+    var bean = BagName.fullName(recipe)
     if (bean !== "")
         parts.push(bean)
     if ((recipe.shotCount || 0) > 0)

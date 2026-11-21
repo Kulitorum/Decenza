@@ -542,8 +542,9 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 // (startShotSetting is the shot's own setting), and when another reading is a grind
 // step or more away: altSetting, altSource, alt* fields, daysBetween}. Without a
 // number: {reason (noEquipment | profileNotOnChart | noBean | noGrinder | noShots |
-// dbError | noStart | notCalibrated | outsideRange), grindStep}, and for
-// notCalibrated / outsideRange also start* fields, ugsDelta and ugsDirection.
+// dbError | noStart | notCalibrated | outsideRange)}; noStart, notCalibrated and
+// outsideRange also carry grindStep, and the last two start* fields, ugsDelta and
+// ugsDirection.
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,
                                const QString& profileTitle);

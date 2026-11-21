@@ -11,7 +11,7 @@ function sourceLine(s, prefix, source, targetTitle, when, tr) {
     var setting = String(s[prefix + "ShotSetting"] || "")
     var rating = Number(s[prefix + "Rating"] || 0)
     var earlier = s[prefix + "EarlierBag"] === true
-        ? " " + tr("geniusGrind.source.earlierBag", "(from an earlier bag of this coffee)")
+        ? " " + tr("geniusGrind.source.earlierBag", "It is from an earlier bag.")
         : ""
     switch (source) {
     case "rated":

@@ -379,6 +379,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/BackgroundSurface.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
 | `qml/components/BagCard.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
 | `qml/components/BagLifecycleLabels.qml` | 26 | native + Wasm | state/style/interaction producer; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BagName.js` | 26 | native + Wasm | policy/data producer; `RecipeWizardPage.qml` (26.2) |
 | `qml/components/BeanBaseDetailsPopup.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
 | `qml/components/BeanBaseDetailsRow.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/BeanBaseSearchBar.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |

@@ -93,7 +93,7 @@ Apply SHALL activate the chosen bag, then load the chosen profile, then set the 
 
 ### Requirement: A Genius Grind Apply in flight SHALL finish
 
-While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once.
+While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once. If the active bag is no longer the chosen one when the grind is due (another client changed it), Apply SHALL stop and report instead of writing the grind.
 
 #### Scenario: Cancel during Apply
 
@@ -109,7 +109,7 @@ While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and
 
 ### Requirement: The Genius Grind popup SHALL say why there is no number
 
-Without a suggestion the popup SHALL say why: no active equipment, no bean chosen, the current coffee needs a name (its bag has neither a roaster nor a coffee name), no usable shot of the bean, the profile is not on the UGS chart, the grinder is not calibrated yet, or the profile is outside the range the shots cover. For an uncalibrated grinder or a profile outside the range, it SHALL show the move in UGS from the starting shot.
+Without a suggestion the popup SHALL say why: no active equipment, no bean chosen, the current coffee needs a name (its bag has neither a roaster nor a coffee name), the equipment has no grinder, no usable shot of the bean, the shots could not be read, the profile is not on the UGS chart, the grinder is not calibrated yet, or the profile is outside the range the shots cover. For an uncalibrated grinder or a profile outside the range, it SHALL show the move in UGS from the starting shot.
 
 #### Scenario: Unnamed coffee
 

@@ -78,7 +78,7 @@ The rules here cover each, checked by an independent replay of Mark's database (
 - **His reference shot** maps to rating the shot.
 - **Non-coffee drinks never count** (cleaning, tea and the rest), as the user decided; the one rated cleaning shot in Mark's data is excluded by that rule, not a coverage gap.
 - **An unnamed coffee** (a bag with neither a roaster nor a coffee name) gets `noBean`, and the popup asks for the coffee to be named. The bag dialog already refuses to save such a bag, and none exists in Mark's data or Jeff's, so this is a message for a state normal use can't reach.
-- **The weaker tiers** (rated 50–74, same UGS, earlier bag) are named as such in the popup, so the user can judge them.
+- **The weaker sources** (same UGS, earlier bag) are named as such in the popup, and every rated shot shows its rating, so the user can judge them.
 - **Shots rated under 50 are excluded by the user's rule**, like non-coffee drinks: a prototype number built on one is not a gap.
 
 **Rated shots skip the badges, the 15 g floor and target weight, but not the beverage type.** The calibration's per-shot rejection bundles the badge check with the beverage check and the 15 g floor. The rated list therefore applies only the beverage check, the package, a parsable setting and a UGS-placed profile.

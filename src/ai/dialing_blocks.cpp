@@ -1196,7 +1196,8 @@ const GrinderAliases::GrinderEntry& grinderEntryOrDefault(const QString& grinder
 void selectStartingShots(const QList<CalRow>& rows, GrindCalibrationStatus& st)
 {
     // A shot rated 1-49 is a bad shot: it never counts, not even as the latest.
-    // Everything else in `rows` already passed the dialed-in gate or is rated 50+.
+    // Everything else in `rows` passed the dialed-in gate, is rated 50+, or is a
+    // marked anchor (the user's own pick).
     const auto isGood = [](const CalRow& r) {
         return !(r.enjoyment > 0 && r.enjoyment < kCalibGoodRating);
     };
@@ -1560,18 +1561,17 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         }
     }
 
-    // Current-batch membership for the starting shot: same bean, and for a dated
-    // bag its own roast date only; an undated coffee takes the 90-day window of the
-    // current shot ("within 90 days of one another").
+    // Current-batch membership for the starting shot: same bean; a dated bag is its
+    // own roast date only; an undated bag is the undated shots within 90 days of the
+    // current shot, and its earlier bags the undated shots beyond that.
     for (CalRow& r : rows) {
         if (!curBeanResolved || !r.beanOk) continue;  // batch-unknowable
         if (!normEq(r.bean, curBean)) continue;
         if (curDated)
             r.currentBatch = r.dated && normEq(r.roast, cur.roastDate);
         else
-            r.currentBatch = qAbs(r.ts - cur.timestamp) <= batchGapSec;
-        // An undated coffee's earlier bags: the same coffee outside the window.
-        r.earlierBag = !curDated && !r.currentBatch;
+            r.currentBatch = !r.dated && qAbs(r.ts - cur.timestamp) <= batchGapSec;
+        r.earlierBag = !curDated && !r.dated && !r.currentBatch;
     }
 
     // ---- Within-batch paired conversion key (D1) ----
@@ -1759,7 +1759,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // Dial + RPM are two independent grind axes, and pairs are not split by RPM, so
     // every approximate `rgs` holds only at the coffeeAnchor shot's RPM.
     block["variableRpm"] = rpmCapable;
-    if (rpmCapable && approximate) {
+    if (rpmCapable && approximate && anchorRpm > 0) {
         usage += QStringLiteral(
             " This grinder has variable RPM: the recommended setting "
             "applies only at the SAME RPM as the coffeeAnchor shot. "
@@ -1886,14 +1886,17 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
         return refuse(QStringLiteral("noBean"));
     // A bag with no roaster can pass a null QString, which QSQLITE binds as SQL NULL
     // (qsql_sqlite.cpp:506, qsqlresult.cpp:604-605) and which equals nothing.
-    // A dated bag is one roast batch; an undated one is the bean.
+    // A dated bag is its own roast date; an undated one never resolves to a dated
+    // bag's shot, which would make that bag current.
     const bool dated = !roastDate.trimmed().isEmpty() && roastDate.trimmed() != QLatin1String("--");
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
         "SELECT id FROM shots WHERE equipment_id = :pkg "
         "AND LOWER(TRIM(COALESCE(bean_brand, ''))) = LOWER(TRIM(COALESCE(:brand, ''))) "
-        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(COALESCE(:type, ''))) ")
-        + (dated ? QStringLiteral("AND TRIM(roast_date) = TRIM(:roast) ") : QString())
+        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(COALESCE(:type, ''))) "
+        "AND LOWER(TRIM(COALESCE(beverage_type, ''))) IN ('', 'espresso') ")
+        + (dated ? QStringLiteral("AND TRIM(roast_date) = TRIM(:roast) ")
+                 : QStringLiteral("AND TRIM(COALESCE(roast_date, '')) IN ('', '--') "))
         + QStringLiteral("ORDER BY timestamp DESC LIMIT 1"));
     q.bindValue(QStringLiteral(":pkg"), packageId);
     q.bindValue(QStringLiteral(":brand"), beanBrand);
@@ -1927,13 +1930,15 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
         out.insert(prefix + QStringLiteral("Rpm"), st.rpmCapable ? s.rpm : 0);
         out.insert(prefix + QStringLiteral("EarlierBag"), s.earlierBag);
     };
-    // The other reading is offered only a grind step or more away, compared on the
-    // grinder's linear scale so compound dials ("1+4" vs "1+5") compare correctly.
+    // The other reading is offered only a grind step or more away. The step is the
+    // picker's, derived from plain numeric settings only, so a compound dial ("1+4")
+    // has none of its own; there the finest step is what the reading can show.
+    const bool compound = gEntry.notation == GrinderAliases::SettingNotation::Compound;
     const auto putAlternative = [&](QVariantMap& out, double reading, const GrindStartShot& rated,
                                     const GrindStartShot& alt, double altReading,
                                     const QString& altSource) {
-        if (!alt.isValid() || std::abs(altReading - reading) < step - 1e-9
-            || fmt(altReading) == fmt(reading))
+        if (!alt.isValid() || fmt(altReading) == fmt(reading)
+            || (!compound && std::abs(altReading - reading) < step - 1e-9))
             return;
         putShot(out, QStringLiteral("alt"), alt);
         out.insert(QStringLiteral("altSetting"), fmt(altReading));

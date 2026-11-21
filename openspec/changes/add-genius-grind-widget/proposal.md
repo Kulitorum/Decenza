@@ -54,7 +54,9 @@ None.
 - The AI payload changes: `coffeeAnchor` may be a rated shot and carries its rating, and a profile's `history` number is its latest good shot rather than the median. MCP output fields only, so the tool surface version is unchanged.
 - `src/ai/aimanager.cpp` / `.h`, `src/main.cpp`: the dead grind methods, signals and their forwarding `connect` are deleted.
 - New QML: `qml/components/GeniusGrindDialog.qml`, `qml/components/layout/items/GeniusGrindItem.qml`. These are registered in `CMakeLists.txt`, `src/webclient/CMakeLists.txt`, `LayoutItemDelegate.qml`, `widgetCatalogTable()` and the QML inventory in the wasm design doc.
-- `qml/pages/RecipeWizardPage.qml`: reads the renamed start fields, and names the starting shot's rating.
-- Uses the existing `EquipmentService.requestGrindSuggestion`, `BagService`, `ProfileService`, `HistoryService` and `RecipeContext`. No new service operation, schema change or setting.
+- `qml/pages/RecipeWizardPage.qml`: reads the renamed start fields and names the starting shot in the popup's words.
+- New shared JS: `GrindSuggestionText.js` (the sentence the popup and wizard share), `BagName.js` (a bag's short and full name, replacing the copies in the idle page, Beans widget, bag card, Recipes page, recipe card text and wizard), and `DateUtils.shotTimeLabel` (replacing two hand-written copies).
+- `EquipmentService.requestGrindSuggestion` returns a request id, echoed in its reply.
+- Uses the existing `BagService`, `ProfileService`, `HistoryService` and `RecipeContext`. No new service operation, schema change or setting.
 - Tests in `tests/tst_dialing_blocks.cpp`; wiki manual section for the widget.
 - Credit: the widget and popup are Mark's work; the squash commit carries his `Co-authored-by:` trailer.

@@ -9,6 +9,7 @@ import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
+import "../components/BagName.js" as BagName
 import "../components/layout/PillFit.js" as PillFit
 
 T.Page {
@@ -336,17 +337,11 @@ T.Page {
     readonly property var _beanPageSizes: {
         var w = []
         for (let i = 0; i < inventoryBags.length; ++i)
-            w.push(idlePillMetrics.advanceWidth(bagLabel(inventoryBags[i])) + Theme.scaled(40))
+            w.push(idlePillMetrics.advanceWidth(BagName.shortName(inventoryBags[i])) + Theme.scaled(40))
         return _pillPagesFor(w, beanPresetLoader.width)
     }
     readonly property int beanPageCount: Math.max(1, _beanPageSizes.length)
     readonly property var visibleBags: _pillPageSlice(inventoryBags, _beanPageSizes, beanPageIndex)
-
-    function bagLabel(bag: var): string {
-        if (!bag) return ""
-        var coffee = bag.coffeeName || ""
-        return coffee.length > 0 ? coffee : (bag.roasterName || "")
-    }
 
     function startCurrentEspresso() { HomePresetActions.startEspresso() }
 
@@ -795,10 +790,10 @@ T.Page {
                 }
                 case "beans":
                     // Announce the visible page (the row just reset to page 1).
-                    presets = idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
+                    presets = idlePage.visibleBags.map(function(b) { return { name: BagName.shortName(b) } })
                     for (let bi = 0; bi < idlePage.visibleBags.length; ++bi) {
                         if (idlePage.visibleBags[bi].id === BagService.activeBagId) {
-                            selectedName = idlePage.bagLabel(idlePage.visibleBags[bi])
+                            selectedName = BagName.shortName(idlePage.visibleBags[bi])
                             break
                         }
                     }
@@ -1191,7 +1186,7 @@ T.Page {
                 sourceComponent: PresetPillRow {
                     id: inlineBeanPresetRow
                     maxWidth: beanPresetLoader.width
-                    presets: idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
+                    presets: idlePage.visibleBags.map(function(b) { return { name: BagName.shortName(b) } })
                     selectedIndex: {
                         var list = idlePage.visibleBags
                         for (let i = 0; i < list.length; ++i) {

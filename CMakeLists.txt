@@ -1923,6 +1923,7 @@ set(QML_FILES
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml
     qml/components/QrCode.qml
+    qml/components/BagName.js
     qml/components/DateUtils.js
     qml/components/GrindSuggestionText.js
     qml/components/GraphUtils.js

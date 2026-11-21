@@ -76,7 +76,7 @@ The starting shot SHALL be the first of, in the current bag: the highest-rated s
 
 ### Requirement: A dated bag SHALL be its own roast date
 
-For a bag with a roast date, the current bag SHALL be the shots of that coffee with that roast date only. Neither an undated shot of the same coffee nor another roast date SHALL start a suggestion for it or count as its earlier bag.
+For a bag with a roast date, the current bag SHALL be the shots of that coffee with that roast date only. Neither an undated shot of the same coffee nor another roast date SHALL start a suggestion for it or count as its earlier bag. Likewise an undated bag SHALL count only undated shots, for its current bag and its earlier bags.
 
 #### Scenario: A dated bag starts from its own roast date
 
