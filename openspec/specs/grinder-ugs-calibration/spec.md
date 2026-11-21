@@ -210,7 +210,7 @@ updated status.
 ### Requirement: The calibration section SHALL link the original UGS guide
 
 The calibration section SHALL offer a button that opens the original Universal
-Grind Setting guide (`https://videoblurb.com/UGS/ugsinfo.html`) in an in-app
+Grind Setting guide (`https://videoblurb.com/UGS/`) in an in-app
 dialog, loaded live from that URL with Qt WebView so it looks exactly like the
 original. The dialog SHALL show the page's current URL above the page and SHALL
 offer to open it in the system browser. Nothing SHALL overlap the web view.

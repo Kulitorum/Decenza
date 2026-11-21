@@ -1492,20 +1492,34 @@ T.Page {
     // for a different profile. A number appears only through grindSuggestion,
     // i.e. when the grinder calibration's own gates publish one.
     property string grindHint: ""
-    // When the grinder calibration publishes a number for the picked profile on
-    // this bag (add-grinder-ugs-calibration), it replaces the direction-only hint.
+    // When the grind suggestion has a number for the picked profile on this bag,
+    // it replaces the direction-only hint, naming the shot it rests on.
     property var grindSuggestion: ({})
     readonly property bool _hasGrindSuggestion: (grindSuggestion.setting || "") !== ""
     readonly property string grindSuggestionText: {
         if (!_hasGrindSuggestion) return ""
-        return grindSuggestion.source === "history"
-            ? TranslationManager.translate("recipes.wizard.grindSuggestion.history",
-                  "Your shots of this bean on %1 ground at %2.")
-                  .arg(fProfileTitle).arg(grindSuggestion.setting)
-            : TranslationManager.translate("recipes.wizard.grindSuggestion.estimate",
-                  "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4).")
-                  .arg(fProfileTitle).arg(grindSuggestion.setting)
-                  .arg(grindSuggestion.anchorProfileName || "").arg(grindSuggestion.anchorSetting || "")
+        const g = grindSuggestion
+        const rating = Number(g.startRating || 0)
+        if (g.source === "derived")
+            return rating > 0
+                ? TranslationManager.translate("recipes.wizard.grindSuggestion.estimateRated",
+                      "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4, rated %5).")
+                      .arg(fProfileTitle).arg(g.setting).arg(g.startProfileName || "")
+                      .arg(g.startSetting || "").arg(rating)
+                : TranslationManager.translate("recipes.wizard.grindSuggestion.estimate",
+                      "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4).")
+                      .arg(fProfileTitle).arg(g.setting).arg(g.startProfileName || "").arg(g.startSetting || "")
+        if (g.source === "rated")
+            return TranslationManager.translate("recipes.wizard.grindSuggestion.rated",
+                       "Your %1 shot of this bean rated %2 was ground at %3.")
+                       .arg(fProfileTitle).arg(rating).arg(g.setting)
+        if (g.source === "sameUgs")
+            return TranslationManager.translate("recipes.wizard.grindSuggestion.sameUgs",
+                       "Your %1 shot of this bean, at the same UGS as %2, was ground at %3.")
+                       .arg(g.startProfileName || "").arg(fProfileTitle).arg(g.setting)
+        return TranslationManager.translate("recipes.wizard.grindSuggestion.latest",
+                   "Your latest %1 shot of this bean was ground at %2.")
+                   .arg(fProfileTitle).arg(g.setting)
     }
     // True once the user has typed in a details field (or an existing recipe
     // was loaded). The profile/bag seeds fill the fields synchronously so the

@@ -137,6 +137,7 @@ Item {
                 case "milkWeight":       src = "items/MilkWeightItem.qml"; break
                 case "ratioQuickSelect": src = "items/RatioQuickSelectItem.qml"; break
                 case "grindQuickSelect": src = "items/GrindQuickSelectItem.qml"; break
+                case "geniusGrind":      src = "items/GeniusGrindItem.qml"; break
                 case "temperatureQuickSelect": src = "items/TempQuickSelectItem.qml"; break
                 case "shotPlan":         src = "items/ShotPlanItem.qml"; break
                 case "spacer":           src = "items/SpacerItem.qml"; break

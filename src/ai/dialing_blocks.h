@@ -8,6 +8,7 @@
 #include "../history/shotscope.h"       // AdviceScope — required by every DB-backed builder
 
 #include <QDateTime>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -453,6 +454,30 @@ struct GrindAnchorCandidate {
     qint64 shotId = 0;
 };
 
+// A shot the grind numbers rest on: the calibration's starting shot, or a profile's
+// own setting (add-genius-grind-widget).
+struct GrindStartShot {
+    qint64 shotId = 0;     // 0 = none
+    QString kbId;
+    QString profileName;   // the shot's own profile title (the knowledge-base name if it has none)
+    double ugs = std::numeric_limits<double>::quiet_NaN();
+    double setting = std::numeric_limits<double>::quiet_NaN();
+    qint64 timestamp = 0;  // epoch seconds
+    int rating = 0;        // 0 = unrated
+    int rpm = 0;           // 0 = none recorded
+    bool earlierBag = false;
+    bool isValid() const { return shotId > 0; }
+};
+
+// A profile's own setting from the current bag (or an earlier bag of an undated
+// coffee). `alternative` is the profile's latest good shot when `shot` is a rated
+// one with a different setting, so the user can see both readings.
+struct GrindOwnSetting {
+    GrindStartShot shot;
+    QString source;        // rated | history | sameUgs
+    GrindStartShot alternative;
+};
+
 struct GrindCalibrationStatus {
     struct Anchor {
         qint64 shotId = 0;     // 0 = unset
@@ -478,6 +503,11 @@ struct GrindCalibrationStatus {
     QString basis;                      // "", history, anchors, both
     QString rangeFromProfile;           // KB profiles at the ends of the numeric window
     QString rangeToProfile;
+    double validLo = std::numeric_limits<double>::quiet_NaN();  // validated UGS window
+    double validHi = std::numeric_limits<double>::quiet_NaN();
+    GrindStartShot start;               // the intercept every derived number moves from
+    GrindStartShot startAlternative;    // latest good shot on start's profile, when start is rated and differs
+    QHash<QString, GrindOwnSetting> ownSettings;  // kbId -> the bag's own setting
     QVariantMap toVariantMap() const;
 };
 
@@ -499,10 +529,12 @@ inline constexpr const char* kUgsGuideUrl = "https://videoblurb.com/UGS/";
 // espresso shot. An empty map when the package has no espresso shot or grinder.
 QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 
-// The recipe wizard's starting grind for `profileTitle` on this bag and equipment:
-// the calibration block's entry for that profile, anchored on the bag's latest
-// shot on the package. {setting, source ("history" | "derived"), anchorProfileName,
-// anchorSetting}, or empty when the block publishes no number for that profile.
+// The grind suggestion for `profileTitle` on this bag and equipment (recipe wizard and
+// Genius Grind widget). A profile the bag has its own setting for gets it with or
+// without a key; any other is the starting shot moved by the key.
+// {setting, source (rated | history | sameUgs | derived), start* fields, alt* fields
+// when there is another reading, grindStep} or, without a number, {reason, and for
+// notCalibrated / outsideRange ugsDelta + ugsDirection from the starting shot}.
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,
                                const QString& profileTitle);

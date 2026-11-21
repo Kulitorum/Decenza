@@ -1725,6 +1725,7 @@ set(QML_FILES
     qml/components/RatioPresetDialog.qml qml/components/RatioChoiceDialog.qml qml/components/WaterRatioDialog.qml qml/components/WaterVesselDialog.qml qml/components/WaterAmountModeSelector.qml
     qml/components/TempPickerDialog.qml
     qml/components/GrindField.qml
+    qml/components/GeniusGrindDialog.qml
     qml/components/GrindPickerDialog.qml
     qml/components/GrindRowSource.qml
     qml/components/MilkCapture.qml
@@ -1960,6 +1961,7 @@ set(QML_FILES
     qml/components/layout/items/MilkWeightItem.qml
     qml/components/layout/items/RatioQuickSelectItem.qml
     qml/components/layout/items/GrindQuickSelectItem.qml
+    qml/components/layout/items/GeniusGrindItem.qml
     qml/components/layout/items/TempQuickSelectItem.qml
     qml/components/layout/items/ShotPlanItem.qml
     qml/components/layout/items/SpacerItem.qml

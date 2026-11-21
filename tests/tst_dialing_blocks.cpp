@@ -2353,10 +2353,11 @@ private slots:
                      QStringLiteral("approximate"));
             QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
             QVERIFY(r.contains(QStringLiteral("coffeeAnchor")));
-            // Seeded profiles are in the current batch → history median.
+            // calSeed rates every shot 80, so a seeded profile's own setting is its
+            // top-rated shot (add-genius-grind-widget), not a median.
             const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
             QCOMPARE(lo.value(QStringLiteral("source")).toString(),
-                     QStringLiteral("history"));
+                     QStringLiteral("rated"));
             QCOMPARE(lo.value(QStringLiteral("rgs")).toString(), QStringLiteral("2"));
             // Validated span 0.0..2.0; cap 1.5 → numeric in [-1.5, 3.5].
             // Adaptive v2 (UGS 1.25) is in range but unseeded → derived;
@@ -2596,9 +2597,11 @@ private slots:
             const QVariantMap av = suggest("TestRoaster", "Adaptive v2");
             QCOMPARE(av.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
             QCOMPARE(av.value(QStringLiteral("source")).toString(), QStringLiteral("derived"));
-            QCOMPARE(av.value(QStringLiteral("anchorProfileName")).toString(), QStringLiteral("Gentle & Sweet"));
-            QVERIFY2(suggest("TestRoaster", "TurboTurbo").isEmpty(), "outside the range: no number");
-            QVERIFY2(suggest("OtherRoaster", "Adaptive v2").isEmpty(), "no shot of this bag: no number");
+            QCOMPARE(av.value(QStringLiteral("startProfileName")).toString(), QStringLiteral("Gentle & Sweet"));
+            QCOMPARE(suggest("TestRoaster", "TurboTurbo").value(QStringLiteral("reason")).toString(),
+                     QStringLiteral("outsideRange"));
+            QCOMPARE(suggest("OtherRoaster", "Adaptive v2").value(QStringLiteral("reason")).toString(),
+                     QStringLiteral("noShots"));
 
             // A bag with no roaster: its shots store '' and the caller passes a null
             // QString, which binds SQL NULL. It must still find the bag's shots.
@@ -2607,6 +2610,272 @@ private slots:
             const QVariantMap noRoaster = DialingBlocks::grindSuggestionFor(db, pkg, QString(),
                 QStringLiteral("TestBean"), QString(), QStringLiteral("Adaptive v2"));
             QCOMPARE(noRoaster.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
+        });
+    }
+
+    // ---- Genius Grind starting shot and own settings (add-genius-grind-widget) ----
+    // Unrated shots qualify through the on-target path (final weight within 10% of
+    // the 36 g target), so a rating only ever comes from the `enjoyment` argument.
+    qint64 ggSeed(QSqlDatabase& db, const QString& uuid, qint64 ts, const QString& name,
+                  const QString& kbId, const QString& setting, int enjoyment,
+                  double finalWeight = 36.0, const QString& bean = QStringLiteral("TestBean"),
+                  const QString& beverage = QStringLiteral("espresso"))
+    {
+        return insertShot(db, ShotRow{
+            .uuid = uuid, .timestamp = ts, .profileName = name, .profileKbId = kbId,
+            .beverageType = beverage, .finalWeight = finalWeight,
+            .beanBrand = QStringLiteral("TestRoaster"), .beanType = bean,
+            .grinderModel = QStringLiteral("Niche Zero"), .grinderBurrs = QStringLiteral("63mm conical"),
+            .grinderSetting = setting, .enjoyment = enjoyment, .targetWeight = 36.0 });
+    }
+    // Unrated history with a key of 2 over UGS 0..2 (Londinium 2, D-Flow / Q 4,
+    // Gentle & Sweet 6), so a derived number needs no rated shot to exist.
+    void ggSeedKeyOfTwo(QSqlDatabase& db, qint64 ts0)
+    {
+        for (int i = 0; i < 2; ++i) {
+            ggSeed(db, QStringLiteral("k-lo-%1").arg(i), ts0 + i, QStringLiteral("Londinium"),
+                   QStringLiteral("londinium"), QStringLiteral("2"), 0);
+            ggSeed(db, QStringLiteral("k-dq-%1").arg(i), ts0 + 10 + i, QStringLiteral("D-Flow / Q"),
+                   QStringLiteral("d-flow-q-variant"), QStringLiteral("4"), 0);
+            ggSeed(db, QStringLiteral("k-gs-%1").arg(i), ts0 + 20 + i, QStringLiteral("Gentle & Sweet"),
+                   QStringLiteral("gentle-and-sweet"), QStringLiteral("6"), 0);
+        }
+    }
+
+    void geniusGrind_startingShotFollowsRatings()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("gg_start"), [&](QSqlDatabase& db) {
+            const qint64 rated = ggSeed(db, QStringLiteral("cr"), 900, QStringLiteral("Cremina"),
+                                        QStringLiteral("cremina-lever-machine"), QStringLiteral("1.5"), 85);
+            ggSeedKeyOfTwo(db, 1000);
+            const qint64 pkg = projectionForShot(db, rated).equipmentId;
+            const auto suggest = [&](const QString& profile) {
+                return DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
+                    QStringLiteral("TestBean"), QString(), profile);
+            };
+            const auto setRating = [&](qint64 id, int rating) {
+                QSqlQuery u(db);
+                QVERIFY(u.exec(QStringLiteral("UPDATE shots SET enjoyment = %1 WHERE id = %2").arg(rating).arg(id)));
+            };
+
+            // Rated 85 starts the estimate though later unrated shots exist:
+            // Adaptive v2 (UGS 1.25) = 1.5 + 1.25·2 = 4.
+            QVariantMap av = suggest(QStringLiteral("Adaptive v2"));
+            QCOMPARE(av.value(QStringLiteral("setting")).toString(), QStringLiteral("4"));
+            QCOMPARE(av.value(QStringLiteral("source")).toString(), QStringLiteral("derived"));
+            QCOMPARE(av.value(QStringLiteral("startShotId")).toLongLong(), rated);
+            QCOMPARE(av.value(QStringLiteral("startRating")).toInt(), 85);
+
+            // 50+ still comes before the latest unrated shot.
+            setRating(rated, 60);
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("setting")).toString(),
+                     QStringLiteral("4"));
+
+            // A rating outranks a badge.
+            QSqlQuery badge(db);
+            QVERIFY(badge.exec(QStringLiteral("UPDATE shots SET channeling_detected = 1 WHERE id = %1").arg(rated)));
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startShotId")).toLongLong(), rated);
+
+            // Unrated, it is just an old shot: the latest good shot (Gentle & Sweet 6)
+            // starts it, 6 + (1.25 − 2)·2 = 4.5.
+            setRating(rated, 0);
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("setting")).toString(),
+                     QStringLiteral("4.5"));
+
+            // Two shots rated 90: the newer one starts it.
+            setRating(rated, 90);
+            const qint64 newer = ggSeed(db, QStringLiteral("cr2"), 950, QStringLiteral("Cremina"),
+                                        QStringLiteral("cremina-lever-machine"), QStringLiteral("1"), 90);
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startShotId")).toLongLong(), newer);
+
+            // Apply writes startRpm: a custom grinder keeps the shot's RPM, a
+            // fixed-speed one (Niche Zero) never passes a stale RPM on.
+            QSqlQuery rpm(db);
+            QVERIFY(rpm.exec(QStringLiteral("UPDATE shots SET rpm = 1400 WHERE id = %1").arg(newer)));
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startRpm")).toInt(), 1400);
+            QVERIFY(rpm.exec(QStringLiteral("UPDATE equipment_items SET brand = 'Niche', model = 'Zero' "
+                                            "WHERE package_id = %1 AND kind = 'grinder'").arg(pkg)));
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startRpm")).toInt(), 0);
+        });
+    }
+
+    void geniusGrind_ownSettingRules()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("gg_own"), [&](QSqlDatabase& db) {
+            // No key anywhere in this database: one bag per coffee, one profile each.
+            const qint64 first = ggSeed(db, QStringLiteral("a1"), 1000, QStringLiteral("Rao Allongé"),
+                                        QStringLiteral("allonge"), QStringLiteral("31"), 0);
+            ggSeed(db, QStringLiteral("a2"), 1010, QStringLiteral("Rao Allongé"), QStringLiteral("allonge"),
+                   QStringLiteral("30"), 0);
+            const qint64 a3 = ggSeed(db, QStringLiteral("a3"), 1020, QStringLiteral("Rao Allongé"),
+                                     QStringLiteral("allonge"), QStringLiteral("29.5"), 0);
+            const qint64 pkg = projectionForShot(db, first).equipmentId;
+            const auto suggest = [&](const QString& bean, const QString& profile) {
+                return DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
+                    bean, QString(), profile);
+            };
+            const QString kAllonge = QStringLiteral("Rao Allongé");
+
+            // Unrated shots give the latest one, not their median (30), and need no key.
+            QVariantMap r = suggest(QStringLiteral("TestBean"), kAllonge);
+            QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("29.5"));
+            QCOMPARE(r.value(QStringLiteral("source")).toString(), QStringLiteral("history"));
+            QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), a3);
+
+            // A rated shot on the profile gives its own setting.
+            ggSeed(db, QStringLiteral("a4"), 1005, kAllonge, QStringLiteral("allonge"), QStringLiteral("30.5"), 80);
+            r = suggest(QStringLiteral("TestBean"), kAllonge);
+            QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("30.5"));
+            QCOMPARE(r.value(QStringLiteral("source")).toString(), QStringLiteral("rated"));
+
+            // A profile never pulled, no key: no number, the move in UGS instead.
+            r = suggest(QStringLiteral("TestBean"), QStringLiteral("Cremina"));
+            QCOMPARE(r.value(QStringLiteral("reason")).toString(), QStringLiteral("notCalibrated"));
+            QCOMPARE(r.value(QStringLiteral("ugsDelta")).toDouble(), 8.0);
+            QCOMPARE(r.value(QStringLiteral("ugsDirection")).toString(), QStringLiteral("finer"));
+
+            // Rated 60 though it missed its weight: its own setting, no key.
+            const QString kCr = QStringLiteral("CrBean");
+            ggSeed(db, QStringLiteral("c1"), 2000, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("21.5"), 60, 30.0, kCr);
+            QCOMPARE(suggest(kCr, QStringLiteral("Cremina")).value(QStringLiteral("setting")).toString(),
+                     QStringLiteral("21.5"));
+            // Same UGS on another profile (Londinium, UGS 0), no key.
+            r = suggest(kCr, QStringLiteral("Londinium"));
+            QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("21.5"));
+            QCOMPARE(r.value(QStringLiteral("source")).toString(), QStringLiteral("sameUgs"));
+
+            // A low-rated latest shot is skipped even though it hit its weight.
+            const QString kLow = QStringLiteral("LowBean");
+            ggSeed(db, QStringLiteral("l1"), 3000, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("21"), 0, 36.0, kLow);
+            ggSeed(db, QStringLiteral("l2"), 3010, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("22"), 40, 36.0, kLow);
+            QCOMPARE(suggest(kLow, QStringLiteral("Cremina")).value(QStringLiteral("setting")).toString(),
+                     QStringLiteral("21"));
+
+            // Only low-rated shots: nothing to start from.
+            const QString kBad = QStringLiteral("BadBean");
+            ggSeed(db, QStringLiteral("b1"), 4000, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("20"), 30, 36.0, kBad);
+            ggSeed(db, QStringLiteral("b2"), 4010, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("20.5"), 45, 36.0, kBad);
+            QCOMPARE(suggest(kBad, QStringLiteral("Cremina")).value(QStringLiteral("reason")).toString(),
+                     QStringLiteral("noStart"));
+
+            // A rated 12 g ristretto counts; a rated cleaning shot never does.
+            const QString kRis = QStringLiteral("RisBean");
+            ggSeed(db, QStringLiteral("r1"), 5000, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("19"), 80, 12.0, kRis);
+            ggSeed(db, QStringLiteral("r2"), 5010, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("5"), 95, 36.0, kRis,
+                   QStringLiteral("cleaning"));
+            QCOMPARE(suggest(kRis, QStringLiteral("Cremina")).value(QStringLiteral("setting")).toString(),
+                     QStringLiteral("19"));
+
+            // An unnamed coffee is refused before anything is read.
+            QCOMPARE(DialingBlocks::grindSuggestionFor(db, pkg, QString(), QString(), QString(), kAllonge)
+                         .value(QStringLiteral("reason")).toString(), QStringLiteral("noBean"));
+        });
+    }
+
+    void geniusGrind_alternativeAndEarlierBag()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("gg_alt"), [&](QSqlDatabase& db) {
+            constexpr qint64 kDay = 86400;
+            const qint64 rated = ggSeed(db, QStringLiteral("r"), 1000, QStringLiteral("Cremina"),
+                                        QStringLiteral("cremina-lever-machine"), QStringLiteral("20.5"), 85);
+            const qint64 latest = ggSeed(db, QStringLiteral("l"), 1000 + 16 * kDay, QStringLiteral("Cremina"),
+                                         QStringLiteral("cremina-lever-machine"), QStringLiteral("21.5"), 0);
+            const qint64 pkg = projectionForShot(db, rated).equipmentId;
+            QVariantMap r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
+                QStringLiteral("TestBean"), QString(), QStringLiteral("Cremina"));
+            QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("20.5"));
+            QCOMPARE(r.value(QStringLiteral("altSetting")).toString(), QStringLiteral("21.5"));
+            QCOMPARE(r.value(QStringLiteral("altShotId")).toLongLong(), latest);
+            QCOMPARE(r.value(QStringLiteral("daysBetween")).toInt(), 16);
+
+            // Undated coffee: the current bag has only D-Flow / Q, 150 days later. Cremina
+            // comes from the earlier bag, and says so.
+            const QString kBean = QStringLiteral("Undated");
+            const qint64 old = ggSeed(db, QStringLiteral("o"), 1000, QStringLiteral("Cremina"),
+                                      QStringLiteral("cremina-lever-machine"), QStringLiteral("18"), 80,
+                                      36.0, kBean);
+            ggSeed(db, QStringLiteral("n"), 1000 + 150 * kDay, QStringLiteral("D-Flow / Q"),
+                   QStringLiteral("d-flow-q-variant"), QStringLiteral("20"), 0, 36.0, kBean);
+            r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kBean, QString(),
+                                                  QStringLiteral("Cremina"));
+            QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), old);
+            QCOMPARE(r.value(QStringLiteral("startEarlierBag")).toBool(), true);
+        });
+    }
+
+    // Ten bag pairs publish a key whatever their spread; five that fail the gate do not.
+    void geniusGrind_plentyOfHistoryPublishesUngated()
+    {
+        const auto keyFrom = [&](int bags) {
+            const QString path = freshDbPath();
+            initAndClose(path);
+            bool published = false;
+            double key = 0.0;
+            withRawDb(path, QStringLiteral("gg_ungated_%1").arg(bags), [&](QSqlDatabase& db) {
+                qint64 last = 0;
+                for (int b = 0; b < bags; ++b) {
+                    // Slopes alternate 1 and 3 steps/UGS: median 2, spread far past the gate.
+                    const QString bean = QStringLiteral("Bag%1").arg(b);
+                    const QString high = QString::number(10 + (b % 2 ? 6 : 2));
+                    for (int i = 0; i < 2; ++i) {
+                        ggSeed(db, QStringLiteral("u-%1-lo-%2").arg(b).arg(i), 1000 + b * 100 + i,
+                               QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                               QStringLiteral("10"), 0, 36.0, bean);
+                        last = ggSeed(db, QStringLiteral("u-%1-gs-%2").arg(b).arg(i), 1050 + b * 100 + i,
+                                      QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                                      high, 0, 36.0, bean);
+                    }
+                }
+                DialingBlocks::GrindCalibrationStatus st;
+                DialingBlocks::buildGrinderCalibrationBlock(db, QStringLiteral("Niche Zero"),
+                    AdviceScope(projectionForShot(db, last).equipmentId), QStringLiteral("espresso"),
+                    last, nullptr, &st);
+                published = st.keyPublished;
+                key = st.conversionKey;
+            });
+            return std::make_pair(published, key);
+        };
+        const auto ten = keyFrom(10);
+        QVERIFY2(ten.first, "10 bag pairs must publish a key whatever their spread");
+        QCOMPARE(ten.second, 2.0);
+        QVERIFY2(!keyFrom(5).first, "5 pairs that fail the spread gate must not");
+    }
+
+    // The AI block starts from the same shot the widget does, and says which.
+    void geniusGrind_payloadNamesTheRatedStart()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("gg_payload"), [&](QSqlDatabase& db) {
+            const qint64 rated = ggSeed(db, QStringLiteral("cr"), 900, QStringLiteral("Cremina"),
+                                        QStringLiteral("cremina-lever-machine"), QStringLiteral("1.5"), 85);
+            QSqlQuery badge(db);
+            QVERIFY(badge.exec(QStringLiteral("UPDATE shots SET channeling_detected = 1 WHERE id = %1").arg(rated)));
+            ggSeedKeyOfTwo(db, 1000);
+            const qint64 cur = ggSeed(db, QStringLiteral("dq"), 1100, QStringLiteral("D-Flow / Q"),
+                                      QStringLiteral("d-flow-q-variant"), QStringLiteral("4"), 0);
+            const QJsonObject block = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), AdviceScope(projectionForShot(db, cur).equipmentId),
+                QStringLiteral("espresso"), cur);
+            const QJsonObject anchor = block.value(QStringLiteral("coffeeAnchor")).toObject();
+            QCOMPARE(anchor.value(QStringLiteral("enjoyment0to100")).toInt(), 85);
+            QCOMPARE(anchor.value(QStringLiteral("setting")).toString(), QStringLiteral("1.5"));
+            QVERIFY(!anchor.value(QStringLiteral("timestamp")).toString().isEmpty());
+            QCOMPARE(calProfile(block, QStringLiteral("Cremina lever machine"))
+                         .value(QStringLiteral("source")).toString(), QStringLiteral("rated"));
         });
     }
 

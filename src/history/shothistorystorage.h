@@ -457,6 +457,9 @@ public:
     // 0 when it cannot derive (<2 distinct numeric settings) — the caller
     // applies its own default.
     Q_INVOKABLE double grindStepForGrinder(const QString& grinderModel);
+    // The step a grind picker or suggestion uses: this grinder's history, else every
+    // grinder's pooled, else 1.0. Thread-safe on a caller-owned connection.
+    static double grindStepStatic(QSqlDatabase& db, const QString& grinderModel);
 
     // RPM counterpart of grindStepForGrinder, for variable-RPM grinders: the
     // typical increment between the RPMs the user has actually dialed on this
