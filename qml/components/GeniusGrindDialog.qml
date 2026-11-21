@@ -36,8 +36,6 @@ DecenzaDialog {
     property string _pendingSuggestionId: ""
     // Which choice list is open in place: "", "bean" or "profile".
     property string expanded: ""
-    // The user picked the other reading (the latest shot) over the suggestion.
-    property bool useAlternative: false
 
     // Apply runs bag activation, then profile load, then the grind write.
     property bool applying: false
@@ -69,19 +67,8 @@ DecenzaDialog {
                        root.bagId = Number(root.bags[0].id)
 
     readonly property string suggestedSetting: String(root.suggestion.setting || "")
-    readonly property string alternativeSetting: String(root.suggestion.altSetting || "")
-    // grindSuggestionFor offers the other reading only a grind step or more away.
-    readonly property bool showAlternative: root.suggestedSetting.length > 0 && root.alternativeSetting.length > 0
-    readonly property bool _alternativeChosen: root.showAlternative && root.useAlternative
-    readonly property string chosenSetting: root._alternativeChosen ? root.alternativeSetting : root.suggestedSetting
-    readonly property int chosenRpm: Number(root._alternativeChosen ? root.suggestion.altRpm : root.suggestion.startRpm) || 0
-    // The source line describes the chosen reading; the note under the choice, the other.
-    readonly property string _chosenPrefix: root._alternativeChosen ? "alt" : "start"
-    readonly property string _otherPrefix: root._alternativeChosen ? "start" : "alt"
-    readonly property double _chosenShotId: root.suggestedSetting.length > 0
-        ? Number(root.suggestion[root._chosenPrefix + "ShotId"] || 0) : 0
-    readonly property double _otherShotId: root.showAlternative
-        ? Number(root.suggestion[root._otherPrefix + "ShotId"] || 0) : 0
+    readonly property double _startShotId: root.suggestedSetting.length > 0
+        ? Number(root.suggestion.startShotId || 0) : 0
 
     function tr(key: string, fallback: string): string {
         return TranslationManager.translate(key, fallback)
@@ -89,7 +76,7 @@ DecenzaDialog {
 
     // Tab order (ACCESSIBILITY.md Rule 3): a closed loop over whatever is shown.
     function focusOrder(): var {
-        const items = [sourceArea, ratedButton, latestButton, alternativeArea, beanButton, profileButton]
+        const items = [sourceArea, beanButton, profileButton]
         for (let i = 0; i < choiceList.count; ++i) {
             const choice = choiceList.itemAtIndex(i)
             if (choice) items.push(choice)
@@ -140,7 +127,6 @@ DecenzaDialog {
 
     function requestSuggestion(): void {
         root.suggestion = ({})
-        root.useAlternative = false
         root._pendingSuggestionId = ""
         const bag = root.selectedBag
         const packageId = EquipmentService.activePackageId
@@ -154,39 +140,12 @@ DecenzaDialog {
             String(bag.roastDate || ""), root.profileTitle)
     }
 
-    function shotWhen(prefix: string): string {
-        return DateUtils.shotTimeLabel(Number(root.suggestion[prefix + "Timestamp"] || 0), Qt.locale(),
-                                       Settings.app.use12HourTime)
-    }
-
-    // The line naming the shot the chosen reading rests on (spec: "name its starting shot").
+    // The line naming the shot the number rests on (spec: "name its starting shot").
     function sourceText(): string {
         const s = root.suggestion
-        const p = root._chosenPrefix
-        const source = root._alternativeChosen ? String(s.altSource || "") : String(s.source || "")
-        return GrindSuggestionText.sourceLine(s, p, source, root.profileTitle, root.shotWhen(p), root.tr)
-    }
-
-    // The note under the other reading: the facts behind it, no verdict.
-    function alternativeText(): string {
-        const s = root.suggestion
-        const days = Number(s.daysBetween || 0)
-        if (root._alternativeChosen) {
-            const rated = root.tr("geniusGrind.alternative.ratedNote", "Or %1, from your %2 shot of %3, rated %4, at %5.")
-                .arg(root.suggestedSetting).arg(String(s.startProfileName || "")).arg(root.shotWhen("start"))
-                .arg(Number(s.startRating || 0)).arg(String(s.startShotSetting || ""))
-            return rated + " " + (days === 0
-                ? root.tr("geniusGrind.alternative.ratedSameDay", "It was from the same day as your latest shot.")
-                : root.tr("geniusGrind.alternative.ratedBefore", "It was %1 before your latest shot.")
-                      .arg(GrindSuggestionText.days(days, root.tr)))
-        }
-        const latest = root.tr("geniusGrind.alternative.latestNote", "Or %1, from your latest %2 shot, %3, at %4.")
-            .arg(root.alternativeSetting).arg(String(s.altProfileName || "")).arg(root.shotWhen("alt"))
-            .arg(String(s.altShotSetting || ""))
-        return latest + " " + (days === 0
-            ? root.tr("geniusGrind.alternative.latestSameDay", "Your rated shot was from the same day.")
-            : root.tr("geniusGrind.alternative.latestAfter", "Your rated shot was %1 before it.")
-                  .arg(GrindSuggestionText.days(days, root.tr)))
+        const when = DateUtils.shotTimeLabel(Number(s.startTimestamp || 0), Qt.locale(),
+                                             Settings.app.use12HourTime)
+        return GrindSuggestionText.sourceLine(s, root.profileTitle, when, root.tr)
     }
 
     // The move in UGS, the way the UGS calculator shows it without a key.
@@ -219,12 +178,8 @@ DecenzaDialog {
         switch (String(root.suggestion.reason || "")) {
         case "noBean":
             return root.tr("geniusGrind.reason.noBean", "Name the current coffee first: its bag has no roaster or coffee name.")
-        case "noGrinder":
-            return root.tr("geniusGrind.reason.noGrinder", "This equipment has no grinder. Add one under Equipment.")
         case "noShots":
             return root.tr("geniusGrind.reason.noShots", "No shots of this coffee on this equipment yet.")
-        case "dbError":
-            return root.tr("geniusGrind.reason.unreachable", "Could not read your shots. Try again in a moment.")
         case "noStart":
             return root.tr("geniusGrind.reason.noStart", "No good shot of this coffee yet. Shots rated under 50 are not used.")
         case "profileNotOnChart":
@@ -248,12 +203,12 @@ DecenzaDialog {
     }
 
     function startApply(): void {
-        if (root.chosenSetting.length === 0 || !root.selectedBag) return
+        if (root.suggestedSetting.length === 0 || !root.selectedBag) return
         root.applying = true
         root.expanded = ""
         root._grindRetried = false
-        root._applySetting = root.chosenSetting
-        root._applyRpm = root.chosenRpm
+        root._applySetting = root.suggestedSetting
+        root._applyRpm = Number(root.suggestion.startRpm) || 0
         if (root.bagId !== BagService.activeBagId) {
             root._pendingBagId = root.bagId
             BagService.requestActivateBag(root.bagId)
@@ -278,11 +233,6 @@ DecenzaDialog {
     function applyGrind(): void {
         if (!RecipeContext.ready) {
             root.failApply("grind", "unavailable")
-            return
-        }
-        // Another client may have switched the bag meanwhile; this grind is not for it.
-        if (BagService.activeBagId !== root.bagId) {
-            root.failApply("grind", "bagChanged")
             return
         }
         const values = { "dyeGrinderSetting": root._applySetting }
@@ -387,12 +337,12 @@ DecenzaDialog {
         Text {
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
-            text: root.chosenSetting.length > 0 ? root.chosenSetting : "—"
+            text: root.suggestedSetting.length > 0 ? root.suggestedSetting : "—"
             font: Theme.valueFont
-            color: root.chosenSetting.length > 0 ? Theme.primaryColor : Theme.textSecondaryColor
+            color: root.suggestedSetting.length > 0 ? Theme.primaryColor : Theme.textSecondaryColor
             Accessible.role: Accessible.StaticText
             Accessible.name: root.tr("geniusGrind.suggestedGrind", "Suggested grind")
-                             + ": " + (root.chosenSetting.length > 0 ? root.chosenSetting : root.statusText())
+                             + ": " + (root.suggestedSetting.length > 0 ? root.suggestedSetting : root.statusText())
         }
 
         // The shot the number rests on; tapping it opens that shot.
@@ -409,78 +359,17 @@ DecenzaDialog {
             color: Theme.textSecondaryColor
             // Read once: by the tap area when there is a shot to open, by the number's
             // name when there is no number, else as text.
-            Accessible.ignored: sourceArea.visible || root.chosenSetting.length === 0
+            Accessible.ignored: sourceArea.visible || root.suggestedSetting.length === 0
 
             AccessibleMouseArea {
                 id: sourceArea
                 anchors.fill: parent
-                visible: root._chosenShotId > 0
+                visible: root._startShotId > 0
                 enabled: !root.applying
                 accessibleName: sourceLine.text
-                onAccessibleClicked: root.openShot(root._chosenShotId)
+                onAccessibleClicked: root.openShot(root._startShotId)
                 Keys.onTabPressed: root.moveFocus(sourceArea, 1)
                 Keys.onBacktabPressed: root.moveFocus(sourceArea, -1)
-            }
-        }
-
-        // The other reading, when the rated shot and the latest shot disagree.
-        ColumnLayout {
-            visible: root.showAlternative
-            Layout.fillWidth: true
-            Layout.leftMargin: Theme.scaled(20)
-            Layout.rightMargin: Theme.scaled(20)
-            spacing: Theme.scaled(6)
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-                AccessibleButton {
-                    id: ratedButton
-                    Layout.fillWidth: true
-                    text: root.suggestedSetting
-                    primary: !root.useAlternative
-                    accessibleDescription: !root.useAlternative ? root.tr("accessibility.selected", "selected") : ""
-                    Keys.onTabPressed: root.moveFocus(ratedButton, 1)
-                    Keys.onBacktabPressed: root.moveFocus(ratedButton, -1)
-                    accessibleName: root.tr("geniusGrind.alternative.useRated",
-                                            "Use %1, from your rated shot").arg(root.suggestedSetting)
-                    enabled: !root.applying
-                    onClicked: root.useAlternative = false
-                }
-                AccessibleButton {
-                    id: latestButton
-                    Layout.fillWidth: true
-                    text: root.alternativeSetting
-                    primary: root.useAlternative
-                    accessibleDescription: root.useAlternative ? root.tr("accessibility.selected", "selected") : ""
-                    Keys.onTabPressed: root.moveFocus(latestButton, 1)
-                    Keys.onBacktabPressed: root.moveFocus(latestButton, -1)
-                    accessibleName: root.tr("geniusGrind.alternative.useLatest",
-                                            "Use %1, from your latest shot").arg(root.alternativeSetting)
-                    enabled: !root.applying
-                    onClicked: root.useAlternative = true
-                }
-            }
-            Text {
-                id: alternativeLine
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-                text: root.showAlternative ? root.alternativeText() : ""
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                Accessible.ignored: alternativeArea.visible
-
-                AccessibleMouseArea {
-                    id: alternativeArea
-                    anchors.fill: parent
-                    visible: root._otherShotId > 0
-                    enabled: !root.applying
-                    accessibleName: alternativeLine.text
-                    onAccessibleClicked: root.openShot(root._otherShotId)
-                    Keys.onTabPressed: root.moveFocus(alternativeArea, 1)
-                    Keys.onBacktabPressed: root.moveFocus(alternativeArea, -1)
-                }
             }
         }
 
@@ -592,7 +481,7 @@ DecenzaDialog {
                 Keys.onTabPressed: root.moveFocus(applyButton, 1)
                 Keys.onBacktabPressed: root.moveFocus(applyButton, -1)
                 primary: true
-                enabled: root.chosenSetting.length > 0 && !root.applying
+                enabled: root.suggestedSetting.length > 0 && !root.applying
                 text: root.tr("geniusGrind.apply", "Apply")
                 accessibleName: root.tr("geniusGrind.applyDescription", "Apply this bean, profile and grind")
                 onClicked: root.startApply()

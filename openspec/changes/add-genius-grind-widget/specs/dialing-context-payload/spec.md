@@ -42,7 +42,7 @@ When the resolved shot's equipment package holds a valid calibration anchor pair
 
 #### Per-coffee anchor (intercept)
 
-The numeric intercept SHALL be the calibration's starting shot for the resolved shot's `coffeeBatch` (same batch-level identity as the conversion-key derivation), as defined by `grinder-ugs-calibration` ("The calibration's starting shot SHALL follow ratings"): one rule, so this block, the recipe wizard and the Genius Grind widget start from the same shot. The anchor SHALL NOT be drawn from a different roast batch of the same bean, except an earlier bag of an undated coffee when the current bag has no starting shot, which SHALL carry `earlierBag: true`. A profile's recommended setting SHALL be:
+The numeric intercept SHALL be the calibration's starting shot for the resolved shot's `coffeeBatch` (same batch-level identity as the conversion-key derivation), as defined by `grinder-ugs-calibration` ("The calibration's starting shot SHALL follow ratings"): one rule, so this block, the recipe wizard and the Genius Grind widget start from the same shot. The anchor SHALL NOT be drawn from a different roast batch of the same bean. A profile's recommended setting SHALL be:
 
 ```
 rgs(target) = anchorSetting + (UGS_target − UGS_anchorProfile) · conversionKey
@@ -74,13 +74,13 @@ When the resolved shot's own profile has no known canonical UGS, ordering agains
 | `markedAnchors` | object? | Present only when the package has at least one anchor set: `status` (`"valid"`, `"missingFine"`, `"missingCoarse"`, or the reason the pair does not count), `fine` / `coarse` (`profileName`, `ugs`, `setting`, `timestamp` ISO 8601) for each side set, and `agreesWithHistory` (boolean) when the pair is valid and at least one mined pair exists |
 | `usageConstraint` | string | Short directive the prompt repeats verbatim (see advisor-user-prompt) — states UGS is relative and numbers are valid only within the calibrated range |
 | `conversionKey` | number? | Settings per UGS unit, 2 dp. ABSENT when `confidence` is `"directional"` |
-| `coffeeAnchor` | object? | `profileName`, `ugs`, `setting`, `coffee`, `timestamp` (ISO 8601), `enjoyment0to100` when the shot is rated, `rpm` when the grinder takes an RPM and the shot recorded one, and `earlierBag: true` when it comes from an earlier bag of an undated coffee — the current-coffee intercept (the starting shot). ABSENT when the current coffee has no starting shot |
+| `coffeeAnchor` | object? | `profileName`, `ugs`, `setting`, `coffee`, `timestamp` (ISO 8601), `enjoyment0to100` when the shot is rated, and `rpm` when the grinder takes an RPM and the shot recorded one — the current-coffee intercept (the starting shot). ABSENT when the current coffee has no starting shot |
 | `calibratedUgsRange` | [number, number]? | Validated UGS span. ABSENT when `confidence` is `"directional"` |
 | `profiles` | array | One entry per KB profile with a known UGS |
 
 Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` is one of:
 
-- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its highest-rated shot rated 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting. An own setting from an earlier bag of an undated coffee SHALL carry `earlierBag: true`. A shot rated under 50 SHALL never supply one.
+- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its highest-rated shot rated 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting. A shot rated under 50 SHALL never supply one.
 - `"derived"` — UGS within the validated range; `rgs` is computed from anchor + conversionKey.
 - `"directional"` — UGS outside the extrapolation window OR no numeric key/anchor available; NO `rgs`; carries `direction` (`"finer"`/`"coarser"`) derived from KB UGS ordering vs the resolved shot's own profile (anchor-free; omitted when the current profile has no canonical UGS).
 

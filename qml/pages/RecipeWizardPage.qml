@@ -1277,7 +1277,7 @@ T.Page {
     }
 
     // Request the under-grind-field hint, scoped to the selected equipment
-    // package (0 = unscoped), and the package's calibrated suggestion. Both are
+    // package (0 = unscoped), and the grind suggestion. Both are
     // cleared first so a stale one never lingers while the async reply is in
     // flight; each reply guard drops an answer for a since-changed selection.
     function requestGrindHint() {
@@ -1493,8 +1493,7 @@ T.Page {
     property var _teaBrewing: ({})
     // Grind hint under the grind field: the latest grind dialed for this
     // bean (or similar-roast beans), plus a UGS DIRECTION when it was dialed
-    // for a different profile. A number appears only through grindSuggestion,
-    // i.e. when the grinder calibration's own gates publish one.
+    // for a different profile. A number appears only through grindSuggestion.
     property string grindHint: ""
     // When the grind suggestion has a number for the picked profile on this bag,
     // it replaces the direction-only hint, naming the shot it rests on in the same
@@ -1510,7 +1509,7 @@ T.Page {
                                              Settings.app.use12HourTime)
         return tr("recipes.wizard.grindSuggestion.lead", "Suggested starting grind for %1: %2.")
                    .arg(fProfileTitle).arg(g.setting)
-               + " " + GrindSuggestionText.sourceLine(g, "start", String(g.source || ""), fProfileTitle, when, tr)
+               + " " + GrindSuggestionText.sourceLine(g, fProfileTitle, when, tr)
     }
     // True once the user has typed in a details field (or an existing recipe
     // was loaded). The profile/bag seeds fill the fields synchronously so the

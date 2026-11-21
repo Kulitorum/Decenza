@@ -2631,11 +2631,10 @@ private slots:
                 QStringLiteral("TestBean"), QString(), QStringLiteral("Adaptive v2"));
             QCOMPARE(noRoaster.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
 
-            // A package with no grinder says so, not "no shots".
+            // A package with no grinder gives no number.
             QVERIFY(blank.exec(QStringLiteral("DELETE FROM equipment_items WHERE kind = 'grinder'")));
-            QCOMPARE(DialingBlocks::grindSuggestionFor(db, pkg, QString(), QStringLiteral("TestBean"),
-                         QString(), QStringLiteral("Adaptive v2")).value(QStringLiteral("reason")).toString(),
-                     QStringLiteral("noGrinder"));
+            QVERIFY(DialingBlocks::grindSuggestionFor(db, pkg, QString(), QStringLiteral("TestBean"),
+                        QString(), QStringLiteral("Adaptive v2")).isEmpty());
         });
     }
 
@@ -2718,22 +2717,6 @@ private slots:
             const qint64 newer = ggSeed(db, QStringLiteral("cr2"), 950, QStringLiteral("Cremina"),
                                         QStringLiteral("cremina-lever-machine"), QStringLiteral("1"), 90);
             QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startShotId")).toLongLong(), newer);
-
-            // A later unrated Cremina shot at 0 is the other reading, moved by the same
-            // key: 0 + 1.25·2 = 2.5 against 1 + 1.25·2 = 3.5.
-            const qint64 later = ggSeed(db, QStringLiteral("cr3"), 960, QStringLiteral("Cremina"),
-                                        QStringLiteral("cremina-lever-machine"), QStringLiteral("0"), 0);
-            av = suggest(QStringLiteral("Adaptive v2"));
-            QCOMPARE(av.value(QStringLiteral("setting")).toString(), QStringLiteral("3.5"));
-            QCOMPARE(av.value(QStringLiteral("altShotId")).toLongLong(), later);
-            QCOMPARE(av.value(QStringLiteral("altShotSetting")).toString(), QStringLiteral("0"));
-            QCOMPARE(av.value(QStringLiteral("altSetting")).toString(), QStringLiteral("2.5"));
-            QCOMPARE(av.value(QStringLiteral("altSource")).toString(), QStringLiteral("derived"));
-            // 0.1 apart is under one grind step (derived from the grinder's settings,
-            // whose gaps are wider), so it is no second reading.
-            QSqlQuery same(db);
-            QVERIFY(same.exec(QStringLiteral("UPDATE shots SET grinder_setting = '1.1' WHERE id = %1").arg(later)));
-            QVERIFY(!suggest(QStringLiteral("Adaptive v2")).contains(QStringLiteral("altShotId")));
 
             // Apply writes startRpm. An unbranded "Niche Zero" matches no registry entry,
             // so it counts as a custom grinder and keeps the shot's RPM; named Niche /
@@ -2845,36 +2828,16 @@ private slots:
         });
     }
 
-    void geniusGrind_alternativeAndEarlierBag()
+    void geniusGrind_bagMembership()
     {
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("gg_alt"), [&](QSqlDatabase& db) {
+        withRawDb(path, QStringLiteral("gg_bag"), [&](QSqlDatabase& db) {
             constexpr qint64 kDay = 86400;
-            const qint64 rated = ggSeed(db, QStringLiteral("r"), 1000, QStringLiteral("Cremina"),
+            const qint64 first = ggSeed(db, QStringLiteral("r"), 1000, QStringLiteral("Cremina"),
                                         QStringLiteral("cremina-lever-machine"), QStringLiteral("20.5"), 85);
-            // The step derives to exactly 1.0 from these two settings, so the 1.0 gap
-            // sits on the boundary: it is offered.
-            const qint64 latest = ggSeed(db, QStringLiteral("l"), 1000 + 16 * kDay, QStringLiteral("Cremina"),
-                                         QStringLiteral("cremina-lever-machine"), QStringLiteral("21.5"), 0);
-            const qint64 pkg = projectionForShot(db, rated).equipmentId;
-            QVariantMap r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
-                QStringLiteral("TestBean"), QString(), QStringLiteral("Cremina"));
-            QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("20.5"));
-            QCOMPARE(r.value(QStringLiteral("altSetting")).toString(), QStringLiteral("21.5"));
-            QCOMPARE(r.value(QStringLiteral("altShotId")).toLongLong(), latest);
-            QCOMPARE(r.value(QStringLiteral("daysBetween")).toInt(), 16);
-
-            // A newer shot rated 60 is good whatever its badge, so it is the latest reading.
-            const qint64 badged = ggSeed(db, QStringLiteral("b"), 1000 + 20 * kDay, QStringLiteral("Cremina"),
-                                         QStringLiteral("cremina-lever-machine"), QStringLiteral("22"), 60);
-            QSqlQuery badge(db);
-            QVERIFY(badge.exec(QStringLiteral("UPDATE shots SET channeling_detected = 1 WHERE id = %1").arg(badged)));
-            r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
-                QStringLiteral("TestBean"), QString(), QStringLiteral("Cremina"));
-            QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("20.5"));
-            QCOMPARE(r.value(QStringLiteral("altShotId")).toLongLong(), badged);
-            QCOMPARE(r.value(QStringLiteral("altSetting")).toString(), QStringLiteral("22"));
+            const qint64 pkg = projectionForShot(db, first).equipmentId;
+            QVariantMap r;
 
             // A dated bag is its own roast date only: neither an undated shot of the same
             // coffee within 90 days nor another roast date can start it.
@@ -2895,24 +2858,21 @@ private slots:
                                                   QStringLiteral("2026-01-01"), QStringLiteral("Cremina"));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), own);
             QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("19"));
-            QCOMPARE(r.value(QStringLiteral("startEarlierBag")).toBool(), false);
             // And an undated bag of the same coffee never resolves to a dated bag's shot.
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kDated,
                                                   QString(), QStringLiteral("Cremina"));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), undated);
 
-            // Undated coffee: the current bag has only D-Flow / Q, 150 days later. Cremina
-            // comes from the earlier bag, and says so.
+            // Undated coffee: a rated shot 150 days before the latest one is another bag,
+            // so the unrated latest shot starts it.
             const QString kBean = QStringLiteral("Undated");
-            const qint64 old = ggSeed(db, QStringLiteral("o"), 1000, QStringLiteral("Cremina"),
-                                      QStringLiteral("cremina-lever-machine"), QStringLiteral("18"), 80,
-                                      36.0, kBean);
-            ggSeed(db, QStringLiteral("n"), 1000 + 150 * kDay, QStringLiteral("D-Flow / Q"),
-                   QStringLiteral("d-flow-q-variant"), QStringLiteral("20"), 0, 36.0, kBean);
+            ggSeed(db, QStringLiteral("o"), 1000, QStringLiteral("Cremina"),
+                   QStringLiteral("cremina-lever-machine"), QStringLiteral("18"), 80, 36.0, kBean);
+            const qint64 current = ggSeed(db, QStringLiteral("n"), 1000 + 150 * kDay, QStringLiteral("D-Flow / Q"),
+                                          QStringLiteral("d-flow-q-variant"), QStringLiteral("20"), 0, 36.0, kBean);
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kBean, QString(),
                                                   QStringLiteral("Cremina"));
-            QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), old);
-            QCOMPARE(r.value(QStringLiteral("startEarlierBag")).toBool(), true);
+            QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), current);
         });
     }
 

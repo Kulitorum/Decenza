@@ -55,27 +55,6 @@ While the popup is open, a saved, rated, edited or deleted shot SHALL recalculat
 - **WHEN** a Cremina shot of the bag is rated 85 from another screen
 - **THEN** the popup shows the suggestion recalculated with that rating
 
-### Requirement: The Genius Grind popup SHALL offer the other reading when they disagree
-
-When a profile's top-rated shot (rated 50+) and its latest good shot give different settings, at least one grind step apart (the grinder's history-derived step), the popup SHALL preselect the suggestion and offer the other as an alternative. The line under the number SHALL name the shot of the chosen reading, and a note SHALL give the facts behind the other one: its shot, rating or date, setting, and the days between the two shots. Otherwise only the one number SHALL show.
-
-#### Scenario: An old rated shot and the latest shot disagree
-
-- **GIVEN** the bag's best-rated Cremina (85) was 16 days ago at 20.5, and its latest good Cremina shot is at 21.5
-- **WHEN** the popup suggests Rao Allongé with a key of 1.25
-- **THEN** it preselects 30.5 (from the rated shot) and offers 31.5 (from the latest shot), each noting the rating, the 16 days and the latest setting
-
-#### Scenario: They agree
-
-- **GIVEN** the rated shot and the latest good shot give settings less than one grind step apart
-- **WHEN** the popup opens
-- **THEN** it shows a single number with no alternative
-
-#### Scenario: Apply uses the chosen one
-
-- **WHEN** the user picks the alternative and taps Apply
-- **THEN** the grind is set to the alternative's setting, and on an RPM-capable grinder the RPM to its shot's RPM
-
 ### Requirement: Genius Grind Apply SHALL set the bag, profile and grind
 
 Apply SHALL activate the chosen bag, then load the chosen profile, then set the grind to the suggestion, and on an RPM-capable grinder the RPM to the starting shot's RPM, each step waiting for the previous one's result. Apply SHALL be unavailable without a number. If a step fails, the popup SHALL stop, report the failure and leave the later steps undone. Cancel SHALL close it with nothing changed.
@@ -93,7 +72,7 @@ Apply SHALL activate the chosen bag, then load the chosen profile, then set the 
 
 ### Requirement: A Genius Grind Apply in flight SHALL finish
 
-While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once. If the active bag is no longer the chosen one when the grind is due (another client changed it), Apply SHALL stop and report instead of writing the grind.
+While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once.
 
 #### Scenario: Cancel during Apply
 
@@ -109,7 +88,7 @@ While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and
 
 ### Requirement: The Genius Grind popup SHALL say why there is no number
 
-Without a suggestion the popup SHALL say why: no active equipment, no bean chosen, the current coffee needs a name (its bag has neither a roaster nor a coffee name), the equipment has no grinder, no usable shot of the bean, the shots could not be read, the profile is not on the UGS chart, the grinder is not calibrated yet, or the profile is outside the range the shots cover. For an uncalibrated grinder or a profile outside the range, it SHALL show the move in UGS from the starting shot.
+Without a suggestion the popup SHALL say why: no active equipment, no bean chosen, the current coffee needs a name (its bag has neither a roaster nor a coffee name), no usable shot of the bean, the profile is not on the UGS chart, the grinder is not calibrated yet, or the profile is outside the range the shots cover. For an uncalibrated grinder or a profile outside the range, it SHALL show the move in UGS from the starting shot.
 
 #### Scenario: Unnamed coffee
 

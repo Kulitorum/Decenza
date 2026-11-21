@@ -465,17 +465,13 @@ struct GrindStartShot {
     qint64 timestamp = 0;  // epoch seconds
     int rating = 0;        // 0 = unrated
     int rpm = 0;           // 0 = none recorded
-    bool earlierBag = false;
     bool isValid() const { return shotId > 0; }
 };
 
-// A profile's own setting from the current bag (or an earlier bag of an undated
-// coffee). `alternative` is the profile's latest good shot when `shot` is a rated
-// one with a different setting, so the user can see both readings.
+// A profile's own setting from the current bag.
 struct GrindOwnSetting {
     GrindStartShot shot;
     QString source;        // rated | history | sameUgs
-    GrindStartShot alternative;
 };
 
 struct GrindCalibrationStatus {
@@ -506,10 +502,8 @@ struct GrindCalibrationStatus {
     double validLo = std::numeric_limits<double>::quiet_NaN();  // validated UGS window
     double validHi = std::numeric_limits<double>::quiet_NaN();
     GrindStartShot start;               // the intercept every derived number moves from
-    GrindStartShot startAlternative;    // latest good shot on start's profile, when start is rated and differs
     QHash<QString, GrindOwnSetting> ownSettings;  // kbId -> the bag's own setting
     bool rpmCapable = false;            // EquipmentStorage::deriveRpmCapable for the package's grinder
-    bool historyReadFailed = false;     // the shot query failed; nothing above is known
     // A published key, and `ugs` inside the validated window plus the extrapolation cap.
     bool inRange(double ugs) const;
     // `from`'s setting moved to `ugs` by the key. Meaningful only when inRange(ugs).
@@ -539,12 +533,11 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 // Genius Grind widget). A profile the bag has its own setting for gets it with or
 // without a key; any other is the starting shot moved by the key.
 // {setting, source (rated | history | sameUgs | derived), grindStep, start* fields
-// (startShotSetting is the shot's own setting), and when another reading is a grind
-// step or more away: altSetting, altSource, alt* fields, daysBetween}. Without a
-// number: {reason (noEquipment | profileNotOnChart | noBean | noGrinder | noShots |
-// dbError | noStart | notCalibrated | outsideRange)}; noStart, notCalibrated and
-// outsideRange also carry grindStep, and the last two start* fields, ugsDelta and
-// ugsDirection.
+// (startShotSetting is the shot's own setting)}. Without a number: {reason
+// (noEquipment | profileNotOnChart | noBean | noShots | noStart | notCalibrated |
+// outsideRange)}; noStart, notCalibrated and outsideRange also carry grindStep, and
+// the last two start* fields, ugsDelta and ugsDirection. An empty map when the
+// history cannot be read or the shot has no grinder.
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,
                                const QString& profileTitle);

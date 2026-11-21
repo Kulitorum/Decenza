@@ -49,7 +49,7 @@ The 50 threshold, the highest rating winning (so 75+ beats 60), a rating outrank
   2. else a profile with current-batch good shots gives the latest one (`history`), not their median;
   3. else the highest-rated 50+ shot at the same UGS on another profile (`sameUgs`);
   4. else the profile gets the intercept moved by the key (`derived`), only with a published key and inside the validated range.
-- An undated coffee falls back to its earlier bags in the same order; a dated bag is its own roast date only.
+- A dated bag is its own roast date only; an undated bag is the undated shots within 90 days of its latest one.
 - The selection is `selectStartingShots`, one function the AI block, the wizard and the widget all read. The range check and the derived formula are `GrindCalibrationStatus::inRange` and `derivedSetting`, used by the block and the suggestion alike.
 - **Alternative rejected:** a separate rated query in `grindSuggestionFor`. It would give the AI one number and the widget another, and it would add a third copy of the bag-membership rule.
 
@@ -78,7 +78,7 @@ The rules here cover each, checked by an independent replay of Mark's database (
 - **His reference shot** maps to rating the shot.
 - **Non-coffee drinks never count** (cleaning, tea and the rest), as the user decided; the one rated cleaning shot in Mark's data is excluded by that rule, not a coverage gap.
 - **An unnamed coffee** (a bag with neither a roaster nor a coffee name) gets `noBean`, and the popup asks for the coffee to be named. The bag dialog already refuses to save such a bag, and none exists in Mark's data or Jeff's, so this is a message for a state normal use can't reach.
-- **The weaker sources** (same UGS, earlier bag) are named as such in the popup, and every rated shot shows its rating, so the user can judge them.
+- **The weaker source** (same UGS) is named as such in the popup, and every rated shot shows its rating, so the user can judge them.
 - **Shots rated under 50 are excluded by the user's rule**, like non-coffee drinks: a prototype number built on one is not a gap.
 
 **Rated shots skip the badges, the 15 g floor and target weight, but not the beverage type.** The calibration's per-shot rejection bundles the badge check with the beverage check and the 15 g floor. The rated list therefore applies only the beverage check, the package, a parsable setting and a UGS-placed profile.
@@ -87,14 +87,15 @@ The rules here cover each, checked by an independent replay of Mark's database (
 
 **A profile gets the bag's own setting, key or no key.** That setting is the user's own measured grind, not an extrapolation. The grind suggestion therefore gives it even with no key, while the AI block keeps its rule of no number without a key, so the two never give different numbers.
 
-**`GrindCalibrationStatus` carries the result.** It gains `start` and `startAlternative` (shot id, profile, setting, timestamp, rating, RPM, earlier bag), `ownSettings` per profile (shot, source, alternative), the validated window, `rpmCapable` and `historyReadFailed`. `grindSuggestionFor` reads them from the status.
+**`GrindCalibrationStatus` carries the result.** It gains `start` (shot id, profile, setting, timestamp, rating, RPM), `ownSettings` per profile (shot, source), the validated window and `rpmCapable`. `grindSuggestionFor` reads them from the status.
 
 **What the suggestion returns.** The `QVariantMap` carries:
 - `setting`, `source` (`rated` | `history` | `sameUgs` | `derived`): `history` is the profile's latest good shot, and `sameUgs` the top-rated 50+ shot at the same UGS on another profile;
 - `grindStep`, the grinder's history-derived step;
-- `startShotId`, `startProfileName` (the shot's own title), `startShotSetting`, `startTimestamp` (epoch seconds; the QML formats local time), `startRating`, `startRpm` (0 unless the grinder takes an RPM), and `startEarlierBag`;
-- when another reading is at least a grind step away: `altSetting`, `altSource`, the same `alt*` shot fields, and `daysBetween`;
-- `reason` when there is no number, and with `notCalibrated` or `outsideRange`, `ugsDelta` and its direction from the starting shot.
+- `startShotId`, `startProfileName` (the shot's own title), `startShotSetting`, `startTimestamp` (epoch seconds; the QML formats local time), `startRating`, and `startRpm` (0 unless the grinder takes an RPM);
+- `reason` when there is no number (an empty map when the history cannot be read or the shot has no grinder), and with `notCalibrated` or `outsideRange`, `ugsDelta` and its direction from the starting shot.
+
+**Cut after review (2026-11-21):** a second "latest shot" reading beside the rated one, an earlier-bag tier for undated coffee, `dbError`/`noGrinder` reasons, and an Apply stop when another client changes the bag. Each was correct, and each added rules and review findings for a case few users would see.
 
 `EquipmentService.requestGrindSuggestion` returns a request id and echoes it as `requestId`: every request runs on its own worker, so callers match their latest id rather than the query, which a slower older reply also matches.
 

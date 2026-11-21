@@ -36,7 +36,7 @@ A shot rated 50 or above SHALL be eligible whatever its quality badges, target w
 
 ### Requirement: The calibration's starting shot SHALL follow ratings
 
-The starting shot SHALL be the first of, in the current bag: the highest-rated shot rated 50+ (so a shot rated 75+ beats one rated 60); the latest good shot (dialed in, or rated 50+ whatever its badges or weight, and never rated under 50). For an undated coffee, earlier bags SHALL then count in the same order. Ties SHALL go to the most recent shot. A profile with no own setting SHALL get the starting shot moved by the key, only with a published key and inside the validated range.
+The starting shot SHALL be the first of, in the current bag: the highest-rated shot rated 50+ (so a shot rated 75+ beats one rated 60); the latest good shot (dialed in, or rated 50+ whatever its badges or weight, and never rated under 50). Ties SHALL go to the most recent shot. A profile with no own setting SHALL get the starting shot moved by the key, only with a published key and inside the validated range.
 
 #### Scenario: A highly rated shot on another profile starts the estimate
 
@@ -68,25 +68,19 @@ The starting shot SHALL be the first of, in the current bag: the highest-rated s
 - **WHEN** the calibration is computed
 - **THEN** the starting shot is the bag's latest good shot, as before this change
 
-#### Scenario: An earlier bag of an undated coffee
-
-- **GIVEN** an undated coffee whose current bag has no rated or dialed-in shot, and a shot of the same coffee rated 80 from more than 90 days earlier
-- **WHEN** the calibration is computed with a published key
-- **THEN** that earlier shot is the starting shot, and the suggestion reports it as from an earlier bag
-
 ### Requirement: A dated bag SHALL be its own roast date
 
-For a bag with a roast date, the current bag SHALL be the shots of that coffee with that roast date only. Neither an undated shot of the same coffee nor another roast date SHALL start a suggestion for it or count as its earlier bag. Likewise an undated bag SHALL count only undated shots, for its current bag and its earlier bags.
+For a bag with a roast date, the current bag SHALL be the shots of that coffee with that roast date only. Neither an undated shot of the same coffee nor another roast date SHALL start a suggestion for it. An undated bag SHALL be the undated shots of that coffee within 90 days of its latest one.
 
 #### Scenario: A dated bag starts from its own roast date
 
 - **GIVEN** a bag roasted 2026-01-01 whose only Cremina shot is unrated at 19, an undated Cremina of the same coffee rated 90 from the same week, and a Cremina rated 95 from the 2025-10-01 roast
 - **WHEN** the suggestion for Cremina on the 2026-01-01 bag is computed
-- **THEN** it is 19 from the 2026-01-01 shot, and not from an earlier bag
+- **THEN** it is 19 from the 2026-01-01 shot
 
 ### Requirement: A profile SHALL get the bag's own setting when it has one
 
-A profile's own setting SHALL be the first of, in the current bag: its highest-rated shot rated 50+; its latest good shot; the highest-rated shot rated 50+ at the same UGS on any profile. For an undated coffee, earlier bags SHALL then count in the same order. The suggestion SHALL give it with or without a key and with no range check; the AI payload only with a key.
+A profile's own setting SHALL be the first of, in the current bag: its highest-rated shot rated 50+; its latest good shot; the highest-rated shot rated 50+ at the same UGS on any profile. The suggestion SHALL give it with or without a key and with no range check; the AI payload only with a key.
 
 #### Scenario: A rated shot on the target profile gives its own setting
 
@@ -111,12 +105,6 @@ A profile's own setting SHALL be the first of, in the current bag: its highest-r
 - **GIVEN** a grinder with no published key and a bag whose only shot is a Cremina (UGS 0) at 21.5 rated 70
 - **WHEN** the suggestion for Londinium (UGS 0) is computed
 - **THEN** it is 21.5, from the Cremina shot
-
-#### Scenario: An earlier bag's own setting
-
-- **GIVEN** an undated coffee whose current bag has shots only on D-Flow / Q, a grinder with no published key, and a Cremina shot of the same coffee rated 80 from more than 90 days earlier
-- **WHEN** the suggestion for Cremina is computed
-- **THEN** it is that earlier shot's setting, reported as from an earlier bag
 
 #### Scenario: No calibration, a profile never pulled
 
@@ -149,7 +137,7 @@ Wherever Mark's prototype (`fredphoesh/Decenza-Descendant` at `97daea2e3`) gave 
 
 ### Requirement: The grind suggestion SHALL report its starting shot
 
-A suggestion SHALL carry where it came from: a source (`rated`, `history`, `sameUgs` or `derived`, where `history` is the profile's latest good shot) and the shot it rests on (id, the shot's own profile title, setting, local time, rating, and whether it is from an earlier bag). It SHALL carry the shot's RPM only when the package's grinder takes an RPM: a fixed-speed grinder's shots can hold a stale one.
+A suggestion SHALL carry where it came from: a source (`rated`, `history`, `sameUgs` or `derived`, where `history` is the profile's latest good shot) and the shot it rests on (id, the shot's own profile title, setting, local time and rating). It SHALL carry the shot's RPM only when the package's grinder takes an RPM: a fixed-speed grinder's shots can hold a stale one.
 
 #### Scenario: A derived suggestion names its shot
 
@@ -168,25 +156,9 @@ A suggestion SHALL carry where it came from: a source (`rated`, `history`, `same
 - **WHEN** the suggestion is computed
 - **THEN** it reports no RPM for the shot
 
-### Requirement: The grind suggestion SHALL report the other reading
-
-When a profile has both a rated reading (its top-rated shot rated 50+) and a latest-good-shot reading at least one grind step apart (compared on the grinder's linear scale, so compound dials compare correctly), the suggestion SHALL also report the one it did not choose: its setting, its source, its shot (with rating and time), and how many days separate the rated shot from the latest shot on that profile. A shot rated 50+ counts as the latest good shot whatever its badges.
-
-#### Scenario: The alternative is reported
-
-- **GIVEN** a bag whose best-rated Cremina (85) at 20.5 was pulled 16 days before its latest good Cremina shot at 21.5
-- **WHEN** the suggestion for Cremina is computed
-- **THEN** it is 20.5, and it reports 21.5 from the latest shot as the other reading, with the 16 days
-
-#### Scenario: A badged rated shot is the latest reading
-
-- **GIVEN** a Cremina rated 85 at 20.5, and 20 days later a Cremina rated 60 at 22 with a channeling badge
-- **WHEN** the suggestion for Cremina is computed
-- **THEN** it is 20.5, and it reports 22 from the badged shot as the other reading
-
 ### Requirement: A suggestion without a number SHALL say why and how far
 
-Without a number a suggestion SHALL carry a reason: `noEquipment`, `noBean`, `noGrinder` (the equipment has no grinder), `noShots`, `dbError` (the history could not be read), `noStart` (no good shot of the bag yet), `profileNotOnChart`, `notCalibrated` or `outsideRange`. A read failure SHALL NOT be reported as `noShots` or `noStart`. With `notCalibrated` or `outsideRange` it SHALL also carry the move as a UGS difference from the starting shot, as the UGS calculator does when it has no key.
+Without a number a suggestion SHALL carry a reason: `noEquipment`, `noBean`, `noShots`, `noStart` (no good shot of the bag yet), `profileNotOnChart`, `notCalibrated` or `outsideRange`. With `notCalibrated` or `outsideRange` it SHALL also carry the move as a UGS difference from the starting shot, as the UGS calculator does when it has no key.
 
 #### Scenario: Uncalibrated move reported in UGS
 
@@ -233,7 +205,7 @@ span SHALL join the validated range as a mined pair's does.
 
 ### Requirement: The recipe wizard SHALL suggest a calibrated starting grind
 
-On the grind step, when the grind suggestion has a number for the picked profile on the selected bag and equipment, the wizard SHALL show that number in place of the direction-only hint, naming the shot it starts from in the same words as the Genius Grind popup (profile, date and time, rating when it has one, and whether it is from an earlier bag), with a "Use" action. "Use" SHALL also set the RPM to the starting shot's RPM when it carries one. It SHALL NOT fill the grind field by itself. Without a number the existing hint is unchanged.
+On the grind step, when the grind suggestion has a number for the picked profile on the selected bag and equipment, the wizard SHALL show that number in place of the direction-only hint, naming the shot it starts from in the same words as the Genius Grind popup (profile, date and time, and rating when it has one), with a "Use" action. "Use" SHALL also set the RPM to the starting shot's RPM when it carries one. It SHALL NOT fill the grind field by itself. Without a number the existing hint is unchanged.
 
 #### Scenario: Calibrated estimate offered
 
