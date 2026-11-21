@@ -1104,10 +1104,9 @@ constexpr qint64 kCalibUndatedBatchDays = 90;    // single-linkage gap for undat
 // grind on both (DF83V 2.40 vs 2.75, Mignon 0.52 vs 0.56); 3 and 5 did not on one.
 constexpr qsizetype kCalibMinUngatedPairs = 10;
 // Ratings are the user's taste call and outrank the metrics: 50+ counts as a good
-// shot whatever its badges or weight, 1-49 as a bad one even if it hit its weight,
-// and 75+ is preferred over 50+.
+// shot whatever its badges or weight, 1-49 as a bad one even if it hit its weight.
+// Among good shots the highest rating wins, so a 75+ shot always beats a 60.
 constexpr int kCalibGoodRating = 50;
-constexpr int kCalibTopRating  = 75;
 
 // The shot columns calibration reads, as stored. Not loadShotRecordStatic: that
 // loader re-runs the badge detectors and persists any drift, and calibration only
@@ -1159,6 +1158,126 @@ QString calibrationShotRejection(const QString& beverageType, double finalWeight
     return {};
 }
 
+
+// One shot as calibration reads it, after the per-shot rules.
+struct CalRow {
+    qint64 id = 0;
+    bool anchor = false;    // a counted calibration anchor; kept out of mined pairs
+    qint64 ts = 0;
+    QString kbId;
+    QString profileTitle;   // the shot's own profile name, as the user knows it
+    double ugs = std::numeric_limits<double>::quiet_NaN();
+    double setting = 0.0;
+    int rpm = 0;            // motor RPM (variable-RPM grinders); 0 = none
+    QString bean;
+    QString roast;
+    bool dated = false;
+    bool beanOk = false;    // bean identity non-empty (batch-knowable)
+    QString batch;          // assigned below
+    bool currentBatch = false;
+    bool earlierBag = false;  // same undated coffee, outside the current batch
+    int enjoyment = 0;      // 0 = unrated
+    // Here only because it is rated 50+: it failed a per-shot rule (badge, 15 g)
+    // that a rating outranks. Never mined, never clustered.
+    bool ratedOnly = false;
+};
+
+// Unknown grinders fall back to a default entry (NumericWithSuffix), which accepts
+// plain "25" and "8.5" and tolerates trailing text like "24 1400rpm".
+const GrinderAliases::GrinderEntry& grinderEntryOrDefault(const QString& grinderModel)
+{
+    static const GrinderAliases::GrinderEntry kDefaultGrinder{};
+    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntryByAlias(grinderModel);
+    return entry ? *entry : kDefaultGrinder;
+}
+
+// The starting shot and every profile's own setting (add-genius-grind-widget): one
+// rule for the AI block, the recipe wizard and the Genius Grind widget.
+void selectStartingShots(const QList<CalRow>& rows, GrindCalibrationStatus& st)
+{
+    // A shot rated 1-49 is a bad shot: it never counts, not even as the latest.
+    // Everything else in `rows` already passed the dialed-in gate or is rated 50+.
+    const auto isGood = [](const CalRow& r) {
+        return !(r.enjoyment > 0 && r.enjoyment < kCalibGoodRating);
+    };
+    // Rated: the highest rating 50+, newest on a tie. Latest: the newest good shot.
+    enum class Pick { Rated, Latest };
+    const auto pick = [&](const auto& inPool, Pick mode) -> const CalRow* {
+        const CalRow* best = nullptr;
+        for (const CalRow& r : rows) {
+            if (std::isnan(r.ugs) || !inPool(r)) continue;
+            if (mode == Pick::Latest) {
+                if (isGood(r) && (!best || r.ts > best->ts)) best = &r;
+            } else if (r.enjoyment >= kCalibGoodRating
+                       && (!best || r.enjoyment > best->enjoyment
+                           || (r.enjoyment == best->enjoyment && r.ts > best->ts))) {
+                best = &r;
+            }
+        }
+        return best;
+    };
+    const auto toStart = [](const CalRow* r) {
+        GrindStartShot s;
+        if (!r) return s;
+        s.shotId = r->id;
+        s.kbId = r->kbId;
+        s.profileName = r->profileTitle.isEmpty() ? ShotSummarizer::canonicalNameForKbId(r->kbId)
+                                                  : r->profileTitle;
+        s.ugs = r->ugs;
+        s.setting = r->setting;
+        s.timestamp = r->ts;
+        s.rating = r->enjoyment;
+        s.rpm = r->rpm;
+        s.earlierBag = r->earlierBag;
+        return s;
+    };
+    using Pool = std::function<bool(const CalRow&)>;
+    const Pool inCurrent = [](const CalRow& r) { return r.currentBatch; };
+    const Pool inEarlier = [](const CalRow& r) { return r.earlierBag; };
+    const auto poolOf = [&](const CalRow& r) -> const Pool& { return r.earlierBag ? inEarlier : inCurrent; };
+    // The latest good shot on `rated`'s profile and bag, when it reads differently.
+    const auto alternativeTo = [&](const CalRow* rated) -> const CalRow* {
+        if (!rated || rated->enjoyment < kCalibGoodRating) return nullptr;
+        const Pool& pool = poolOf(*rated);
+        const CalRow* latest = pick([&](const CalRow& r) {
+            return r.kbId == rated->kbId && pool(r);
+        }, Pick::Latest);
+        if (!latest || latest->id == rated->id || std::abs(latest->setting - rated->setting) < 1e-9)
+            return nullptr;
+        return latest;
+    };
+
+    const CalRow* startRow = nullptr;
+    for (const Pool& pool : {inCurrent, inEarlier}) {
+        if ((startRow = pick(pool, Pick::Rated)) || (startRow = pick(pool, Pick::Latest))) break;
+    }
+    st.start = toStart(startRow);
+    st.startAlternative = toStart(alternativeTo(startRow));
+
+    for (const ShotSummarizer::KbUgsEntry& e : ShotSummarizer::allKbUgsEntries()) {
+        GrindOwnSetting own;
+        for (const Pool& pool : {inCurrent, inEarlier}) {
+            const auto onProfile = [&](const CalRow& r) { return pool(r) && r.kbId == e.kbId; };
+            const CalRow* r = pick(onProfile, Pick::Rated);
+            if (r) {
+                own.source = QStringLiteral("rated");
+                own.alternative = toStart(alternativeTo(r));
+            } else if ((r = pick(onProfile, Pick::Latest))) {
+                own.source = QStringLiteral("history");
+            } else if ((r = pick([&](const CalRow& x) {
+                           return pool(x) && std::abs(x.ugs - e.ugs) < 1e-9; }, Pick::Rated))) {
+                own.source = QStringLiteral("sameUgs");
+            }
+            if (r) {
+                own.shot = toStart(r);
+                break;
+            }
+        }
+        if (own.shot.isValid())
+            st.ownSettings.insert(e.kbId, own);
+    }
+}
+
 } // unnamed namespace (calibration helpers)
 
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
@@ -1174,9 +1293,9 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // wrong-signed/out-of-range numbers presented as fact. New model:
     //   grind(profile, coffeeBatch) ≈ batchBaseline + UGS·conversionKey
     // conversionKey is mined from WITHIN-BATCH paired slopes (cancels the
-    // dominant per-batch baseline), gated dimensionlessly, anchored on a
-    // recent dialed-in shot of the CURRENT roast batch, and never
-    // extrapolated past a hard UGS cap. No usable signal → directional
+    // dominant per-batch baseline), gated dimensionlessly, anchored on the
+    // starting shot (selectStartingShots), and never extrapolated past a hard
+    // UGS cap. No usable signal → directional
     // (finer/coarser from KB ordering only), never a fabricated number.
     if (grinderModel.isEmpty()) {
         DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: skipped — grinderModel empty";
@@ -1198,17 +1317,13 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     }
     const CalibShot& cur = *curOpt;
 
-    // Per-grinder notation: how to parse `grinder_setting` into a linear
-    // scalar and how to render a recommended setting back. Unknown
-    // grinders fall back to a default entry (NumericWithSuffix), which
-    // accepts plain "25" and "8.5" and tolerates ignorable trailing text
-    // like "24 1400rpm" or "30 clicks". Compound (Eureka Mignon family,
-    // 1Zpresso) round-trips as `a+b`.
-    const GrinderAliases::GrinderEntry* gEntryPtr =
-        GrinderAliases::findEntryByAlias(grinderModel);
-    static const GrinderAliases::GrinderEntry kDefaultGrinder{};
-    const GrinderAliases::GrinderEntry& gEntry =
-        gEntryPtr ? *gEntryPtr : kDefaultGrinder;
+    // Per-grinder notation: how to parse `grinder_setting` into a linear scalar and
+    // render a recommended setting back. Compound (Eureka Mignon family, 1Zpresso)
+    // round-trips as `a+b`.
+    const GrinderAliases::GrinderEntry& gEntry = grinderEntryOrDefault(grinderModel);
+    // A fixed-speed grinder's shots can still carry a stale RPM; neither the AI nor
+    // Apply may repeat it.
+    const bool rpmCapable = EquipmentStorage::deriveRpmCapable(cur.grinderBrand, cur.grinderModel);
 
     auto normEq = [](const QString& a, const QString& b) {
         return QString::compare(a.trimmed(), b.trimmed(), Qt::CaseInsensitive) == 0;
@@ -1253,8 +1368,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     // Dialed-in qualification: ≥15g + no quality badge AND (rated ≥50 OR
     // landed within 10% of stop-at-weight target OR has a refractometer
-    // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
-    // undershoot/aborted experiments and corrupted the medians.
+    // reading). A shot rated 50+ that fails the weight or badge rule is kept as
+    // ratedOnly: it can start a suggestion but is never mined.
     QSqlQuery q(db);
     // Package-scoped, like every other advice read. The endpoint medians below
     // are pooled per (batch, kbId) before any pair is formed, so a shot from
@@ -1279,30 +1394,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         " ORDER BY timestamp DESC"));
     if (!q.exec ()) {
         DIAG_WARN(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
+        if (status) status->historyReadFailed = true;
         return QJsonObject();
     }
 
-    struct CalRow {
-        qint64 id = 0;
-        bool anchor = false;    // a counted calibration anchor; kept out of mined pairs
-        qint64 ts = 0;
-        QString kbId;
-        QString profileTitle;   // the shot's own profile name, as the user knows it
-        double ugs = std::numeric_limits<double>::quiet_NaN();
-        double setting = 0.0;
-        int rpm = 0;            // motor RPM (variable-RPM grinders); 0 = none
-        QString bean;
-        QString roast;
-        bool dated = false;
-        bool beanOk = false;    // bean identity non-empty (batch-knowable)
-        QString batch;          // assigned below
-        bool currentBatch = false;
-        bool earlierBag = false;  // same undated coffee, outside the current batch
-        int enjoyment = 0;      // 0 = unrated
-        // Here only because it is rated 50+: it failed a per-shot rule (badge, 15 g)
-        // that a rating outranks. Never mined, never clustered.
-        bool ratedOnly = false;
-    };
     QList<CalRow> rows;
 
     while (q.next()) {
@@ -1396,6 +1491,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // count. Filled before the empty-rows return so a package whose only shots
     // are rejected anchors still says why.
     GrindCalibrationStatus st;
+    st.rpmCapable = rpmCapable;
     const auto describeAnchor = [&](GrindCalibrationStatus::Anchor& a, qint64 id) {
         a.shotId = id;
         if (id <= 0) return;
@@ -1464,14 +1560,14 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         }
     }
 
-    // Current-batch membership for the anchor + history medians: same bean,
-    // and (both dated → same roastDate) else within the 90-day window of
-    // the current shot. Matches the spec's "within 90 days of one another".
+    // Current-batch membership for the starting shot: same bean, and for a dated
+    // bag its own roast date only; an undated coffee takes the 90-day window of the
+    // current shot ("within 90 days of one another").
     for (CalRow& r : rows) {
         if (!curBeanResolved || !r.beanOk) continue;  // batch-unknowable
         if (!normEq(r.bean, curBean)) continue;
-        if (curDated && r.dated)
-            r.currentBatch = normEq(r.roast, cur.roastDate);
+        if (curDated)
+            r.currentBatch = r.dated && normEq(r.roast, cur.roastDate);
         else
             r.currentBatch = qAbs(r.ts - cur.timestamp) <= batchGapSec;
         // An undated coffee's earlier bags: the same coffee outside the window.
@@ -1573,94 +1669,13 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     if (st.basis.isEmpty() && keyValid)
         st.basis = QStringLiteral("history");
 
-    // ---- Starting shot and own settings (add-genius-grind-widget) ----
-    // One rule for the AI block, the recipe wizard and the Genius Grind widget.
-    // A shot rated 1-49 is a bad shot: it never counts, not even as the latest.
-    const auto isGood = [](const CalRow& r) {
-        return !r.ratedOnly && !(r.enjoyment > 0 && r.enjoyment < kCalibGoodRating);
-    };
-    enum class Pick { Top, Good, Latest };
-    // Top: rated 75+; Good: rated 50+ (best rating wins); Latest: newest good shot.
-    // Newest wins a tie throughout.
-    const auto pick = [&](const auto& inPool, Pick mode) -> const CalRow* {
-        const CalRow* best = nullptr;
-        for (const CalRow& r : rows) {
-            if (std::isnan(r.ugs) || !inPool(r)) continue;
-            if (mode == Pick::Latest) {
-                if (isGood(r) && (!best || r.ts > best->ts)) best = &r;
-                continue;
-            }
-            if (r.enjoyment < (mode == Pick::Top ? kCalibTopRating : kCalibGoodRating)) continue;
-            if (!best || r.enjoyment > best->enjoyment
-                || (r.enjoyment == best->enjoyment && r.ts > best->ts))
-                best = &r;
-        }
-        return best;
-    };
-    const auto toStart = [&](const CalRow* r) {
-        GrindStartShot s;
-        if (!r) return s;
-        s.shotId = r->id;
-        s.kbId = r->kbId;
-        s.profileName = r->profileTitle.isEmpty() ? ShotSummarizer::canonicalNameForKbId(r->kbId)
-                                                  : r->profileTitle;
-        s.ugs = r->ugs;
-        s.setting = r->setting;
-        s.timestamp = r->ts;
-        s.rating = r->enjoyment;
-        s.rpm = r->rpm;
-        s.earlierBag = r->earlierBag;
-        return s;
-    };
-    const auto inCurrent = [](const CalRow& r) { return r.currentBatch; };
-    const auto inEarlier = [](const CalRow& r) { return r.earlierBag; };
-    // The latest good shot on `kbId` in the same pool as `rated`, when it reads differently.
-    const auto alternativeTo = [&](const CalRow* rated) -> const CalRow* {
-        if (!rated || rated->enjoyment < kCalibGoodRating) return nullptr;
-        const bool earlier = rated->earlierBag;
-        const CalRow* latest = pick([&](const CalRow& r) {
-            return r.kbId == rated->kbId && (earlier ? r.earlierBag : r.currentBatch);
-        }, Pick::Latest);
-        if (!latest || latest->id == rated->id || std::abs(latest->setting - rated->setting) < 1e-9)
-            return nullptr;
-        return latest;
-    };
-
-    const CalRow* startRow = nullptr;
-    for (const auto& pool : {std::function<bool(const CalRow&)>(inCurrent),
-                             std::function<bool(const CalRow&)>(inEarlier)}) {
-        for (Pick mode : {Pick::Top, Pick::Good, Pick::Latest}) {
-            if ((startRow = pick(pool, mode))) break;
-        }
-        if (startRow) break;
+    st.keyPublished = keyValid;
+    if (std::isfinite(validLo) && std::isfinite(validHi) && validLo <= validHi) {
+        st.validLo = validLo;
+        st.validHi = validHi;
     }
-    st.start = toStart(startRow);
-    st.startAlternative = toStart(alternativeTo(startRow));
-
-    for (const ShotSummarizer::KbUgsEntry& e : ShotSummarizer::allKbUgsEntries()) {
-        GrindOwnSetting own;
-        for (const auto& pool : {std::function<bool(const CalRow&)>(inCurrent),
-                                 std::function<bool(const CalRow&)>(inEarlier)}) {
-            const auto onProfile = [&](const CalRow& r) { return pool(r) && r.kbId == e.kbId; };
-            const CalRow* r = pick(onProfile, Pick::Top);
-            if (!r) r = pick(onProfile, Pick::Good);
-            if (r) {
-                own.source = QStringLiteral("rated");
-                own.alternative = toStart(alternativeTo(r));
-            } else if ((r = pick(onProfile, Pick::Latest))) {
-                own.source = QStringLiteral("history");
-            } else if ((r = pick([&](const CalRow& x) {
-                           return pool(x) && std::abs(x.ugs - e.ugs) < 1e-9; }, Pick::Good))) {
-                own.source = QStringLiteral("sameUgs");
-            }
-            if (r) {
-                own.shot = toStart(r);
-                break;
-            }
-        }
-        if (own.shot.isValid())
-            st.ownSettings.insert(e.kbId, own);
-    }
+    if (keyValid) st.conversionKey = conversionKey;
+    selectStartingShots(rows, st);
 
     const bool haveAnchor = st.start.isValid();
     const double anchorSetting = st.start.setting;
@@ -1704,11 +1719,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                 p["rgs"] = GrinderAliases::formatGrinderSetting(gEntry, own->shot.setting);
                 if (own->shot.earlierBag) p["earlierBag"] = true;
                 emittedNumber = true;
-            } else if (e.ugs >= validLo - kCalibCap - 1e-9
-                       && e.ugs <= validHi + kCalibCap + 1e-9) {
+            } else if (st.inRange(e.ugs)) {
                 p["source"] = QStringLiteral("derived");
                 p["rgs"] = GrinderAliases::formatGrinderSetting(
-                    gEntry, anchorSetting + (e.ugs - anchorUgs) * conversionKey);
+                    gEntry, st.derivedSetting(st.start, e.ugs));
                 emittedNumber = true;
             }
         }
@@ -1742,19 +1756,14 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "\"directional\" give finer/coarser only and tell the user to pull a "
         "reference shot on that profile — never a number, never a click "
         "delta. Do not multiply a UGS distance by any factor of your own.");
-    // Variable-RPM grinders: dial + RPM are two independent grind axes
-    // and shots at the same dial / different RPM are NOT the same grind.
-    // The parser tolerates the "<dial> <rpm>rpm" suffix but does NOT yet
-    // split pairs by RPM (Phase-2 work), so any approximate `rgs` is
-    // anchored at whatever RPM the user's recent dialed-in shot used.
-    // Surface this caveat so the model qualifies numeric recommendations
-    // and does NOT pool dial values across RPMs in its own reasoning.
-    block["variableRpm"] = gEntry.variableRpm;
-    if (gEntry.variableRpm && approximate) {
+    // Dial + RPM are two independent grind axes, and pairs are not split by RPM, so
+    // every approximate `rgs` holds only at the coffeeAnchor shot's RPM.
+    block["variableRpm"] = rpmCapable;
+    if (rpmCapable && approximate) {
         usage += QStringLiteral(
             " This grinder has variable RPM: the recommended setting "
-            "applies only at the SAME RPM as the user's recent dialed-in "
-            "shot. State this caveat when quoting a number, and never "
+            "applies only at the SAME RPM as the coffeeAnchor shot. "
+            "State this caveat when quoting a number, and never "
             "treat shots at different RPM as the same grind.");
     }
     block["usageConstraint"] = usage;
@@ -1766,10 +1775,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         anchor["ugs"] = anchorUgs;
         anchor["setting"] = GrinderAliases::formatGrinderSetting(
             gEntry, anchorSetting);
-        // The anchor shot's actual RPM, so a variable-RPM recommendation can name
-        // the concrete RPM the setting is anchored at rather than only the prose
-        // "same RPM as your recent shot" caveat. Sparse: absent for non-RPM shots.
-        if (anchorRpm > 0)
+        if (rpmCapable && anchorRpm > 0)
             anchor["rpm"] = anchorRpm;
         anchor["coffee"] = curBean;
         const QDateTime startDt = QDateTime::fromSecsSinceEpoch(st.start.timestamp);
@@ -1801,18 +1807,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     }
     block["profiles"] = profilesArr;
 
-    st.keyPublished = keyValid;
-    if (std::isfinite(validLo) && std::isfinite(validHi) && validLo <= validHi) {
-        st.validLo = validLo;
-        st.validHi = validHi;
-    }
-    if (keyValid) {
-        st.conversionKey = conversionKey;
-        for (const ShotSummarizer::KbUgsEntry& e : entries) {
-            if (e.ugs < validLo - kCalibCap - 1e-9 || e.ugs > validHi + kCalibCap + 1e-9) continue;
-            if (st.rangeFromProfile.isEmpty()) st.rangeFromProfile = e.name;
-            st.rangeToProfile = e.name;
-        }
+    for (const ShotSummarizer::KbUgsEntry& e : entries) {
+        if (!st.inRange(e.ugs)) continue;
+        if (st.rangeFromProfile.isEmpty()) st.rangeFromProfile = e.name;
+        st.rangeToProfile = e.name;
     }
     publishStatus();
     return block;
@@ -1901,55 +1899,64 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
     q.bindValue(QStringLiteral(":brand"), beanBrand);
     q.bindValue(QStringLiteral(":type"), beanType);
     if (dated) q.bindValue(QStringLiteral(":roast"), roastDate);
-    if (!q.exec() || !q.next())
+    if (!q.exec())
+        return refuse(QStringLiteral("dbError"));
+    if (!q.next())
         return refuse(QStringLiteral("noShots"));
     const qint64 latest = q.value(0).toLongLong();
     const std::optional<CalibShot> shot = loadCalibShot(db, latest);
-    if (!shot || shot->grinderModel.isEmpty())
-        return refuse(QStringLiteral("noShots"));
+    if (!shot)
+        return refuse(QStringLiteral("dbError"));
+    if (shot->grinderModel.isEmpty())
+        return refuse(QStringLiteral("noGrinder"));
 
     GrindCalibrationStatus st;
     buildGrinderCalibrationBlock(db, shot->grinderModel, AdviceScope(packageId),
                                  QStringLiteral("espresso"), latest, nullptr, &st);
-    const GrinderAliases::GrinderEntry* entryPtr = GrinderAliases::findEntryByAlias(shot->grinderModel);
-    static const GrinderAliases::GrinderEntry kDefaultEntry{};
-    const GrinderAliases::GrinderEntry& gEntry = entryPtr ? *entryPtr : kDefaultEntry;
+    if (st.historyReadFailed)
+        return refuse(QStringLiteral("dbError"));
+    const GrinderAliases::GrinderEntry& gEntry = grinderEntryOrDefault(shot->grinderModel);
     const auto fmt = [&](double v) { return GrinderAliases::formatGrinderSetting(gEntry, v); };
-    // A fixed-speed grinder's shots can still carry a stale RPM; Apply must not write it.
-    const bool rpmCapable = EquipmentStorage::deriveRpmCapable(shot->grinderBrand, shot->grinderModel);
+    const double step = ShotHistoryStorage::grindStepStatic(db, shot->grinderModel);
     const auto putShot = [&](QVariantMap& out, const QString& prefix, const GrindStartShot& s) {
         out.insert(prefix + QStringLiteral("ShotId"), s.shotId);
         out.insert(prefix + QStringLiteral("ProfileName"), s.profileName);
-        out.insert(prefix + QStringLiteral("Setting"), fmt(s.setting));
+        out.insert(prefix + QStringLiteral("ShotSetting"), fmt(s.setting));
         out.insert(prefix + QStringLiteral("Timestamp"), s.timestamp);
         out.insert(prefix + QStringLiteral("Rating"), s.rating);
-        out.insert(prefix + QStringLiteral("Rpm"), rpmCapable ? s.rpm : 0);
+        out.insert(prefix + QStringLiteral("Rpm"), st.rpmCapable ? s.rpm : 0);
         out.insert(prefix + QStringLiteral("EarlierBag"), s.earlierBag);
     };
-    const auto putAlternative = [&](QVariantMap& out, const GrindStartShot& rated,
-                                    const GrindStartShot& alt, double altSetting) {
-        if (!alt.isValid()) return;
+    // The other reading is offered only a grind step or more away, compared on the
+    // grinder's linear scale so compound dials ("1+4" vs "1+5") compare correctly.
+    const auto putAlternative = [&](QVariantMap& out, double reading, const GrindStartShot& rated,
+                                    const GrindStartShot& alt, double altReading,
+                                    const QString& altSource) {
+        if (!alt.isValid() || std::abs(altReading - reading) < step - 1e-9
+            || fmt(altReading) == fmt(reading))
+            return;
         putShot(out, QStringLiteral("alt"), alt);
-        // putShot names the shot's own setting altSetting; the reading moves it.
-        out.insert(QStringLiteral("altShotSetting"), out.value(QStringLiteral("altSetting")));
-        out.insert(QStringLiteral("altSetting"), fmt(altSetting));
-        out.insert(QStringLiteral("altSource"), QStringLiteral("history"));
+        out.insert(QStringLiteral("altSetting"), fmt(altReading));
+        out.insert(QStringLiteral("altSource"), altSource);
         out.insert(QStringLiteral("daysBetween"),
                    qRound(std::abs(double(alt.timestamp - rated.timestamp)) / 86400.0));
     };
 
     QVariantMap out;
-    out.insert(QStringLiteral("grindStep"), ShotHistoryStorage::grindStepStatic(db, shot->grinderModel));
+    out.insert(QStringLiteral("grindStep"), step);
     // The bag's own setting: the user's own grind, so no key and no range check.
     if (const auto own = st.ownSettings.constFind(kbId); own != st.ownSettings.cend()) {
         out.insert(QStringLiteral("setting"), fmt(own->shot.setting));
         out.insert(QStringLiteral("source"), own->source);
         putShot(out, QStringLiteral("start"), own->shot);
-        putAlternative(out, own->shot, own->alternative, own->alternative.setting);
+        putAlternative(out, own->shot.setting, own->shot, own->alternative,
+                       own->alternative.setting, QStringLiteral("history"));
         return out;
     }
-    if (!st.start.isValid())
-        return refuse(QStringLiteral("noStart"));
+    if (!st.start.isValid()) {
+        out.insert(QStringLiteral("reason"), QStringLiteral("noStart"));
+        return out;
+    }
 
     const double dUgs = targetUgs - st.start.ugs;
     const auto withMove = [&](const QString& reason) {
@@ -1962,18 +1969,29 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
                  : dUgs > 0 ? QStringLiteral("coarser") : QStringLiteral("finer"));
         return r;
     };
-    if (!st.keyPublished || std::isnan(st.conversionKey))
+    if (!st.keyPublished)
         return withMove(QStringLiteral("notCalibrated"));
-    if (std::isnan(st.validLo) || targetUgs < st.validLo - kCalibCap - 1e-9
-        || targetUgs > st.validHi + kCalibCap + 1e-9)
+    if (!st.inRange(targetUgs))
         return withMove(QStringLiteral("outsideRange"));
 
-    out.insert(QStringLiteral("setting"), fmt(st.start.setting + dUgs * st.conversionKey));
+    const double reading = st.derivedSetting(st.start, targetUgs);
+    out.insert(QStringLiteral("setting"), fmt(reading));
     out.insert(QStringLiteral("source"), QStringLiteral("derived"));
     putShot(out, QStringLiteral("start"), st.start);
-    putAlternative(out, st.start, st.startAlternative,
-                   st.startAlternative.setting + (targetUgs - st.startAlternative.ugs) * st.conversionKey);
+    putAlternative(out, reading, st.start, st.startAlternative,
+                   st.derivedSetting(st.startAlternative, targetUgs), QStringLiteral("derived"));
     return out;
+}
+
+bool GrindCalibrationStatus::inRange(double ugs) const
+{
+    return keyPublished && std::isfinite(validLo) && std::isfinite(validHi)
+        && ugs >= validLo - kCalibCap - 1e-9 && ugs <= validHi + kCalibCap + 1e-9;
+}
+
+double GrindCalibrationStatus::derivedSetting(const GrindStartShot& from, double ugs) const
+{
+    return from.setting + (ugs - from.ugs) * conversionKey;
 }
 
 QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,

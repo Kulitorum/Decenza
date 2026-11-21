@@ -13,6 +13,8 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
+import "../components/DateUtils.js" as DateUtils
+import "../components/GrindSuggestionText.js" as GrindSuggestionText
 
 // Recipe wizard (add-recipe-wizard-tea): ONE page for all recipe creation and
 // editing, replacing RecipeComposerPage. Three entry points land here — blank
@@ -1280,11 +1282,12 @@ T.Page {
     function requestGrindHint() {
         grindHint = ""
         grindSuggestion = ({})
+        _grindSuggestionId = ""
         requestLatestGrindForSelection()
         if (visible && EquipmentService.ready && activeTemplate.grind && hasBean
             && fProfileTitle !== "" && fEquipmentId > 0)
-            EquipmentService.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
-                                                    _selectedBagRoastDate, fProfileTitle)
+            _grindSuggestionId = EquipmentService.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
+                                                                         _selectedBagRoastDate, fProfileTitle)
     }
 
     // The equipment window's tile model: a "None" tile followed by the
@@ -1493,33 +1496,20 @@ T.Page {
     // i.e. when the grinder calibration's own gates publish one.
     property string grindHint: ""
     // When the grind suggestion has a number for the picked profile on this bag,
-    // it replaces the direction-only hint, naming the shot it rests on.
+    // it replaces the direction-only hint, naming the shot it rests on in the same
+    // words as the Genius Grind popup.
     property var grindSuggestion: ({})
+    property string _grindSuggestionId: ""
     readonly property bool _hasGrindSuggestion: (grindSuggestion.setting || "") !== ""
     readonly property string grindSuggestionText: {
         if (!_hasGrindSuggestion) return ""
         const g = grindSuggestion
-        const rating = Number(g.startRating || 0)
-        if (g.source === "derived")
-            return rating > 0
-                ? TranslationManager.translate("recipes.wizard.grindSuggestion.estimateRated",
-                      "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4, rated %5).")
-                      .arg(fProfileTitle).arg(g.setting).arg(g.startProfileName || "")
-                      .arg(g.startSetting || "").arg(rating)
-                : TranslationManager.translate("recipes.wizard.grindSuggestion.estimate",
-                      "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4).")
-                      .arg(fProfileTitle).arg(g.setting).arg(g.startProfileName || "").arg(g.startSetting || "")
-        if (g.source === "rated")
-            return TranslationManager.translate("recipes.wizard.grindSuggestion.rated",
-                       "Your %1 shot of this bean rated %2 was ground at %3.")
-                       .arg(fProfileTitle).arg(rating).arg(g.setting)
-        if (g.source === "sameUgs")
-            return TranslationManager.translate("recipes.wizard.grindSuggestion.sameUgs",
-                       "Your %1 shot of this bean, at the same UGS as %2, was ground at %3.")
-                       .arg(g.startProfileName || "").arg(fProfileTitle).arg(g.setting)
-        return TranslationManager.translate("recipes.wizard.grindSuggestion.latest",
-                   "Your latest %1 shot of this bean was ground at %2.")
+        const tr = function(key, fallback) { return TranslationManager.translate(key, fallback) }
+        const when = DateUtils.shotTimeLabel(Number(g.startTimestamp || 0), Qt.locale(),
+                                             Settings.app.use12HourTime)
+        return tr("recipes.wizard.grindSuggestion.lead", "Suggested starting grind for %1: %2.")
                    .arg(fProfileTitle).arg(g.setting)
+               + " " + GrindSuggestionText.sourceLine(g, "start", String(g.source || ""), fProfileTitle, when, tr)
     }
     // True once the user has typed in a details field (or an existing recipe
     // was loaded). The profile/bag seeds fill the fields synchronously so the
@@ -1977,12 +1967,8 @@ T.Page {
     Connections {
         target: EquipmentService
         function onGrindSuggestionReady(suggestion) {
-            if (suggestion.packageId !== wizardPage.fEquipmentId
-                || suggestion.beanBrand !== wizardPage.fRoaster
-                || suggestion.beanType !== wizardPage.fCoffee
-                || suggestion.profileTitle !== wizardPage.fProfileTitle
-                || suggestion.roastDate !== wizardPage._selectedBagRoastDate)
-                return
+            if (suggestion.requestId !== wizardPage._grindSuggestionId) return
+            wizardPage._grindSuggestionId = ""
             wizardPage.grindSuggestion = suggestion
         }
     }
@@ -3475,6 +3461,9 @@ T.Page {
                                         accessibleName: text
                                         onClicked: {
                                             wizardPage.fGrind = wizardPage.grindSuggestion.setting
+                                            // A setting at another RPM is a different grind.
+                                            const rpm = Number(wizardPage.grindSuggestion.startRpm || 0)
+                                            if (rpm > 0) wizardPage.fRpmPinned = rpm
                                             wizardPage._grindUserEdited = true
                                             wizardPage._grindDefaultContext = ""
                                             wizardPage._detailsUserEdited = true

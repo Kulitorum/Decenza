@@ -146,29 +146,31 @@ void EquipmentService::requestGrindCalibration(qint64 packageId)
     requestGrindContext(QStringLiteral("calibration"), {{QStringLiteral("packageId"), packageId}});
 }
 
-void EquipmentService::requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
-                                              const QString& beanType, const QString& roastDate,
-                                              const QString& profileTitle)
+QString EquipmentService::requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                                const QString& beanType, const QString& roastDate,
+                                                const QString& profileTitle)
 {
-    requestGrindContext(QStringLiteral("suggestion"), {
+    return requestGrindContext(QStringLiteral("suggestion"), {
         {QStringLiteral("packageId"), packageId}, {QStringLiteral("beanBrand"), beanBrand},
         {QStringLiteral("beanType"), beanType}, {QStringLiteral("roastDate"), roastDate},
         {QStringLiteral("profileTitle"), profileTitle}});
 }
 
-void EquipmentService::requestGrindContext(const QString& kind, const QVariantMap& query)
+QString EquipmentService::requestGrindContext(const QString& kind, const QVariantMap& query)
 {
+    const QString requestId = ServiceOperation::newId();
     QVariantMap context = query;
     context.insert(QStringLiteral("kind"), kind);
+    context.insert(QStringLiteral("requestId"), requestId);
     if (!connected()) {
         QMetaObject::invokeMethod(this, [this, context] {
             reportGrindContext(context, {}, QStringLiteral("disconnected"));
         }, Qt::QueuedConnection);
-        return;
+        return requestId;
     }
-    const QString requestId = ServiceOperation::newId();
     m_grindReads.insert(requestId, context);
     m_state->requestGrindContext(requestId, kind, query);
+    return requestId;
 }
 
 void EquipmentService::reportGrindContext(const QVariantMap& query, QVariantMap result,

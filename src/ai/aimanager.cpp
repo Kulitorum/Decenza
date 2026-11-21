@@ -37,8 +37,6 @@
 #include <QSqlError>
 #include "../core/dbutils.h"
 #include <QPointer>
-#include "../history/equipmentstorage.h"
-#include "../history/equipmentlogging.h"
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <cmath>

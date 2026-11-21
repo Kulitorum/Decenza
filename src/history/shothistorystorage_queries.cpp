@@ -2625,8 +2625,11 @@ double ShotHistoryStorage::grindStepStatic(QSqlDatabase& db, const QString& grin
 {
     bool queryOk = false;
     double step = deriveGrindStep(grinderWideNumericSettings(db, grinderModel, &queryOk));
-    if (step <= 0.0 && !grinderModel.isEmpty())
+    if (step <= 0.0 && !grinderModel.isEmpty() && queryOk)
         step = deriveGrindStep(grinderWideNumericSettings(db, QString(), &queryOk));
+    if (!queryOk)
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "grind step query failed for" << grinderModel
+                                                 << "- using 1.0";
     return step > 0.0 ? step : 1.0;
 }
 

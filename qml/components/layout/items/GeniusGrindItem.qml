@@ -9,6 +9,7 @@ LayoutWidgetItem {
     id: root
 
     property var suggestion: ({})
+    property string _pendingSuggestionId: ""
 
     readonly property string labelText: TranslationManager.translate("geniusGrind.label", "Genius Grind")
     readonly property string profileTitle: String(ProfileService.currentProfileSummary.title || "")
@@ -24,57 +25,50 @@ LayoutWidgetItem {
         }
         return null
     }
-    // A shot saved, rated, edited or deleted moves historyRevision; comparing the key
-    // by value ignores the replica's other notifications. The handler must not call
-    // BagService.requestInventory(): on the in-process replica that flips loading
-    // synchronously, re-firing this binding inside its own change handler.
-    readonly property string requestKey: {
+    // What the number is for: a new bag, profile or package clears it at once.
+    readonly property string identityKey: {
         const bag = root._activeBag
         return EquipmentService.ready + "|" + EquipmentService.activePackageId + "|"
             + (bag ? bag.id + "|" + bag.roasterName + "|" + bag.coffeeName + "|" + bag.roastDate : "")
-            + "|" + root.profileTitle + "|" + HistoryService.historyRevision
+            + "|" + root.profileTitle
     }
+    // A shot saved, rated, edited or deleted moves historyRevision; the number stays
+    // shown until the new one arrives. Compared by value, so the replica's other
+    // notifications pass. The handlers must not call BagService.requestInventory():
+    // on the in-process replica that flips loading synchronously, re-firing these
+    // bindings inside their own change handlers.
+    readonly property string requestKey: root.identityKey + "|" + HistoryService.historyRevision
 
+    onIdentityKeyChanged: root.suggestion = ({})
     onRequestKeyChanged: root.requestSuggestion()
+    // The host refreshes the bag list after every change but loads it only when asked.
     Component.onCompleted: {
         BagService.requestInventory()
         root.requestSuggestion()
     }
 
-    function bagMatches(bag: var, s: var): bool {
-        return !!bag && s.packageId === EquipmentService.activePackageId
-            && s.beanBrand === String(bag.roasterName || "")
-            && s.beanType === String(bag.coffeeName || "")
-            && s.roastDate === String(bag.roastDate || "")
-    }
-
     function requestSuggestion(): void {
-        root.suggestion = ({})
+        root._pendingSuggestionId = ""
         const bag = root._activeBag
         const packageId = EquipmentService.activePackageId
-        if (!bag || root.profileTitle.length === 0 || packageId <= 0 || !EquipmentService.ready)
+        if (!bag || root.profileTitle.length === 0 || packageId <= 0 || !EquipmentService.ready) {
+            root.suggestion = ({})
             return
-        EquipmentService.requestGrindSuggestion(packageId, String(bag.roasterName || ""),
-                                                String(bag.coffeeName || ""),
-                                                String(bag.roastDate || ""), root.profileTitle)
-    }
-
-    Connections {
-        target: BagService
-        function onBagsChanged() {
-            BagService.requestInventory()
         }
+        root._pendingSuggestionId = EquipmentService.requestGrindSuggestion(
+            packageId, String(bag.roasterName || ""), String(bag.coffeeName || ""),
+            String(bag.roastDate || ""), root.profileTitle)
     }
 
     Connections {
         target: EquipmentService
         function onGrindSuggestionReady(suggestion) {
-            if (!root.bagMatches(root._activeBag, suggestion) || suggestion.profileTitle !== root.profileTitle)
-                return
+            if (suggestion.requestId !== root._pendingSuggestionId) return
+            root._pendingSuggestionId = ""
             root.suggestion = suggestion
         }
         function onGrindCalibrationChanged(packageId) {
-            root.requestSuggestion()
+            if (packageId === EquipmentService.activePackageId) root.requestSuggestion()
         }
     }
 
@@ -99,6 +93,7 @@ LayoutWidgetItem {
             text: root.labelText
             color: root.zoneTextColor
             font: Theme.labelFont
+            Accessible.ignored: true
         }
         Text {
             Layout.fillWidth: true
@@ -106,9 +101,9 @@ LayoutWidgetItem {
             elide: Text.ElideRight
             text: root.valueText
             color: root.zoneTextColor
-            font.family: Theme.bodyFont.family
             font.pixelSize: Theme.scaled(21)
-            font.bold: true
+            font.bold: root.zoneValueBold
+            Accessible.ignored: true
         }
     }
 
@@ -151,9 +146,7 @@ LayoutWidgetItem {
                 verticalAlignment: Text.AlignVCenter
                 text: root.valueText
                 color: tile.contentColor
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Theme.scaled(40)
-                font.bold: true
+                font: Theme.valueFont
                 Accessible.ignored: true
             }
             Text {

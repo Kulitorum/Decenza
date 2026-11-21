@@ -508,6 +508,12 @@ struct GrindCalibrationStatus {
     GrindStartShot start;               // the intercept every derived number moves from
     GrindStartShot startAlternative;    // latest good shot on start's profile, when start is rated and differs
     QHash<QString, GrindOwnSetting> ownSettings;  // kbId -> the bag's own setting
+    bool rpmCapable = false;            // EquipmentStorage::deriveRpmCapable for the package's grinder
+    bool historyReadFailed = false;     // the shot query failed; nothing above is known
+    // A published key, and `ugs` inside the validated window plus the extrapolation cap.
+    bool inRange(double ugs) const;
+    // `from`'s setting moved to `ugs` by the key. Meaningful only when inRange(ugs).
+    double derivedSetting(const GrindStartShot& from, double ugs) const;
     QVariantMap toVariantMap() const;
 };
 
@@ -532,9 +538,12 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 // The grind suggestion for `profileTitle` on this bag and equipment (recipe wizard and
 // Genius Grind widget). A profile the bag has its own setting for gets it with or
 // without a key; any other is the starting shot moved by the key.
-// {setting, source (rated | history | sameUgs | derived), start* fields, alt* fields
-// when there is another reading, grindStep} or, without a number, {reason, and for
-// notCalibrated / outsideRange ugsDelta + ugsDirection from the starting shot}.
+// {setting, source (rated | history | sameUgs | derived), grindStep, start* fields
+// (startShotSetting is the shot's own setting), and when another reading is a grind
+// step or more away: altSetting, altSource, alt* fields, daysBetween}. Without a
+// number: {reason (noEquipment | profileNotOnChart | noBean | noGrinder | noShots |
+// dbError | noStart | notCalibrated | outsideRange), grindStep}, and for
+// notCalibrated / outsideRange also start* fields, ugsDelta and ugsDirection.
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,
                                const QString& profileTitle);

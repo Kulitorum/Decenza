@@ -37,7 +37,7 @@ The popup SHALL show the suggested grind and one line naming the shot it starts 
 
 ### Requirement: The Genius Grind popup SHALL preview other beans and profiles
 
-The popup SHALL offer Bean and Profile choices that open inside the popup. Beans SHALL be the bag inventory, starting at the active bag or, with none, the most recently used one. Profiles SHALL be those on the UGS chart plus the loaded one. Choosing either SHALL recalculate the suggestion without changing the active bag, profile or grind.
+The popup SHALL offer Bean and Profile choices that open inside the popup. Beans SHALL be the coffee bags in the inventory (tea bags are left out), starting at the active bag or, with none, the most recently used one. Profiles SHALL be those on the UGS chart plus the loaded one; filter profiles, which have no UGS, are left out. Choosing either SHALL recalculate the suggestion without changing the active bag, profile or grind.
 
 #### Scenario: Previewing another profile changes nothing
 
@@ -45,9 +45,19 @@ The popup SHALL offer Bean and Profile choices that open inside the popup. Beans
 - **THEN** the popup shows the suggestion for Extractamundo
 - **AND** the loaded profile, active bag and grind are unchanged
 
+### Requirement: The Genius Grind popup SHALL show the latest reply
+
+While the popup is open, a saved, rated, edited or deleted shot SHALL recalculate the suggestion, and only the reply to the latest request SHALL be shown: each request runs on its own worker, so an older reply can arrive last.
+
+#### Scenario: A shot is rated while the popup is open
+
+- **GIVEN** the popup shows a suggestion for Cremina
+- **WHEN** a Cremina shot of the bag is rated 85 from another screen
+- **THEN** the popup shows the suggestion recalculated with that rating
+
 ### Requirement: The Genius Grind popup SHALL offer the other reading when they disagree
 
-When a profile's top-rated shot (rated 50+) and its latest good shot give different settings, at least one grind step apart (the grinder's history-derived step), the popup SHALL preselect the suggestion and offer the other as an alternative. Each SHALL carry a note with the facts behind it: the rating, how long ago the rated shot was, and the latest shot's setting. Otherwise only the one number SHALL show.
+When a profile's top-rated shot (rated 50+) and its latest good shot give different settings, at least one grind step apart (the grinder's history-derived step), the popup SHALL preselect the suggestion and offer the other as an alternative. The line under the number SHALL name the shot of the chosen reading, and a note SHALL give the facts behind the other one: its shot, rating or date, setting, and the days between the two shots. Otherwise only the one number SHALL show.
 
 #### Scenario: An old rated shot and the latest shot disagree
 
@@ -64,11 +74,11 @@ When a profile's top-rated shot (rated 50+) and its latest good shot give differ
 #### Scenario: Apply uses the chosen one
 
 - **WHEN** the user picks the alternative and taps Apply
-- **THEN** the grind is set to the alternative's setting, and the RPM to its shot's RPM when recorded
+- **THEN** the grind is set to the alternative's setting, and on an RPM-capable grinder the RPM to its shot's RPM
 
 ### Requirement: Genius Grind Apply SHALL set the bag, profile and grind
 
-Apply SHALL activate the chosen bag, then load the chosen profile, then set the grind to the suggestion, and the RPM to the starting shot's RPM when it recorded one, each step waiting for the previous one's result. Apply SHALL be unavailable without a number. If a step fails, the popup SHALL stop, report the failure and leave the later steps undone. Cancel SHALL close it with nothing changed.
+Apply SHALL activate the chosen bag, then load the chosen profile, then set the grind to the suggestion, and on an RPM-capable grinder the RPM to the starting shot's RPM, each step waiting for the previous one's result. Apply SHALL be unavailable without a number. If a step fails, the popup SHALL stop, report the failure and leave the later steps undone. Cancel SHALL close it with nothing changed.
 
 #### Scenario: Apply switches to the previewed choice
 
@@ -80,6 +90,22 @@ Apply SHALL activate the chosen bag, then load the chosen profile, then set the 
 
 - **WHEN** activating the chosen bag fails during Apply
 - **THEN** the popup reports the failure and the profile and grind are unchanged
+
+### Requirement: A Genius Grind Apply in flight SHALL finish
+
+While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once.
+
+#### Scenario: Cancel during Apply
+
+- **GIVEN** Apply has activated the new bag and is loading the profile
+- **WHEN** the user taps Cancel or presses Escape
+- **THEN** nothing happens, and Apply goes on to set the grind
+
+#### Scenario: The bag's details land after the grind write
+
+- **GIVEN** Apply activated a new bag whose details land after the grind write is sent
+- **WHEN** the write is refused as stale
+- **THEN** it is resent once and Apply completes
 
 ### Requirement: The Genius Grind popup SHALL say why there is no number
 

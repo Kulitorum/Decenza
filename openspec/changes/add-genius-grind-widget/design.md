@@ -18,7 +18,7 @@ The rules for the starting shot come from testing on his database (6,111 shots; 
 - **Closest to target weight:** worse.
 - **A stale fixed reference:** worse.
 
-The 75 and 50 thresholds, a rating outranking badges, and the most recent winning a tie are product decisions. The rating is the only taste signal the app has.
+The 50 threshold, the highest rating winning (so 75+ beats 60), a rating outranking badges, and the most recent winning a tie are product decisions. The rating is the only taste signal the app has.
 
 **How the order was chosen.** An independent replay compared about a dozen orders with Mark's prototype on all six setups (Mark's three, Jeff's tablet's three), every profile switch and every shot, scored against where the user settled, with bag-clustered intervals.
 - **Every order that kept the bag's median on a profile lost to the prototype somewhere**, including four age-aware versions. The deciding bag was on Mark's current setup: a D-Flow shot rated 64 at 16 beat the median of 16.5–17, against a settled 15.5. The median averages in shots from before dialing in finished; the latest good shot does not.
@@ -45,10 +45,12 @@ The 75 and 50 thresholds, a rating outranking badges, and the most recent winnin
   2. After the batch pass, mark which of those are in the current batch, using the same membership lambdas as the rows.
   3. The intercept is the top-rated of those, newest on a tie; with none, it is the latest dialed-in current-batch shot, as today.
 - **Profile numbers**, in order:
-  1. a profile with a current-batch shot rated 75+, else 50+, gives that shot's setting (`rated`);
+  1. a profile with a current-batch shot rated 50+ gives its highest-rated shot's setting (`rated`);
   2. else a profile with current-batch good shots gives the latest one (`history`), not their median;
-  3. else the profile gets the intercept moved by the key (`derived`).
-- Numbers still appear only when the key is published and the profile is within the validated range.
+  3. else the highest-rated 50+ shot at the same UGS on another profile (`sameUgs`);
+  4. else the profile gets the intercept moved by the key (`derived`), only with a published key and inside the validated range.
+- An undated coffee falls back to its earlier bags in the same order; a dated bag is its own roast date only.
+- The selection is `selectStartingShots`, one function the AI block, the wizard and the widget all read. The range check and the derived formula are `GrindCalibrationStatus::inRange` and `derivedSetting`, used by the block and the suggestion alike.
 - **Alternative rejected:** a separate rated query in `grindSuggestionFor`. It would give the AI one number and the widget another, and it would add a third copy of the bag-membership rule.
 
 **History alone publishes a key with 10 or more mined pairs, whatever their spread.**
@@ -85,12 +87,16 @@ The rules here cover each, checked by an independent replay of Mark's database (
 
 **A profile gets the bag's own setting, key or no key.** That setting is the user's own measured grind, not an extrapolation. The grind suggestion therefore gives it even with no key, while the AI block keeps its rule of no number without a key, so the two never give different numbers.
 
-**`GrindCalibrationStatus` carries the result.** It gains a `start` struct (shot id, profile, setting, timestamp, rating, RPM) and a per-profile source and history count. `grindSuggestionFor` reads them from the status.
+**`GrindCalibrationStatus` carries the result.** It gains `start` and `startAlternative` (shot id, profile, setting, timestamp, rating, RPM, earlier bag), `ownSettings` per profile (shot, source, alternative), the validated window, `rpmCapable` and `historyReadFailed`. `grindSuggestionFor` reads them from the status.
 
 **What the suggestion returns.** The `QVariantMap` carries:
 - `setting`, `source` (`rated` | `history` | `sameUgs` | `derived`): `history` is the profile's latest good shot, and `sameUgs` the top-rated 50+ shot at the same UGS on another profile;
-- `startShotId`, `startProfileName`, `startSetting`, `startTimestamp` (epoch seconds; the QML formats local time), `startRating`, `startRpm` when recorded, and `startEarlierBag`;
+- `grindStep`, the grinder's history-derived step;
+- `startShotId`, `startProfileName` (the shot's own title), `startShotSetting`, `startTimestamp` (epoch seconds; the QML formats local time), `startRating`, `startRpm` (0 unless the grinder takes an RPM), and `startEarlierBag`;
+- when another reading is at least a grind step away: `altSetting`, `altSource`, the same `alt*` shot fields, and `daysBetween`;
 - `reason` when there is no number, and with `notCalibrated` or `outsideRange`, `ugsDelta` and its direction from the starting shot.
+
+`EquipmentService.requestGrindSuggestion` returns a request id and echoes it as `requestId`: every request runs on its own worker, so callers match their latest id rather than the query, which a slower older reply also matches.
 
 The wizard is the only existing reader. It moves to the `start*` names in the same change, with no aliases left behind. No `.rep` change is needed: the map passes through `grindSuggestionReady` as is.
 
@@ -107,7 +113,8 @@ The revision covers pulling, rating, editing and deleting a shot, which `grindCa
 
 **Apply.**
 - Kept from Mark's popup: the sequence (activate bag → load profile → set grind), each step waiting for its completion signal and matched by request id, with no timers.
-- Added: when the starting shot recorded an RPM, the grind write carries `dyeGrinderRpm` too.
+- Added: on an RPM-capable grinder, the grind write carries the starting shot's `dyeGrinderRpm` too.
+- Added: activating a bag reports done before the bag's row lands and moves the preferences revision, so a grind write refused as stale is resent once. The popup cannot close while Apply runs, because a step already sent cannot be called back.
 
 **The dead `AIManager` grind block goes.** `AIManager::requestGrindCalibration`, `requestMarkGrindAnchor`, `requestClearGrindAnchor` and `requestGrindSuggestion` have no callers in `qml/`, `src/` or `tests/`. The same is true of their five signals, apart from the `main.cpp` `connect` forwarding `grindCalibrationChanged`. They duplicate the `EquipmentService` source path this change reworks, so they are deleted with it.
 

@@ -63,7 +63,10 @@ T.Button {
 
     contentItem: Item {
         id: labelArea
-        implicitWidth: contentRow.implicitWidth
+        // From the label's natural width, not its laid-out one: an elided label must
+        // not shrink the width the button asks for.
+        implicitWidth: (iconImage.visible ? iconImage.implicitWidth + contentRow.spacing : 0)
+                       + (label.visible ? label.implicitWidth : 0)
         implicitHeight: contentRow.implicitHeight
         Accessible.ignored: true
 
@@ -76,6 +79,7 @@ T.Button {
             Accessible.ignored: true
 
             Image {
+                id: iconImage
                 source: root.icon.source
                 sourceSize.width: root.icon.width
                 sourceSize.height: root.icon.height
@@ -91,11 +95,12 @@ T.Button {
             }
 
             Text {
+                id: label
                 objectName: "sharedAccessibleButtonLabel"
                 text: root.text
                 width: root.labelElide === Text.ElideNone ? implicitWidth
-                       : Math.min(implicitWidth, labelArea.width - contentRow.spacing
-                                  - (root.icon.source.toString() !== "" ? root.icon.width : 0))
+                       : Math.min(implicitWidth, labelArea.width
+                                  - (iconImage.visible ? iconImage.width + contentRow.spacing : 0))
                 elide: root.labelElide
                 font.pixelSize: root._customFontSize > 0
                                ? root._customFontSize : root.buttonStyle.scaled(16)

@@ -1924,6 +1924,7 @@ set(QML_FILES
     qml/components/CrtShaderEffect.qml
     qml/components/QrCode.qml
     qml/components/DateUtils.js
+    qml/components/GrindSuggestionText.js
     qml/components/GraphUtils.js
     qml/components/qrcode.js
     qml/components/RecipeSearch.js
