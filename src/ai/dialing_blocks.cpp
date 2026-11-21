@@ -1320,7 +1320,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         return !brand.trimmed().isEmpty() || !type.trimmed().isEmpty();
     };
     const bool curBeanResolved = beanResolved(cur.beanBrand, cur.beanType);
-    const QString curBean = cur.beanBrand + QStringLiteral(" / ") + cur.beanType;
+    const QString curBean = cur.beanBrand.trimmed() + QStringLiteral(" / ") + cur.beanType.trimmed();
     const bool curDated = isDated(cur.roastDate);
     const qint64 batchGapSec = kCalibUndatedBatchDays * 24 * 3600;
 
@@ -1680,6 +1680,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                  const ShotSummarizer::KbUgsEntry& b){ return a.ugs < b.ugs; });
 
     QJsonArray profilesArr;
+    bool anyRpm = anchorRpm > 0;
     for (const ShotSummarizer::KbUgsEntry& e : entries) {
         QJsonObject p;
         p["profileName"] = e.name;
@@ -1690,6 +1691,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
             if (const auto own = st.ownSettings.constFind(e.kbId); own != st.ownSettings.cend()) {
                 p["source"] = own->source;
                 p["rgs"] = GrinderAliases::formatGrinderSetting(gEntry, own->shot.setting);
+                if (rpmCapable && own->shot.rpm > 0) {
+                    p["rpm"] = own->shot.rpm;
+                    anyRpm = true;
+                }
                 emittedNumber = true;
             } else if (st.inRange(e.ugs)) {
                 p["source"] = QStringLiteral("derived");
@@ -1723,19 +1728,22 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     block["currentProfileUgsPlaced"] = curUgsPlaced;
     QString usage = QStringLiteral(
         "UGS is a relative ordering of profiles by grind coarseness, not "
-        "grinder clicks or a dial position. A rated, history or sameUgs setting "
-        "is the user's own shot of this coffee; a derived setting is valid only "
-        "within calibratedUgsRange. For any profile with source "
+        "grinder clicks or a dial position. A rated or history setting is the "
+        "user's own shot of this coffee on that profile, and a sameUgs setting "
+        "their shot on another profile at the same UGS; a derived setting is "
+        "valid only within calibratedUgsRange. For any profile with source "
         "\"directional\" give finer/coarser only and tell the user to pull a "
         "reference shot on that profile — never a number, never a click "
         "delta. Do not multiply a UGS distance by any factor of your own.");
     // Dial + RPM are two independent grind axes, and pairs are not split by RPM, so
-    // every approximate `rgs` holds only at the coffeeAnchor shot's RPM.
+    // a derived `rgs` holds only at the coffeeAnchor shot's RPM; an own setting at its
+    // own shot's `rpm`.
     block["variableRpm"] = rpmCapable;
-    if (rpmCapable && approximate && anchorRpm > 0) {
+    if (rpmCapable && approximate && anyRpm) {
         usage += QStringLiteral(
-            " This grinder has variable RPM: the recommended setting "
-            "applies only at the SAME RPM as the coffeeAnchor shot. "
+            " This grinder has variable RPM: a derived setting applies "
+            "only at the SAME RPM as the coffeeAnchor shot, and a setting "
+            "with its own rpm only at that rpm. "
             "State this caveat when quoting a number, and never "
             "treat shots at different RPM as the same grind.");
     }

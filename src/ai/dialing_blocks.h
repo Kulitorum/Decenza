@@ -422,12 +422,12 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // bean batch, two profiles — cancels the dominant per-batch baseline that
 // made the old pooled all-coffee slope wrong-signed), gated dimensionlessly
 // (IQR ≤ ratio·|key|, grinder-portable), and is a per-grinder runtime
-// value — never a shipped constant. Numbers are anchored on the most recent
-// dialed-in shot of the CURRENT roast batch and never extrapolated past a
-// hard UGS cap. With no usable signal the block is *directional*: each
+// value — never a shipped constant. Numbers start from the highest-rated, else
+// the latest good, shot of the CURRENT roast batch, and derived ones are never
+// extrapolated past a hard UGS cap. With no usable signal the block is *directional*: each
 // profile carries only finer/coarser from KB UGS ordering vs the current
 // profile (anchor-free, grinder-convention-free) — never a fabricated
-// number. `confidence` is `"approximate"` (numeric, gated) or
+// number. `confidence` is `"approximate"` (a key is published) or
 // `"directional"`. `resolvedShotId` IS used — it supplies the current
 // roast batch and current-profile UGS.
 //

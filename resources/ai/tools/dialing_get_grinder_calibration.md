@@ -13,7 +13,7 @@ changes.
 
 ## Reading the response
 
-- `confidence` — `"approximate"` means a gated numeric conversion is available; `"directional"`
+- `confidence` — `"approximate"` means a numeric conversion key is published; `"directional"`
   means there is not enough same-batch data and only relative guidance is possible.
 - `usageConstraint` — a directive to follow verbatim.
 - `currentProfileUgsPlaced` — `false` means the current profile is not on the UGS chart, so
@@ -30,9 +30,9 @@ Each `profiles[]` entry carries `profileName`, `ugs`, `source`, and conditionall
 
 | `source` | Meaning | Carries |
 |---|---|---|
-| `rated` | The user's highest-rated shot of this coffee on this profile | `rgs` |
-| `history` | The user's latest good shot of this coffee on this profile | `rgs` |
-| `sameUgs` | A rated shot of this coffee on another profile at the same UGS | `rgs` |
+| `rated` | The user's highest-rated shot of this coffee on this profile | `rgs`, and `rpm` when recorded |
+| `history` | The user's latest good shot of this coffee on this profile | `rgs`, and `rpm` when recorded |
+| `sameUgs` | A rated shot of this coffee on another profile at the same UGS | `rgs`, and `rpm` when recorded |
 | `derived` | Interpolated inside the calibrated range and cap | `rgs` |
 | `directional` | Outside the cap, or no numeric calibration at all | no `rgs`; `direction` `"finer"`/`"coarser"` relative to the current profile |
 

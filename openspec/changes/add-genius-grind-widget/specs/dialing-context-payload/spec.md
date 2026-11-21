@@ -7,8 +7,8 @@
 The system SHALL compute a `grinderCalibration` block and include it in the
 payload of both `dialing_get_context` and the in-app advisor's user-prompt
 enrichment. Both SHALL call `DialingBlocks::buildGrinderCalibrationBlock` and
-produce byte-equivalent JSON. The block SHALL NEVER emit a numeric grinder
-setting for a profile whose UGS is outside the validated range.
+produce byte-equivalent JSON. The block SHALL NEVER emit a derived numeric
+grinder setting for a profile whose UGS is outside the validated range.
 
 #### Preconditions — block is present when ALL of the following hold:
 
@@ -52,7 +52,7 @@ If the resolved shot's `coffeeBatch` has no starting shot, the block SHALL be **
 
 #### Extrapolation cap (mandatory)
 
-Let `loUGS` / `hiUGS` be the min/max UGS of the validated anchor set (within-coffee pair endpoints, including a valid calibration anchor pair's endpoints). A profile SHALL receive a numeric `rgs` ONLY when its UGS lies within `[loUGS − cap, hiUGS + cap]`, where `cap` is a single named constant (≈1.5 UGS). For any profile outside that window the entry SHALL have `source: "directional"`, NO `rgs`, and a `direction` field. The system SHALL NOT, under any circumstances, emit a numeric grinder setting for an out-of-window profile.
+Let `loUGS` / `hiUGS` be the min/max UGS of the validated anchor set (within-coffee pair endpoints, including a valid calibration anchor pair's endpoints). A profile with no own setting SHALL receive a derived `rgs` ONLY when its UGS lies within `[loUGS − cap, hiUGS + cap]`, where `cap` is a single named constant (≈1.5 UGS). Otherwise the entry SHALL have `source: "directional"`, NO `rgs`, and a `direction` field. An own setting (`rated`, `history`, `sameUgs`) is the user's measured grind and carries no range check.
 
 #### Directional reference and language (always available, anchor-free)
 
@@ -80,7 +80,7 @@ When the resolved shot's own profile has no known canonical UGS, ordering agains
 
 Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` is one of:
 
-- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its highest-rated shot rated 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting. A shot rated under 50 SHALL never supply one.
+- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its highest-rated shot rated 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting, with its `rpm` when the grinder takes an RPM and the shot recorded one. A shot rated under 50 SHALL never supply one.
 - `"derived"` — UGS within the validated range; `rgs` is computed from anchor + conversionKey.
 - `"directional"` — UGS outside the extrapolation window OR no numeric key/anchor available; NO `rgs`; carries `direction` (`"finer"`/`"coarser"`) derived from KB UGS ordering vs the resolved shot's own profile (anchor-free; omitted when the current profile has no canonical UGS).
 
@@ -114,8 +114,7 @@ Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` i
 - **GIVEN** a history that under the old pooled-median algorithm yielded `conversionKey = −2.4` for a Niche-style grinder (lower = finer)
 - **WHEN** `buildGrinderCalibrationBlock` is called with the within-coffee derivation
 - **THEN** the conversion key SHALL be computed from within-coffee pairwise slopes only
-- **AND** if the surviving pairs fail the spread/sign gates and number fewer than `minUngatedPairs`, the block SHALL be `confidence: "directional"` with no `conversionKey`
-- **AND** the block SHALL never emit a `conversionKey` whose sign contradicts the grinder's finer-direction
+- **AND** if the surviving pairs fail the spread gate and number fewer than `minUngatedPairs`, the block SHALL be `confidence: "directional"` with no `conversionKey`
 
 #### Scenario: No dialed-in data for the current coffee — directional only
 

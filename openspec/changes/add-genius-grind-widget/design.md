@@ -24,7 +24,7 @@ The 50 threshold, the highest rating winning (so 75+ beats 60), a rating outrank
 - **Every order that kept the bag's median on a profile lost to the prototype somewhere**, including four age-aware versions. The deciding bag was on Mark's current setup: a D-Flow shot rated 64 at 16 beat the median of 16.5–17, against a settled 15.5. The median averages in shots from before dialing in finished; the latest good shot does not.
 - **"Rated first, then the latest good shot" was no worse than the prototype on every setup**, and better on Mark's three (switches: DF83V −0.07, Mignon −0.01, Panda −0.31 steps). It ties the prototype exactly on Jeff's tablet, giving up the median-first version's edge there.
 - **The floor of 50:** with it, every answer the rule still gives is unchanged, and it is better on Jeff's tablet (2 of 3 setups). It drops five prototype answers across six setups. Four rested on shots rated 40–43, two of them 3+ steps off; one (rated exactly 40) was right.
-- **Caveat:** this order was chosen after looking, from two users and three grinders, and the margins are small. The claim is "at least as good as the prototype on the data we have", not "more accurate". The two-reading choice puts the other answer on screen whenever they disagree.
+- **Caveat:** this order was chosen after looking, from two users and three grinders, and the margins are small. The claim is "at least as good as the prototype on the data we have", not "more accurate".
 
 ## Goals / Non-Goals
 

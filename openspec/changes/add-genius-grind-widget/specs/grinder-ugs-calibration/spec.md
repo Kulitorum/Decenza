@@ -158,7 +158,7 @@ A suggestion SHALL carry where it came from: a source (`rated`, `history`, `same
 
 ### Requirement: A suggestion without a number SHALL say why and how far
 
-Without a number a suggestion SHALL carry a reason: `noEquipment`, `noBean`, `noShots`, `noStart` (no good shot of the bag yet), `profileNotOnChart`, `notCalibrated` or `outsideRange`. With `notCalibrated` or `outsideRange` it SHALL also carry the move as a UGS difference from the starting shot, as the UGS calculator does when it has no key.
+Without a number a suggestion SHALL carry a reason: `noEquipment`, `noBean`, `noShots`, `noStart` (no good shot of the bag yet), `profileNotOnChart`, `notCalibrated` or `outsideRange`. A history that cannot be read, or a shot with no grinder, SHALL give no number and no reason. With `notCalibrated` or `outsideRange` it SHALL also carry the move as a UGS difference from the starting shot, as the UGS calculator does when it has no key.
 
 #### Scenario: Uncalibrated move reported in UGS
 

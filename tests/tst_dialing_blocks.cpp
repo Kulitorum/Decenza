@@ -2694,6 +2694,14 @@ private slots:
             QCOMPARE(av.value(QStringLiteral("startRating")).toInt(), 85);
             // The shot's own title, not the chart's "Cremina lever machine".
             QCOMPARE(av.value(QStringLiteral("startProfileName")).toString(), QStringLiteral("Cremina"));
+            // A profile's own latest shot comes before a rated shot at its UGS (Cremina 1.5).
+            const QVariantMap lon = suggest(QStringLiteral("Londinium"));
+            QCOMPARE(lon.value(QStringLiteral("setting")).toString(), QStringLiteral("2"));
+            QCOMPARE(lon.value(QStringLiteral("source")).toString(), QStringLiteral("history"));
+            // A higher-rated shot on a profile off the chart has no UGS to move from.
+            ggSeed(db, QStringLiteral("cx"), 970, QStringLiteral("My Secret Pull"), QString(),
+                   QStringLiteral("9"), 95);
+            QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startShotId")).toLongLong(), rated);
 
             // 50+ still comes before the latest unrated shot.
             setRating(rated, 60);
@@ -2730,6 +2738,10 @@ private slots:
             QVERIFY(rpm.exec(QStringLiteral("UPDATE shots SET rpm = 1400 WHERE id = %1").arg(newer)));
             QCOMPARE(suggest(QStringLiteral("Adaptive v2")).value(QStringLiteral("startRpm")).toInt(), 1400);
             QCOMPARE(anchorOf(QStringLiteral("Niche Zero")).value(QStringLiteral("rpm")).toInt(), 1400);
+            // A profile's own setting carries its own shot's RPM.
+            QCOMPARE(calProfile(DialingBlocks::buildGrinderCalibrationBlock(db, QStringLiteral("Niche Zero"),
+                         AdviceScope(pkg), QStringLiteral("espresso"), newer),
+                         QStringLiteral("Cremina lever machine")).value(QStringLiteral("rpm")).toInt(), 1400);
             QVERIFY(rpm.exec(QStringLiteral("UPDATE equipment_items SET brand = 'Niche', model = 'Zero' "
                                             "WHERE package_id = %1 AND kind = 'grinder'").arg(pkg)));
             const QVariantMap fixed = suggest(QStringLiteral("Adaptive v2"));
@@ -2873,6 +2885,13 @@ private slots:
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kBean, QString(),
                                                   QStringLiteral("Cremina"));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), current);
+            // One rated 80 days before it is the same bag.
+            const qint64 sameBag = ggSeed(db, QStringLiteral("w"), 1000 + 70 * kDay, QStringLiteral("Cremina"),
+                                          QStringLiteral("cremina-lever-machine"), QStringLiteral("19"), 70,
+                                          36.0, kBean);
+            r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kBean, QString(),
+                                                  QStringLiteral("Cremina"));
+            QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), sameBag);
         });
     }
 

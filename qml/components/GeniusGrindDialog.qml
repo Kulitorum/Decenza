@@ -74,15 +74,11 @@ DecenzaDialog {
         return TranslationManager.translate(key, fallback)
     }
 
-    // Tab order (ACCESSIBILITY.md Rule 3): a closed loop over whatever is shown.
+    // Tab order (ACCESSIBILITY.md Rule 3): a closed loop over whatever is shown. The
+    // choice list is one stop; the arrow keys move within it.
     function focusOrder(): var {
-        const items = [sourceArea, beanButton, profileButton]
-        for (let i = 0; i < choiceList.count; ++i) {
-            const choice = choiceList.itemAtIndex(i)
-            if (choice) items.push(choice)
-        }
-        items.push(cancelButton, applyButton)
-        return items.filter(function(item) { return item.visible && item.enabled })
+        return [sourceArea, beanButton, profileButton, choiceList, cancelButton, applyButton]
+            .filter(function(item) { return item.visible && item.enabled })
     }
 
     function moveFocus(from: Item, step: int): void {
@@ -368,6 +364,8 @@ DecenzaDialog {
                 enabled: !root.applying
                 accessibleName: sourceLine.text
                 onAccessibleClicked: root.openShot(root._startShotId)
+                Keys.onReturnPressed: root.openShot(root._startShotId)
+                Keys.onSpacePressed: root.openShot(root._startShotId)
                 Keys.onTabPressed: root.moveFocus(sourceArea, 1)
                 Keys.onBacktabPressed: root.moveFocus(sourceArea, -1)
             }
@@ -431,6 +429,8 @@ DecenzaDialog {
             visible: root.expanded !== ""
             clip: true
             spacing: Theme.scaled(4)
+            Keys.onTabPressed: root.moveFocus(choiceList, 1)
+            Keys.onBacktabPressed: root.moveFocus(choiceList, -1)
             model: root.expanded === "bean" ? root.bags
                  : root.expanded === "profile" ? root.profileTitles : []
             delegate: AccessibleButton {
@@ -446,8 +446,11 @@ DecenzaDialog {
                 accessibleName: choice.text
                 accessibleDescription: choice.isCurrent ? root.tr("accessibility.selected", "selected") : ""
                 primary: choice.isCurrent
-                Keys.onTabPressed: root.moveFocus(choice, 1)
-                Keys.onBacktabPressed: root.moveFocus(choice, -1)
+                // The list's current row holds its focus, so Up/Down (the list's own
+                // key navigation) move the focus and scroll it into view.
+                focus: choice.ListView.isCurrentItem
+                Keys.onTabPressed: root.moveFocus(choiceList, 1)
+                Keys.onBacktabPressed: root.moveFocus(choiceList, -1)
                 onClicked: {
                     if (choice.isBean) root.bagId = Number(choice.modelData.id)
                     else root.profileTitle = String(choice.modelData)
