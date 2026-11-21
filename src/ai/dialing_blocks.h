@@ -493,7 +493,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 inline constexpr double kMinAnchorSpanUgs = 2.0;
 
 // The UGS chart author's own guide, linked (never paraphrased) by the app and web.
-inline constexpr const char* kUgsGuideUrl = "https://videoblurb.com/UGS/ugsinfo.html";
+inline constexpr const char* kUgsGuideUrl = "https://videoblurb.com/UGS/";
 
 // The calibration status of an equipment package, computed against its latest
 // espresso shot. An empty map when the package has no espresso shot or grinder.

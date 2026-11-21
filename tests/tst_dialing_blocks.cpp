@@ -2291,6 +2291,11 @@ private slots:
             // discriminate. The settings can.
             QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
 
+            // This basket's shots lie exactly on 12 + (UGS − 2)·2 (8/10/12 at UGS
+            // 0/1/2), so every number it publishes, median or derived, is on that
+            // line; one drawn from the other basket sits 6 steps lower. An exact
+            // value, not a cutoff, so moving a profile on the UGS chart cannot
+            // break it.
             const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
             QVERIFY(!profiles.isEmpty());
             int checked = 0;
@@ -2303,13 +2308,13 @@ private slots:
                 const double rgs = po.value(QStringLiteral("rgs")).toString().toDouble(&ok);
                 if (!ok) continue;
                 ++checked;
-                QVERIFY2(rgs >= 7.0,
+                const QString name = po.value(QStringLiteral("profileName")).toString();
+                const double expected = 12.0 + (po.value(QStringLiteral("ugs")).toDouble() - 2.0) * 2.0;
+                QVERIFY2(std::abs(rgs - expected) < 0.01,
                          qPrintable(QStringLiteral(
-                             "profile %1 published rgs %2 for a shot on the coarse "
-                             "basket; that basket dials 8/10/12 and the other 2/4/6, "
-                             "so anything under 7 came from the other package")
-                             .arg(po.value(QStringLiteral("profileName")).toString())
-                             .arg(rgs)));
+                             "profile %1 published rgs %2, expected %3 from the coarse "
+                             "basket's own shots; the other basket's would be 6 lower")
+                             .arg(name).arg(rgs).arg(expected)));
             }
             QVERIFY2(checked > 0,
                      "no profile published a numeric rgs — the assertion above "
