@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
+import "DateUtils.js" as DateUtils
 
 /**
  * ConversationOverlay - Full-screen AI conversation panel with keyboard awareness.
@@ -178,9 +179,7 @@ DecenzaDialog {
 
         // Format shot timestamp as human-readable label for AI display
         var shotTs = shotData.timestamp || 0
-        var shotLabel = shotTs > 0
-            ? new Date(shotTs * 1000).toLocaleString(Qt.locale(), Settings.app.use12HourTime ? "MMM d, h:mm AP" : "MMM d, HH:mm")
-            : ""
+        var shotLabel = DateUtils.shotTimeLabel(shotTs, Qt.locale(), Settings.app.use12HourTime)
 
         overlay.shotId = shotId
         overlay.shotLabel = shotLabel

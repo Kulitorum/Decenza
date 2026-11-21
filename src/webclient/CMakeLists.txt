@@ -91,7 +91,7 @@ set(shared_qml_files
     SharedBeanThumbnail.qml RecipeSearch.js DateUtils.js DrinkType.qml SharedBackgroundSurface.qml
     KeyboardAwareContainer.qml SuggestionField.qml SelectionDialog.qml CardTapArea.qml BeanThumbnail.qml FavoritesRowAction.qml
     AddLabel.qml BeanBaseDetailsPopup.qml BeanBaseSearchBar.qml ChangeBeansDialog.qml DatePickerDialog.qml
-    EquipmentInfoDialog.qml EquipmentSummary.qml FavoritesListView.qml GrindField.qml GrindPickerDialog.qml
+    EquipmentInfoDialog.qml EquipmentSummary.qml FavoritesListView.qml GeniusGrindDialog.qml GrindField.qml GrindPickerDialog.qml
     GrindRowSource.qml GrindCalibrationSection.qml HideKeyboardButton.qml KbDerivedFromLabel.qml ProfileCard.qml ProfileDialInDiffBlock.qml
     ProfileFavoritesOrderDialog.qml ProfileGraph.qml ProfileInfoButton.qml ProfileKnowledgeDialog.qml ProfilePicker.qml
     ProfilePreviewPopup.qml RatioPresetDialog.qml RatioChoiceDialog.qml WaterRatioDialog.qml WaterVesselDialog.qml WaterAmountModeSelector.qml RecipeDrinkCard.qml SearchField.qml ShotPlanText.qml
@@ -170,6 +170,7 @@ set(shared_qml_files
     layout/items/MilkWeightItem.qml
     layout/items/RatioQuickSelectItem.qml
     layout/items/GrindQuickSelectItem.qml
+    layout/items/GeniusGrindItem.qml
     layout/items/TempQuickSelectItem.qml
     layout/items/ShotPlanItem.qml
     layout/items/SpacerItem.qml

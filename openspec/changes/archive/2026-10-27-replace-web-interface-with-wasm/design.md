@@ -440,6 +440,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/FlipClockScreensaver.qml` | 25 | native + Wasm | presentation; `ScreensaverPage.qml` (25) |
 | `qml/components/FocusIndicator.qml` | 26 | native + Wasm | presentation; `SettingsPage.qml` (20/24) |
 | `qml/components/FormControlStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/GeniusGrindDialog.qml` | 26 | native + Wasm | presentation; `GeniusGrindItem.qml` (22.3) |
 | `qml/components/GraphChip.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/GraphChipRow.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/GraphEndMarkerArea.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
@@ -646,6 +647,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/layout/items/EquipmentItem.qml` | 14 / 22 | native + Wasm | presentation; `EquipmentItem.qml` (22.3) |
 | `qml/components/layout/items/EspressoItem.qml` | 14 / 22 | native + Wasm | presentation; `EspressoItem.qml` (22.3) |
 | `qml/components/layout/items/FlushItem.qml` | 14 / 22 | native + Wasm | presentation; `FlushItem.qml` (22.3) |
+| `qml/components/layout/items/GeniusGrindItem.qml` | 14 / 22 | native + Wasm | presentation; `GeniusGrindItem.qml` (22.3) |
 | `qml/components/layout/items/GrindQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation; `GrindQuickSelectItem.qml` (22.3) |
 | `qml/components/layout/items/HistoryItem.qml` | 14 / 22 | native + Wasm | presentation; `HistoryItem.qml` (22.3) |
 | `qml/components/layout/items/HotWaterItem.qml` | 14 / 22 | native + Wasm | presentation; `HotWaterItem.qml` (22.3) |

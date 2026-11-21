@@ -36,6 +36,8 @@ T.Button {
     property bool tintIcon: false
     // Draw the icon after the label ("Skip" + the step it skips).
     property bool iconAfterText: false
+    // A label wider than the button is cut at this end instead of overflowing it.
+    property int labelElide: Text.ElideNone
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             implicitContentWidth + leftPadding + rightPadding)
@@ -60,6 +62,7 @@ T.Button {
     }
 
     contentItem: Item {
+        id: labelArea
         implicitWidth: contentRow.implicitWidth
         implicitHeight: contentRow.implicitHeight
         Accessible.ignored: true
@@ -90,6 +93,10 @@ T.Button {
             Text {
                 objectName: "sharedAccessibleButtonLabel"
                 text: root.text
+                width: root.labelElide === Text.ElideNone ? implicitWidth
+                       : Math.min(implicitWidth, labelArea.width - contentRow.spacing
+                                  - (root.icon.source.toString() !== "" ? root.icon.width : 0))
+                elide: root.labelElide
                 font.pixelSize: root._customFontSize > 0
                                ? root._customFontSize : root.buttonStyle.scaled(16)
                 font.family: root.buttonStyle.bodyFont.family
