@@ -405,8 +405,12 @@ void NativeEquipmentServiceSource::requestGrindContext(
         emit grindContextResult(requestId, {}, QStringLiteral("dbUnavailable"));
         return;
     }
+    const QString title = query.value(QStringLiteral("profileTitle")).toString();
+    const QString profileKbId = !suggestion ? QString()
+        : m_profileKbId ? m_profileKbId(title) : QString();
     const QPointer<NativeEquipmentServiceSource> self(this);
-    QThread* thread = QThread::create([self, requestId, dbPath, query, packageId, suggestion] {
+    QThread* thread = QThread::create([self, requestId, dbPath, query, packageId, suggestion,
+                                       profileKbId] {
         QVariantMap result;
         bool opened = false;
         withTempDb(dbPath, "equipment_grind_read", [&](QSqlDatabase& db) {
@@ -415,8 +419,7 @@ void NativeEquipmentServiceSource::requestGrindContext(
                 ? DialingBlocks::grindSuggestionFor(db, packageId,
                     query.value(QStringLiteral("beanBrand")).toString(),
                     query.value(QStringLiteral("beanType")).toString(),
-                    query.value(QStringLiteral("roastDate")).toString(),
-                    query.value(QStringLiteral("profileTitle")).toString())
+                    query.value(QStringLiteral("roastDate")).toString(), profileKbId)
                 : DialingBlocks::grindCalibrationForPackage(db, packageId);
         });
         QMetaObject::invokeMethod(qApp, [self, requestId, result, opened] {

@@ -855,6 +855,19 @@ private slots:
         source.requestGrindContext(QStringLiteral("invalid-query-key"), QStringLiteral("suggestion"), query);
         QCOMPARE(reads.size(), 1);
         QCOMPARE(reads.takeFirst().at(2).toString(), QStringLiteral("invalidRequest"));
+
+        // The KB id comes from the catalog lookup, never from the title alone.
+        QStringList resolved;
+        source.setProfileKbResolver([&resolved](const QString& title) {
+            resolved << title;
+            return QString();
+        });
+        query.remove(QStringLiteral("extra"));
+        source.requestGrindContext(QStringLiteral("resolved-query"), QStringLiteral("suggestion"), query);
+        QCOMPARE(resolved, QStringList{QStringLiteral("Profile")});
+        QTRY_COMPARE_WITH_TIMEOUT(reads.size(), 1, 15000);
+        QCOMPARE(reads.takeFirst().at(1).toMap().value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("profileNotOnChart"));
     }
 
     void grindRequestsAreCorrelatedAndDisconnectDoesNotReplay()
@@ -878,8 +891,9 @@ private slots:
         QSignalSpy otherCalibration(second, &EquipmentService::grindCalibrationReady);
         QSignalSpy suggestion(first, &EquipmentService::grindSuggestionReady);
         first->requestGrindCalibration(7);
-        first->requestGrindSuggestion(7, QStringLiteral("Roaster"), QStringLiteral("Coffee"),
-                                     QStringLiteral("2026-10-01"), QStringLiteral("Profile"));
+        const QString suggestionId = first->requestGrindSuggestion(
+            7, QStringLiteral("Roaster"), QStringLiteral("Coffee"),
+            QStringLiteral("2026-10-01"), QStringLiteral("Profile"));
         QTRY_COMPARE_WITH_TIMEOUT(source.grindReads.size(), 2, 5000);
         emit source.grindContextResult(QStringLiteral("foreign-request"), {}, {});
         emit source.grindContextResult(source.grindReads.at(0),
@@ -894,6 +908,8 @@ private slots:
         QCOMPARE(result.value(QStringLiteral("beanBrand")).toString(), QStringLiteral("Roaster"));
         QCOMPARE(result.value(QStringLiteral("profileTitle")).toString(), QStringLiteral("Profile"));
         QCOMPARE(result.value(QStringLiteral("setting")).toString(), QStringLiteral("4.2"));
+        QVERIFY(!suggestionId.isEmpty());
+        QCOMPARE(result.value(QStringLiteral("requestId")).toString(), suggestionId);
         QVERIFY(otherCalibration.isEmpty());
 
         QSignalSpy marked(first, &EquipmentService::grindAnchorMarked);

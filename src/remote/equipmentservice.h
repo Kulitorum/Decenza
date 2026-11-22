@@ -44,9 +44,11 @@ public:
     Q_INVOKABLE void requestPackage(qint64 packageId);
     Q_INVOKABLE void requestArchived();
     Q_INVOKABLE void requestGrindCalibration(qint64 packageId);
-    Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
-                                           const QString& beanType, const QString& roastDate,
-                                           const QString& profileTitle);
+    // Returns the request id, echoed as `requestId` in grindSuggestionReady: each request
+    // runs on its own worker, so a reply to the same query can arrive after a newer one.
+    Q_INVOKABLE QString requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                              const QString& beanType, const QString& roastDate,
+                                              const QString& profileTitle);
     // `replacePair` clears the other side first (DialingBlocks::markGrindCalibrationAnchor).
     Q_INVOKABLE void requestSetGrindAnchor(qint64 shotId, const QString& side,
                                           qint64 expectedPackageId, bool replacePair = false);
@@ -85,7 +87,7 @@ private:
     bool connected() const;
     void changed();
     void failPending();
-    void requestGrindContext(const QString& kind, const QVariantMap& query);
+    QString requestGrindContext(const QString& kind, const QVariantMap& query);
     void reportGrindContext(const QVariantMap& query, QVariantMap result, const QString& reason);
     void send(const QString& operation, qint64 id, const QVariantMap& fields,
               const QVariantMap& expected, bool apply, const QString& requestId);

@@ -13,6 +13,9 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
+import "../components/BagName.js" as BagName
+import "../components/DateUtils.js" as DateUtils
+import "../components/GrindSuggestionText.js" as GrindSuggestionText
 
 // Recipe wizard (add-recipe-wizard-tea): ONE page for all recipe creation and
 // editing, replacing RecipeComposerPage. Three entry points land here — blank
@@ -370,11 +373,6 @@ T.Page {
             requestLatestGrindForSelection()
         if (_grindDefaultWaiting)
             requestRecipeGrindDefault()
-    }
-
-    readonly property bool _equipmentServiceReady: EquipmentService.ready
-    on_EquipmentServiceReadyChanged: {
-        if (_equipmentServiceReady && visible) requestGrindHint()
     }
 
     onVisibleChanged: {
@@ -1147,6 +1145,7 @@ T.Page {
                 _grindDefaultWaiting = false
                 _grindDefaultContext = ""
                 if (!_grindUserEdited) { fGrind = ""; fRpmPinned = 0 }
+                requestGrindHint()
             }
             // Tea → hot-water tea keeps no profile; other switches keep it
             // only when it still fits the new filter set (checked lazily by
@@ -1189,6 +1188,8 @@ T.Page {
         stepDone(isHotWaterTea ? "details" : "profile")
         if (currentStep === "details")
             applyDetailsPrefill()
+        else if (currentStep === "summary")
+            requestGrindHint()
     }
 
     function selectProfile(entry) {
@@ -1274,17 +1275,12 @@ T.Page {
     }
 
     // Request the under-grind-field hint, scoped to the selected equipment
-    // package (0 = unscoped), and the package's calibrated suggestion. Both are
-    // cleared first so a stale one never lingers while the async reply is in
-    // flight; each reply guard drops an answer for a since-changed selection.
+    // package (0 = unscoped). Cleared first so a stale one never lingers while
+    // the async reply is in flight. The number beside it follows its own inputs
+    // (_grindSuggestionRequest).
     function requestGrindHint() {
         grindHint = ""
-        grindSuggestion = ({})
         requestLatestGrindForSelection()
-        if (visible && EquipmentService.ready && activeTemplate.grind && hasBean
-            && fProfileTitle !== "" && fEquipmentId > 0)
-            EquipmentService.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
-                                                    _selectedBagRoastDate, fProfileTitle)
     }
 
     // The equipment window's tile model: a "None" tile followed by the
@@ -1489,23 +1485,29 @@ T.Page {
     property var _teaBrewing: ({})
     // Grind hint under the grind field: the latest grind dialed for this
     // bean (or similar-roast beans), plus a UGS DIRECTION when it was dialed
-    // for a different profile. A number appears only through grindSuggestion,
-    // i.e. when the grinder calibration's own gates publish one.
+    // for a different profile. A number appears only through grindSuggestion.
     property string grindHint: ""
-    // When the grinder calibration publishes a number for the picked profile on
-    // this bag (add-grinder-ugs-calibration), it replaces the direction-only hint.
-    property var grindSuggestion: ({})
+    // When the grind suggestion has a number for the picked profile on this bag,
+    // it replaces the direction-only hint, naming the shot it rests on in the same
+    // words as the Genius Grind popup.
+    readonly property GrindSuggestionRequest _grindSuggestionRequest: GrindSuggestionRequest {
+        active: wizardPage.visible && wizardPage.activeTemplate.grind === true && wizardPage.hasBean
+        packageId: wizardPage.fEquipmentId
+        roaster: wizardPage.fRoaster
+        coffee: wizardPage.fCoffee
+        roastDate: wizardPage._selectedBagRoastDate
+        profileTitle: wizardPage.fProfileTitle
+    }
+    readonly property var grindSuggestion: _grindSuggestionRequest.suggestion
     readonly property bool _hasGrindSuggestion: (grindSuggestion.setting || "") !== ""
     readonly property string grindSuggestionText: {
         if (!_hasGrindSuggestion) return ""
-        return grindSuggestion.source === "history"
-            ? TranslationManager.translate("recipes.wizard.grindSuggestion.history",
-                  "Your shots of this bean on %1 ground at %2.")
-                  .arg(fProfileTitle).arg(grindSuggestion.setting)
-            : TranslationManager.translate("recipes.wizard.grindSuggestion.estimate",
-                  "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4).")
-                  .arg(fProfileTitle).arg(grindSuggestion.setting)
-                  .arg(grindSuggestion.anchorProfileName || "").arg(grindSuggestion.anchorSetting || "")
+        const g = grindSuggestion
+        const when = DateUtils.shotTimeLabel(Number(g.startTimestamp || 0), Qt.locale(),
+                                             Settings.app.use12HourTime)
+        return TranslationManager.translate("recipes.wizard.grindSuggestion.lead", "Suggested starting grind for %1: %2.")
+                   .arg(fProfileTitle).arg(g.setting)
+               + " " + GrindSuggestionText.sourceLine(g, fProfileTitle, when, TranslationManager.translate)
     }
     // True once the user has typed in a details field (or an existing recipe
     // was loaded). The profile/bag seeds fill the fields synchronously so the
@@ -1961,19 +1963,6 @@ T.Page {
     // --- connections --------------------------------------------------------
 
     Connections {
-        target: EquipmentService
-        function onGrindSuggestionReady(suggestion) {
-            if (suggestion.packageId !== wizardPage.fEquipmentId
-                || suggestion.beanBrand !== wizardPage.fRoaster
-                || suggestion.beanType !== wizardPage.fCoffee
-                || suggestion.profileTitle !== wizardPage.fProfileTitle
-                || suggestion.roastDate !== wizardPage._selectedBagRoastDate)
-                return
-            wizardPage.grindSuggestion = suggestion
-        }
-    }
-
-    Connections {
         target: RecipeContext
         function onStateChanged() {
             wizardPage.retryDeferredHistoryReads()
@@ -2168,10 +2157,14 @@ T.Page {
                             : (String(b.roasterName).toLowerCase() === wizardPage.fRoaster.toLowerCase()
                                && String(b.coffeeName).toLowerCase() === wizardPage.fCoffee.toLowerCase()))
                     if (match) {
+                        // A loaded recipe learns its roast level here; the hint is keyed on it.
+                        const levelChanged = (b.roastLevel || "") !== wizardPage._selectedBagRoastLevel
                         wizardPage._selectedBagRoastLevel = b.roastLevel || ""
                         wizardPage._selectedBagRoastDate = b.roastDate || ""
                         if (wizardPage.fBagBlob === "")
                             wizardPage.fBagBlob = b.beanBaseData || ""
+                        if (levelChanged)
+                            wizardPage.requestGrindHint()
                         return
                     }
                 }
@@ -2757,7 +2750,7 @@ T.Page {
                                             : TranslationManager.translate("recipes.wizard.addNewCoffee", "Add a new coffee…"))
                                         : bagTile.modelData.isNone
                                             ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
-                                            : (bagTile.modelData.coffeeName || bagTile.modelData.roasterName || "")
+                                            : BagName.shortName(bagTile.modelData)
                                     width: Theme.scaled(170)
                                     height: Theme.scaled(190)
                                     radius: Theme.cardRadius
@@ -2867,7 +2860,7 @@ T.Page {
                                     AccessibleMouseArea {
                                         anchors.fill: parent
                                         accessibleName: bagTile.isGhost ? bagTile.tileTitle
-                                            : (((bagTile.modelData.roasterName || "") + " " + (bagTile.modelData.coffeeName || "")).trim()
+                                            : (BagName.fullName(bagTile.modelData)
                                                + (bagGridFlick.roastAgeLine(bagTile.modelData) !== ""
                                                    ? ", " + bagGridFlick.roastAgeLine(bagTile.modelData) : ""))
                                         accessibleItem: bagTile
@@ -3452,8 +3445,13 @@ T.Page {
                                     // Tap to accept: an estimate can be wrong (#1223),
                                     // so it never fills the field by itself.
                                     AccessibleButton {
+                                        // Also when only the RPM differs: Use pins it too.
                                         visible: wizardPage._hasGrindSuggestion
-                                                 && wizardPage.fGrind.trim() !== wizardPage.grindSuggestion.setting
+                                                 && (wizardPage.fGrind.trim() !== wizardPage.grindSuggestion.setting
+                                                     || (Number(wizardPage.grindSuggestion.startRpm || 0) > 0
+                                                         && wizardPage.fRpmPinned !== Number(wizardPage.grindSuggestion.startRpm)))
+                                        // A refresh keeps the old number on screen until the new one lands.
+                                        enabled: !wizardPage._grindSuggestionRequest.pending
                                         Layout.alignment: Qt.AlignVCenter
                                         _customFontSize: Theme.captionFont.pixelSize
                                         text: TranslationManager.translate("recipes.wizard.grindSuggestion.use", "Use %1")
@@ -3461,6 +3459,9 @@ T.Page {
                                         accessibleName: text
                                         onClicked: {
                                             wizardPage.fGrind = wizardPage.grindSuggestion.setting
+                                            // A setting at another RPM is a different grind.
+                                            const rpm = Number(wizardPage.grindSuggestion.startRpm || 0)
+                                            if (rpm > 0) wizardPage.fRpmPinned = rpm
                                             wizardPage._grindUserEdited = true
                                             wizardPage._grindDefaultContext = ""
                                             wizardPage._detailsUserEdited = true

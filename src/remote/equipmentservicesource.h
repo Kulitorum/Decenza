@@ -6,6 +6,8 @@
 #include <QPointer>
 #include <QSet>
 
+#include <functional>
+
 class EquipmentStorage;
 class EquipmentUiOperations;
 class SettingsDye;
@@ -25,6 +27,13 @@ public:
     void requestPackage(QString requestId, qint64 packageId) override;
     void requestArchived(QString requestId) override;
     void requestGrindContext(QString requestId, QString kind, QVariantMap query) override;
+    // Resolves a profile title to its KB id as the profile catalog does (title, editor
+    // type, shape). Without one no profile is on the chart: matching the title alone
+    // put a renamed D-Flow profile on the wrong row.
+    void setProfileKbResolver(std::function<QString(const QString&)> resolver)
+    {
+        m_profileKbId = std::move(resolver);
+    }
 
 private:
     using RequestStart = ServiceRequestIds::Start;
@@ -42,6 +51,7 @@ private:
     QPointer<SettingsDye> m_dye;
     QPointer<ShotHistoryStorage> m_history;
     QPointer<EquipmentUiOperations> m_operations;
+    std::function<QString(const QString&)> m_profileKbId;
     ServiceRequestIds m_requests;
     QVariantList m_packages;
     bool m_inventoryReadInFlight = false;

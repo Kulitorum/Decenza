@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
+import "BagName.js" as BagName
 
 // Inventory bag card (bean-bag-inventory). Adaptive content: canonical-linked
 // bags show a dense attribute line + verified badge; partial bags show only
@@ -229,7 +230,7 @@ Rectangle {
 
                     Text {
                         Layout.fillWidth: true
-                        text: (card.bag && card.bag.coffeeName) || (card.bag && card.bag.roasterName) || ""
+                        text: BagName.shortName(card.bag)
                         font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.subtitleFont.pixelSize
                         font.bold: true

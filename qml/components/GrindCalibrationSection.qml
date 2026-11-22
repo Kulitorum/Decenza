@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Decenza
+import "DateUtils.js" as DateUtils
 
 // An equipment package's grind calibration (add-grinder-ugs-calibration): where its
 // conversion key comes from, the profile range it covers, and the optional fine and
@@ -82,9 +83,7 @@ ColumnLayout {
     function _anchorLine(a) {
         if (!a || !(a.shotId > 0))
             return TranslationManager.translate("grindcalibration.anchor.notSet", "not set")
-        var when = a.timestamp > 0
-            ? new Date(a.timestamp * 1000).toLocaleString(Qt.locale(), Settings.app.use12HourTime ? "MMM d, h:mm AP" : "MMM d, HH:mm")
-            : ""
+        var when = DateUtils.shotTimeLabel(a.timestamp, Qt.locale(), Settings.app.use12HourTime)
         return [when, a.profileName || "", a.setting || ""].filter(function(s) { return s.length > 0 }).join(" · ")
     }
 

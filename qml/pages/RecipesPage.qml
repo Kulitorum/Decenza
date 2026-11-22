@@ -10,6 +10,7 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
+import "../components/BagName.js" as BagName
 import "../components/RecipeSearch.js" as RecipeSearch
 
 // Recipes management (add-recipes): mirrors BeanInfoPage — cards in a Flow
@@ -409,7 +410,7 @@ T.Page {
                         spacing: 0
                         Label {
                             Layout.fillWidth: true
-                            text: ((bagRow.modelData.roasterName || "") + " " + (bagRow.modelData.coffeeName || "")).trim()
+                            text: BagName.fullName(bagRow.modelData)
                             font: Theme.bodyFont
                             color: Theme.textColor
                             elide: Text.ElideRight
@@ -422,7 +423,7 @@ T.Page {
                         }
                     }
                     Accessible.role: Accessible.Button
-                    Accessible.name: ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                    Accessible.name: BagName.fullName(modelData)
                     enabled: recipesPage.recipeCommandsEnabled
                     onClicked: {
                         if (recipesPage.recipeCommandsEnabled && recipesPage._repointRecipe) {

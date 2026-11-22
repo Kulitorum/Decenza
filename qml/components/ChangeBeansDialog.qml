@@ -9,6 +9,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
+import "BagName.js" as BagName
 import "DateUtils.js" as DateUtils
 
 // Unified "Change Beans" dialog (bean-bag-inventory): one ranked search across
@@ -1406,12 +1407,7 @@ DecenzaDialog {
                             (resultRow.modelData.sources === "beanbase" || resultRow.modelData.sources === "beanbase+history")
                             && ((resultRow.rowData && resultRow.rowData.beanBaseData) || "").length > 0
 
-                        readonly property string primaryText: {
-                            var coffee = resultRow.modelData.coffeeName || ""
-                            var roaster = resultRow.modelData.roasterName || ""
-                            if (coffee.length > 0 && roaster.length > 0) return roaster + " " + coffee
-                            return coffee.length > 0 ? coffee : roaster
-                        }
+                        readonly property string primaryText: BagName.fullName(resultRow.modelData)
 
                         RowLayout {
                             anchors.fill: parent

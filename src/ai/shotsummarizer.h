@@ -267,13 +267,12 @@ public:
     // tokens: light/medium-light/medium/medium-dark/dark). Empty = no claim
     // or unresolved title. Same title resolution as findProfileSection.
     static QStringList roastAffinityForTitle(const QString& profileTitle);
-    // Relative grind direction from sourceTitle's profile to targetTitle's,
-    // per KB UGS ordering: "finer" | "coarser" | "same" | "" (either UGS
-    // unknown). A filter-family profile counts as coarser than any profile
-    // with a UGS. DIRECTION ONLY — per the KB's own cross-profile rule, UGS
-    // distance never translates to a grinder-click count; concrete numbers
-    // come from shot history alone. Drives the wizard's grind hint.
-    static QString grindDirectionBetween(const QString& sourceTitle, const QString& targetTitle);
+    // Relative grind direction from one KB profile to another, per KB UGS ordering:
+    // "finer" | "coarser" | "same" | "" (either UGS unknown). A filter-family profile
+    // counts as coarser than any profile with a UGS. DIRECTION ONLY — per the KB's
+    // own cross-profile rule, UGS distance never translates to a grinder-click count.
+    // ProfileManager::grindDirectionBetween resolves titles to ids for the wizard.
+    static QString grindDirectionBetweenKbIds(const QString& sourceKbId, const QString& targetKbId);
 
     // Direct KB lookup by ID — bypasses fuzzy title matching. Returns empty string
     // if the ID isn't in the knowledge base. Used by MCP to ship just the current

@@ -1359,6 +1359,7 @@ void TestCustomWidgetHtml::recipeWaterEditorPreservesLegacyValuesAndConvertsTea(
         var RecipeService = {requestLastEquipmentForDrinkType: function() {}};
         function suggestName() {}
         function stepDone() {}
+        function requestGrindHint() {}
         // The facade's real fixed/ratio projection is covered by RecipeContextServiceTest.
         // These fixture values check the shipping editor's selection/save wiring.
         var RecipeContext = {preferences: {waterVesselPresets: [{name: "Cup", volume: 200,

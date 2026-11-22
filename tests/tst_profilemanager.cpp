@@ -32,6 +32,7 @@
 #include "core/settings_dye.h"
 #include "core/yieldspec.h"
 #include "history/recipestorage.h"
+#include "ai/shotsummarizer.h"
 #include "mcp/mcpresourceregistry.h"
 #include "network/webdebuglogger.h"
 #include "ble/protocol/de1characteristics.h"
@@ -1243,6 +1244,32 @@ private slots:
         // ...but no identity is claimed: nothing to put after "Based on".
         QVERIFY2(f.profileManager.profileKbDerivedFrom(renamed).isEmpty(),
                  "an ambiguous match must not name a single source");
+        // Nor put it on one UGS chart row (Genius Grind).
+        QVERIFY(f.profileManager.kbIdForTitle(renamed).isEmpty());
+    }
+
+    void customTitledDFlowResolvesThroughTheCatalog() {
+        // Mark Palmos's everyday "D-Flow / 42": the title alone resolves to nothing, the
+        // D-Flow editor type to D-Flow. Genius Grind and its "on the chart" check must
+        // use the catalog's answer, as saved shots do.
+        McpTestFixture f;
+        QFile src(QStringLiteral(":/profiles/d_flow_default.json"));
+        QVERIFY(src.open(QIODevice::ReadOnly));
+        QJsonObject obj = QJsonDocument::fromJson(src.readAll()).object();
+        const QString title = QStringLiteral("D-Flow / 42");
+        obj[QStringLiteral("title")] = title;
+        obj.remove(QStringLiteral("read_only"));
+        const QString dir = f.profileManager.userProfilesPath();
+        QVERIFY(QDir().mkpath(dir));
+        QFile out(dir + QStringLiteral("/d_flow_42.json"));
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(obj).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+
+        QVERIFY(ShotSummarizer::computeProfileKbId(title).isEmpty());
+        QCOMPARE(f.profileManager.kbIdForTitle(title), QStringLiteral("d-flow"));
+        QCOMPARE(f.profileManager.grindDirectionBetween(title, title), QStringLiteral("same"));
     }
 
     // === QML guard: no visibility gated on a shot's persisted profileKbId ===

@@ -1499,13 +1499,7 @@ void ShotHistoryStorage::requestGrindContextForRequest(const QString& requestId,
         QVariantMap context;
         const bool opened = withTempDb(dbPath, "shs_grind_context", [&](QSqlDatabase& db) {
             bool queryOk = false;
-            QList<double> numeric = grinderWideNumericSettings(db, grinderModel, &queryOk);
-            double step = deriveGrindStep(numeric);
-            if (step <= 0.0 && !grinderModel.isEmpty()) {
-                QList<double> pooled = grinderWideNumericSettings(db, QString(), &queryOk);
-                step = deriveGrindStep(pooled);
-            }
-            context.insert(QStringLiteral("grindStep"), step > 0.0 ? step : 1.0);
+            context.insert(QStringLiteral("grindStep"), grindStepStatic(db, grinderModel));
 
             double rpmStep = 0.0;
             if (!grinderModel.isEmpty()) {
@@ -2625,6 +2619,16 @@ void ShotHistoryStorage::reportGrindStep(const QString& grinderModel, qsizetype 
                .arg(step)
                .arg(sampleCount)
                .arg(why);
+}
+
+double ShotHistoryStorage::grindStepStatic(QSqlDatabase& db, const QString& grinderModel)
+{
+    bool queryOk = false;
+    double step = deriveGrindStep(grinderWideNumericSettings(db, grinderModel, &queryOk));
+    // A failed query is already logged by grinderWideNumericSettings.
+    if (step <= 0.0 && !grinderModel.isEmpty() && queryOk)
+        step = deriveGrindStep(grinderWideNumericSettings(db, QString(), &queryOk));
+    return step > 0.0 ? step : 1.0;
 }
 
 double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)

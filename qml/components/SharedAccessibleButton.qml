@@ -36,6 +36,8 @@ T.Button {
     property bool tintIcon: false
     // Draw the icon after the label ("Skip" + the step it skips).
     property bool iconAfterText: false
+    // A label wider than the button is cut at this end instead of overflowing it.
+    property int labelElide: Text.ElideNone
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             implicitContentWidth + leftPadding + rightPadding)
@@ -60,7 +62,11 @@ T.Button {
     }
 
     contentItem: Item {
-        implicitWidth: contentRow.implicitWidth
+        id: labelArea
+        // From the label's natural width, not its laid-out one: an elided label must
+        // not shrink the width the button asks for.
+        implicitWidth: (root.icon.source.toString() !== "" ? iconImage.implicitWidth + contentRow.spacing : 0)
+                       + (root.text !== "" ? label.implicitWidth : 0)
         implicitHeight: contentRow.implicitHeight
         Accessible.ignored: true
 
@@ -73,6 +79,7 @@ T.Button {
             Accessible.ignored: true
 
             Image {
+                id: iconImage
                 source: root.icon.source
                 sourceSize.width: root.icon.width
                 sourceSize.height: root.icon.height
@@ -88,8 +95,13 @@ T.Button {
             }
 
             Text {
+                id: label
                 objectName: "sharedAccessibleButtonLabel"
                 text: root.text
+                width: root.labelElide === Text.ElideNone ? implicitWidth
+                       : Math.min(implicitWidth, labelArea.width
+                                  - (root.icon.source.toString() !== "" ? iconImage.width + contentRow.spacing : 0))
+                elide: root.labelElide
                 font.pixelSize: root._customFontSize > 0
                                ? root._customFontSize : root.buttonStyle.scaled(16)
                 font.family: root.buttonStyle.bodyFont.family

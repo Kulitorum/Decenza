@@ -2335,8 +2335,10 @@ int main(int argc, char *argv[])
     machineControlServiceSource.setScreensaverManager(&screensaverManager);
     NativeEquipmentServiceSource equipmentServiceSource(
         mainController.equipmentStorage(), settings.dye(), mainController.shotHistory());
-    QObject::connect(&aiManager, &AIManager::grindCalibrationChanged,
-                     &equipmentServiceSource, &NativeEquipmentServiceSource::grindCalibrationChanged);
+    equipmentServiceSource.setProfileKbResolver(
+        [profiles = mainController.profileManager()](const QString& title) {
+            return profiles->kbIdForTitle(title);
+        });
     NativeRecipeServiceSource recipeServiceSource(
         mainController.recipeStorage(), settings.dye(),
         [&mainController](qint64 id) { mainController.activateRecipe(id); },

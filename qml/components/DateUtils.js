@@ -186,3 +186,11 @@ function toIso(d) {
 function isIsoDate(s) {
     return /^\d{4}-\d{2}-\d{2}$/.test(s || "")
 }
+
+// A shot's local time the way the app labels shots: "Nov 19, 4:08 AM" or
+// "Nov 19, 04:08". The caller passes its locale and the 12-hour setting.
+function shotTimeLabel(epochSeconds, locale, use12Hour) {
+    if (!(epochSeconds > 0))
+        return ""
+    return new Date(epochSeconds * 1000).toLocaleString(locale, use12Hour ? "MMM d, h:mm AP" : "MMM d, HH:mm")
+}
