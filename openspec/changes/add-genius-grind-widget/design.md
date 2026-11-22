@@ -97,7 +97,7 @@ The rules here cover each, checked by an independent replay of Mark's database (
 
 **Cut after review (2026-11-21):** a second "latest shot" reading beside the rated one, an earlier-bag tier for undated coffee, `dbError`/`noGrinder` reasons, and an Apply stop when another client changes the bag. Each was correct, and each added rules and review findings for a case few users would see.
 
-`EquipmentService.requestGrindSuggestion` returns a request id and echoes it as `requestId`: every request runs on its own worker, so callers match their latest id rather than the query, which a slower older reply also matches.
+The target profile resolves through the profile catalog (title, editor type, then shape), as saved shots do, so a D-Flow profile with its own name stays on the chart. `EquipmentService.requestGrindSuggestion` returns a request id and echoes it as `requestId`: every request runs on its own worker, so callers match their latest id rather than the query, which a slower older reply also matches.
 
 The wizard is the only existing reader. It moves to the `start*` names in the same change, with no aliases left behind. No `.rep` change is needed: the map passes through `grindSuggestionReady` as is.
 
