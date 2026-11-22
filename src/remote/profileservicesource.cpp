@@ -7,6 +7,7 @@
 #include "../ai/shotsummarizer.h"
 #include "servicepayload.h"
 
+#include <QHash>
 #include <QSet>
 #include <QMetaType>
 #include <cmath>
@@ -135,10 +136,14 @@ QVariantMap NativeProfileServiceSource::captureGrindDirections() const
         const QString title = value.toMap().value(QStringLiteral("title")).toString();
         if (!seen.contains(title)) { seen.insert(title); titles.append(title); }
     }
+    // One catalog lookup per title, not per pair.
+    QHash<QString, QString> kbIds;
+    for (const QString& title : titles) kbIds.insert(title, m_profiles->kbIdForTitle(title));
     for (const QString& sourceTitle : titles) {
         QVariantMap targets;
         for (const QString& targetTitle : titles) {
-            const QString direction = m_profiles->grindDirectionBetween(sourceTitle, targetTitle);
+            const QString direction = ShotSummarizer::grindDirectionBetweenKbIds(
+                kbIds.value(sourceTitle), kbIds.value(targetTitle));
             if (!direction.isEmpty()) targets.insert(targetTitle, direction);
         }
         if (!targets.isEmpty()) result.insert(sourceTitle, targets);

@@ -243,8 +243,13 @@ DecenzaDialog {
         root._pendingBagId = -1
         root._pendingProfileRequest = ""
         root._pendingGrindRequest = ""
-        root.applyError = TranslationManager.translate("idle.operationFailed",
-                                                       "The selection could not be changed. Please try again.")
+        // Name the step: the steps before it have already landed.
+        root.applyError = step === "profile"
+            ? TranslationManager.translate("geniusGrind.failed.profile",
+                                           "The profile could not be loaded, so the grind was not set. Please try again.")
+            : step === "grind"
+            ? TranslationManager.translate("geniusGrind.failed.grind", "The grind could not be set. Please try again.")
+            : TranslationManager.translate("idle.operationFailed", "The selection could not be changed. Please try again.")
         AccessibilityManager.announce(root.applyError, true)
     }
 
@@ -419,6 +424,11 @@ DecenzaDialog {
             }
             model: root.expanded === "bean" ? root.bags
                  : root.expanded === "profile" ? root.profileTitles : []
+            // Tab lands on the selected row. A new model resets the index to 0 before
+            // this signal (qquickitemview.cpp:1168-1169).
+            onModelChanged: currentIndex = Math.max(0, root.expanded === "bean"
+                ? root.bags.findIndex(function(bag) { return Number(bag.id) === root.bagId })
+                : root.profileTitles.indexOf(root.profileTitle))
             delegate: AccessibleButton {
                 id: choice
                 required property var modelData

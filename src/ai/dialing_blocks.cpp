@@ -1742,7 +1742,9 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // Dial + RPM are two independent grind axes, and pairs are not split by RPM, so
     // a derived `rgs` holds only at the coffeeAnchor shot's RPM; an own setting at its
     // own shot's `rpm`.
-    block["variableRpm"] = rpmCapable;
+    // The registry fact, not deriveRpmCapable: that is true for any unknown grinder
+    // so the UI can offer an RPM field.
+    block["variableRpm"] = gEntry.variableRpm;
     if (rpmCapable && approximate && anyRpm) {
         usage += QStringLiteral(
             " This grinder has variable RPM: a derived setting applies "

@@ -35,9 +35,11 @@ QtObject {
     // A caller sets several inputs in a row; callLater with the same method runs it
     // once (qqmldelayedcallqueue.cpp:89-101). The new request is posted, so a reply
     // for the old inputs already queued would land first: drop its id here.
+    // pending until request() runs, so the empty gap reads "working", not a reason.
     on_IdentityKeyChanged: {
         root.suggestion = ({})
         root._requestId = ""
+        root.pending = true
     }
     on_RequestKeyChanged: Qt.callLater(root.request)
     Component.onCompleted: root.request()

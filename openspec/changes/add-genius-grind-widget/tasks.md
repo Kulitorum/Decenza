@@ -26,7 +26,7 @@
 ## 3. Integration
 
 - [x] 3.0 Re-run the coverage replay (`audit3/replay3.py`, both event modes) against the implemented C++ on Mark's three packages and Jeff's tablet, and confirm 0 prototype-only cases other than those the user's rules exclude (non-coffee drinks, shots rated under 50, unnamed coffee); record the table in the PR. Done 2026-11-21 by calling `grindSuggestionFor` on each event's database as of that moment. It first found Mark's everyday "D-Flow / 42" off the chart (78 events): the suggestion matched profiles by title alone; fixed by resolving through the profile catalog. After the fix, prototype-only events (switch / all): DF83V 1 / 3, Mignon 1 / 2, package 10 3 / 4, Jeff's tablet 0 / 7. All are the user's exclusions, the prototype's own key rule (3, anchors replacing history, not taken), or 8 old shots whose saved KB id predates the D-Flow / Q and La Pavoni split. Re-run 2026-11-22 after the shared-request cleanup: every event's setting, source and reason is unchanged, and on the events both answer the C++ error is at or below the prototype's on all four packages.
-- [x] 3.1 Run the full suite through `mcp__qtcreator__run_tests` (scope all) and confirm it passes
+- [x] 3.1 Run the full suite through `mcp__qtcreator__run_tests` (scope all) and confirm it passes. Re-run 2026-11-22 on the final code after the merge-gate audit fixes: 203/203, no warnings; the three strengthened tests (extrapolation cap, espresso filter on the bag's latest shot, ambiguous shape off the chart) each seen red with their code broken
 
 ## Workflow follow-up
 

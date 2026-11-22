@@ -421,7 +421,8 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 // `conversionKey` is mined from WITHIN-ROAST-BATCH paired slopes (same
 // bean batch, two profiles — cancels the dominant per-batch baseline that
 // made the old pooled all-coffee slope wrong-signed), gated dimensionlessly
-// (IQR ≤ ratio·|key|, grinder-portable), and is a per-grinder runtime
+// (IQR ≤ ratio·|key|, grinder-portable; ten or more pairs publish without the
+// gate), and is a per-grinder runtime
 // value — never a shipped constant. Numbers start from the highest-rated, else
 // the latest good, shot of the CURRENT roast batch, and derived ones are never
 // extrapolated past a hard UGS cap. With no usable signal the block is *directional*: each

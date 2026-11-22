@@ -91,7 +91,6 @@ The rules here cover each, checked by an independent replay of Mark's database (
 
 **What the suggestion returns.** The `QVariantMap` carries:
 - `setting`, `source` (`rated` | `history` | `sameUgs` | `derived`): `history` is the profile's latest good shot, and `sameUgs` the top-rated 50+ shot at the same UGS on another profile;
-- `grindStep`, the grinder's history-derived step;
 - `startShotId`, `startProfileName` (the shot's own title), `startShotSetting`, `startTimestamp` (epoch seconds; the QML formats local time), `startRating`, and `startRpm` (0 unless the grinder takes an RPM);
 - `reason` when there is no number (an empty map when the history cannot be read or the shot has no grinder), and with `notCalibrated` or `outsideRange`, `ugsDelta` and its direction from the starting shot.
 
@@ -108,14 +107,15 @@ The wizard is the only existing reader. It moves to the `start*` names in the sa
 **Refresh triggers.** The widget, the popup and the wizard each bind their inputs to one `GrindSuggestionRequest`, which asks again when any of these changes:
 - the profile, bag or equipment it was given;
 - `grindCalibrationChanged` (anchor marked or cleared);
-- `HistoryService.historyRevision`, compared by value, because `historyChanged` also fires on every replica `notified`.
+- `HistoryService.historyRevision`, compared by value, because `historyChanged` also fires on every replica `notified`;
+- `ProfileService.catalogRevision`, because a profile's editor type or shape, and so its chart row, can change without its title.
 
 The revision covers pulling, rating, editing and deleting a shot, which `grindCalibrationChanged` does not.
 
 **Apply.**
 - Kept from Mark's popup: the sequence (activate bag → load profile → set grind), each step waiting for its completion signal and matched by request id, with no timers.
 - Added: on an RPM-capable grinder, the grind write carries the starting shot's `dyeGrinderRpm` too.
-- Added: activating a bag reports done before the bag's row lands and moves the preferences revision, so a grind write refused as stale is resent once. The popup cannot close while Apply runs, because a step already sent cannot be called back.
+- Added: activating a bag reports done before the bag's row lands and moves the preferences revision, so a grind write refused as stale is resent once. The user cannot close the popup while Apply runs, because a step already sent cannot be called back; an operation page that closes it leaves the remaining steps to finish behind it.
 
 **The dead `AIManager` grind block goes.** `AIManager::requestGrindCalibration`, `requestMarkGrindAnchor`, `requestClearGrindAnchor` and `requestGrindSuggestion` have no callers in `qml/`, `src/` or `tests/`. The same is true of their five signals, apart from the `main.cpp` `connect` forwarding `grindCalibrationChanged`. They duplicate the `EquipmentService` source path this change reworks, so they are deleted with it.
 

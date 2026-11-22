@@ -2619,6 +2619,13 @@ private slots:
             QCOMPARE(turbo.value(QStringLiteral("ugsDelta")).toDouble(), 4.0);
             QCOMPARE(turbo.value(QStringLiteral("ugsDirection")).toString(), QStringLiteral("coarser"));
             QVERIFY(!turbo.contains(QStringLiteral("setting")));
+            // The cap: Extractamundo Dos (UGS 2.5) is past the range but within 1.5 of it,
+            // 6 + 0.5·2 = 7; Turbo Shot (UGS 5) is past the cap.
+            const QVariantMap ed = suggest("TestRoaster", "Extractamundo Dos");
+            QCOMPARE(ed.value(QStringLiteral("setting")).toString(), QStringLiteral("7"));
+            QCOMPARE(ed.value(QStringLiteral("source")).toString(), QStringLiteral("derived"));
+            QCOMPARE(suggest("TestRoaster", "Turbo Shot").value(QStringLiteral("reason")).toString(),
+                     QStringLiteral("outsideRange"));
             QCOMPARE(suggest("OtherRoaster", "Adaptive v2").value(QStringLiteral("reason")).toString(),
                      QStringLiteral("noShots"));
             QCOMPARE(suggest("TestRoaster", "My Secret Pull").value(QStringLiteral("reason")).toString(),
@@ -2833,11 +2840,12 @@ private slots:
             QCOMPARE(suggest(kBad, QStringLiteral("Cremina")).value(QStringLiteral("reason")).toString(),
                      QStringLiteral("noStart"));
 
-            // A rated 12 g ristretto counts; a rated cleaning shot never does.
+            // A rated 12 g ristretto counts; a rated cleaning shot never does, not even as
+            // the bag's latest shot: 100 days on, it would end the ristretto's batch.
             const QString kRis = QStringLiteral("RisBean");
             ggSeed(db, QStringLiteral("r1"), 5000, QStringLiteral("Cremina"),
                    QStringLiteral("cremina-lever-machine"), QStringLiteral("19"), 80, 12.0, kRis);
-            ggSeed(db, QStringLiteral("r2"), 5010, QStringLiteral("Cremina"),
+            ggSeed(db, QStringLiteral("r2"), 5000 + 100 * 86400, QStringLiteral("Cremina"),
                    QStringLiteral("cremina-lever-machine"), QStringLiteral("5"), 95, 36.0, kRis,
                    QStringLiteral("cleaning"));
             QCOMPARE(suggest(kRis, QStringLiteral("Cremina")).value(QStringLiteral("setting")).toString(),

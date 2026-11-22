@@ -1244,6 +1244,8 @@ private slots:
         // ...but no identity is claimed: nothing to put after "Based on".
         QVERIFY2(f.profileManager.profileKbDerivedFrom(renamed).isEmpty(),
                  "an ambiguous match must not name a single source");
+        // Nor put it on one UGS chart row (Genius Grind).
+        QVERIFY(f.profileManager.kbIdForTitle(renamed).isEmpty());
     }
 
     void customTitledDFlowResolvesThroughTheCatalog() {

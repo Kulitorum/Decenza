@@ -4,7 +4,7 @@
 
 ### Requirement: Genius Grind widget
 
-The layout palette SHALL provide a `geniusGrind` widget, placeable in bars and the centre zone, showing the grind suggestion for the loaded profile and active bag on the active equipment, or "—" without one. It SHALL refresh when the profile, bag, equipment, grind calibration or shot history (a shot saved, edited, rated or deleted) changes. Tapping it SHALL open the Genius Grind popup.
+The layout palette SHALL provide a `geniusGrind` widget, placeable in bars and the centre zone, showing the grind suggestion for the loaded profile and active bag on the active equipment, or "—" without one. It SHALL refresh when the profile, bag, equipment, grind calibration, profile catalog or shot history (a shot saved, edited, rated or deleted) changes. Tapping it SHALL open the Genius Grind popup.
 
 #### Scenario: Suggestion shown for the loaded profile
 
@@ -72,7 +72,7 @@ Apply SHALL activate the chosen bag, then load the chosen profile, then set the 
 
 ### Requirement: A Genius Grind Apply in flight SHALL finish
 
-While Apply runs, the popup SHALL NOT close: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once.
+While Apply runs, the user SHALL NOT be able to close the popup: Cancel, Escape, a press outside and the shot links SHALL be unavailable, because a step already sent cannot be called back. An operation page that closes it SHALL leave the remaining steps to finish. Activating a bag reports done before its details land and moves the preferences revision, so a grind write refused as stale SHALL be resent once.
 
 #### Scenario: Cancel during Apply
 
