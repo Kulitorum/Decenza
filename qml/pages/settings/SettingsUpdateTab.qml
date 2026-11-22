@@ -1060,15 +1060,20 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // QR code
+            // A dense dotted QR needs ~4 px per dot to scan from a phone, so it
+            // takes the dialog's full width, capped so the dialog fits a short screen.
             Image {
+                id: donateQr
+                readonly property real aspect: implicitWidth > 0 ? implicitHeight / implicitWidth : 1
                 Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Math.min(donateDialog.availableWidth,
+                                                donateDialog.parent.height * 0.5 / aspect)
+                Layout.preferredHeight: Layout.preferredWidth * aspect
                 source: "qrc:/qrcode.png"
-                Layout.preferredWidth: Theme.scaled(150)
-                Layout.preferredHeight: Theme.scaled(150)
                 fillMode: Image.PreserveAspectFit
-                sourceSize.width: 150
-                sourceSize.height: 150
+                mipmap: true
+                Accessible.role: Accessible.Graphic
+                Accessible.name: TranslationManager.translate("about.donateQrCode", "PayPal donation QR code")
             }
 
             Text {
