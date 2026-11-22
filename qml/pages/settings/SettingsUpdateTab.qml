@@ -1026,6 +1026,7 @@ Item {
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.85, Theme.scaled(360))
+        height: Math.min(implicitHeight, parent.height - 2 * Theme.spacingMedium)
         modal: true
         dim: true
         padding: Theme.spacingMedium
@@ -1039,13 +1040,12 @@ Item {
         }
 
         contentItem: ColumnLayout {
-            spacing: Theme.scaled(12)
+            spacing: Theme.spacingSmall
 
             Text {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("about.supportProject", "Support This Project")
-                font.pixelSize: Theme.scaled(16)
-                font.bold: true
+                font: Theme.subtitleFont
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -1053,22 +1053,24 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("about.donationMessage", "If you find this app useful, donations are welcome but never expected.")
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Theme.scaled(13)
+                font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // QR code
+            // Full dialog width so a phone can resolve the dots; the only item that
+            // shrinks when the dialog is taller than the window. Decoded only while open.
             Image {
                 Layout.alignment: Qt.AlignHCenter
-                source: "qrc:/qrcode.png"
-                Layout.preferredWidth: Theme.scaled(150)
-                Layout.preferredHeight: Theme.scaled(150)
+                Layout.preferredWidth: donateDialog.availableWidth
+                Layout.preferredHeight: Layout.preferredWidth
+                Layout.fillHeight: true
+                source: donateDialog.visible ? "qrc:/qrcode.png" : ""
                 fillMode: Image.PreserveAspectFit
-                sourceSize.width: 150
-                sourceSize.height: 150
+                mipmap: true
+                Accessible.role: Accessible.Graphic
+                Accessible.name: TranslationManager.translate("about.donateQrCode", "PayPal donation QR code")
             }
 
             Text {
@@ -1079,33 +1081,12 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // Donate via PayPal button
-            Rectangle {
+            AccessibleButton {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(48)
-                radius: Theme.buttonRadius
-                color: Theme.primaryColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                Accessible.focusable: true
-                Accessible.onPressAction: donateArea.clicked(null)
-
-                MouseArea {
-                    id: donateArea
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                    font.pixelSize: Theme.scaled(15)
-                    font.bold: true
-                    color: Theme.primaryContrastColor
-                    Accessible.ignored: true
-                }
+                primary: true
+                text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
+                accessibleName: text
+                onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
             }
 
             // Close button
