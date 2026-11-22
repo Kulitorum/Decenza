@@ -458,8 +458,10 @@ DecenzaDialog {
                 onClicked: {
                     // Collapsing the list destroys this row; a keyboard pick keeps focus
                     // on the button that opened it.
-                    if (choiceList.activeFocus)
-                        (choice.isBean ? beanButton : profileButton).forceActiveFocus(Qt.TabFocusReason)
+                    if (choiceList.activeFocus) {
+                        const opener = choice.isBean ? beanButton : profileButton
+                        opener.forceActiveFocus(Qt.TabFocusReason)
+                    }
                     if (choice.isBean) root.bagId = Number(choice.modelData.id)
                     else root.profileTitle = String(choice.modelData)
                     root.expanded = ""
