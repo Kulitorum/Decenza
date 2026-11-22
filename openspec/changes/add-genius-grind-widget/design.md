@@ -105,7 +105,7 @@ The wizard is the only existing reader. It moves to the `start*` names in the sa
 **The widget and popup reuse `requestGrindSuggestion`.** Mark's `requestGeniusSuggestion` and `geniusSuggestionReady` are dropped.
 
 **Refresh triggers.** The widget, the popup and the wizard each bind their inputs to one `GrindSuggestionRequest`, which asks again when any of these changes:
-- the profile, bag or equipment it was given;
+- the profile, bag or equipment it was given, or that package's grinder (read live by the host);
 - `grindCalibrationChanged` (anchor marked or cleared);
 - `HistoryService.historyRevision`, compared by value, because `historyChanged` also fires on every replica `notified`;
 - `ProfileService.catalogRevision`, because a profile's editor type or shape, and so its chart row, can change without its title.

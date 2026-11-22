@@ -22,9 +22,16 @@ QtObject {
     property bool pending: false
     property string _requestId: ""
 
+    // The host reads the package's grinder live, so editing it in place asks again.
+    readonly property var _grinder: EquipmentService.packages.find(function(pkg) {
+        return Number(pkg.id) === root.packageId
+    }) ?? ({})
     // JSON, not a join: a name may contain any delimiter.
     readonly property string _identityKey: JSON.stringify([EquipmentService.ready, root.packageId, root.roaster,
-                                                           root.coffee, root.roastDate, root.profileTitle])
+                                                           root.coffee, root.roastDate, root.profileTitle,
+                                                           root._grinder.grinderBrand ?? "",
+                                                           root._grinder.grinderModel ?? "",
+                                                           root._grinder.rpmCapable ?? false])
     // historyRevision moves on a saved, rated, edited or deleted shot; catalogRevision
     // when a profile's editor type or shape (its chart row) changes. Compared by
     // value, so the replicas' other notifications pass.
