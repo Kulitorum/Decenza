@@ -87,6 +87,10 @@ private:
 
     QString m_templateDbPath;
 
+    // grindSuggestionFor takes the KB id the profile catalog resolves; these fixtures'
+    // titles resolve by title alone.
+    static QString kbOf(const QString& title) { return ShotSummarizer::computeProfileKbId(title); }
+
     // Stand up a fresh DB at `path` with the full ShotHistoryStorage schema.
     // The schema template is built exactly once in initTestCase(); each test's
     // DB is a file copy of it (a few ms) rather than a fresh
@@ -2595,7 +2599,7 @@ private slots:
             const qint64 pkg = projectionForShot(db, cur).equipmentId;
             const auto suggest = [&](const char* brand, const char* profile) {
                 return DialingBlocks::grindSuggestionFor(db, pkg, QString::fromLatin1(brand),
-                    QStringLiteral("TestBean"), QString(), QString::fromLatin1(profile));
+                    QStringLiteral("TestBean"), QString(), kbOf(QString::fromLatin1(profile)));
             };
 
             // calSeed rates every shot 80, above the A-Flow 50s, so the newest of them
@@ -2620,7 +2624,7 @@ private slots:
             QCOMPARE(suggest("TestRoaster", "My Secret Pull").value(QStringLiteral("reason")).toString(),
                      QStringLiteral("profileNotOnChart"));
             QCOMPARE(DialingBlocks::grindSuggestionFor(db, 0, QStringLiteral("TestRoaster"),
-                         QStringLiteral("TestBean"), QString(), QStringLiteral("Adaptive v2"))
+                         QStringLiteral("TestBean"), QString(), kbOf(QStringLiteral("Adaptive v2")))
                          .value(QStringLiteral("reason")).toString(), QStringLiteral("noEquipment"));
 
             // A bag with no roaster: its shots store '' and the caller passes a null
@@ -2628,13 +2632,13 @@ private slots:
             QSqlQuery blank(db);
             QVERIFY(blank.exec(QStringLiteral("UPDATE shots SET bean_brand = ''")));
             const QVariantMap noRoaster = DialingBlocks::grindSuggestionFor(db, pkg, QString(),
-                QStringLiteral("TestBean"), QString(), QStringLiteral("Adaptive v2"));
+                QStringLiteral("TestBean"), QString(), kbOf(QStringLiteral("Adaptive v2")));
             QCOMPARE(noRoaster.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
 
             // A package with no grinder gives no number.
             QVERIFY(blank.exec(QStringLiteral("DELETE FROM equipment_items WHERE kind = 'grinder'")));
             QVERIFY(DialingBlocks::grindSuggestionFor(db, pkg, QString(), QStringLiteral("TestBean"),
-                        QString(), QStringLiteral("Adaptive v2")).isEmpty());
+                        QString(), kbOf(QStringLiteral("Adaptive v2"))).isEmpty());
         });
     }
 
@@ -2678,7 +2682,7 @@ private slots:
             const qint64 pkg = projectionForShot(db, rated).equipmentId;
             const auto suggest = [&](const QString& profile) {
                 return DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
-                    QStringLiteral("TestBean"), QString(), profile);
+                    QStringLiteral("TestBean"), QString(), kbOf(profile));
             };
             const auto setRating = [&](qint64 id, int rating) {
                 QSqlQuery u(db);
@@ -2773,7 +2777,7 @@ private slots:
             const qint64 pkg = projectionForShot(db, first).equipmentId;
             const auto suggest = [&](const QString& bean, const QString& profile) {
                 return DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"),
-                    bean, QString(), profile);
+                    bean, QString(), kbOf(profile));
             };
             const QString kAllonge = QStringLiteral("Rao Allongé");
 
@@ -2840,7 +2844,7 @@ private slots:
                      QStringLiteral("19"));
 
             // An unnamed coffee is refused before anything is read.
-            QCOMPARE(DialingBlocks::grindSuggestionFor(db, pkg, QString(), QString(), QString(), kAllonge)
+            QCOMPARE(DialingBlocks::grindSuggestionFor(db, pkg, QString(), QString(), QString(), kbOf(kAllonge))
                          .value(QStringLiteral("reason")).toString(), QStringLiteral("noBean"));
         });
     }
@@ -2872,12 +2876,12 @@ private slots:
             QVERIFY(roast.exec(QStringLiteral("UPDATE shots SET roast_date = '2025-10-01' WHERE id = %1").arg(otherRoast)));
             QVERIFY(roast.exec(QStringLiteral("UPDATE shots SET roast_date = '2026-01-01' WHERE id = %1").arg(own)));
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kDated,
-                                                  QStringLiteral("2026-01-01"), QStringLiteral("Cremina"));
+                                                  QStringLiteral("2026-01-01"), kbOf(QStringLiteral("Cremina")));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), own);
             QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("19"));
             // And an undated bag of the same coffee never resolves to a dated bag's shot.
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kDated,
-                                                  QString(), QStringLiteral("Cremina"));
+                                                  QString(), kbOf(QStringLiteral("Cremina")));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), undated);
 
             // Undated coffee: a rated shot 150 days before the latest one is another bag,
@@ -2888,14 +2892,14 @@ private slots:
             const qint64 current = ggSeed(db, QStringLiteral("n"), 1000 + 150 * kDay, QStringLiteral("D-Flow / Q"),
                                           QStringLiteral("d-flow-q-variant"), QStringLiteral("20"), 0, 36.0, kBean);
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kBean, QString(),
-                                                  QStringLiteral("Cremina"));
+                                                  kbOf(QStringLiteral("Cremina")));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), current);
             // One rated 80 days before it is the same bag.
             const qint64 sameBag = ggSeed(db, QStringLiteral("w"), 1000 + 70 * kDay, QStringLiteral("Cremina"),
                                           QStringLiteral("cremina-lever-machine"), QStringLiteral("19"), 70,
                                           36.0, kBean);
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kBean, QString(),
-                                                  QStringLiteral("Cremina"));
+                                                  kbOf(QStringLiteral("Cremina")));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), sameBag);
         });
     }

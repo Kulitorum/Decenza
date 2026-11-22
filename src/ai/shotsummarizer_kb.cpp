@@ -458,8 +458,15 @@ QString ShotSummarizer::grindDirectionBetween(const QString& sourceTitle, const 
 {
     if (sourceTitle.isEmpty() || targetTitle.isEmpty()) return {};
     loadProfileKnowledge();
-    const QString srcId = matchProfileKey(s_profileKnowledge, sourceTitle, QString());
-    const QString dstId = matchProfileKey(s_profileKnowledge, targetTitle, QString());
+    return grindDirectionBetweenKbIds(matchProfileKey(s_profileKnowledge, sourceTitle, QString()),
+                                      matchProfileKey(s_profileKnowledge, targetTitle, QString()));
+}
+
+QString ShotSummarizer::grindDirectionBetweenKbIds(const QString& sourceKbId, const QString& targetKbId)
+{
+    loadProfileKnowledge();
+    const QString srcId = resolveKbInput(sourceKbId);
+    const QString dstId = resolveKbInput(targetKbId);
     if (srcId.isEmpty() || dstId.isEmpty()) return {};
     const ProfileKnowledge src = s_profileKnowledge.value(srcId);
     const ProfileKnowledge dst = s_profileKnowledge.value(dstId);

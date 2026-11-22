@@ -556,6 +556,9 @@ public:
     // only — never a click count (the KB's own cross-profile rule).
     Q_INVOKABLE QString grindDirectionBetween(const QString& sourceProfileTitle,
                                               const QString& targetProfileTitle) const;
+    // The KB id the catalog resolved for this title (title, editor type, then shape),
+    // else the title alone. Empty when neither resolves or the shape is ambiguous.
+    QString kbIdForTitle(const QString& profileTitle) const;
     // Installed-catalog lookup: profile title → normalized beverage_type
     // ("" when the title isn't installed). MCP/web recipe surfaces resolve
     // drink-type derivation through this — recipes referencing INSTALLED

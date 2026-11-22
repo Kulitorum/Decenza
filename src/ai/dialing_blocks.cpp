@@ -1850,14 +1850,14 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId)
 
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,
-                               const QString& profileTitle)
+                               const QString& profileKbId)
 {
     const auto refuse = [](const QString& reason) {
         return QVariantMap{{QStringLiteral("reason"), reason}};
     };
     if (packageId <= 0)
         return refuse(QStringLiteral("noEquipment"));
-    const QString kbId = ShotSummarizer::computeProfileKbId(profileTitle);
+    const QString kbId = ShotSummarizer::resolveKbId(profileKbId);
     const double targetUgs = kbId.isEmpty() ? std::numeric_limits<double>::quiet_NaN()
                                             : ShotSummarizer::ugsForKbId(kbId);
     if (std::isnan(targetUgs))

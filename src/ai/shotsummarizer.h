@@ -274,6 +274,8 @@ public:
     // distance never translates to a grinder-click count; concrete numbers
     // come from shot history alone. Drives the wizard's grind hint.
     static QString grindDirectionBetween(const QString& sourceTitle, const QString& targetTitle);
+    // The same, between two resolved KB ids.
+    static QString grindDirectionBetweenKbIds(const QString& sourceKbId, const QString& targetKbId);
 
     // Direct KB lookup by ID — bypasses fuzzy title matching. Returns empty string
     // if the ID isn't in the knowledge base. Used by MCP to ship just the current

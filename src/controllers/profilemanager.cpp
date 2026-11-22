@@ -1509,7 +1509,15 @@ double ProfileManager::defaultTeaTempC(const QString& teaType) const {
 
 QString ProfileManager::grindDirectionBetween(const QString& sourceProfileTitle,
                                               const QString& targetProfileTitle) const {
-    return ShotSummarizer::grindDirectionBetween(sourceProfileTitle, targetProfileTitle);
+    if (sourceProfileTitle.isEmpty() || targetProfileTitle.isEmpty()) return {};
+    return ShotSummarizer::grindDirectionBetweenKbIds(kbIdForTitle(sourceProfileTitle),
+                                                      kbIdForTitle(targetProfileTitle));
+}
+
+QString ProfileManager::kbIdForTitle(const QString& profileTitle) const {
+    if (const ProfileInfo* found = findProfileByTitleForKb(profileTitle))
+        return found->kbIds.size() == 1 ? found->kbIds.first() : QString();
+    return ShotSummarizer::computeProfileKbId(profileTitle);
 }
 
 QString ProfileManager::beverageTypeForTitle(const QString& profileTitle) const {

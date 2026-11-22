@@ -529,8 +529,8 @@ inline constexpr const char* kUgsGuideUrl = "https://videoblurb.com/UGS/";
 // espresso shot. An empty map when the package has no espresso shot or grinder.
 QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 
-// The grind suggestion for `profileTitle` on this bag and equipment (recipe wizard and
-// Genius Grind widget). A profile the bag has its own setting for gets it with or
+// The grind suggestion for the profile with KB id `profileKbId` (as the profile catalog
+// resolves it) on this bag and equipment (recipe wizard and Genius Grind widget). A profile the bag has its own setting for gets it with or
 // without a key; any other is the starting shot moved by the key.
 // {setting, source (rated | history | sameUgs | derived), grindStep, start* fields
 // (startShotSetting is the shot's own setting)}. Without a number: {reason
@@ -540,7 +540,7 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 // history cannot be read or the shot has no grinder.
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,
-                               const QString& profileTitle);
+                               const QString& profileKbId);
 
 // Mark `shotId` as its package's `side` anchor. Returns an empty string on
 // success, else the refusal code (the per-shot codes above, notFound, noPackage,
