@@ -1039,13 +1039,12 @@ Item {
         }
 
         contentItem: ColumnLayout {
-            spacing: Theme.scaled(12)
+            spacing: Theme.spacingSmall
 
             Text {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("about.supportProject", "Support This Project")
-                font.pixelSize: Theme.scaled(16)
-                font.bold: true
+                font: Theme.subtitleFont
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -1053,15 +1052,14 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("about.donationMessage", "If you find this app useful, donations are welcome but never expected.")
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Theme.scaled(13)
+                font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // A dense dotted QR needs ~4 px per dot to scan from a phone, so it
-            // takes the dialog's full width, capped so the dialog fits a short screen.
+            // Full dialog width so a phone can resolve the dense dots (rule of thumb:
+            // a few px per dot), capped so the dialog still fits a short screen.
             Image {
                 id: donateQr
                 readonly property real aspect: implicitWidth > 0 ? implicitHeight / implicitWidth : 1
@@ -1084,33 +1082,12 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // Donate via PayPal button
-            Rectangle {
+            AccessibleButton {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(48)
-                radius: Theme.buttonRadius
-                color: Theme.primaryColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                Accessible.focusable: true
-                Accessible.onPressAction: donateArea.clicked(null)
-
-                MouseArea {
-                    id: donateArea
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                    font.pixelSize: Theme.scaled(15)
-                    font.bold: true
-                    color: Theme.primaryContrastColor
-                    Accessible.ignored: true
-                }
+                primary: true
+                text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
+                accessibleName: text
+                onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
             }
 
             // Close button
