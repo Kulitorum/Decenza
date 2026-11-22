@@ -3450,6 +3450,8 @@ T.Page {
                                                  && (wizardPage.fGrind.trim() !== wizardPage.grindSuggestion.setting
                                                      || (Number(wizardPage.grindSuggestion.startRpm || 0) > 0
                                                          && wizardPage.fRpmPinned !== Number(wizardPage.grindSuggestion.startRpm)))
+                                        // A refresh keeps the old number on screen until the new one lands.
+                                        enabled: !wizardPage._grindSuggestionRequest.pending
                                         Layout.alignment: Qt.AlignVCenter
                                         _customFontSize: Theme.captionFont.pixelSize
                                         text: TranslationManager.translate("recipes.wizard.grindSuggestion.use", "Use %1")

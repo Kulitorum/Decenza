@@ -24,14 +24,20 @@ QtObject {
 
     readonly property string _identityKey: [EquipmentService.ready, root.packageId, root.roaster,
                                             root.coffee, root.roastDate, root.profileTitle].join("|")
-    // historyRevision moves on a saved, rated, edited or deleted shot. Compared by
-    // value, so the replica's other notifications pass.
+    // historyRevision moves on a saved, rated, edited or deleted shot; catalogRevision
+    // when a profile's editor type or shape (its chart row) changes. Compared by
+    // value, so the replicas' other notifications pass.
     readonly property string _requestKey: root.active + "|" + root._identityKey + "|"
-                                          + HistoryService.historyRevision
+                                          + HistoryService.historyRevision + "|"
+                                          + ProfileService.catalogRevision
 
     // A caller sets several inputs in a row; callLater with the same method runs it
-    // once (qqmldelayedcallqueue.cpp:89-101).
-    on_IdentityKeyChanged: root.suggestion = ({})
+    // once (qqmldelayedcallqueue.cpp:89-101). The new request is posted, so a reply
+    // for the old inputs already queued would land first: drop its id here.
+    on_IdentityKeyChanged: {
+        root.suggestion = ({})
+        root._requestId = ""
+    }
     on_RequestKeyChanged: Qt.callLater(root.request)
     Component.onCompleted: root.request()
 
