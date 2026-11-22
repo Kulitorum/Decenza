@@ -1026,6 +1026,7 @@ Item {
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.85, Theme.scaled(360))
+        height: Math.min(implicitHeight, parent.height - 2 * Theme.spacingMedium)
         modal: true
         dim: true
         padding: Theme.spacingMedium
@@ -1058,16 +1059,14 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // Full dialog width so a phone can resolve the dense dots (rule of thumb:
-            // a few px per dot), capped so the dialog still fits a short screen.
+            // Full dialog width so a phone can resolve the dots; the only item that
+            // shrinks when the dialog is taller than the window. Decoded only while open.
             Image {
-                id: donateQr
-                readonly property real aspect: implicitWidth > 0 ? implicitHeight / implicitWidth : 1
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: Math.min(donateDialog.availableWidth,
-                                                donateDialog.parent.height * 0.5 / aspect)
-                Layout.preferredHeight: Layout.preferredWidth * aspect
-                source: "qrc:/qrcode.png"
+                Layout.preferredWidth: donateDialog.availableWidth
+                Layout.preferredHeight: Layout.preferredWidth
+                Layout.fillHeight: true
+                source: donateDialog.visible ? "qrc:/qrcode.png" : ""
                 fillMode: Image.PreserveAspectFit
                 mipmap: true
                 Accessible.role: Accessible.Graphic
