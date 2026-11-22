@@ -84,6 +84,20 @@ KeyboardAwareContainer {
 }
 ```
 
+## Arrow keys in a ListView drop the focus ring
+
+When keyboard focus sits on a ListView's rows, the first Up/Down hides the ring. The view gives the new current row focus with no key reason (`qquickitemview.cpp:1841`), and a Control draws its ring only for Tab, Backtab or Shortcut (`qquickcontrol.cpp:1432-1436`). `forceActiveFocus(Qt.TabFocusReason)` on that row does nothing, because it already has focus (`qquickitem.cpp:8173`), so drop the focus first:
+
+```qml
+onCurrentItemChanged: {
+    if (!activeFocus || !currentItem) return
+    currentItem.focus = false
+    currentItem.forceActiveFocus(Qt.TabFocusReason)
+}
+```
+
+A `focus: ListView.isCurrentItem` binding on the delegate has the same effect, so leave it out. Hiding or emptying the list destroys the focused row and strands focus on the hidden list, so move focus out before collapsing it. `GeniusGrindDialog.qml` does both.
+
 ## FINAL properties on Qt types
 
 Never override FINAL properties on Qt types. Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
