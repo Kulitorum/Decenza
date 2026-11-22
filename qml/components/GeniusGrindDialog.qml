@@ -10,8 +10,8 @@ import "GrindSuggestionText.js" as GrindSuggestionText
 
 // Genius Grind (add-genius-grind-widget; designed by Mark Palmos): the grind
 // suggestion for a chosen bean and profile on the active equipment, naming the shot
-// it rests on, with Apply to load both and set the grind. The number is
-// EquipmentService.requestGrindSuggestion, the same one the recipe wizard shows.
+// it rests on, with Apply to load both and set the grind. The number comes from
+// GrindSuggestionRequest, the same one the widget and the recipe wizard show.
 DecenzaDialog {
     id: root
 
@@ -31,9 +31,6 @@ DecenzaDialog {
     property var profileTitles: []
     property double bagId: -1
     property string profileTitle: ""
-    property var suggestion: ({})
-    property bool suggestionPending: false
-    property string _pendingSuggestionId: ""
     // Which choice list is open in place: "", "bean" or "profile".
     property string expanded: ""
 
@@ -45,6 +42,8 @@ DecenzaDialog {
     property bool _grindRetried: false
     property string _applySetting: ""
     property int _applyRpm: 0
+    // Shown in place of the source line: a toast would sit under this popup's overlay.
+    property string applyError: ""
 
     readonly property var selectedBag: {
         for (let i = 0; i < root.bags.length; ++i) {
@@ -52,22 +51,27 @@ DecenzaDialog {
         }
         return null
     }
-    // Everything the suggestion depends on; a saved, rated or deleted shot moves
-    // historyRevision. Compared by value, so the replica's other notifications pass.
-    readonly property string requestKey: {
-        const bag = root.selectedBag
-        return root.visible + "|" + EquipmentService.ready + "|" + EquipmentService.activePackageId + "|"
-            + (bag ? bag.id + "|" + bag.roasterName + "|" + bag.coffeeName + "|" + bag.roastDate : "")
-            + "|" + root.profileTitle + "|" + HistoryService.historyRevision
+    readonly property GrindSuggestionRequest _request: GrindSuggestionRequest {
+        active: root.visible && root.selectedBag !== null
+        packageId: EquipmentService.activePackageId
+        roaster: String(root.selectedBag ? root.selectedBag.roasterName || "" : "")
+        coffee: String(root.selectedBag ? root.selectedBag.coffeeName || "" : "")
+        roastDate: String(root.selectedBag ? root.selectedBag.roastDate || "" : "")
+        profileTitle: root.profileTitle
     }
-    onRequestKeyChanged: if (root.visible) root.requestSuggestion()
+    readonly property var suggestion: root._request.suggestion
+    onBagIdChanged: root.applyError = ""
+    onProfileTitleChanged: root.applyError = ""
     // No active bean, or it is gone: start from the most recently used one. Tested on
     // the new list itself: selectedBag may not have re-evaluated yet.
     onBagsChanged: if (root.bags.length > 0 && !root.bags.some(b => Number(b.id) === root.bagId))
                        root.bagId = Number(root.bags[0].id)
 
-    readonly property string suggestedSetting: String(root.suggestion.setting || "")
-    readonly property double _startShotId: root.suggestedSetting.length > 0
+    // Empty while a refresh is out, so Apply cannot send the number it replaces.
+    readonly property string suggestedSetting: root._request.pending ? ""
+                                                                     : String(root.suggestion.setting || "")
+    // While an Apply error is shown, the line is that error, not a link to the shot.
+    readonly property double _startShotId: root.suggestedSetting.length > 0 && root.applyError.length === 0
         ? Number(root.suggestion.startShotId || 0) : 0
 
     // Tab order (ACCESSIBILITY.md Rule 3): a closed loop over whatever is shown. The
@@ -114,24 +118,10 @@ DecenzaDialog {
         root.profileTitle = currentProfileTitle
         root.profileTitles = root.chartedProfileTitles()
         root.applying = false
+        root.applyError = ""
         root.expanded = ""
         if (!root.selectedBag && root.bags.length > 0) root.bagId = Number(root.bags[0].id)
         root.open()
-    }
-
-    function requestSuggestion(): void {
-        root.suggestion = ({})
-        root._pendingSuggestionId = ""
-        const bag = root.selectedBag
-        const packageId = EquipmentService.activePackageId
-        if (!bag || root.profileTitle.length === 0 || packageId <= 0 || !EquipmentService.ready) {
-            root.suggestionPending = false
-            return
-        }
-        root.suggestionPending = true
-        root._pendingSuggestionId = EquipmentService.requestGrindSuggestion(
-            packageId, String(bag.roasterName || ""), String(bag.coffeeName || ""),
-            String(bag.roastDate || ""), root.profileTitle)
     }
 
     // The line naming the shot the number rests on (spec: "name its starting shot").
@@ -158,8 +148,15 @@ DecenzaDialog {
             .arg(root.profileTitle).arg(amount).arg(profile).arg(setting)
     }
 
+    function withUgsMove(reason: string): string {
+        const move = root.ugsMoveText()
+        return move.length > 0 ? reason + " " + move : reason
+    }
+
     function statusText(): string {
-        if (root.suggestionPending)
+        if (root.applyError.length > 0)
+            return root.applyError
+        if (root._request.pending)
             return TranslationManager.translate("geniusGrind.working", "Working it out…")
         if (EquipmentService.activePackageId <= 0)
             return TranslationManager.translate("geniusGrind.noEquipment", "Set up your grinder under Equipment first.")
@@ -179,12 +176,11 @@ DecenzaDialog {
         case "profileNotOnChart":
             return TranslationManager.translate("geniusGrind.reason.profileNotOnChart", "This profile is not on the UGS chart.")
         case "notCalibrated":
-            return TranslationManager.translate("geniusGrind.reason.notCalibrated",
-                           "Your grinder is not calibrated yet. Pull one coffee on two profiles, or mark a fine and a coarse anchor.")
-                   + " " + root.ugsMoveText()
+            return root.withUgsMove(TranslationManager.translate("geniusGrind.reason.notCalibrated",
+                           "Your grinder is not calibrated yet. Pull one coffee on two profiles, or mark a fine and a coarse anchor."))
         case "outsideRange":
-            return TranslationManager.translate("geniusGrind.reason.outsideRange", "This profile is outside the range your shots cover.")
-                   + " " + root.ugsMoveText()
+            return root.withUgsMove(TranslationManager.translate("geniusGrind.reason.outsideRange",
+                                                                 "This profile is outside the range your shots cover."))
         default:
             return TranslationManager.translate("geniusGrind.reason.unavailable", "No suggestion for this coffee and profile.")
         }
@@ -199,6 +195,7 @@ DecenzaDialog {
     function startApply(): void {
         if (root.suggestedSetting.length === 0 || !root.selectedBag) return
         root.applying = true
+        root.applyError = ""
         root.expanded = ""
         root._grindRetried = false
         root._applySetting = root.suggestedSetting
@@ -244,7 +241,9 @@ DecenzaDialog {
         root._pendingBagId = -1
         root._pendingProfileRequest = ""
         root._pendingGrindRequest = ""
-        HomePresetActions.failed(TranslationManager.translate("idle.operationFailed", "The selection could not be changed. Please try again."))
+        root.applyError = TranslationManager.translate("idle.operationFailed",
+                                                       "The selection could not be changed. Please try again.")
+        AccessibilityManager.announce(root.applyError, true)
     }
 
     onClosed: {
@@ -252,8 +251,6 @@ DecenzaDialog {
         root._pendingBagId = -1
         root._pendingProfileRequest = ""
         root._pendingGrindRequest = ""
-        root._pendingSuggestionId = ""
-        root.suggestionPending = false
     }
 
     Connections {
@@ -292,19 +289,6 @@ DecenzaDialog {
             root.applying = false
             if (success) root.close()
             else root.failApply("grind", String(reason || "unknown"))
-        }
-    }
-
-    Connections {
-        target: EquipmentService
-        function onGrindSuggestionReady(suggestion) {
-            if (suggestion.requestId !== root._pendingSuggestionId) return
-            root._pendingSuggestionId = ""
-            root.suggestionPending = false
-            root.suggestion = suggestion
-        }
-        function onGrindCalibrationChanged(packageId) {
-            if (root.visible && packageId === EquipmentService.activePackageId) root.requestSuggestion()
         }
     }
 

@@ -435,6 +435,7 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
 //   - the resolved shot is invalid, OR
+//   - the history query fails, OR
 //   - there are no dialed-in shots in this equipment package.
 // Otherwise the block is always present (directional at minimum).
 //
@@ -532,11 +533,11 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
 // The grind suggestion for the profile with KB id `profileKbId` (as the profile catalog
 // resolves it) on this bag and equipment (recipe wizard and Genius Grind widget). A profile the bag has its own setting for gets it with or
 // without a key; any other is the starting shot moved by the key.
-// {setting, source (rated | history | sameUgs | derived), grindStep, start* fields
+// {setting, source (rated | history | sameUgs | derived), start* fields
 // (startShotSetting is the shot's own setting)}. Without a number: {reason
 // (noEquipment | profileNotOnChart | noBean | noShots | noStart | notCalibrated |
-// outsideRange)}; noStart, notCalibrated and outsideRange also carry grindStep, and
-// the last two start* fields, ugsDelta and ugsDirection. An empty map when the
+// outsideRange)}; notCalibrated and outsideRange also carry the start* fields,
+// ugsDelta and ugsDirection. An empty map when the
 // history cannot be read or the shot has no grinder.
 QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
                                const QString& beanType, const QString& roastDate,

@@ -2,7 +2,6 @@
 #include "servicevalue.h"
 
 #include "../ai/dialing_blocks.h"
-#include "../ai/shotsummarizer.h"
 #include "../core/dbutils.h"
 #include "../core/equipmentuioperations.h"
 #include "../core/equipmentuisnapshot.h"
@@ -408,7 +407,7 @@ void NativeEquipmentServiceSource::requestGrindContext(
     }
     const QString title = query.value(QStringLiteral("profileTitle")).toString();
     const QString profileKbId = !suggestion ? QString()
-        : m_profileKbId ? m_profileKbId(title) : ShotSummarizer::computeProfileKbId(title);
+        : m_profileKbId ? m_profileKbId(title) : QString();
     const QPointer<NativeEquipmentServiceSource> self(this);
     QThread* thread = QThread::create([self, requestId, dbPath, query, packageId, suggestion,
                                        profileKbId] {

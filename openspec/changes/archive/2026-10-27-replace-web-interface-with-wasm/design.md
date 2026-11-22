@@ -461,6 +461,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/GrindField.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/GrindPickerDialog.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/GrindRowSource.qml` | 26 | native + Wasm | state/style/interaction producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GrindSuggestionRequest.qml` | 26 | native + Wasm | policy/data producer; `GeniusGrindItem.qml`, `GeniusGrindDialog.qml`, `RecipeWizardPage.qml` (26.2) |
 | `qml/components/GrindSuggestionText.js` | 26 | native + Wasm | policy/data producer; `GeniusGrindDialog.qml`, `RecipeWizardPage.qml` (26.2) |
 | `qml/components/HeaderPillButton.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/HideKeyboardButton.qml` | 26 | native + Wasm | presentation; `DeviceMigrationDialog.qml` (16/24) |

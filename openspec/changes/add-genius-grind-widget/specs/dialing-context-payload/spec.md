@@ -72,7 +72,7 @@ When the resolved shot's own profile has no known canonical UGS, ordering agains
 | `confidence` | string | `"approximate"` (a conversion key published and a current-coffee anchor exists) or `"directional"` (no usable numeric key/anchor) |
 | `basis` | string? | Where the published key came from: `"history"` (mined pairs only), `"anchors"` (the anchor pair only), or `"both"`. ABSENT when `confidence` is `"directional"` |
 | `markedAnchors` | object? | Present only when the package has at least one anchor set: `status` (`"valid"`, `"missingFine"`, `"missingCoarse"`, or the reason the pair does not count), `fine` / `coarse` (`profileName`, `ugs`, `setting`, `timestamp` ISO 8601) for each side set, and `agreesWithHistory` (boolean) when the pair is valid and at least one mined pair exists |
-| `usageConstraint` | string | Short directive the prompt repeats verbatim (see advisor-user-prompt) — states UGS is relative and numbers are valid only within the calibrated range |
+| `usageConstraint` | string | Short directive the prompt repeats verbatim (see advisor-user-prompt) — states UGS is relative and derived numbers are valid only within the calibrated range plus the extrapolation cap |
 | `conversionKey` | number? | Settings per UGS unit, 2 dp. ABSENT when `confidence` is `"directional"` |
 | `coffeeAnchor` | object? | `profileName`, `ugs`, `setting`, `coffee`, `timestamp` (ISO 8601), `enjoyment0to100` when the shot is rated, and `rpm` when the grinder takes an RPM and the shot recorded one — the current-coffee intercept (the starting shot). ABSENT when the current coffee has no starting shot |
 | `calibratedUgsRange` | [number, number]? | Validated UGS span. ABSENT when `confidence` is `"directional"` |

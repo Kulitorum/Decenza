@@ -1726,6 +1726,7 @@ set(QML_FILES
     qml/components/TempPickerDialog.qml
     qml/components/GrindField.qml
     qml/components/GeniusGrindDialog.qml
+    qml/components/GrindSuggestionRequest.qml
     qml/components/GrindPickerDialog.qml
     qml/components/GrindRowSource.qml
     qml/components/MilkCapture.qml

@@ -8,15 +8,8 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
-    property var suggestion: ({})
-    property string _pendingSuggestionId: ""
-
     readonly property string labelText: TranslationManager.translate("geniusGrind.label", "Genius Grind")
     readonly property string profileTitle: String(ProfileService.currentProfileSummary.title || "")
-    readonly property string valueText: {
-        const setting = String(root.suggestion.setting || "")
-        return setting.length > 0 ? setting : "—"
-    }
     readonly property var _activeBag: {
         const bags = BagService.bags
         const activeId = Number(BagService.activeBagId)
@@ -25,52 +18,23 @@ LayoutWidgetItem {
         }
         return null
     }
-    // What the number is for: a new bag, profile or package clears it at once.
-    readonly property string identityKey: {
-        const bag = root._activeBag
-        return EquipmentService.ready + "|" + EquipmentService.activePackageId + "|"
-            + (bag ? bag.id + "|" + bag.roasterName + "|" + bag.coffeeName + "|" + bag.roastDate : "")
-            + "|" + root.profileTitle
+    readonly property GrindSuggestionRequest _request: GrindSuggestionRequest {
+        active: root._activeBag !== null
+        packageId: EquipmentService.activePackageId
+        roaster: String(root._activeBag ? root._activeBag.roasterName || "" : "")
+        coffee: String(root._activeBag ? root._activeBag.coffeeName || "" : "")
+        roastDate: String(root._activeBag ? root._activeBag.roastDate || "" : "")
+        profileTitle: root.profileTitle
     }
-    // A shot saved, rated, edited or deleted moves historyRevision; the number stays
-    // shown until the new one arrives. Compared by value, so the replica's other
-    // notifications pass. The handlers must not call BagService.requestInventory():
-    // on the in-process replica that flips loading synchronously, re-firing these
-    // bindings inside their own change handlers.
-    readonly property string requestKey: root.identityKey + "|" + HistoryService.historyRevision
+    readonly property string valueText: {
+        const setting = String(root._request.suggestion.setting || "")
+        return setting.length > 0 ? setting : "—"
+    }
 
-    onIdentityKeyChanged: root.suggestion = ({})
-    onRequestKeyChanged: root.requestSuggestion()
     // The host refreshes the bag list after every change but loads it only when asked.
-    Component.onCompleted: {
-        BagService.requestInventory()
-        root.requestSuggestion()
-    }
-
-    function requestSuggestion(): void {
-        root._pendingSuggestionId = ""
-        const bag = root._activeBag
-        const packageId = EquipmentService.activePackageId
-        if (!bag || root.profileTitle.length === 0 || packageId <= 0 || !EquipmentService.ready) {
-            root.suggestion = ({})
-            return
-        }
-        root._pendingSuggestionId = EquipmentService.requestGrindSuggestion(
-            packageId, String(bag.roasterName || ""), String(bag.coffeeName || ""),
-            String(bag.roastDate || ""), root.profileTitle)
-    }
-
-    Connections {
-        target: EquipmentService
-        function onGrindSuggestionReady(suggestion) {
-            if (suggestion.requestId !== root._pendingSuggestionId) return
-            root._pendingSuggestionId = ""
-            root.suggestion = suggestion
-        }
-        function onGrindCalibrationChanged(packageId) {
-            if (packageId === EquipmentService.activePackageId) root.requestSuggestion()
-        }
-    }
+    // Only here: on the in-process replica it flips loading synchronously, so calling
+    // it from a change handler re-fires that handler's own bindings.
+    Component.onCompleted: BagService.requestInventory()
 
     implicitWidth: root.isCompact ? col.implicitWidth : tile.implicitWidth
     implicitHeight: root.isCompact ? col.implicitHeight : tile.implicitHeight

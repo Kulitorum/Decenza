@@ -1098,6 +1098,9 @@ constexpr qsizetype kCalibMinValidatedPairs = 3;     // below this → direction
 constexpr double kCalibMaxSpreadRatio   = 0.6;   // dimensionless: IQR ≤ ratio·|key| (grinder-portable, D1a)
 constexpr double kCalibCap              = 1.5;   // UGS beyond validated range before going directional
 constexpr qint64 kCalibUndatedBatchDays = 90;    // single-linkage gap for undated roast batches (D1b)
+// The espresso filter of both "latest shot on this package" reads, spelled as
+// calibrationShotRejection's notEspresso is (lowercased, untrimmed).
+constexpr char kEspressoShotSql[] = "AND LOWER(COALESCE(beverage_type, '')) IN ('', 'espresso') ";
 // 10+ mined pairs publish a key whatever their spread. Held out per bag on two
 // grinders (add-genius-grind-widget design): 10 ungated pairs beat keeping the same
 // grind on both (DF83V 2.40 vs 2.75, Mignon 0.52 vs 0.56); 3 and 5 did not on one.
@@ -1730,11 +1733,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "UGS is a relative ordering of profiles by grind coarseness, not "
         "grinder clicks or a dial position. A rated or history setting is the "
         "user's own shot of this coffee on that profile, and a sameUgs setting "
-        "their shot on another profile at the same UGS; a derived setting is "
-        "valid only within calibratedUgsRange. For any profile with source "
+        "their shot on another profile at the same UGS; a derived setting holds "
+        "only where one is given, within calibratedUgsRange or up to %1 UGS "
+        "beyond it. For any profile with source "
         "\"directional\" give finer/coarser only and tell the user to pull a "
         "reference shot on that profile — never a number, never a click "
-        "delta. Do not multiply a UGS distance by any factor of your own.");
+        "delta. Do not multiply a UGS distance by any factor of your own.").arg(kCalibCap);
     // Dial + RPM are two independent grind axes, and pairs are not split by RPM, so
     // a derived `rgs` holds only at the coffeeAnchor shot's RPM; an own setting at its
     // own shot's `rpm`.
@@ -1827,10 +1831,8 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId)
     QVariantMap out{{QStringLiteral("packageId"), packageId}, {QStringLiteral("hasShots"), false},
                     {QStringLiteral("ugsGuideUrl"), QString::fromLatin1(kUgsGuideUrl)}};
     QSqlQuery q(db);
-    q.prepare(QStringLiteral(
-        "SELECT id FROM shots WHERE equipment_id = :pkg "
-        "AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
-        "ORDER BY timestamp DESC LIMIT 1"));
+    q.prepare(QStringLiteral("SELECT id FROM shots WHERE equipment_id = :pkg ")
+              + QLatin1String(kEspressoShotSql) + QStringLiteral("ORDER BY timestamp DESC LIMIT 1"));
     q.bindValue(QStringLiteral(":pkg"), packageId);
     if (!q.exec() || !q.next())
         return out;
@@ -1873,8 +1875,8 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
     q.prepare(QStringLiteral(
         "SELECT id FROM shots WHERE equipment_id = :pkg "
         "AND LOWER(TRIM(COALESCE(bean_brand, ''))) = LOWER(TRIM(COALESCE(:brand, ''))) "
-        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(COALESCE(:type, ''))) "
-        "AND LOWER(TRIM(COALESCE(beverage_type, ''))) IN ('', 'espresso') ")
+        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(COALESCE(:type, ''))) ")
+        + QLatin1String(kEspressoShotSql)
         + (dated ? QStringLiteral("AND TRIM(roast_date) = TRIM(:roast) ")
                  : QStringLiteral("AND TRIM(COALESCE(roast_date, '')) IN ('', '--') "))
         + QStringLiteral("ORDER BY timestamp DESC LIMIT 1"));
@@ -1898,7 +1900,6 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
                                  QStringLiteral("espresso"), latest, nullptr, &st);
     const GrinderAliases::GrinderEntry& gEntry = grinderEntryOrDefault(shot->grinderModel);
     const auto fmt = [&](double v) { return GrinderAliases::formatGrinderSetting(gEntry, v); };
-    const double step = ShotHistoryStorage::grindStepStatic(db, shot->grinderModel);
     const auto putShot = [&](QVariantMap& out, const QString& prefix, const GrindStartShot& s) {
         out.insert(prefix + QStringLiteral("ShotId"), s.shotId);
         out.insert(prefix + QStringLiteral("ProfileName"), s.profileName);
@@ -1908,7 +1909,6 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
         out.insert(prefix + QStringLiteral("Rpm"), st.rpmCapable ? s.rpm : 0);
     };
     QVariantMap out;
-    out.insert(QStringLiteral("grindStep"), step);
     // The bag's own setting: the user's own grind, so no key and no range check.
     if (const auto own = st.ownSettings.constFind(kbId); own != st.ownSettings.cend()) {
         out.insert(QStringLiteral("setting"), fmt(own->shot.setting));

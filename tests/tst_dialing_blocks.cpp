@@ -2879,6 +2879,10 @@ private slots:
                                                   QStringLiteral("2026-01-01"), kbOf(QStringLiteral("Cremina")));
             QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), own);
             QCOMPARE(r.value(QStringLiteral("setting")).toString(), QStringLiteral("19"));
+            // An older roast of the same coffee starts from its own shot, not the newest roast's.
+            r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kDated,
+                                                  QStringLiteral("2025-10-01"), kbOf(QStringLiteral("Cremina")));
+            QCOMPARE(r.value(QStringLiteral("startShotId")).toLongLong(), otherRoast);
             // And an undated bag of the same coffee never resolves to a dated bag's shot.
             r = DialingBlocks::grindSuggestionFor(db, pkg, QStringLiteral("TestRoaster"), kDated,
                                                   QString(), kbOf(QStringLiteral("Cremina")));
@@ -4258,34 +4262,38 @@ private slots:
     // -------------------------------------------------------------------
     void shippedKb_grindDirectionBetween()
     {
-        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+        const auto direction = [](const QString& from, const QString& to) {
+            return ShotSummarizer::grindDirectionBetweenKbIds(
+                ShotSummarizer::computeProfileKbId(from), ShotSummarizer::computeProfileKbId(to));
+        };
+        QCOMPARE(direction(
                      QStringLiteral("Cremina lever machine"), QStringLiteral("Rao Allongé")),
                  QStringLiteral("coarser"));
-        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+        QCOMPARE(direction(
                      QStringLiteral("Rao Allongé"), QStringLiteral("Cremina lever machine")),
                  QStringLiteral("finer"));
         // Same profile (via alias resolution) → "same".
-        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+        QCOMPARE(direction(
                      QStringLiteral("D-Flow / default"), QStringLiteral("D-Flow / default")),
                  QStringLiteral("same"));
         // Filter profiles carry no UGS but sit coarser than every espresso
         // profile, Allongé (UGS 8) included.
         const QString pourOver = QStringLiteral("Pour over basket/V60 15g in, 250g out");
-        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+        QCOMPARE(direction(
                      QStringLiteral("D-Flow / default"), pourOver),
                  QStringLiteral("coarser"));
-        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+        QCOMPARE(direction(
                      QStringLiteral("Rao Allongé"), pourOver),
                  QStringLiteral("coarser"));
-        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+        QCOMPARE(direction(
                      pourOver, QStringLiteral("Cremina lever machine")),
                  QStringLiteral("finer"));
-        QVERIFY(ShotSummarizer::grindDirectionBetween(
+        QVERIFY(direction(
                     pourOver, QStringLiteral("Filter 2.0")).isEmpty());
         // Either side unresolved or UGS-less → empty (no fabricated direction).
-        QVERIFY(ShotSummarizer::grindDirectionBetween(
+        QVERIFY(direction(
                     QStringLiteral("No Such Profile XYZ"), QStringLiteral("Rao Allongé")).isEmpty());
-        QVERIFY(ShotSummarizer::grindDirectionBetween(
+        QVERIFY(direction(
                     QString(), QStringLiteral("Rao Allongé")).isEmpty());
     }
 

@@ -454,14 +454,6 @@ QStringList ShotSummarizer::roastAffinityForTitle(const QString& profileTitle)
     return id.isEmpty() ? QStringList() : s_profileKnowledge.value(id).roastAffinity;
 }
 
-QString ShotSummarizer::grindDirectionBetween(const QString& sourceTitle, const QString& targetTitle)
-{
-    if (sourceTitle.isEmpty() || targetTitle.isEmpty()) return {};
-    loadProfileKnowledge();
-    return grindDirectionBetweenKbIds(matchProfileKey(s_profileKnowledge, sourceTitle, QString()),
-                                      matchProfileKey(s_profileKnowledge, targetTitle, QString()));
-}
-
 QString ShotSummarizer::grindDirectionBetweenKbIds(const QString& sourceKbId, const QString& targetKbId)
 {
     loadProfileKnowledge();
