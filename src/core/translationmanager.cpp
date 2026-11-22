@@ -648,7 +648,8 @@ void TranslationManager::scanAllStrings()
     // never heard of, and why the translation percentage's denominator was wrong. It also
     // means AI translation and community upload have never been offered the full string list.
     QStringList qmlFiles;
-    QDirIterator it(QStringLiteral(":/qt/qml/Decenza/qml"), QStringList() << "*.qml",
+    // .js too: shared helpers (GrindSuggestionText.js) call translate("key", "fallback").
+    QDirIterator it(QStringLiteral(":/qt/qml/Decenza/qml"), QStringList() << "*.qml" << "*.js",
                     QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         qmlFiles.append(it.next());

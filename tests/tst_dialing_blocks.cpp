@@ -2750,6 +2750,11 @@ private slots:
             const QJsonObject fixedAnchor = anchorOf(QStringLiteral("Zero"));
             QCOMPARE(fixedAnchor.value(QStringLiteral("setting")).toString(), QStringLiteral("1"));
             QVERIFY(!fixedAnchor.contains(QStringLiteral("rpm")));
+            const QJsonObject fixedOwn = calProfile(DialingBlocks::buildGrinderCalibrationBlock(db,
+                QStringLiteral("Zero"), AdviceScope(pkg), QStringLiteral("espresso"), newer),
+                QStringLiteral("Cremina lever machine"));
+            QCOMPARE(fixedOwn.value(QStringLiteral("rgs")).toString(), QStringLiteral("1"));
+            QVERIFY(!fixedOwn.contains(QStringLiteral("rpm")));
         });
     }
 

@@ -85,7 +85,7 @@ The rules here cover each, checked by an independent replay of Mark's database (
 
 **No key still shows a UGS move.** With `notCalibrated` or `outsideRange`, the suggestion reports the UGS difference from the starting shot, and the popup shows "8 UGS coarser than your Cremina at 21.5", the way the UGS calculator does with no key.
 
-**A profile gets the bag's own setting, key or no key.** That setting is the user's own measured grind, not an extrapolation. The grind suggestion therefore gives it even with no key, while the AI block keeps its rule of no number without a key, so the two never give different numbers.
+**A profile gets the bag's own setting, key or no key.** That setting is the user's own measured grind, not an extrapolation. The grind suggestion therefore gives it even with no key, while the AI block keeps its rule of no number without a key. Without a key the two therefore differ: the widget shows the bag's own setting and the advisor gives a direction. Accepted (2026-11-21): changing the AI block would change its spec and behaviour for a case the widget already answers.
 
 **`GrindCalibrationStatus` carries the result.** It gains `start` (shot id, profile, setting, timestamp, rating, RPM), `ownSettings` per profile (shot, source), the validated window and `rpmCapable`. `grindSuggestionFor` reads them from the status.
 

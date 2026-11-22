@@ -1504,12 +1504,11 @@ T.Page {
     readonly property string grindSuggestionText: {
         if (!_hasGrindSuggestion) return ""
         const g = grindSuggestion
-        const tr = function(key, fallback) { return TranslationManager.translate(key, fallback) }
         const when = DateUtils.shotTimeLabel(Number(g.startTimestamp || 0), Qt.locale(),
                                              Settings.app.use12HourTime)
-        return tr("recipes.wizard.grindSuggestion.lead", "Suggested starting grind for %1: %2.")
+        return TranslationManager.translate("recipes.wizard.grindSuggestion.lead", "Suggested starting grind for %1: %2.")
                    .arg(fProfileTitle).arg(g.setting)
-               + " " + GrindSuggestionText.sourceLine(g, fProfileTitle, when, tr)
+               + " " + GrindSuggestionText.sourceLine(g, fProfileTitle, when, TranslationManager.translate)
     }
     // True once the user has typed in a details field (or an existing recipe
     // was loaded). The profile/bag seeds fill the fields synchronously so the

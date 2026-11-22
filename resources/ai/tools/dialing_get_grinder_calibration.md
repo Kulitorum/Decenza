@@ -13,7 +13,7 @@ changes.
 
 ## Reading the response
 
-- `confidence` — `"approximate"` means a numeric conversion key is published; `"directional"`
+- `confidence` — `"approximate"` means a conversion key is published and the current coffee has a starting shot; `"directional"`
   means there is not enough same-batch data and only relative guidance is possible.
 - `usageConstraint` — a directive to follow verbatim.
 - `currentProfileUgsPlaced` — `false` means the current profile is not on the UGS chart, so

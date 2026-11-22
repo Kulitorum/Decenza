@@ -70,10 +70,6 @@ DecenzaDialog {
     readonly property double _startShotId: root.suggestedSetting.length > 0
         ? Number(root.suggestion.startShotId || 0) : 0
 
-    function tr(key: string, fallback: string): string {
-        return TranslationManager.translate(key, fallback)
-    }
-
     // Tab order (ACCESSIBILITY.md Rule 3): a closed loop over whatever is shown. The
     // choice list is one stop; the arrow keys move within it.
     function focusOrder(): var {
@@ -85,7 +81,9 @@ DecenzaDialog {
         const order = root.focusOrder()
         if (order.length === 0) return
         const at = order.indexOf(from)
-        order[(at + step + order.length) % order.length].forceActiveFocus(Qt.TabFocusReason)
+        const next = order[(at + step + order.length) % order.length]
+        const target = next === choiceList && choiceList.currentItem ? choiceList.currentItem : next
+        target.forceActiveFocus(Qt.TabFocusReason)
     }
 
     onOpened: {
@@ -141,7 +139,7 @@ DecenzaDialog {
         const s = root.suggestion
         const when = DateUtils.shotTimeLabel(Number(s.startTimestamp || 0), Qt.locale(),
                                              Settings.app.use12HourTime)
-        return GrindSuggestionText.sourceLine(s, root.profileTitle, when, root.tr)
+        return GrindSuggestionText.sourceLine(s, root.profileTitle, when, TranslationManager.translate)
     }
 
     // The move in UGS, the way the UGS calculator shows it without a key.
@@ -151,44 +149,44 @@ DecenzaDialog {
         const profile = String(s.startProfileName || "")
         const setting = String(s.startShotSetting || "")
         if (s.ugsDirection === "same")
-            return root.tr("geniusGrind.ugs.same", "%1 sits at the same UGS as your %2 shot at %3.")
+            return TranslationManager.translate("geniusGrind.ugs.same", "%1 sits at the same UGS as your %2 shot at %3.")
                        .arg(root.profileTitle).arg(profile).arg(setting)
         const amount = Math.round(Number(s.ugsDelta) * 100) / 100
         return (s.ugsDirection === "coarser"
-            ? root.tr("geniusGrind.ugs.coarser", "%1 is %2 UGS coarser than your %3 shot at %4.")
-            : root.tr("geniusGrind.ugs.finer", "%1 is %2 UGS finer than your %3 shot at %4."))
+            ? TranslationManager.translate("geniusGrind.ugs.coarser", "%1 is %2 UGS coarser than your %3 shot at %4.")
+            : TranslationManager.translate("geniusGrind.ugs.finer", "%1 is %2 UGS finer than your %3 shot at %4."))
             .arg(root.profileTitle).arg(amount).arg(profile).arg(setting)
     }
 
     function statusText(): string {
         if (root.suggestionPending)
-            return root.tr("geniusGrind.working", "Working it out…")
+            return TranslationManager.translate("geniusGrind.working", "Working it out…")
         if (EquipmentService.activePackageId <= 0)
-            return root.tr("geniusGrind.noEquipment", "Set up your grinder under Equipment first.")
+            return TranslationManager.translate("geniusGrind.noEquipment", "Set up your grinder under Equipment first.")
         if (!root.selectedBag)
-            return root.tr("geniusGrind.noBean", "Choose a bean.")
+            return TranslationManager.translate("geniusGrind.noBean", "Choose a bean.")
         if (root.suggestedSetting.length > 0)
             return root.sourceText()
         if (root.suggestion.error !== undefined)
-            return root.tr("geniusGrind.reason.unreachable", "Could not read your shots. Try again in a moment.")
+            return TranslationManager.translate("geniusGrind.reason.unreachable", "Could not read your shots. Try again in a moment.")
         switch (String(root.suggestion.reason || "")) {
         case "noBean":
-            return root.tr("geniusGrind.reason.noBean", "Name the current coffee first: its bag has no roaster or coffee name.")
+            return TranslationManager.translate("geniusGrind.reason.noBean", "Name the current coffee first: its bag has no roaster or coffee name.")
         case "noShots":
-            return root.tr("geniusGrind.reason.noShots", "No shots of this coffee on this equipment yet.")
+            return TranslationManager.translate("geniusGrind.reason.noShots", "No shots of this coffee on this equipment yet.")
         case "noStart":
-            return root.tr("geniusGrind.reason.noStart", "No good shot of this coffee yet. Shots rated under 50 are not used.")
+            return TranslationManager.translate("geniusGrind.reason.noStart", "No good shot of this coffee yet. Shots rated under 50 are not used.")
         case "profileNotOnChart":
-            return root.tr("geniusGrind.reason.profileNotOnChart", "This profile is not on the UGS chart.")
+            return TranslationManager.translate("geniusGrind.reason.profileNotOnChart", "This profile is not on the UGS chart.")
         case "notCalibrated":
-            return root.tr("geniusGrind.reason.notCalibrated",
+            return TranslationManager.translate("geniusGrind.reason.notCalibrated",
                            "Your grinder is not calibrated yet. Pull one coffee on two profiles, or mark a fine and a coarse anchor.")
                    + " " + root.ugsMoveText()
         case "outsideRange":
-            return root.tr("geniusGrind.reason.outsideRange", "This profile is outside the range your shots cover.")
+            return TranslationManager.translate("geniusGrind.reason.outsideRange", "This profile is outside the range your shots cover.")
                    + " " + root.ugsMoveText()
         default:
-            return root.tr("geniusGrind.reason.unavailable", "No suggestion for this coffee and profile.")
+            return TranslationManager.translate("geniusGrind.reason.unavailable", "No suggestion for this coffee and profile.")
         }
     }
 
@@ -246,7 +244,7 @@ DecenzaDialog {
         root._pendingBagId = -1
         root._pendingProfileRequest = ""
         root._pendingGrindRequest = ""
-        HomePresetActions.failed(root.tr("idle.operationFailed", "The selection could not be changed. Please try again."))
+        HomePresetActions.failed(TranslationManager.translate("idle.operationFailed", "The selection could not be changed. Please try again."))
     }
 
     onClosed: {
@@ -325,7 +323,7 @@ DecenzaDialog {
             Layout.topMargin: Theme.scaled(16)
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
-            text: root.tr("geniusGrind.title", "Genius Grind")
+            text: TranslationManager.translate("geniusGrind.title", "Genius Grind")
             font: Theme.titleFont
             color: Theme.textColor
         }
@@ -337,7 +335,7 @@ DecenzaDialog {
             font: Theme.valueFont
             color: root.suggestedSetting.length > 0 ? Theme.primaryColor : Theme.textSecondaryColor
             Accessible.role: Accessible.StaticText
-            Accessible.name: root.tr("geniusGrind.suggestedGrind", "Suggested grind")
+            Accessible.name: TranslationManager.translate("geniusGrind.suggestedGrind", "Suggested grind")
                              + ": " + (root.suggestedSetting.length > 0 ? root.suggestedSetting : root.statusText())
         }
 
@@ -380,7 +378,7 @@ DecenzaDialog {
             rowSpacing: Theme.scaled(8)
 
             Text {
-                text: root.tr("geniusGrind.bean", "Bean")
+                text: TranslationManager.translate("geniusGrind.bean", "Bean")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
             }
@@ -390,15 +388,15 @@ DecenzaDialog {
                 Keys.onTabPressed: root.moveFocus(beanButton, 1)
                 Keys.onBacktabPressed: root.moveFocus(beanButton, -1)
                 text: root.selectedBag ? BagName.fullName(root.selectedBag)
-                                       : root.tr("geniusGrind.chooseBean", "Choose a bean")
+                                       : TranslationManager.translate("geniusGrind.chooseBean", "Choose a bean")
                 labelElide: Text.ElideRight
-                accessibleName: root.tr("geniusGrind.changeBean", "Change bean") + ": " + text
+                accessibleName: TranslationManager.translate("geniusGrind.changeBean", "Change bean") + ": " + text
                 enabled: !root.applying
                 onClicked: root.expanded = root.expanded === "bean" ? "" : "bean"
             }
 
             Text {
-                text: root.tr("geniusGrind.profile", "Profile")
+                text: TranslationManager.translate("geniusGrind.profile", "Profile")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
             }
@@ -408,9 +406,9 @@ DecenzaDialog {
                 Keys.onTabPressed: root.moveFocus(profileButton, 1)
                 Keys.onBacktabPressed: root.moveFocus(profileButton, -1)
                 text: root.profileTitle.length > 0 ? root.profileTitle
-                                                   : root.tr("geniusGrind.chooseProfile", "Choose a profile")
+                                                   : TranslationManager.translate("geniusGrind.chooseProfile", "Choose a profile")
                 labelElide: Text.ElideRight
-                accessibleName: root.tr("geniusGrind.changeProfile", "Change profile") + ": " + text
+                accessibleName: TranslationManager.translate("geniusGrind.changeProfile", "Change profile") + ": " + text
                 enabled: !root.applying
                 onClicked: root.expanded = root.expanded === "profile" ? "" : "profile"
             }
@@ -431,6 +429,15 @@ DecenzaDialog {
             spacing: Theme.scaled(4)
             Keys.onTabPressed: root.moveFocus(choiceList, 1)
             Keys.onBacktabPressed: root.moveFocus(choiceList, -1)
+            // Up/Down are the list's own key navigation. The view focuses the new row
+            // with no key reason (qquickitemview.cpp:1841), and a control draws its ring
+            // only for one (qquickcontrol.cpp:1432-1436); a second request on a focused
+            // item is ignored (qquickitem.cpp:8173), so drop the focus and retake it.
+            onCurrentItemChanged: {
+                if (!activeFocus || !currentItem) return
+                currentItem.focus = false
+                currentItem.forceActiveFocus(Qt.TabFocusReason)
+            }
             model: root.expanded === "bean" ? root.bags
                  : root.expanded === "profile" ? root.profileTitles : []
             delegate: AccessibleButton {
@@ -444,14 +451,15 @@ DecenzaDialog {
                 text: choice.isBean ? BagName.fullName(choice.modelData) : String(choice.modelData)
                 labelElide: Text.ElideRight
                 accessibleName: choice.text
-                accessibleDescription: choice.isCurrent ? root.tr("accessibility.selected", "selected") : ""
+                accessibleDescription: choice.isCurrent ? TranslationManager.translate("accessibility.selected", "selected") : ""
                 primary: choice.isCurrent
-                // The list's current row holds its focus, so Up/Down (the list's own
-                // key navigation) move the focus and scroll it into view.
-                focus: choice.ListView.isCurrentItem
                 Keys.onTabPressed: root.moveFocus(choiceList, 1)
                 Keys.onBacktabPressed: root.moveFocus(choiceList, -1)
                 onClicked: {
+                    // Collapsing the list destroys this row; a keyboard pick keeps focus
+                    // on the button that opened it.
+                    if (choiceList.activeFocus)
+                        (choice.isBean ? beanButton : profileButton).forceActiveFocus(Qt.TabFocusReason)
                     if (choice.isBean) root.bagId = Number(choice.modelData.id)
                     else root.profileTitle = String(choice.modelData)
                     root.expanded = ""
@@ -472,8 +480,8 @@ DecenzaDialog {
                 Layout.preferredHeight: Theme.scaled(50)
                 Keys.onTabPressed: root.moveFocus(cancelButton, 1)
                 Keys.onBacktabPressed: root.moveFocus(cancelButton, -1)
-                text: root.tr("common.button.cancel", "Cancel")
-                accessibleName: root.tr("geniusGrind.cancel", "Cancel without changes")
+                text: TranslationManager.translate("common.button.cancel", "Cancel")
+                accessibleName: TranslationManager.translate("geniusGrind.cancel", "Cancel without changes")
                 enabled: !root.applying
                 onClicked: root.close()
             }
@@ -485,8 +493,8 @@ DecenzaDialog {
                 Keys.onBacktabPressed: root.moveFocus(applyButton, -1)
                 primary: true
                 enabled: root.suggestedSetting.length > 0 && !root.applying
-                text: root.tr("geniusGrind.apply", "Apply")
-                accessibleName: root.tr("geniusGrind.applyDescription", "Apply this bean, profile and grind")
+                text: TranslationManager.translate("geniusGrind.apply", "Apply")
+                accessibleName: TranslationManager.translate("geniusGrind.applyDescription", "Apply this bean, profile and grind")
                 onClicked: root.startApply()
             }
         }
