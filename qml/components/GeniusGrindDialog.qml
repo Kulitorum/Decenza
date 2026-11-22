@@ -24,7 +24,9 @@ DecenzaDialog {
     padding: 0
     header: null
     footer: null
-    // An Apply in flight cannot be called back, so the popup stays until it ends.
+    // An Apply in flight cannot be called back, so the popup stays until it ends. An
+    // operation page still closes it (PopupCloser calls close(), popupcloser.cpp:26), so
+    // nothing resets the chain on close: it finishes behind the page.
     closePolicy: root.applying ? Popup.NoAutoClose : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
 
     readonly property var bags: BagService.bags.filter(function(bag) { return String(bag.kind || "") !== "tea" })
@@ -244,13 +246,6 @@ DecenzaDialog {
         root.applyError = TranslationManager.translate("idle.operationFailed",
                                                        "The selection could not be changed. Please try again.")
         AccessibilityManager.announce(root.applyError, true)
-    }
-
-    onClosed: {
-        root.applying = false
-        root._pendingBagId = -1
-        root._pendingProfileRequest = ""
-        root._pendingGrindRequest = ""
     }
 
     Connections {
