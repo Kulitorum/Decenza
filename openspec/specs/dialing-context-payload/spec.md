@@ -542,8 +542,8 @@ immediately adjacent to a roast date string.
 The system SHALL compute a `grinderCalibration` block and include it in the
 payload of both `dialing_get_context` and the in-app advisor's user-prompt
 enrichment. Both SHALL call `DialingBlocks::buildGrinderCalibrationBlock` and
-produce byte-equivalent JSON. The block SHALL NEVER emit a numeric grinder
-setting for a profile whose UGS is outside the validated range.
+produce byte-equivalent JSON. The block SHALL NEVER emit a derived numeric
+grinder setting for a profile whose UGS is outside the validated range.
 
 #### Preconditions — block is present when ALL of the following hold:
 
@@ -555,7 +555,7 @@ When no precondition (3) source exists, the block SHALL still be present but in 
 
 #### Dialed-in qualification filter
 
-A shot qualifies to anchor calibration only when ALL hold:
+A shot qualifies to be mined into calibration pairs only when ALL hold (a shot rated 50+ that fails the weight or badge rule can still be the starting shot or an own setting, per `grinder-ugs-calibration`, but is never mined):
 
 - `final_weight >= 15g`, AND
 - no quality badge is set (`grind_issue_detected = 0`, `channeling_detected = 0`, `pour_truncated_detected = 0`, `skip_first_frame_detected = 0`), AND
@@ -571,23 +571,23 @@ The system SHALL NOT derive the conversion key from pooled all-coffee medians. I
 2. For each `coffeeBatch` with shots on ≥2 profiles at distinct canonical UGS values, compute the per-profile median setting and form within-coffee pairwise slopes `Δsetting / ΔUGS`.
 3. Exclude pairs with `ΔUGS < minPairSpan` and pairs where either endpoint has fewer than `minEndpointSamples` shots (named constants; tuned empirically — see tasks).
 4. `conversionKey` SHALL be the median (Theil–Sen) of the surviving pooled within-coffee slopes, rounded to 2 decimal places. It is a per-equipment-package runtime value and SHALL NOT be a shipped constant.
-5. The block SHALL be **directional only** (no numeric `conversionKey`) unless there are at least `minValidatedPairs` surviving pairs AND the pairwise-slope spread gate passes. The spread gate SHALL be **dimensionless**: `IQR(pairwiseSlopes) ≤ maxSpreadRatio · |conversionKey|`. An absolute steps/UGS spread threshold SHALL NOT be used — slope magnitude is grinder-specific, so an absolute threshold is not portable across grinders. (`minPairSpan` and the extrapolation cap remain absolute because they are measured on the universal UGS axis, not in grinder setting units.)
+5. The block SHALL be **directional only** (no numeric `conversionKey`) unless there are at least `minValidatedPairs` surviving pairs AND the pairwise-slope spread gate passes, or there are at least `minUngatedPairs` (10) surviving pairs whatever their spread. The spread gate SHALL be **dimensionless**: `IQR(pairwiseSlopes) ≤ maxSpreadRatio · |conversionKey|`. An absolute steps/UGS spread threshold SHALL NOT be used — slope magnitude is grinder-specific, so an absolute threshold is not portable across grinders. (`minPairSpan` and the extrapolation cap remain absolute because they are measured on the universal UGS axis, not in grinder setting units.)
 
 When the resolved shot's equipment package holds a valid calibration anchor pair, that pair SHALL count as one within-batch pair: its shots SHALL NOT also contribute to mined pairs, the key SHALL publish when either step 5's gates pass or the anchor pair is valid, and the key SHALL then be the median of the mined slopes plus the anchor slope (see `grinder-ugs-calibration`). A stored anchor pair SHALL NOT replace the mined key, and SHALL NOT introduce a separate confidence value.
 
 #### Per-coffee anchor (intercept)
 
-The numeric intercept SHALL be the user's most recent dialed-in shot whose `coffeeBatch` (same batch-level identity as the conversion-key derivation) matches the resolved shot's, on any profile with a known canonical UGS. The anchor SHALL NOT be drawn from a different roast batch of the same bean. A profile's recommended setting SHALL be:
+The numeric intercept SHALL be the calibration's starting shot for the resolved shot's `coffeeBatch` (same batch-level identity as the conversion-key derivation), as defined by `grinder-ugs-calibration` ("The calibration's starting shot SHALL follow ratings"): one rule, so this block, the recipe wizard and the Genius Grind widget start from the same shot. The anchor SHALL NOT be drawn from a different roast batch of the same bean. A profile's recommended setting SHALL be:
 
 ```
 rgs(target) = anchorSetting + (UGS_target − UGS_anchorProfile) · conversionKey
 ```
 
-If no recent dialed-in shot exists for the resolved shot's `coffeeBatch`, the block SHALL be **directional only** — `conversionKey` MAY be present for context but no `rgs` numbers SHALL be emitted (the intercept is unknown).
+If the resolved shot's `coffeeBatch` has no starting shot, the block SHALL be **directional only** — `conversionKey` MAY be present for context but no `rgs` numbers SHALL be emitted (the intercept is unknown).
 
 #### Extrapolation cap (mandatory)
 
-Let `loUGS` / `hiUGS` be the min/max UGS of the validated anchor set (within-coffee pair endpoints, including a valid calibration anchor pair's endpoints). A profile SHALL receive a numeric `rgs` ONLY when its UGS lies within `[loUGS − cap, hiUGS + cap]`, where `cap` is a single named constant (≈1.5 UGS). For any profile outside that window the entry SHALL have `source: "directional"`, NO `rgs`, and a `direction` field. The system SHALL NOT, under any circumstances, emit a numeric grinder setting for an out-of-window profile.
+Let `loUGS` / `hiUGS` be the min/max UGS of the validated anchor set (within-coffee pair endpoints, including a valid calibration anchor pair's endpoints). A profile with no own setting SHALL receive a derived `rgs` ONLY when its UGS lies within `[loUGS − cap, hiUGS + cap]`, where `cap` is a single named constant (≈1.5 UGS). Otherwise the entry SHALL have `source: "directional"`, NO `rgs`, and a `direction` field. An own setting (`rated`, `history`, `sameUgs`) is the user's measured grind and carries no range check.
 
 #### Directional reference and language (always available, anchor-free)
 
@@ -607,19 +607,19 @@ When the resolved shot's own profile has no known canonical UGS, ordering agains
 | `confidence` | string | `"approximate"` (a conversion key published and a current-coffee anchor exists) or `"directional"` (no usable numeric key/anchor) |
 | `basis` | string? | Where the published key came from: `"history"` (mined pairs only), `"anchors"` (the anchor pair only), or `"both"`. ABSENT when `confidence` is `"directional"` |
 | `markedAnchors` | object? | Present only when the package has at least one anchor set: `status` (`"valid"`, `"missingFine"`, `"missingCoarse"`, or the reason the pair does not count), `fine` / `coarse` (`profileName`, `ugs`, `setting`, `timestamp` ISO 8601) for each side set, and `agreesWithHistory` (boolean) when the pair is valid and at least one mined pair exists |
-| `usageConstraint` | string | Short directive the prompt repeats verbatim (see advisor-user-prompt) — states UGS is relative and numbers are valid only within the calibrated range |
+| `usageConstraint` | string | Short directive the prompt repeats verbatim (see advisor-user-prompt) — states UGS is relative and derived numbers are valid only within the calibrated range plus the extrapolation cap |
 | `conversionKey` | number? | Settings per UGS unit, 2 dp. ABSENT when `confidence` is `"directional"` |
-| `coffeeAnchor` | object? | `profileName`, `ugs`, `setting`, `coffee` — the current-coffee intercept. ABSENT when no recent dialed-in shot for the current coffee |
+| `coffeeAnchor` | object? | `profileName`, `ugs`, `setting`, `coffee`, `timestamp` (ISO 8601), `enjoyment0to100` when the shot is rated, and `rpm` when the grinder takes an RPM and the shot recorded one — the current-coffee intercept (the starting shot). ABSENT when the current coffee has no starting shot |
 | `calibratedUgsRange` | [number, number]? | Validated UGS span. ABSENT when `confidence` is `"directional"` |
 | `profiles` | array | One entry per KB profile with a known UGS |
 
 Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` is one of:
 
-- `"history"` — the profile has a qualifying within-coffee median for the current coffee; `rgs` is that measured median.
+- `"rated"`, `"history"`, `"sameUgs"` — the profile has an own setting under `grinder-ugs-calibration` ("A profile SHALL get the bag's own setting when it has one"): its highest-rated shot rated 50+ (`rated`), its latest good shot (`history`), or the top-rated shot rated 50+ at its UGS (`sameUgs`); `rgs` is that shot's setting, with its `rpm` when the grinder takes an RPM and the shot recorded one. A shot rated under 50 SHALL never supply one.
 - `"derived"` — UGS within the validated range; `rgs` is computed from anchor + conversionKey.
 - `"directional"` — UGS outside the extrapolation window OR no numeric key/anchor available; NO `rgs`; carries `direction` (`"finer"`/`"coarser"`) derived from KB UGS ordering vs the resolved shot's own profile (anchor-free; omitted when the current profile has no canonical UGS).
 
-`rgs` (string) SHALL be present ONLY for `"history"` and `"derived"`. Profiles SHALL be ordered by UGS ascending. The legacy `"extrapolated"` source value and its numeric `rgs` are REMOVED.
+`rgs` (string) SHALL be present ONLY for `"rated"`, `"history"`, `"sameUgs"` and `"derived"`, and only when the block is `approximate`. Profiles SHALL be ordered by UGS ascending. The legacy `"extrapolated"` source value and its numeric `rgs` are REMOVED.
 
 #### Scenario: User dialed in on the current coffee, asks about a near profile
 
@@ -629,6 +629,12 @@ Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` i
 - **AND** `coffeeAnchor` SHALL reference the recent "D-Flow / Q" shot on this coffee at setting 6
 - **AND** a profile within the validated window (e.g. "Adaptive v2" UGS 1.25) SHALL have `source: "derived"` with `rgs` ≈ `6 + (1.25 − 1.0)·1.5`
 - **AND** the conversion key SHALL NOT be derived from pooled all-coffee medians
+
+#### Scenario: A highly rated shot becomes the intercept
+
+- **GIVEN** the current coffee has a Cremina shot rated 85 with a channeling badge and a later unrated dialed-in D-Flow shot
+- **WHEN** `buildGrinderCalibrationBlock` is called
+- **THEN** `coffeeAnchor` SHALL reference the Cremina shot and carry `enjoyment0to100: 85`
 
 #### Scenario: Far-profile request is capped to directional (the #1223 fix)
 
@@ -643,8 +649,7 @@ Each `profiles` entry SHALL carry `profileName`, `ugs`, and `source`. `source` i
 - **GIVEN** a history that under the old pooled-median algorithm yielded `conversionKey = −2.4` for a Niche-style grinder (lower = finer)
 - **WHEN** `buildGrinderCalibrationBlock` is called with the within-coffee derivation
 - **THEN** the conversion key SHALL be computed from within-coffee pairwise slopes only
-- **AND** if the surviving pairs fail the spread/sign gates the block SHALL be `confidence: "directional"` with no `conversionKey`
-- **AND** the block SHALL never emit a `conversionKey` whose sign contradicts the grinder's finer-direction
+- **AND** if the surviving pairs fail the spread gate and number fewer than `minUngatedPairs`, the block SHALL be `confidence: "directional"` with no `conversionKey`
 
 #### Scenario: No dialed-in data for the current coffee — directional only
 
