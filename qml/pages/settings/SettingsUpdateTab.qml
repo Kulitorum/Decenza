@@ -129,232 +129,251 @@ Item {
             keywords: ["update", "version", "download", "beta", "release", "donate", "paypal", "support", "money", "tip"]
             showHeader: false
             fillContent: true
-            spacing: Theme.scaled(10)
             Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(280)
 
-            Tr {
-                key: "settings.update.currentversion"
-                fallback: "Current Version"
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
-                font.bold: true
-            }
-
-            Rectangle {
+            Flickable {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(65)
-                color: Theme.insetBackgroundColor
-                radius: Theme.scaled(8)
+                Layout.fillHeight: true
+                contentHeight: versionColumn.height
+                clip: true
 
-                // Centered within the region left of the Manual button
-                // (not the whole card) so long platform strings / large
-                // text scaling can never collide with the button.
                 ColumnLayout {
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.left: parent.left
-                    anchors.right: manualButton.left
-                    anchors.rightMargin: Theme.scaled(6)
-                    spacing: Theme.scaled(1)
+                    id: versionColumn
+                    width: parent.width
+                    spacing: Theme.scaled(10)
 
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: "Decenza"
+                    Tr {
+                        key: "settings.update.currentversion"
+                        fallback: "Current Version"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
-                    }
-
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: "v" + updateTab.app.currentVersion
-                        color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(18)
                         font.bold: true
                     }
 
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: TranslationManager.translate("update.build", "Build %1").arg(updateTab.app.currentVersionCode)
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
-                    Text {
+                    Rectangle {
                         Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        text: updateTab.fw && updateTab.fw.isSimulated ? "SIMULATION MODE" : updateTab.app.platformName
-                        color: updateTab.fw && updateTab.fw.isSimulated ? Theme.primaryColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        font.bold: updateTab.fw && updateTab.fw.isSimulated
-                    }
-                }
+                        Layout.preferredHeight: Theme.scaled(65)
+                        color: Theme.insetBackgroundColor
+                        radius: Theme.scaled(8)
 
-                // Easter egg: tap 7 times to enable translation upload.
-                // Bounds stop at the Manual button's left edge so the two
-                // accessible elements never overlap — ACCESSIBILITY.md
-                // forbids nesting accessible elements (TalkBack would
-                // otherwise expose only one).
-                AccessibleMouseArea {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.right: manualButton.left
-                    anchors.rightMargin: Theme.scaled(6)
-                    SettingsSearch.title: TranslationManager.translate("settings.search.versionBuild", "Version and build")
-                    accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(updateTab.app.currentVersion).arg(updateTab.app.currentVersionCode)
-                    enabled: UpdateService.ready && updateTab.translationUploadRequestId.length === 0
-                    onAccessibleClicked: {
-                        var now = Date.now()
-                        // Reset counter if more than 2 seconds since last tap
-                        if (now - updateTab.lastTapTime > 2000) {
-                            updateTab.versionTapCount = 0
+                        // Centered within the region left of the Manual button
+                        // (not the whole card) so long platform strings / large
+                        // text scaling can never collide with the button.
+                        ColumnLayout {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.right: manualButton.left
+                            anchors.rightMargin: Theme.scaled(6)
+                            spacing: Theme.scaled(1)
+
+                            Text {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: "Decenza"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Text {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: "v" + updateTab.app.currentVersion
+                                color: Theme.accentColor
+                                font.pixelSize: Theme.scaled(18)
+                                font.bold: true
+                            }
+
+                            Text {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: TranslationManager.translate("update.build", "Build %1").arg(updateTab.app.currentVersionCode)
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideRight
+                                text: updateTab.fw && updateTab.fw.isSimulated ? "SIMULATION MODE" : updateTab.app.platformName
+                                color: updateTab.fw && updateTab.fw.isSimulated ? Theme.primaryColor : Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                font.bold: updateTab.fw && updateTab.fw.isSimulated
+                            }
                         }
-                        updateTab.lastTapTime = now
-                        updateTab.versionTapCount++
 
-                        if (updateTab.versionTapCount >= 7) {
-                            updateTab.versionTapCount = 0
-                            updateTab.toggleTranslationUpload()
-                        } else if (updateTab.versionTapCount >= 4) {
-                            let remaining = (7 - updateTab.versionTapCount) + " more taps"
-                            translationUploadToast.show(remaining + "...")
-                            AccessibilityManager.announce(remaining)
+                        // Easter egg: tap 7 times to enable translation upload.
+                        // Bounds stop at the Manual button's left edge so the two
+                        // accessible elements never overlap — ACCESSIBILITY.md
+                        // forbids nesting accessible elements (TalkBack would
+                        // otherwise expose only one).
+                        AccessibleMouseArea {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.right: manualButton.left
+                            anchors.rightMargin: Theme.scaled(6)
+                            SettingsSearch.title: TranslationManager.translate("settings.search.versionBuild", "Version and build")
+                            accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(updateTab.app.currentVersion).arg(updateTab.app.currentVersionCode)
+                            enabled: UpdateService.ready && updateTab.translationUploadRequestId.length === 0
+                            onAccessibleClicked: {
+                                var now = Date.now()
+                                // Reset counter if more than 2 seconds since last tap
+                                if (now - updateTab.lastTapTime > 2000) {
+                                    updateTab.versionTapCount = 0
+                                }
+                                updateTab.lastTapTime = now
+                                updateTab.versionTapCount++
+
+                                if (updateTab.versionTapCount >= 7) {
+                                    updateTab.versionTapCount = 0
+                                    updateTab.toggleTranslationUpload()
+                                } else if (updateTab.versionTapCount >= 4) {
+                                    let remaining = (7 - updateTab.versionTapCount) + " more taps"
+                                    translationUploadToast.show(remaining + "...")
+                                    AccessibilityManager.announce(remaining)
+                                }
+                            }
+                        }
+
+                        // Opens the user manual (GitHub wiki) in the default
+                        // browser. AccessibleButton (a Control) gives keyboard
+                        // Tab focus, announce-first screen-reader behavior and
+                        // press feedback for free; its bounds are disjoint from
+                        // the easter-egg area above, which is anchored to stop at
+                        // this button's left edge.
+                        AccessibleButton {
+                            id: manualButton
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: Theme.scaled(10)
+                            primary: true
+                            text: TranslationManager.translate("settings.update.manual", "Manual")
+                            accessibleName: TranslationManager.translate("settings.update.manualAccessible", "Open the Decenza user manual")
+                            onClicked: Qt.openUrlExternally("https://github.com/Kulitorum/Decenza/wiki")
                         }
                     }
-                }
 
-                // Opens the user manual (GitHub wiki) in the default
-                // browser. AccessibleButton (a Control) gives keyboard
-                // Tab focus, announce-first screen-reader behavior and
-                // press feedback for free; its bounds are disjoint from
-                // the easter-egg area above, which is anchored to stop at
-                // this button's left edge.
-                AccessibleButton {
-                    id: manualButton
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.rightMargin: Theme.scaled(10)
-                    primary: true
-                    text: TranslationManager.translate("settings.update.manual", "Manual")
-                    accessibleName: TranslationManager.translate("settings.update.manualAccessible", "Open the Decenza user manual")
-                    onClicked: Qt.openUrlExternally("https://github.com/Kulitorum/Decenza/wiki")
-                }
-            }
-
-            // Auto-check toggle
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(8)
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(1)
-
-                    Tr {
-                        key: "settings.update.autocheck"
-                        fallback: "Auto-check for updates"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
-                    }
-
-                    Tr {
+                    // Auto-check toggle
+                    RowLayout {
                         Layout.fillWidth: true
-                        key: "settings.update.checkeveryhour"
-                        fallback: "Check every hour"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.WordWrap
+                        spacing: Theme.scaled(8)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(1)
+
+                            Tr {
+                                key: "settings.update.autocheck"
+                                fallback: "Auto-check for updates"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(13)
+                            }
+
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.update.checkeveryhour"
+                                fallback: "Check every hour"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: autoCheckPreference.displayedValue("autoCheckUpdates",
+                                updateTab.preferenceSnapshot["app.autoCheckUpdates"] === true)
+                            enabled: autoCheckPreference.ready
+                            accessibleName: TranslationManager.translate("settings.update.autocheck", "Auto-check for updates")
+                            onToggled: autoCheckPreference.submit("autoCheckUpdates", checked)
+                        }
                     }
-                }
 
-                Item { Layout.fillWidth: true }
-
-                StyledSwitch {
-                    checked: autoCheckPreference.displayedValue("autoCheckUpdates",
-                        updateTab.preferenceSnapshot["app.autoCheckUpdates"] === true)
-                    enabled: autoCheckPreference.ready
-                    accessibleName: TranslationManager.translate("settings.update.autocheck", "Auto-check for updates")
-                    onToggled: autoCheckPreference.submit("autoCheckUpdates", checked)
-                }
-            }
-
-            // Beta updates toggle
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(8)
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(1)
-
-                    Tr {
-                        key: "settings.update.betaupdates"
-                        fallback: "Include beta versions"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
-                    }
-
-                    Tr {
+                    // Beta updates toggle
+                    RowLayout {
                         Layout.fillWidth: true
-                        key: "settings.update.betadesc"
-                        fallback: "Get early access to new features"
-                        color: Theme.textSecondaryColor
+                        spacing: Theme.scaled(8)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(1)
+
+                            Tr {
+                                key: "settings.update.betaupdates"
+                                fallback: "Include beta versions"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(13)
+                            }
+
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.update.betadesc"
+                                fallback: "Get early access to new features"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: betaUpdatesPreference.displayedValue("betaUpdatesEnabled",
+                                updateTab.preferenceSnapshot["app.betaUpdatesEnabled"] === true)
+                            enabled: betaUpdatesPreference.ready
+                            accessibleName: TranslationManager.translate("settings.update.betaupdates", "Include beta versions")
+                            onToggled: betaUpdatesPreference.submit("betaUpdatesEnabled", checked)
+                        }
+                    }
+
+
+                    // Divider
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: Theme.borderColor
+                        Layout.topMargin: Theme.spacingSmall
+                        Layout.bottomMargin: Theme.spacingSmall
+                    }
+
+                    // Support button
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        text: TranslationManager.translate("about.supportProject", "Support This Project")
+                        accessibleName: TranslationManager.translate("about.supportProject", "Support This Project")
+                        primary: true
+                        onClicked: donateDialog.open()
+                    }
+
+                    // About section
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("about.credits", "Built by Michael Holm (Kulitorum) during Christmas 2025. Three weeks, lots of coffee, one app.")
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.scaled(13)
+                        color: Theme.textColor
+                        wrapMode: Text.Wrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("about.creditsSince", "Developed since by Jeff Heller. Many more weeks, even more coffee, still one app.")
+                        font.family: Theme.bodyFont.family
+                        font.pixelSize: Theme.scaled(13)
+                        color: Theme.textColor
+                        wrapMode: Text.Wrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("about.communityThanks", "Thanks to the Decent community and the de1app developers for inspiration.")
+                        font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.WordWrap
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.Wrap
                     }
                 }
-
-                Item { Layout.fillWidth: true }
-
-                StyledSwitch {
-                    checked: betaUpdatesPreference.displayedValue("betaUpdatesEnabled",
-                        updateTab.preferenceSnapshot["app.betaUpdatesEnabled"] === true)
-                    enabled: betaUpdatesPreference.ready
-                    accessibleName: TranslationManager.translate("settings.update.betaupdates", "Include beta versions")
-                    onToggled: betaUpdatesPreference.submit("betaUpdatesEnabled", checked)
-                }
-            }
-
-
-            // Divider
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                color: Theme.borderColor
-                Layout.topMargin: Theme.spacingSmall
-                Layout.bottomMargin: Theme.spacingSmall
-            }
-
-            // About section
-            Text {
-                Layout.fillWidth: true
-                text: TranslationManager.translate("about.credits", "Built by Michael Holm (Kulitorum) during Christmas 2025. Three weeks, lots of coffee, one app.")
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Theme.scaled(13)
-                color: Theme.textColor
-                wrapMode: Text.Wrap
-            }
-
-            Text {
-                Layout.fillWidth: true
-                text: TranslationManager.translate("about.communityThanks", "Thanks to the Decent community and the de1app developers for inspiration.")
-                font.family: Theme.bodyFont.family
-                font.pixelSize: Theme.scaled(11)
-                color: Theme.textSecondaryColor
-                wrapMode: Text.Wrap
-            }
-
-            Item { Layout.fillHeight: true }
-
-            // Support button
-            AccessibleButton {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                text: TranslationManager.translate("about.supportProject", "Support This Project")
-                accessibleName: TranslationManager.translate("about.supportProject", "Support This Project")
-                primary: true
-                onClicked: donateDialog.open()
             }
         }
 
@@ -1024,7 +1043,7 @@ Item {
         id: donateDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
-        width: Math.min(parent.width * 0.85, Theme.scaled(360))
+        width: Math.min(parent.width * 0.85, Theme.scaled(720))
         height: Math.min(implicitHeight, parent.height - 2 * Theme.spacingMedium)
         modal: true
         dim: true
@@ -1058,34 +1077,33 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            // Full dialog width so a phone can resolve the dots; the only item that
-            // shrinks when the dialog is taller than the window. Decoded only while open.
-            Image {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: donateDialog.availableWidth
-                Layout.preferredHeight: Layout.preferredWidth
+            RowLayout {
+                id: donateRow
+                Layout.fillWidth: true
                 Layout.fillHeight: true
-                source: donateDialog.visible ? "qrc:/qrcode.png" : ""
-                fillMode: Image.PreserveAspectFit
-                mipmap: true
-                Accessible.role: Accessible.Graphic
-                Accessible.name: TranslationManager.translate("about.donateQrCode", "PayPal donation QR code")
-            }
+                spacing: Theme.spacingMedium
 
-            Text {
-                Layout.fillWidth: true
-                text: "paypal@kulitorum.com"
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                horizontalAlignment: Text.AlignHCenter
-            }
+                readonly property real qrSize: (donateDialog.availableWidth - spacing) / 2
 
-            AccessibleButton {
-                Layout.fillWidth: true
-                primary: true
-                text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
-                accessibleName: text
-                onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
+                DonateOption {
+                    who: "Michael Holm"
+                    qrSource: "qrc:/qrcode.png"
+                    qrSize: donateRow.qrSize
+                    active: donateDialog.visible
+                    caption: "paypal@kulitorum.com"
+                    buttonText: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
+                    link: "https://www.paypal.com/donate/?business=QS7GZPKLQ8HNU&no_recurring=0&item_name=For+work+on+Decenza"
+                }
+
+                DonateOption {
+                    who: "Jeff Heller"
+                    qrSource: "qrc:/qrcode-jeff.png"
+                    qrSize: donateRow.qrSize
+                    active: donateDialog.visible
+                    caption: "buymeacoffee.com/jeff.heller"
+                    buttonText: TranslationManager.translate("about.donateViaBuyMeACoffee", "Buy Me a Coffee")
+                    link: "https://buymeacoffee.com/jeff.heller"
+                }
             }
 
             // Close button

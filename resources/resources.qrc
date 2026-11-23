@@ -127,6 +127,7 @@
         <file>maps/earth_bright.png</file>
         <!-- About page -->
         <file alias="qrcode.png">../Logo/qrcode.png</file>
+        <file alias="qrcode-jeff.png">../Logo/qrcode-jeff.png</file>
         <file alias="favicon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-40@2x.png</file>
         <!-- Home-screen icons for the web interface: iOS 180 px, Android 192 px -->
         <file alias="apple-touch-icon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-60@3x.png</file>
