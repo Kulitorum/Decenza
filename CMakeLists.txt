@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(Decenza VERSION 2.2.0 LANGUAGES C CXX)
 
+include("${CMAKE_SOURCE_DIR}/cmake/DecenzaQtVersion.cmake")
 include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
 decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
 include_directories("${DECENZA_PACKAGE_ID_INCLUDE_DIR}")
@@ -144,7 +145,7 @@ endif()
 option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" ${_tsnet_default})
 
 # Qt 6 modules - core required components
-find_package(Qt6 6.12.0 REQUIRED COMPONENTS
+find_package(Qt6 ${DECENZA_QT_VERSION} REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui

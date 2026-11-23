@@ -6,7 +6,7 @@
 #
 # QT_QMLCACHEGEN_EXECUTABLE is Qt's documented override
 # (qt_add_qml_module.qdoc:270-278). A value other than qmlcachegen/qmlsc goes
-# through find_program (Qt6QmlMacros.cmake:3677-3690 in 6.12.0), which needs an
+# through find_program (Qt6QmlMacros.cmake:3713-3726 in 6.12.1), which needs an
 # executable file, hence the generated launcher.
 function(decenza_use_stable_qmlcachegen target)
     if(NOT CMAKE_GENERATOR MATCHES "Ninja")

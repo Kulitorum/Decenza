@@ -12,8 +12,10 @@ import tarfile
 import tempfile
 from datetime import datetime, timezone
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+import qt_version  # noqa: E402
 
-QT_VERSION = "6.12.0"
+QT_VERSION = qt_version.pinned()
 EMSCRIPTEN_VERSION = "5.0.5"
 TARGET = "wasm_singlethread"
 

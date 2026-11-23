@@ -326,20 +326,7 @@ T.Page {
     function stopVideoPlayer() {
         currentVideoLoaded = false
         pendingVideoSource = ""
-        if (ScreensaverService.isRemoteClient && mediaPlayerLoader.item) {
-            // Qt 6.12 Wasm appends a video element per output but does not remove
-            // it on destruction (qwasmvideooutput.cpp:107-116,566-599).
-            // Reuse this output across videos and images to bound that growth.
-            // qmllint disable missing-property
-            // Pause before stop: Qt's Wasm stop removes the DOM node without
-            // pausing unless pause was requested (qwasmvideooutput.cpp:320-354).
-            mediaPlayerLoader.item.player.pause()
-            mediaPlayerLoader.item.player.stop()
-            mediaPlayerLoader.item.player.source = ""
-            // qmllint enable missing-property
-        } else {
-            mediaPlayerLoader.active = false
-        }
+        mediaPlayerLoader.active = false
     }
 
     function acceptMedia(media) {
@@ -470,15 +457,6 @@ T.Page {
                 // Setting active=false destroys the MediaPlayer; onItemChanged
                 // fires when item becomes null, then re-activates the Loader.
                 pendingVideoSource = source
-                if (ScreensaverService.isRemoteClient && mediaPlayerLoader.item) {
-                    // Source replacement uses the existing HTML element:
-                    // qwasmvideooutput.cpp:406-436 in Qt 6.12.
-                    // qmllint disable missing-property
-                    mediaPlayerLoader.item.player.source = source
-                    mediaPlayerLoader.item.player.play()
-                    // qmllint enable missing-property
-                    return
-                }
                 mediaPlayerLoader.active = false
                 // If no previous item existed (first play), activate directly
                 if (!mediaPlayerLoader.item) {
@@ -600,8 +578,8 @@ T.Page {
                     if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) {
                         screensaverPage.currentVideoLoaded = true
                     } else if (mediaStatus === MediaPlayer.EndOfMedia) {
-                        // Qt 6.12 Wasm maps HTML "emptied" (including load/source
-                        // replacement) to EndOfMedia: qwasmvideooutput.cpp:825-834.
+                        // Qt 6.12 Wasm maps HTML "emptied" to EndOfMedia, including on
+                        // load (qwasmvideooutput.cpp:841-849; QTBUG-151769, fixed in 6.13).
                         // Do not consume the new host ticket before it has played.
                         if (ScreensaverService.isRemoteClient
                                 && (!screensaverPage.currentVideoLoaded || duration <= 0 || position < duration))

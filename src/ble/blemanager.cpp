@@ -217,10 +217,8 @@ bool BLEManager::isBluetoothAvailable() const
     if (m_disabled) return true;  // simulator mode — always report available
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
-    // On both Apple platforms QBluetoothLocalDevice is unreliable: it doesn't
-    // exist on iOS, and on macOS hostMode() always returns HostConnectable
-    // regardless of the real BT state (QTBUG-50838). CBCentralManager is the
-    // native source of truth, wrapped in AppleBtState. Created lazily here so
+    // CBCentralManager, wrapped in AppleBtState, is the one source on both Apple
+    // platforms (iOS has no QBluetoothLocalDevice; see applebtstate.h). Created lazily here so
     // simulator-mode launches don't pay the CoreBluetooth init / permission
     // prompt cost (m_disabled is set before QML's first binding evaluation).
     if (!m_appleBtState) {

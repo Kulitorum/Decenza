@@ -3,7 +3,8 @@ project(QtGcOwnershipRepro LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 enable_testing()
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Core Network Qml QmlPrivate Quick QuickControls2 Test)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/DecenzaQtVersion.cmake")
+find_package(Qt6 ${DECENZA_QT_VERSION} EXACT REQUIRED COMPONENTS Core Network Qml QmlPrivate Quick QuickControls2 Test)
 qt_policy(SET QTP0001 NEW)
 add_executable(tst_qmlgc_ownership tst_qmlgc_ownership.cpp)
 target_link_libraries(tst_qmlgc_ownership PRIVATE
@@ -48,7 +49,7 @@ set_tests_properties(tst_qmlgc_xhr PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offsc
 # Optional syntax check of a separately staged Qt diagnostic patch. This object
 # is never linked into the probes or installed over the SDK's QtQml library.
 set(DECENZA_QT_DIAGNOSTIC_SOURCE "" CACHE PATH "Patched qtdeclarative source staging directory")
-set(DECENZA_QT_REFERENCE_SOURCE "" CACHE PATH "Unmodified Qt 6.12.0 qtdeclarative source directory")
+set(DECENZA_QT_REFERENCE_SOURCE "" CACHE PATH "Unmodified Qt ${DECENZA_QT_VERSION} qtdeclarative source directory")
 if(DECENZA_QT_DIAGNOSTIC_SOURCE AND DECENZA_QT_REFERENCE_SOURCE)
     add_library(qt_gc_history_compile OBJECT
         "${DECENZA_QT_DIAGNOSTIC_SOURCE}/src/qml/memory/qv4mm.cpp")

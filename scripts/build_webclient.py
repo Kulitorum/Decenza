@@ -13,7 +13,11 @@ import subprocess
 import sys
 
 import package_webclient
+import qt_version
 
+# The native kit, the Wasm kit and the two module builds must be one Qt version:
+# the modules use Qt's private headers.
+QT_VERSION = qt_version.pinned()
 
 EMBEDDED_FILES = (*package_webclient.BASE_FILES, package_webclient.MANIFEST_NAME,
                   *(name + ".br" for name in package_webclient.BASE_FILES
@@ -53,7 +57,7 @@ def discover(arguments: argparse.Namespace) -> dict[str, str]:
             cache = read_cache(cache_path)
             if (cache.get("EMSCRIPTEN") == "1" and cache.get("Qt6_DIR")
                     and cache.get("CMAKE_HOME_DIRECTORY") == str(source)
-                    and qt_version(Path(cache["Qt6_DIR"]).parents[2]) == "6.12.0"):
+                    and qt_version(Path(cache["Qt6_DIR"]).parents[2]) == QT_VERSION):
                 candidates.append((cache.get("CMAKE_BUILD_TYPE") != "Release", str(cache_path.parent)))
         if candidates:
             build = Path(sorted(candidates)[0][1])
@@ -64,14 +68,14 @@ def discover(arguments: argparse.Namespace) -> dict[str, str]:
         wasm_qt = Path(cache["Qt6_DIR"]).parents[2]
     wasm_qt = wasm_qt or native_qt.parent / "wasm_singlethread"
     if not (wasm_qt / "lib/cmake/Qt6/qt.toolchain.cmake").is_file():
-        raise ValueError("Install Qt 6.12.0 wasm_singlethread, or set DECENZA_WASM_QT_DIR")
-    if qt_version(wasm_qt) != "6.12.0":
-        raise ValueError("DECENZA_WASM_QT_DIR must select Qt 6.12.0")
+        raise ValueError(f"Install Qt {QT_VERSION} wasm_singlethread, or set DECENZA_WASM_QT_DIR")
+    if qt_version(wasm_qt) != QT_VERSION:
+        raise ValueError(f"DECENZA_WASM_QT_DIR must select Qt {QT_VERSION}")
     host_qt = arguments.host_qt or Path(cache.get("QT_HOST_PATH", str(native_qt)))
     if not (host_qt / "lib/cmake/Qt6/Qt6Config.cmake").is_file():
-        raise ValueError("Set DECENZA_WASM_HOST_QT_DIR to matching native Qt 6.12.0")
-    if qt_version(host_qt) != "6.12.0":
-        raise ValueError("DECENZA_WASM_HOST_QT_DIR must select native Qt 6.12.0")
+        raise ValueError(f"Set DECENZA_WASM_HOST_QT_DIR to matching native Qt {QT_VERSION}")
+    if qt_version(host_qt) != QT_VERSION:
+        raise ValueError(f"DECENZA_WASM_HOST_QT_DIR must select native Qt {QT_VERSION}")
     emsdk = arguments.emsdk or (Path(os.environ["EMSDK"]) if os.environ.get("EMSDK") else None)
     if not emsdk and cache.get("CMAKE_CXX_COMPILER"):
         emsdk = Path(cache["CMAKE_CXX_COMPILER"]).parents[2]
@@ -140,12 +144,19 @@ def ensure_modules(config: dict[str, str], environment: dict[str, str], runner) 
     for name, prefix_key, module in (("qtmultimedia", "multimedia", "Multimedia"),
                                      ("qtremoteobjects", "qtro", "RemoteObjects")):
         prefix = Path(config[prefix_key])
-        if (prefix / f"lib/cmake/Qt6{module}/Qt6{module}Config.cmake").is_file():
-            continue
+        package = prefix / f"lib/cmake/Qt6{module}"
+        if (package / f"Qt6{module}Config.cmake").is_file():
+            version_impl = package / f"Qt6{module}ConfigVersionImpl.cmake"
+            installed = version_impl.read_text(encoding="utf-8") if version_impl.is_file() else ""
+            if f'set(PACKAGE_VERSION "{QT_VERSION}")' in installed:
+                continue
+            # The prefix outlives a Qt bump; a module left from another version is rebuilt.
+            print(f"[webclient] {prefix} is not Qt {QT_VERSION}; rebuilding {name}", flush=True)
+            shutil.rmtree(prefix)
         module_source = qt_sources / name
         version_file = module_source / ".cmake.conf"
-        if not version_file.is_file() or 'set(QT_REPO_MODULE_VERSION "6.12.0")' not in version_file.read_text(encoding="utf-8"):
-            raise ValueError(f"Install stock Qt 6.12.0 Sources/{name}; missing Wasm module at {prefix}")
+        if not version_file.is_file() or f'set(QT_REPO_MODULE_VERSION "{QT_VERSION}")' not in version_file.read_text(encoding="utf-8"):
+            raise ValueError(f"Install stock Qt {QT_VERSION} Sources/{name}; missing Wasm module at {prefix}")
         module_build = Path(config["build"]) / "qt-dependencies" / name
         command = configure_command(config, module_source, module_build)
         if name == "qtmultimedia":
@@ -175,7 +186,9 @@ def build_and_stage(config: dict[str, str], expected_package_id: str, output: Pa
     cache = read_cache(Path(config["build"]) / "CMakeCache.txt")
     options = dict(argument[2:].split("=", 1) for argument in command
                    if argument.startswith("-D"))
+    # A configure that failed part-way leaves a matching cache and no build.ninja.
     if (cache.get("CMAKE_HOME_DIRECTORY") != config["source"]
+            or not (Path(config["build"]) / "build.ninja").is_file()
             or any(cache.get(key) != value for key, value in options.items())):
         runner(command, environment)
     # Ninja already reruns CMake for changed inputs. An explicit configure on

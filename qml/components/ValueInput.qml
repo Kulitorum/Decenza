@@ -33,16 +33,13 @@ Item {
 
     // Authority returns to `value` the moment the consumer reports one, whether
     // that is the value we asked for or a different one it clamped to.
-    onValueChanged: {
-        _hasPending = false
-        AccessibleValueChange.notifyNumericValueChanged(root)
-    }
+    onValueChanged: _hasPending = false
 
-    // Qt connects value notifications before this Item receives its Slider role
-    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:349–394).
-    // Wasm resyncs its numeric DOM value only on ValueChanged
-    // (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:1102–1116).
-    // Completion also covers host values bound before the role was established.
+    // Qt sends ValueChanged for each later change: setRole() connects `value`
+    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:479). It sends
+    // nothing for the value the item starts with, and Wasm sets a slider's
+    // aria-valuenow only on ValueChanged (qtbase/src/plugins/platforms/wasm/
+    // qwasmaccessibility.cpp:1149-1154), so send the first one here.
     Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(root)
 
     // Hand authority back to `value`. Called wherever an interaction starts or
@@ -736,7 +733,6 @@ Item {
                                 readonly property real from: root.from
                                 readonly property real to: root.to
                                 readonly property real stepSize: root.gearToStep(popupContent.currentGear)
-                                onValueChanged: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
                                 Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
                                 Accessible.onIncreaseAction: { popupContent.adjust(1); root.commitValue() }
                                 Accessible.onDecreaseAction: { popupContent.adjust(-1); root.commitValue() }

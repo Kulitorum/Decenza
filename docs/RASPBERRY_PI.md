@@ -1,6 +1,6 @@
 # Building Decenza on Raspberry Pi 5
 
-This guide covers building and running Decenza on a Raspberry Pi 5. Decenza requires **Qt 6.12.0 or newer**; the current project toolchain uses Qt 6.12.0.
+This guide covers building and running Decenza on a Raspberry Pi 5. Decenza requires at least the Qt version in [`qt-version.txt`](../qt-version.txt) (`<version>` below), and the project toolchain uses exactly that one.
 
 ## Prerequisites
 
@@ -38,12 +38,12 @@ sudo apt install -y \
 
 These are system dependencies, **not the Qt SDK**. The previously documented Debian Qt 6.8.2 packages are too old.
 
-Install a Qt 6.12.0 AArch64 development kit compatible with your Pi OS, including the add-on modules listed under profiles `app` and `desktop` in [`.github/qt-modules.txt`](../.github/qt-modules.txt). Include Qt's private development headers and EGLFS/KMS support for running on Raspberry Pi OS Lite. If building Qt yourself, follow Qt's [Linux source build instructions](https://doc.qt.io/qt-6.12/linux-building.html) and [embedded Linux configuration guide](https://doc.qt.io/qt-6.12/configure-linux-device.html); additional graphics and module dependencies depend on the kit configuration.
+Install a Qt `<version>` AArch64 development kit compatible with your Pi OS, including the add-on modules listed under profiles `app` and `desktop` in [`.github/qt-modules.txt`](../.github/qt-modules.txt). Include Qt's private development headers and EGLFS/KMS support for running on Raspberry Pi OS Lite. If building Qt yourself, follow Qt's [Linux source build instructions](https://doc.qt.io/qt-6.12/linux-building.html) and [embedded Linux configuration guide](https://doc.qt.io/qt-6.12/configure-linux-device.html); additional graphics and module dependencies depend on the kit configuration.
 
 Set the prefix to your actual AArch64 Qt installation:
 
 ```bash
-export DECENZA_QT_PREFIX=/usr/local/Qt-6.12.0
+export DECENZA_QT_PREFIX=/usr/local/Qt-$(cat qt-version.txt)
 ```
 
 ## 3. Clone and Build

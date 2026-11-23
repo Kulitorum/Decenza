@@ -34,13 +34,13 @@ When a backgrounded browser loses its session, it attempts to reconnect on retur
 
 ## One-time toolchain setup
 
-Install **Qt 6.12.0** native tools and **`wasm_singlethread`**, **Emscripten
+Install the Qt version in [`qt-version.txt`](../../qt-version.txt) (`<version>` below): native tools and **`wasm_singlethread`**, **Emscripten
 5.0.5**, Ninja, and the **`brotli`** command-line tool (Homebrew ships 1.2.1, which
 fixes CVE-2026-111497; on Linux use your distribution's patched package). Pin Emscripten to this version rather than `latest`: the Qt
 Wasm binaries and our CI use this toolchain together. Native Qt needs Remote
 Objects, Shader Tools, Quick 3D, Graphs and CanvasPainter; Wasm needs Shader
 Tools, Quick 3D, Graphs, WebSockets and CanvasPainter. Install the matching stock
-Qt Multimedia and Remote Objects sources beside Qt (`6.12.0/Src`). The native
+Qt Multimedia and Remote Objects sources beside Qt (`<version>/Src`). The native
 build builds missing Wasm modules into workspace prefixes without modifying Qt.
 
 ### Existing local SDK: share it across checkouts
@@ -96,9 +96,9 @@ run `emsdk_env.bat` in Command Prompt instead of sourcing the shell script.
 
 Set `DECENZA_WASM_EMSDK_DIR` in the native project's CMake settings to the
 absolute SDK root, as above. If Qt discovery also needs help, set
-`DECENZA_WASM_QT_DIR` to the `6.12.0/wasm_singlethread` prefix and
+`DECENZA_WASM_QT_DIR` to the `<version>/wasm_singlethread` prefix and
 `DECENZA_WASM_HOST_QT_DIR` to the matching native tools prefix (for example
-`6.12.0/macos`, even when the native application target is Android).
+`<version>/macos`, even when the native application target is Android).
 
 ### Environment and common setup failures
 

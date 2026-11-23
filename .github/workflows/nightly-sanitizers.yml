@@ -87,10 +87,14 @@ jobs:
           list="$(bash scripts/qt_modules.sh app desktop)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
+      - name: Read the Qt version
+        id: qt
+        run: echo "version=$(python3 scripts/qt_version.py)" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.12.0'
+          version: ${{ steps.qt.outputs.version }}
           target: 'desktop'
           arch: 'linux_gcc_64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.

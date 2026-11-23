@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(QtWasmMediaLifecycleRepro LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/DecenzaQtVersion.cmake")
 
 # Use the workspace-built stock Qt Multimedia package for this Wasm kit. This
 # must be configured with the same wasm_singlethread kit as src/webclient.
@@ -12,8 +13,8 @@ if(DECENZA_QTMULTIMEDIA_PREFIX)
     list(PREPEND CMAKE_FIND_ROOT_PATH "${DECENZA_QTMULTIMEDIA_PREFIX}")
 endif()
 
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Quick Qml Multimedia)
-find_package(Qt6quickmultimediaplugin 6.12.0 EXACT CONFIG REQUIRED
+find_package(Qt6 ${DECENZA_QT_VERSION} EXACT REQUIRED COMPONENTS Quick Qml Multimedia)
+find_package(Qt6quickmultimediaplugin ${DECENZA_QT_VERSION} EXACT CONFIG REQUIRED
     PATHS "${DECENZA_QTMULTIMEDIA_PREFIX}/lib/cmake/Qt6Qml/QmlPlugins" NO_DEFAULT_PATH)
 qt_standard_project_setup(REQUIRES 6.8)
 

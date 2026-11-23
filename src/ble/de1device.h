@@ -125,11 +125,6 @@ public:
                  || m_steamPurgeRequest == SteamPurgeRequest::Cancelling)
                 && m_state == DE1::State::Steam);
     }
-    // Only true after STATE_INFO has been received on the current connection.
-    bool hasCurrentStateInfo() const { return m_stateInfoReceived; }
-    void requestCurrentStateInfo();
-    // A captured GC failure is awaiting a safe point for its crash report.
-    void setGcAbortPending(bool pending) { m_gcAbortPending = pending; }
     DE1::SubState subState() const { return m_subState; }
     int stateInt() const { return static_cast<int>(m_state); }
     int subStateInt() const { return static_cast<int>(m_subState); }
@@ -460,7 +455,6 @@ public slots:
 
 signals:
     void connectedChanged();
-    void stateInfoReceived();
     void connectingChanged();
     void stateChanged();
     void subStateChanged();
@@ -625,10 +619,8 @@ private:
     bool m_ownsTransport = false;  // True when DE1Device created the transport (connectToDevice)
 
     DE1::State m_state = DE1::State::Sleep;
-    bool m_stateInfoReceived = false;
     enum class SteamPurgeRequest { None, Pending, Acknowledged, Running, Cancelling };
     SteamPurgeRequest m_steamPurgeRequest = SteamPurgeRequest::None;
-    bool m_gcAbortPending = false;
     DE1::SubState m_subState = DE1::SubState::Ready;
 
     // Descale step timing. The firmware reports no progress figure and no expected

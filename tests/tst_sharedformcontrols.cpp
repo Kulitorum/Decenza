@@ -162,6 +162,10 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
                 && event.id != 0 && event.child == -1 && event.resolvedObject == target;
         });
     };
+    const auto eventsFor = [&](QObject* target) {
+        return std::count_if(events.cbegin(), events.cend(),
+                             [=](const NumericEvent& event) { return event.object == target; });
+    };
     QVERIFY(sawValue(object.get(), 200)); // Completion covers values bound before role assignment.
     QVERIFY(sawValue(popupItem, 200));
     QCOMPARE(popupIface->valueInterface()->minimumValue().toDouble(), 0.0);
@@ -171,6 +175,9 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
         QVERIFY(object->setProperty("hostValue", value));
         QVERIFY(sawValue(object.get(), value));
         QVERIFY(sawValue(popupItem, value));
+        // Qt 6.12.1 sends these itself; a second sender makes a screen reader repeat the value.
+        QCOMPARE(eventsFor(object.get()), 1);
+        QCOMPARE(eventsFor(popupItem), 1);
         QCOMPARE(iface->valueInterface()->currentValue().toDouble(), value);
         QCOMPARE(popupIface->valueInterface()->currentValue().toDouble(), value);
     }
@@ -203,9 +210,13 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     iface->actionInterface()->doAction(QAccessibleActionInterface::increaseAction());
     QCOMPARE(object->property("commits").toInt(), 4); // A pinned step is a no-op.
 
+    // The helper is silent with no assistive technology. Qt's own ValueChanged
+    // reaches an installed handler regardless (qaccessible.cpp:969-972), so call
+    // the helper directly rather than changing the value.
     QAccessible::setActive(false);
-    events.clear();
     QVERIFY(object->setProperty("hostValue", 65.0));
+    events.clear();
+    notifier->notifyNumericValueChanged(object.get());
     QVERIFY(events.isEmpty());
     QAccessible::setActive(true);
     QCOMPARE(iface->valueInterface()->currentValue().toDouble(), 65.0);

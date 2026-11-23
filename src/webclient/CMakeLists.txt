@@ -20,10 +20,10 @@ if(DECENZA_QTMULTIMEDIA_PREFIX)
     list(PREPEND CMAKE_PREFIX_PATH "${DECENZA_QTMULTIMEDIA_PREFIX}/lib/cmake")
     list(PREPEND CMAKE_FIND_ROOT_PATH "${DECENZA_QTMULTIMEDIA_PREFIX}")
 endif()
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Quick Qml Network QuickControls2 Graphs WebSockets QuickEffects RemoteObjects ShaderTools Multimedia Quick3D CanvasPainter)
+find_package(Qt6 ${DECENZA_QT_VERSION} EXACT REQUIRED COMPONENTS Quick Qml Network QuickControls2 Graphs WebSockets QuickEffects RemoteObjects ShaderTools Multimedia Quick3D CanvasPainter)
 # This stock module is installed beside the SDK. Qt6Qml was already loaded by
 # the kit, so explicitly discover its additional static QML plugin.
-find_package(Qt6quickmultimediaplugin 6.12.0 EXACT CONFIG REQUIRED
+find_package(Qt6quickmultimediaplugin ${DECENZA_QT_VERSION} EXACT CONFIG REQUIRED
     PATHS "${DECENZA_QTMULTIMEDIA_PREFIX}/lib/cmake/Qt6Qml/QmlPlugins" NO_DEFAULT_PATH)
 
 
@@ -34,7 +34,7 @@ endif()
 get_target_property(_qt_platform_link_options Qt6::Platform INTERFACE_LINK_OPTIONS)
 string(JOIN " " _qt_platform_link_options_text ${_qt_platform_link_options})
 if(_qt_platform_link_options_text MATCHES "-pthread|PTHREADS|SHARED_MEMORY")
-    message(FATAL_ERROR "This web client requires the Qt 6.12.0 wasm_singlethread kit; the selected Qt platform enables pthreads or shared memory.")
+    message(FATAL_ERROR "This web client requires the Qt ${DECENZA_QT_VERSION} wasm_singlethread kit; the selected Qt platform enables pthreads or shared memory.")
 endif()
 
 qt_standard_project_setup(REQUIRES 6.8)

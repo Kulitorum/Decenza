@@ -23,7 +23,8 @@ SPEC.loader.exec_module(package_webclient)
 BUILD_SPEC = importlib.util.spec_from_file_location("build_webclient", REPOSITORY_ROOT / "scripts/build_webclient.py")
 assert BUILD_SPEC and BUILD_SPEC.loader
 build_webclient = importlib.util.module_from_spec(BUILD_SPEC)
-with patch.dict(sys.modules, {"package_webclient": package_webclient}):
+with patch.dict(sys.modules, {"package_webclient": package_webclient}), \
+        patch.object(sys, "path", [str(REPOSITORY_ROOT / "scripts"), *sys.path]):
     BUILD_SPEC.loader.exec_module(build_webclient)
 REAL_BROTLI_COMMAND = package_webclient._brotli_command
 
@@ -127,18 +128,27 @@ class PackageWebClientTests(unittest.TestCase):
                       DECENZA_QTRO_PREFIX=configuration["qtro"],
                       DECENZA_QTMULTIMEDIA_PREFIX=configuration["multimedia"],
                       DECENZA_WASM_FAST_LINK="OFF")
-        for stale in (False, True):
+        # A configure that failed part-way leaves a matching cache and no build.ninja;
+        # building that directory fails with "loading 'build.ninja'", so it must configure.
+        ninja_file = Path(configuration["build"]) / "build.ninja"
+        for stale, has_ninja in ((False, True), (True, True), (False, False)):
             shutil.rmtree(staged)
             events.clear()
             cache = dict(cached)
             if stale:
                 cache["QT_HOST_PATH"] = "old-kit"
+            ninja_file.parent.mkdir(parents=True, exist_ok=True)
+            if has_ninja:
+                ninja_file.write_text("", encoding="utf-8")
+            else:
+                ninja_file.unlink(missing_ok=True)
             with patch.object(build_webclient, "child_environment", return_value={}), \
                     patch.object(build_webclient, "ensure_modules"), \
                     patch.object(build_webclient, "read_cache", return_value=cache), \
                     patch.object(package_webclient, "install_bundle", side_effect=verify):
                 build_webclient.build_and_stage(configuration, self.package_id, staged, runner=run)
-            self.assertEqual(events, (["configure"] if stale else []) + ["build", "verify"])
+            configures = stale or not has_ninja
+            self.assertEqual(events, (["configure"] if configures else []) + ["build", "verify"])
 
     def test_local_build_rejects_mismatched_output_before_native_staging(self) -> None:
         self.pack()

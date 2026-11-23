@@ -117,6 +117,8 @@ Qt 6.12 `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:907-925` updat
 
 ## Pending isolation: custom numeric values
 
+**Resolved by Qt 6.12.1, 2026-11-23:** `setRole()` now connects the value signal (`qquickaccessibleattached.cpp:479`) and Wasm exposes a slider as `role="slider"` with `aria-valuenow` (`qwasmaccessibility.cpp:1149-1154`). `ValueInput` dropped its per-change notification; the record below is kept as history.
+
 On 2026-10-22 a custom numeric control visibly changed 10→15 and its accessible label changed, while the DOM input `.value` remained `10`. The preference was restored. This application/DOM observation still needs a standalone reproduction before filing another report.
 
 Qt 6.12 Wasm creates Slider/SpinBox/Dial as `input type=number` (`qwasmaccessibility.cpp:461-476`); their handlers set the live value property (`:1084-1119`, helper `:311-315`). Absence of `aria-valuenow` is expected. `qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:349-404` connects valueChanged during construction only when a value interface exists; its later role setter does not establish that connection. That is a candidate explanation, not a confirmed runtime cause. Isolate a Qt-only Item with a value property, Slider accessibility role and a button changing 10→15, then verify the exposed value and search the tracker. Keep reports free of product names and application data.

@@ -91,7 +91,6 @@ private slots:
     void homePresetActionsRunShippingSelectionAndStartPolicy();
     void browserPixelWheelUsesQtGestureUnderPage();
     void browserFullscreenUsesWindowScreen();
-    void browserVideoHandleRecoveryReloadsOnce();
     void sharedMediaImportRunsShippingAdmissionCancelAndCompletionHandlers();
     void beanFormRefusalAnnouncesWithoutSubmittingOrChangingDraft();
     void bagCardShippingActionsKeepBagAndDateIdentity();
@@ -3597,38 +3596,6 @@ void TestCustomWidgetHtml::browserPixelWheelUsesQtGestureUnderPage()
     QCOMPARE(popupList->property("contentY").toReal(), 50.0);
     QTRY_VERIFY(!popupList->property("moving").toBool());
     page->setParentItem(nullptr);
-}
-
-void TestCustomWidgetHtml::browserVideoHandleRecoveryReloadsOnce()
-{
-    const QString source = readSource(SrcPath::kBrowserEntry);
-    const QString report = liftFunction(source, QStringLiteral("function reportFailure("));
-    const QString allow = liftFunction(source, QStringLiteral("function allowVideoRecovery("));
-    QVERIFY(!report.isEmpty() && !allow.isEmpty());
-    QJSEngine engine;
-    const auto setup = engine.evaluate(QStringLiteral(R"JS(
-        var videoRecoveryKey = 'recovery', videoRecoveryRequested = false;
-        var saved = null, reloads = 0;
-        var status = {dataset: {}}, retry = {}, screen = {setAttribute: function() {}};
-        var sessionStorage = {getItem: function() { return saved; },
-                              setItem: function(k, v) { saved = v; },
-                              removeItem: function() { saved = null; }};
-        var location = {reload: function() { reloads++; }};
-    )JS") + report + QLatin1Char('\n') + allow);
-    QVERIFY2(!setup.isError(), qPrintable(setup.toString()));
-    auto run = [&engine](const QString &script) {
-        const auto result = engine.evaluate(script);
-        QVERIFY2(!result.isError(), qPrintable(result.toString()));
-    };
-    const QString failure = QStringLiteral("reportFailure('Uncaught BindingError: Cannot use deleted val. handle = 0');");
-    run(failure + failure);
-    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 1);
-    run(QStringLiteral("videoRecoveryRequested = false;") + failure);
-    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 1);
-    run(QStringLiteral("allowVideoRecovery(); reportFailure('unrelated error');"));
-    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 1);
-    run(failure);
-    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 2);
 }
 
 void TestCustomWidgetHtml::browserFullscreenUsesWindowScreen()

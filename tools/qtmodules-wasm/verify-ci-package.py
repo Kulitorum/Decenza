@@ -9,15 +9,18 @@ import sys
 import tarfile
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+import qt_version  # noqa: E402
 
+QT_VERSION = qt_version.pinned()
 EXPECTED = {
     "formatVersion": 1,
-    "qtVersion": "6.12.0",
+    "qtVersion": QT_VERSION,
     "emscriptenVersion": "5.0.5",
     "target": "wasm_singlethread",
     "modules": ["qtmultimedia", "qtremoteobjects"],
     "qtSources": {
-        "version": "6.12.0",
+        "version": QT_VERSION,
         "qtmultimedia": "https://code.qt.io/qt/qtmultimedia.git",
         "qtremoteobjects": "https://code.qt.io/qt/qtremoteobjects.git",
     },
@@ -50,7 +53,7 @@ def main() -> int:
         raise SystemExit(f"Expected one Qt Wasm module archive in {artifact_dir}; found {len(archives)}")
     archive_path = archives[0]
     recipe_hash = recipe_key.rsplit("-", 1)[-1]
-    expected_filename = f"qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm_singlethread-recipe-{recipe_hash}.tar.gz"
+    expected_filename = f"qt-wasm-modules-{QT_VERSION}-emscripten-5.0.5-wasm_singlethread-recipe-{recipe_hash}.tar.gz"
     if archive_path.name != expected_filename:
         raise SystemExit("Qt Wasm module archive filename does not match the expected recipe identity")
     checksum_path = artifact_dir / f"{archive_path.name}.sha256"

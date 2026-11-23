@@ -1,5 +1,4 @@
 #include "core/crashhandler.h"
-#include "core/btlogfilter.h"
 #include "core/deviceinfo.h"
 #include "core/diagnosticlogging.h"
 #include "crashreporter.h"
@@ -42,9 +41,7 @@ QString CrashReporter::deviceInfo() const
 
 void CrashReporter::setPageStack(const QStringList& pages) const
 {
-    const QString stack = pages.join(QStringLiteral(" > "));
-    CrashHandler::setPageStack(stack);
-    BtLogFilter::setGcPageStack(stack);
+    CrashHandler::setPageStack(pages.join(QStringLiteral(" > ")));
 }
 
 void CrashReporter::submitReport(const QString& crashLog,
