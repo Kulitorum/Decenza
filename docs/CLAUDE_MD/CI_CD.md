@@ -70,6 +70,8 @@ Do not read the cadence off the version-tag list: those land every 1-2 weeks and
 
 **`use_cache`** is a shared `workflow_dispatch` input, default `true`, used by the five native jobs with compiler caches. macOS keeps no caches at all (compiler, Qt or OpenSSL): nobody waits on it, and its ~2.6 GB was a quarter of the 10 GB store. Passing `false` gives a genuinely cold build — useful when you want to prove a build from scratch rather than through a cache, at the cost of writing a fresh timestamped generation into a cache store already near the 10 GB cap. The guard is `github.event_name != 'workflow_dispatch' || inputs.use_cache`, so a **tag push always caches**; without the event check, `inputs` is empty on a tag push and every release would silently go cold. The Qt install cache is unaffected — it is a stable-keyed download, not a compiler cache.
 
+Do not raise a job's ccache or sccache `max-size` to buy hit rate, even when it finishes full: the store peaks near the cap during a tag build, and the LRU eviction that follows takes the Qt install caches, which cost far more to lose. Cut invalidation instead, e.g. keep version strings out of include paths so ccache's direct mode keeps hitting.
+
 **Cache pruning:** `prune-caches.yml` is called after each native job has saved its cache, and is triggered when the release or sanitizer workflow completes, with a daily fallback. Keep-one deduplication runs during builds; cleanup based on live refs waits until no build workflow is active. It:
 
 1. **Deletes all but the newest timestamped ccache/sccache entry per (prefix, ref).** Stable-keyed `qt-*`/`apt-*`/`gradle-*` caches are left to step 2.
