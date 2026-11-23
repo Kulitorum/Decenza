@@ -289,26 +289,35 @@ fixes. 4.4-4.6 replace those literals with the single source.
 
 ## 9. CI and field validation
 
-- [ ] 9.1 Read the `text-invariants.yml` run on the PR before anything else.
-- [ ] 9.2 **(ask Jeff)** Dispatch `release.yml` on the branch for all platforms with
+- [x] 9.1 Read the `text-invariants.yml` run on the PR before anything else.
+      Green on every pushed commit, last on `312fafc86` (run 45245952507).
+- [x] 9.2 **(ask Jeff)** Dispatch `release.yml` on the branch for all platforms with
       `upload_to_release=false`. Verify every platform job is green and the Wasm module
       artifact carries the 6.12.1 name. This is the only compile of the Android-guarded code
       group 3 removes.
       Dispatch 45238440136 found two 6.12.1/Xcode 27 changes, both fixed: Linux Multimedia now
       links `libva.so.2`/`libva-drm.so.2` (added to `install-linux-packages`), and Xcode 27.2's
       `lipo` rejects two archs per `-verify_arch` (now one call per arch).
-- [ ] 9.3 From the Android job's APK, confirm `lib/arm64-v8a/libQt6Qml_arm64-v8a.so` does not
+      Dispatch 45245932541 on `312fafc86`: all seven platforms green; Linux ctest 201/201 with
+      none passing only on retry; Wasm module artifact
+      `qt-wasm-modules-6.12.1-emscripten-5.0.5-wasm-singlethread-…`.
+- [x] 9.3 From the Android job's APK, confirm `lib/arm64-v8a/libQt6Qml_arm64-v8a.so` does not
       contain the string `gcdiag` and that the manifest still declares targetSdkVersion 37 and
       minSdkVersion 28.
-- [ ] 9.4 From the same dispatch: the iOS and macOS jobs ran on the `xcode-27` image with
+      Dispatch 45245932541: no `gcdiag`; manifest minSdkVersion 28, targetSdkVersion 37.
+- [x] 9.4 From the same dispatch: the iOS and macOS jobs ran on the `xcode-27` image with
       Xcode 27.2 (`xcodebuild -version` in the setup step); the iOS app linked; the macOS
       `arch -x86_64` smoke run passed. If it failed for lack of Rosetta, stop and put the
       choice in the design's Rosetta risk to Jeff. From the artifacts, `vtool -show-build` on
       each app binary reports `sdk 27.2` with `minos 18.0` (iOS) and `minos 14.4` (macOS), and
       `lipo -archs` on the macOS app lists `x86_64 arm64`. (A Ninja-built `Info.plist` carries
       no `DTSDKName`, so read the binary.)
-- [ ] 9.5 Record as held for the next beta, not passed: Android pause/resume, screensaver wake,
+      Dispatch 45245932541: both jobs pinned Xcode 27.2; iOS linked; `arch -x86_64
+      decenza-verify-webclient` verified 8 files. iOS `sdk 27.2`/`minos 18.0`; macOS both
+      slices `sdk 27.2`/`minos 14.4`; `lipo -archs` = `x86_64 arm64`.
+- [x] 9.5 Record as held for the next beta, not passed: Android pause/resume, screensaver wake,
       TalkBack start with the app in the foreground, and absence of #2179 and #1663 reports.
+      HELD for the next beta: none of these is verified.
 
 ## Workflow follow-up
 

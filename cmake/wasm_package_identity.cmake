@@ -10,6 +10,7 @@ function(decenza_generate_package_identity source_root output_directory)
         "${_source_root}/CMakeLists.txt"
         "${_source_root}/build.sh"
         "${_source_root}/versioncode.txt"
+        "${_source_root}/qt-version.txt"
     )
 
     # These are the code/resource trees used by the native app and optional

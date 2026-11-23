@@ -157,7 +157,8 @@ class PackageWebClientTests(unittest.TestCase):
             "source": str(source), "build": str(source / "build" / "wasm"),
             "qt_wasm": str(self.root / "qt" / "wasm_singlethread"), "qt_host": str(self.root / "host"),
             "cmake": "cmake", "ninja": "ninja",
-            "multimedia": str(source / "build" / "multimedia"), "qtro": str(source / "build" / "qtro"),
+            "multimedia": str(source / build_webclient.DEFAULT_PREFIXES["multimedia"]),
+            "qtro": str(source / build_webclient.DEFAULT_PREFIXES["qtro"]),
         }
 
         def install(prefix: Path, module: str, version: str) -> None:
@@ -189,19 +190,25 @@ class PackageWebClientTests(unittest.TestCase):
                 build_webclient.ensure_modules(configuration, {}, run)
             self.assertTrue(multimedia.exists())
 
-            # With sources, an owned stale install is deleted and rebuilt into the same prefix.
+            # With sources, a stale default install is deleted and rebuilt into the same prefix,
+            # and its build tree, configured for the previous kit, goes with it.
             provide_sources("9.8.7")
+            module_build = Path(configuration["build"]) / "qt-dependencies" / "qtmultimedia"
+            module_build.mkdir(parents=True)
+            (module_build / "CMakeCache.txt").write_text(
+                "CMAKE_TOOLCHAIN_FILE:FILEPATH=/Qt/9.8.6/qt.toolchain.cmake\n", encoding="utf-8")
             build_webclient.ensure_modules(configuration, {}, run)
             self.assertFalse((multimedia / "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake").exists())
+            self.assertFalse(module_build.exists())
             self.assertIn("-DQT_MULTIMEDIA_INSTALL_PREFIX=" + str(multimedia), commands[0])
             self.assertTrue(qtro.exists())
 
-            # A stale prefix outside the workspace (say, an installed Qt kit) is refused.
-            kit = self.root / "Qt" / "9.8.6" / "wasm_singlethread"
-            install(kit, "Multimedia", "9.8.6")
-            with self.assertRaisesRegex(ValueError, "outside the workspace"):
-                build_webclient.ensure_modules(dict(configuration, multimedia=str(kit)), {}, run)
-            self.assertTrue((kit / "lib/cmake/Qt6Multimedia").exists())
+            # Any other stale prefix is refused: an installed Qt kit, or a shared build tree.
+            for other in (self.root / "Qt" / "9.8.6" / "wasm_singlethread", Path(configuration["build"])):
+                install(other, "Multimedia", "9.8.6")
+                with self.assertRaisesRegex(ValueError, "not this script's default prefix"):
+                    build_webclient.ensure_modules(dict(configuration, multimedia=str(other)), {}, run)
+                self.assertTrue((other / "lib/cmake/Qt6Multimedia").exists())
 
     def test_local_build_rejects_mismatched_output_before_native_staging(self) -> None:
         self.pack()

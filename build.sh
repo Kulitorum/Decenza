@@ -50,6 +50,7 @@ echo "Building for target: $TARGET ($BUILD_TYPE)"
 if [[ "$OS" == "Darwin" ]]; then
     # macOS host
     QT_PATH=~/Qt
+    QT_VERSION=$(tr -d '[:space:]' < "$(dirname "$0")/qt-version.txt")
     NINJA=$(find "$QT_PATH/Tools" -name "ninja" | head -1)
 
     if [ -z "$NINJA" ]; then
@@ -59,12 +60,12 @@ if [[ "$OS" == "Darwin" ]]; then
 
     case "$TARGET" in
         "OSX")
-            QT_CMAKE=$(find "$QT_PATH" -name "qt-cmake" -path "*/macos/*" | head -1)
-            BUILD_DIR="build/Qt_6_10_1_for_macOS_$BUILD_TYPE"
+            QT_CMAKE=$(find "$QT_PATH/$QT_VERSION" -name "qt-cmake" -path "*/macos/*" | head -1)
+            BUILD_DIR="build/Qt_${QT_VERSION//./_}_for_macOS_$BUILD_TYPE"
             ;;
         "ANDROID")
-            QT_CMAKE=$(find "$QT_PATH" -name "qt-cmake" -path "*/android_arm64_v8a/*" | head -1)
-            BUILD_DIR="build/Qt_6_10_1_for_Android_arm64_v8a_$BUILD_TYPE"
+            QT_CMAKE=$(find "$QT_PATH/$QT_VERSION" -name "qt-cmake" -path "*/android_arm64_v8a/*" | head -1)
+            BUILD_DIR="build/Qt_${QT_VERSION//./_}_for_Android_arm64_v8a_$BUILD_TYPE"
             
             # Android SDK/NDK detection
             if [ -z "$ANDROID_SDK_ROOT" ]; then
@@ -79,10 +80,9 @@ if [[ "$OS" == "Darwin" ]]; then
             fi
             
             # Detect QT_HOST_PATH (required for cross-compilation)
-            QT_VERSION_DIR=$(echo "$QT_CMAKE" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
-            QT_HOST_PATH=$(find "$QT_PATH" -maxdepth 4 -name "macos" -path "*/$QT_VERSION_DIR/*" | head -1)
+            QT_HOST_PATH=$(find "$QT_PATH/$QT_VERSION" -maxdepth 1 -name "macos" | head -1)
             if [ -z "$QT_HOST_PATH" ]; then
-                echo "Error: Could not detect QT_HOST_PATH for version $QT_VERSION_DIR"
+                echo "Error: Could not detect QT_HOST_PATH for version $QT_VERSION"
                 exit 1
             fi
             echo "Notice: Using QT_HOST_PATH: $QT_HOST_PATH"

@@ -18,6 +18,8 @@ import qt_version
 # The native kit, the Wasm kit and the two module builds must be one Qt version:
 # the modules use Qt's private headers.
 QT_VERSION = qt_version.pinned()
+# Relative to the source root; matches src/webclient/CMakeLists.txt and release.yml.
+DEFAULT_PREFIXES = {"qtro": "build/qtro-wasm-install", "multimedia": "build/qtmultimedia-wasm-install"}
 
 EMBEDDED_FILES = (*package_webclient.BASE_FILES, package_webclient.MANIFEST_NAME,
                   *(name + ".br" for name in package_webclient.BASE_FILES
@@ -102,8 +104,8 @@ def discover(arguments: argparse.Namespace) -> dict[str, str]:
         "qt_wasm": str(wasm_qt.resolve()), "qt_host": str(host_qt.resolve()),
         "emsdk": str(emsdk.resolve()),
         "fast_link": arguments.fast_link,
-        "qtro": cache.get("DECENZA_QTRO_PREFIX", str(source / "build/qtro-wasm-install")),
-        "multimedia": cache.get("DECENZA_QTMULTIMEDIA_PREFIX", str(source / "build/qtmultimedia-wasm-install")),
+        "qtro": cache.get("DECENZA_QTRO_PREFIX", str(source / DEFAULT_PREFIXES["qtro"])),
+        "multimedia": cache.get("DECENZA_QTMULTIMEDIA_PREFIX", str(source / DEFAULT_PREFIXES["multimedia"])),
     }
 
 
@@ -135,10 +137,14 @@ def run_command(command: list[str], environment: dict[str, str]) -> None:
     subprocess.run(command, env=environment, check=True)
 
 
+def toolchain_file(config: dict[str, str]) -> str:
+    return str(Path(config["qt_wasm"]) / "lib/cmake/Qt6/qt.toolchain.cmake")
+
+
 def configure_command(config: dict[str, str], source: Path, build: Path) -> list[str]:
     return [config["cmake"], "-S", str(source), "-B", str(build), "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_MAKE_PROGRAM=" + config["ninja"],
-            "-DCMAKE_TOOLCHAIN_FILE=" + str(Path(config["qt_wasm"]) / "lib/cmake/Qt6/qt.toolchain.cmake"),
+            "-DCMAKE_TOOLCHAIN_FILE=" + toolchain_file(config),
             "-DQT_HOST_PATH=" + config["qt_host"]]
 
 
@@ -157,15 +163,18 @@ def ensure_modules(config: dict[str, str], environment: dict[str, str], runner) 
         if not version_file.is_file() or f'set(QT_REPO_MODULE_VERSION "{QT_VERSION}")' not in version_file.read_text(encoding="utf-8"):
             raise ValueError(f"Install stock Qt {QT_VERSION} Sources/{name}; missing Wasm module at {prefix}")
         if installed:
-            # A prefix outlives a Qt bump. Delete it only where this script owns it: the prefix
-            # is a user-settable cache path, and could name an installed Qt kit.
-            owned = (source / "build", Path(config["build"]))
-            if not any(prefix.resolve().is_relative_to(root.resolve()) for root in owned):
-                raise ValueError(f"{prefix} holds {name} for another Qt version and is outside the "
-                                 f"workspace build directories; remove it or point the prefix elsewhere")
+            # A prefix outlives a Qt bump. Delete only the default prefix: the cache path is
+            # user-settable and could name a shared build tree or an installed Qt kit.
+            if prefix.resolve() != (source / DEFAULT_PREFIXES[prefix_key]).resolve():
+                raise ValueError(f"{prefix} holds {name} for another Qt version and is not this "
+                                 f"script's default prefix; remove it or point the prefix elsewhere")
             print(f"[webclient] {prefix} is not Qt {QT_VERSION}; rebuilding {name}", flush=True)
             shutil.rmtree(prefix)
         module_build = Path(config["build"]) / "qt-dependencies" / name
+        # A tree configured for another Qt kit is unusable: CMake refuses its cache for a new -S.
+        cached_toolchain = read_cache(module_build / "CMakeCache.txt").get("CMAKE_TOOLCHAIN_FILE")
+        if cached_toolchain not in (None, toolchain_file(config)):
+            shutil.rmtree(module_build)
         command = configure_command(config, module_source, module_build)
         if name == "qtmultimedia":
             command = configure_command(config, source / "tools/qtmodules-wasm", module_build)

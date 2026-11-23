@@ -18,7 +18,9 @@ import qt_version
 
 ROOT = Path(__file__).resolve().parent.parent
 ROOTS = (".github", "cmake", "scripts", "tools", "src", "tests", "android", "ios")
-SUFFIXES = {".yml", ".yaml", ".cmake", ".py", ".sh", ".ps1", ".gradle", ".rb"}
+SUFFIXES = {".yml", ".yaml", ".cmake", ".py", ".sh", ".ps1", ".bat", ".gradle", ".rb"}
+# Build scripts at the repository root, which the directory roots above do not reach.
+ROOT_SCRIPTS = tuple(f":(top,glob)*{suffix}" for suffix in (".sh", ".ps1", ".bat"))
 QT_VERSION = re.compile(r"(?<![\d.\\])6(?:\\?\.|_)(?:[1-9]\d)(?:\\?\.|_)\d+(?![\d])")
 
 # Versions that are history, not pins: file (relative to the repo root) -> versions it may name.
@@ -32,7 +34,7 @@ DATED = {
 
 def scanned_files() -> list[Path]:
     # Tracked files only: a local build directory under tools/ holds generated copies.
-    tracked = subprocess.run(["git", "ls-files", "-z", "CMakeLists.txt", *ROOTS], cwd=ROOT,
+    tracked = subprocess.run(["git", "ls-files", "-z", "CMakeLists.txt", *ROOT_SCRIPTS, *ROOTS], cwd=ROOT,
                              capture_output=True, text=True, check=True).stdout.split("\0")
     paths = (ROOT / rel for rel in tracked if rel)
     return [p for p in paths if p.is_file() and p != Path(__file__).resolve()
@@ -67,7 +69,7 @@ def self_test() -> None:
     assert findings("find_package(Qt6 6.18.6 EXACT)\n", {"6.18.6"}) == []
     files = {f.relative_to(ROOT).as_posix() for f in scanned_files()}
     for expected in (".github/workflows/release.yml", "CMakeLists.txt", "cmake/DecenzaQtVersion.cmake",
-                     "tests/CMakeLists.txt", "tools/qtmodules-wasm/build-ci.sh"):
+                     "tests/CMakeLists.txt", "tools/qtmodules-wasm/build-ci.sh", "build.sh"):
         assert expected in files, f"not scanned: {expected}"
     assert "qt-version.txt" not in files
     for dated in DATED:
