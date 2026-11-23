@@ -8,7 +8,7 @@ shared resource or spend CI time and need a go-ahead first.
 - [x] 1.1 Add a "Retired with Qt 6.12.1" section at the top of
       `tools/qt-gc-diagnostics/README.md`: why (no #2179 report since the allocator fix shipped;
       QTBUG-149512 is stock in 6.12.1, citing `qv4mm.cpp:265-316`) and what remains (three
-      patches and `tests/` on 6.12.0; `ownership-repro/` on 6.12.1). Verify by reading it cold:
+      patches on 6.12.0, their test at `62fef1177`; `ownership-repro/` on 6.12.1). Verify by reading it cold:
       it must make sense without `android/qt-overrides/README.md` existing.
 - [x] 1.2 Move the build recipe and the "additional evidence" notes from
       `android/qt-overrides/README.md` into that section, cut to what a rebuild needs: kit, NDK
@@ -57,7 +57,7 @@ shared resource or spend CI time and need a go-ahead first.
       `setGcMismatchHandler`, `gcCrossValidationLine` and its helpers, the batch state and
       `recordGcMiss`, the `DEFERRED_ABORT` branch, the Android stack capture, and the includes
       only they used. Keep the `CAP_NET_ADMIN` filter (the "window doesn't exist" one goes in 6b.2). Rewrite the
-      header comment to list the two filters that remain.
+      header comment to describe the one filter that remains.
 - [x] 3.4 `src/network/crashreporter.cpp`: remove the `BtLogFilter::setGcPageStack` call from
       `setPageStack` and the include if nothing else uses it.
 - [x] 3.5 `src/core/crashhandler.cpp`: remove the 900-character `MARK_PATH` case in `clip`,
@@ -91,7 +91,7 @@ fixes. 4.4-4.6 replace those literals with the single source.
       deleted both 6.12.0 prefixes and reinstalled them as 6.12.1.
 - [x] 4.0b `scripts/build_webclient.py` re-runs the Wasm configure when `build.ninja` is
       missing, the state a part-failed configure leaves. Covered by a new case in
-      `tools/webclient/test_package.py`, which fails without the fix; all 11 tests pass.
+      `tools/webclient/test_package.py`, which fails without the fix.
 - [x] 4.1 **Before editing workflows**, confirm 6.12.1 is installable for every CI target with
       `aqt list-qt`: Windows, macOS, Linux x64, Linux arm64, Android arm64, Wasm singlethread,
       and iOS through the pinned `aqtinstall` fork (`ios_device`). Record the result in this
@@ -227,6 +227,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
       the Brew dialog built, and watch for iOS's "Allow Paste" prompt. No prompt: remove the
       block and its comment in this change. A prompt: keep it, and cite that `pasteboardTypes`
       still prompts.
+      HELD at merge (2026-11-23, merge requested): not run. The clipboard block stays in
+      `src/main.cpp` unchanged, so this change ships the existing workaround.
 
 ## 7. Build iOS and macOS with Xcode 27.2 on the macOS 27 runner
 
@@ -260,7 +262,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
 - [x] 8.2 **(ask Jeff)** Build through `mcp__qtcreator__build_project`. Verify the output
       reports Qt MQTT 6.12.1 and `QML diagnostics gate passed` with the full file count.
       Done 2026-11-23, build 1795447715270 on the finished tree: 0 errors, `Qt MQTT 6.12.1`,
-      `QML diagnostics gate passed. clean: 374/374`.
+      `QML diagnostics gate passed. clean: 374/374`. Re-run on each later fix commit, last on
+      the merge head (see the PR's audit comment).
 - [x] 8.3 **(ask Jeff)** Run the full suite through `mcp__qtcreator__test_run`. Verify no
       failures and an empty warnings list.
       Done 2026-11-23, run 1795447715816: 203 passed, 0 failed, no warnings. The first run
@@ -281,7 +284,7 @@ fixes. 4.4-4.6 replace those literals with the single source.
       one-argument callers (`CrashReportDialog.qml:244`, `SubsystemLogView.qml:221`), also on 6.12.0.
       Fixed in 6b.7.
 
-- [ ] 8.6 **(ask Jeff, destructive)** Once 8.2-8.5 pass, reclaim the 6.12.0 build space. Before
+- [x] 8.6 **(ask Jeff, destructive)** Once 8.2-8.5 pass, reclaim the 6.12.0 build space. Before
       deleting, re-list and re-measure, and confirm the exact list with Jeff. Candidates measured
       2026-11-23: `Decenza-Desktop/build/Qt_6_12_0_for_macOS_Debug` (13 GB) and
       `Qt_6_12_0_for_iOS_Device` (14 MB). In the other clone, `~/Development/GitHub/Decenza`
@@ -289,6 +292,10 @@ fixes. 4.4-4.6 replace those literals with the single source.
       6.12.1 — it is on another branch. The `~/Qt/6.12.0` SDK (31 GB) is removed through Qt's
       Maintenance Tool by Jeff, not by deleting the folder; removing it leaves the patch-1
       dry runs without their source tree.
+      Done 2026-11-23 on Jeff's go-ahead ("delete all the Qt_6_12_0 builds"): seven dirs, ~27 GB —
+      in Decenza-Desktop `Qt_6_12_0_for_macOS_Debug` (13 GB) and `_for_iOS_Device`; in Decenza the
+      macOS Debug (12 GB), both WebAssembly and both `iOS_Ninja_experiment` dirs. The SDK itself
+      is Jeff's to remove through the Maintenance Tool.
 
 ## 9. CI and field validation
 

@@ -36,8 +36,8 @@ Item {
     onValueChanged: _hasPending = false
 
     // Qt sends ValueChanged for `value` itself, the bound starting value included:
-    // the role literal connects it before bindings run
-    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:383-385). A second
+    // setting the role literal connects it before bindings run
+    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:479, helper :383-385). A second
     // sender makes a screen reader repeat the value.
 
     // Hand authority back to `value`. Called wherever an interaction starts or

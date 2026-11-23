@@ -133,7 +133,7 @@ jobs:
         id: wasm-recipe
         env:
           QT: ${{ needs.plan.outputs.qt_version }}
-          HASH: ${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          HASH: ${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh', 'tools/qtmodules-wasm/wasm_module_recipe.py') }}
         run: |
           echo "artifact=qt-wasm-modules-$QT-emscripten-5.0.5-wasm-singlethread-$HASH" >> "$GITHUB_OUTPUT"
           echo "key=qt-wasm-modules-singlethread-$QT-emscripten5.0.5-$HASH" >> "$GITHUB_OUTPUT"

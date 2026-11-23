@@ -56,7 +56,7 @@ def findings(text: str, allowed: set[str] = frozenset()) -> list[tuple[int, str]
 
 
 def self_test() -> None:
-    assert findings("version: '9.18.7'\n".replace("9.", "6.", 1)) == [(1, "6.18.7")]
+    assert findings("version: '6.18.7'\n") == [(1, "6.18.7")]
     assert findings("  # checked on 6.18.7\n") == []
     assert findings("  // checked on 6.18.7\n") == []
     assert findings("x: 6.18.7  # trailing comment still a pin\n") == [(1, "6.18.7")]

@@ -4,7 +4,7 @@
 
 ### Requirement: The Qt Version Has One Source
 
-The Qt version the project builds against SHALL be written in exactly one file in the repository. CMake projects, build and packaging scripts, and CI workflows SHALL read the version from that file rather than spell it themselves, so that moving to another Qt release changes the version in one place.
+The Qt version the project builds against SHALL be written in exactly one file in the repository. CMake projects, build and packaging scripts, and CI workflows that pin a Qt patch version SHALL read it from that file rather than spell it themselves, so that moving to another Qt release changes the version in one place.
 
 #### Scenario: A Qt patch bump
 - **WHEN** the version in the single source file is changed

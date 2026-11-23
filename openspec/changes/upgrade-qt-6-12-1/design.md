@@ -55,9 +55,9 @@ recurs, the first report carries no weak-history lines, and the override has to 
 before the next one does.
 
 **3. The patches and their test stay under their 6.12.0 names; `ownership-repro/` moves.**
-`tools/qt-gc-diagnostics/` keeps the three patches and `tests/`, with the
-`find_package(Qt6 6.12.0 EXACT …)` pin in `tests/`: that test needs a QtQml built from the
-patches, so re-pinning it would claim a port that has not been done. `ownership-repro/` builds
+`tools/qt-gc-diagnostics/` keeps the three patches. Their instrumentation test needs a QtQml
+built from the patches and the app-side code this change deletes, so it is removed rather than
+re-pinned; it is at `62fef1177`. `ownership-repro/` builds
 against stock Qt, so it is re-pinned to 6.12.1 and stays runnable. It was not run for this
 change (maintainer's call, 2026-11-23): it is a separate CMake project outside the app's suite,
 two of its probes fail by design, and its result would gate nothing, since the removal rests on
@@ -125,8 +125,9 @@ crash diagnostic and stays.
 
 **12. Tests are removed with the code, not rewritten.** The GC slots in
 `tst_webdebuglogger.cpp` and `gcAbortPendingBlocksNewOperationsButAllowsStop` in
-`tst_de1device_headless.cpp` assert behaviour that no longer exists. No replacement test is
-owed: nothing new is added.
+`tst_de1device_headless.cpp` assert behaviour that no longer exists. The one behaviour they
+covered that still exists, a short `STATE_INFO` payload and the urgent stop's bytes, keeps a
+focused test.
 
 **13. The Qt version is read from one root file, `qt-version.txt`.** It holds the bare version
 (`6.12.1`). A plain file because three kinds of reader need it: CMake, Python and workflow
