@@ -179,7 +179,7 @@ fixes. 4.4-4.6 replace those literals with the single source.
 
 ## 6b. Remove workarounds 6.12.1 makes unneeded
 
-- [ ] 6b.1 `qml/components/ValueInput.qml`: drop all four calls to
+- [x] 6b.1 `qml/components/ValueInput.qml`: drop all four calls to
       `AccessibleValueChange.notifyNumericValueChanged`, the two `onValueChanged` ones and the two
       `Component.onCompleted` ones, delete the helper's numeric method, and cite the 6.12.1 source.
       `tst_sharedformcontrols` asserts exactly one ValueChanged for the starting value and for
@@ -189,7 +189,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
       Web client, Wasm screen reader on, with the completion calls still present (2026-11-23):
       Machine tab's three `ValueInput`s are `role="slider"` with correct starting
       `aria-valuenow` (3, 31, 5); stepping Water refill 5 -> 6 -> 5 mm wrote `aria-valuenow`
-      exactly once per change. Still to do: repeat the starting-value check without them.
+      exactly once per change. Rechecked without them (2026-11-23, bundle with no numeric
+      helper): the same three start at 3, 31 and 5.
 - [x] 6b.2 `src/core/btlogfilter.{h,cpp}`: remove the QTBUG-146779 drop, compile the filter only
       on Linux.
 - [x] 6b.3 `src/ble/applebtstate.h`, `src/ble/blemanager.cpp`: replace the wrong QTBUG-50838
