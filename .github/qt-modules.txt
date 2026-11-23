@@ -9,7 +9,8 @@
 # qttasktree is unused by Decenza. Qt6Qml includes every installed QML plugin config
 # (qtbase/cmake/QtPublicPluginHelpers.cmake:596-640), and Qt.labs.assetdownloader, built from
 # qtdoc into the native installs, links Qt6::TaskTree (qtdoc/src/assetdownloader/CMakeLists.txt:20).
-# Without it every native configure warns "...dependency Qt6TaskTree could not be found".
+# Without it every native configure warns "...dependency Qt6TaskTree could not be found"
+# (QTBUG-151927).
 #
 # The `profiles` line declares every valid profile; a row naming any other is an error.
 profiles            app desktop wasm

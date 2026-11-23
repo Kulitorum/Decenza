@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.21)
 include("${CMAKE_SOURCE_DIR}/cmake/shared_remote_inputs.cmake")
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-# Stock Qt Remote Objects built for the same Wasm kit. The SDK is left untouched.
+# Stock Qt Remote Objects built for the same Wasm kit (QTBUG-145598, closed as out of
+# scope). The SDK is left untouched.
 set(DECENZA_QTRO_PREFIX "${CMAKE_SOURCE_DIR}/build/qtro-wasm-install" CACHE PATH
     "Qt Remote Objects install prefix for the WebAssembly kit")
 if(DECENZA_QTRO_PREFIX)
@@ -13,6 +14,7 @@ if(DECENZA_QTRO_PREFIX)
     list(PREPEND CMAKE_PREFIX_PATH "${DECENZA_QTRO_PREFIX}/lib/cmake")
     list(PREPEND CMAKE_FIND_ROOT_PATH "${DECENZA_QTRO_PREFIX}")
 endif()
+# Stock Qt Multimedia built for the same Wasm kit (QTBUG-137351).
 set(DECENZA_QTMULTIMEDIA_PREFIX "${CMAKE_SOURCE_DIR}/build/qtmultimedia-wasm-install" CACHE PATH
     "Stock Qt Multimedia install prefix for the WebAssembly kit")
 if(DECENZA_QTMULTIMEDIA_PREFIX)

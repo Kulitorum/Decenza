@@ -64,7 +64,7 @@ TextField {
 
     // The Wasm accessibility bridge needs ValueChanged for programmatic text
     // changes as well as edits; Qt 6.12's own TextUpdated event is not handled
-    // by its editable-text bridge. Wait for displayTextChanged: textChanged
+    // by its editable-text bridge (QTBUG-151711, fixed in 6.12.2). Wait for displayTextChanged: textChanged
     // precedes the accessible display-value update (qtdeclarative/src/quick/
     // items/qquicktextinput.cpp:3818-3824,3064-3077). Native is a no-op here.
     Connections {

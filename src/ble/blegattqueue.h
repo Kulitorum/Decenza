@@ -48,7 +48,7 @@
  * operation's terminal outcome — noteSucceeded() or noteFailed() — and by
  * teardown. Where a platform can deliver neither (Android's
  * handleOnDescriptorWrite discards a reply arriving after Qt's own 3 s
- * RUNNABLE_TIMEOUT and notifies nothing), the release comes from the requesting
+ * RUNNABLE_TIMEOUT and notifies nothing; QTBUG-152556), the release comes from the requesting
  * transport's EXISTING terminal machinery, which already bounds that operation
  * and verifies real state before acting. A second bound here would recreate the
  * exact condition this change removes: BleTransport's SUBSCRIBE_TIMEOUT_MS was

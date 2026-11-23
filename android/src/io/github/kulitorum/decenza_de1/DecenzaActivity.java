@@ -47,7 +47,7 @@ public class DecenzaActivity extends QtActivity {
     // Launcher Mode (Settings, `app/launcherMode`) enables the LauncherAlias
     // activity-alias so Decenza can be the tablet's home screen. Qt 6.11
     // added a branch to QtActivityBase.onCreate that skips loading the Qt
-    // libraries outright when the activity was launched through an alias:
+    // libraries outright when the activity was launched through an alias (QTBUG-152557):
     //
     //   if (isLaunchedAsAlias()) {
     //       Log.d(TAG, "Starting an alias-activity, skipping loading of the Qt libraries.");
@@ -180,7 +180,7 @@ public class DecenzaActivity extends QtActivity {
     //      `contains("DeadSystem")` filter in PR #544 / issue #538.)
     // Qt's QtBluetoothLE.executeWriteJob doesn't wrap the
     // BluetoothGatt.writeCharacteristic binder call in try/catch (verified
-    // through Qt 6.11.1), so the RuntimeException it raises lands here.
+    // through Qt 6.11.1; QTBUG-152552), so the RuntimeException it raises lands here.
     // Issues #189 (v1.5.0), #538 (v1.4.x DeadSystemRuntimeException),
     // #1227 (v1.7.3 DeadObjectException).
     private static boolean isDeadObjectException(Throwable t) {

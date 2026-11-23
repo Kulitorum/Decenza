@@ -11,7 +11,7 @@
 // not a missing-feature one.
 //
 // The problem: Qt's Markdown importer truncates the rest of the document at an inline
-// <img> tag. Verified on Qt 6.11.1 with a resolvable image:
+// <img> tag (QTBUG-134796). Verified on Qt 6.11.1 with a resolvable image:
 //
 //     "hi <img src=...> there"                   -> "hi"
 //     "**<img src=...> Recipes** …\n\n- a\n- b"   -> ""   (whole document lost)

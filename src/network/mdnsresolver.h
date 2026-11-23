@@ -20,7 +20,7 @@
  *    Linux, Bonjour on macOS/iOS) and QHostInfo is the right call.
  *
  *  - browseService(): DNS-SD service enumeration. Needed on every non-Apple
- *    platform, because QHostInfo cannot browse at all — it resolves a name you
+ *    platform, because QHostInfo cannot browse at all (QTBUG-30823) — it resolves a name you
  *    already know and has no way to ask "what services are out there".
  *
  * iOS uses the system Bonjour APIs (DNSServiceBrowse), because a raw multicast

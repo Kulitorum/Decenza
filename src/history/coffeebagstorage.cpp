@@ -1547,7 +1547,7 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId,
     }
     // Read the row count BEFORE running anything else on this connection.
     // QSQLiteResult::numRowsAffected() is not cached — it calls sqlite3_changes()
-    // on the CONNECTION at call time (qtbase/src/plugins/sqldrivers/sqlite/
+    // on the CONNECTION at call time (QTBUG-152551; qtbase/src/plugins/sqldrivers/sqlite/
     // qsql_sqlite.cpp:592-596) — so the propagation below would otherwise
     // overwrite this update's count with its own and report a successful save as
     // a failure. It runs only on the unlink path, i.e. for a bag whose whole

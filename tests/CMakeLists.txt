@@ -2295,7 +2295,8 @@ set_tests_properties(tst_operationcompletionoverlay PROPERTIES
 # These test modules intentionally use the same Decenza URI as the production
 # components they exercise. Keep each target in a separate CMake binary
 # directory: Qt's generated qmake_Decenza.qrc is URI-based and otherwise the
-# later target overwrites the qmldir resource used by the earlier executable.
+# later target overwrites the qmldir resource used by the earlier executable
+# (QTBUG-123169).
 add_subdirectory(subsystemlogview)
 add_subdirectory(localfiletransfer)
 

@@ -46,7 +46,7 @@ endfunction()
 
 # Make every compiled unit of a QML module depend on every QML/JS source of that
 # module. qmlcachegen reads other files to resolve QML-declared types (Theme, every
-# component used by name) but declares none of them as inputs and has no depfile, so
+# component used by name) but declares none of them as inputs and has no depfile (QTBUG-110961), so
 # Qt's own commands list only the unit's own source. Without this, editing Theme.qml
 # leaves every caller's unit stale. With the stable wrapper the cost is re-running
 # cachegen, not recompiling. Call after qt_add_qml_module(<target>), in the same

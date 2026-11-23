@@ -1565,7 +1565,7 @@ target_include_directories(Decenza PRIVATE
     # qmltyperegistrar generates decenza_qmltyperegistrations.cpp from moc's JSON and emits
     # `#if __has_include(<translationmanager.h>)` around the include — moc records `inputFile`
     # as the basename alone, and no path prefix changes that (AUTOMOC_PATH_PREFIX does prefix
-    # the include moc writes into moc_*.cpp, but not the JSON field this is generated from).
+    # the include moc writes into moc_*.cpp, but not the JSON field this is generated from; QTBUG-93443).
     # When the basename does not resolve, the guarded include expands to nothing and the build
     # fails on `use of undeclared identifier` in generated code — three tools away from the
     # cause. Qt's own modules do not hit this because their headers sit flat in one include dir.

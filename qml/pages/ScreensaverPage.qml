@@ -626,7 +626,7 @@ T.Page {
             // Inline sourceComponent — see handleVideoFailure for why this is not extracted.
             // qmllint disable missing-property
             item.player.videoOutput = item.output
-            // Mute after attaching the video surface and before playback. Qt 6.12's
+            // Mute after attaching the video surface and before playback (QTBUG-152549). Qt 6.12's
             // Wasm backend binds its HTML element in qwasmmediaplayer.cpp:275-277;
             // qwasmaudiooutput.cpp:45-50 applies this change to that element.
             item.player.audioOutput.muted = true

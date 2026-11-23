@@ -3200,8 +3200,8 @@ T.ApplicationWindow {
 
         // Navigate to screensaver page for all modes (including "disabled")
         // For "disabled" mode, ScreensaverPage dims the backlight to minimum
-        // and shows a black overlay. We keep FLAG_KEEP_SCREEN_ON set to avoid
-        // potential EGL surface issues (QTBUG-45019 class of bugs).
+        // and shows a black overlay. FLAG_KEEP_SCREEN_ON stays set because the app runs its
+        // own screensaver instead of letting the system turn the screen off.
         // Pushed over the home screen, not replacing the stack, so waking is a pop rather
         // than a rebuild (~190 ms per wake on a Galaxy Tab A9+, #1976). The home screen's
         // own popups would stay above the screensaver, so they are closed too.

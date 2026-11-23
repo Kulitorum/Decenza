@@ -5,7 +5,7 @@
 // Apple-platform adapter for CoreBluetooth's CBCentralManager.state.
 //
 // Backs BLEManager::isBluetoothAvailable() on both Apple platforms. iOS has no
-// QBluetoothLocalDevice, so CBCentralManager is the only source there, and using
+// QBluetoothLocalDevice (QTBUG-152204), so CBCentralManager is the only source there, and using
 // it on macOS too gives one path that also reports a denied Bluetooth permission.
 // (Qt 6.12's macOS hostMode() does read the controller's power state,
 // qtconnectivity/src/bluetooth/qbluetoothlocaldevice_macos.mm:435-447.) Its delegate fires whenever the state

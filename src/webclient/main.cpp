@@ -29,7 +29,7 @@ int main(int argc, char* argv[])
     QQuickStyle::setStyle("Material");
 #ifdef __EMSCRIPTEN__
     // Qt 6.12 Wasm places browser pixel deltas in angleDelta too
-    // (qtbase/src/plugins/platforms/wasm/qwasmwindow.cpp:949-970).
+    // (QTBUG-141540; qtbase/src/plugins/platforms/wasm/qwasmwindow.cpp:949-970).
     // Flickable's default wheel path scales that by wheelScrollLines * 24 / 120
     // (qtdeclarative/src/quick/items/qquickflickable.cpp:1776-1785).
     // Five lines preserves the incoming distance instead of the default 60%.

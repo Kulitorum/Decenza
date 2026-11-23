@@ -110,7 +110,7 @@ class MainController : public QObject,
     // that direct macros were fine because settings_qml.h's stated reason for the wrapper (a
     // <QtQml/...> include being "a build break" in saw_parity) was measurably false. That
     // measurement still stands, but it was never the reason that mattered: Qt tests
-    // is_default_constructible BEFORE it looks for a create() factory (qqmlprivate.h:195-198), so
+    // is_default_constructible BEFORE it looks for a create() factory (QTBUG-119369; qqmlprivate.h:195-198), so
     // a directly-registered singleton whose constructor gains a defaulted parameter silently gets
     // `new T` and its factory is never called. AccessibilityManager shipped exactly that. The
     // wrapper shape cannot reach that branch at all — see docs/CLAUDE_MD/QML_GOTCHAS.md.

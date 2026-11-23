@@ -97,7 +97,7 @@ void SystemLogService::releaseReplica()
     auto* replica = m_state.data();
     m_state = nullptr;
     // Qt 6.12 reuses a live node implementation on reacquire without wiring
-    // in-process source signals again (qremoteobjectnode.cpp:631-636,1528-1536).
+    // in-process source signals again (QTBUG-152550; qremoteobjectnode.cpp:631-636,1528-1536).
     // Wait for retirement before acquiring; rapid hide/show is otherwise ready
     // but cannot receive snapshot completions or live lines.
     m_retiringReplica = replica;

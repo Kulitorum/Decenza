@@ -583,14 +583,15 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef Q_OS_IOS
-    // Stops the iOS "Allow Paste" prompt on every return to the app. When the
+    // Stops the iOS "Allow Paste" prompt on every return to the app (QTBUG-147008). When the
     // pasteboard changed while backgrounded, Qt emits dataChanged on becoming
     // active (qiosclipboard.mm:40-43, 64-72), and every live editable
     // TextInput/TextEdit — visible or not, e.g. the always-built BrewDialog —
     // reads the clipboard text to refresh canPaste (qquicktextinput.cpp:2894,
     // 3008-3009; qquicktextedit.cpp:2824). That read is what prompts. Nothing
     // here reads canPaste or listens to the signal, and user-initiated paste
-    // goes through UIKit's paste: action, not this signal.
+    // goes through UIKit's paste: action, not this signal. QTBUG-149610 (fixed
+    // in 6.12.1) may make this unnecessary; check on an iPhone.
     QGuiApplication::clipboard()->blockSignals(true);
 #endif
 
@@ -1859,7 +1860,7 @@ int main(int argc, char *argv[])
     // BLE dead-binder recovery: when the Bluetooth GATT binder/process dies
     // (toggled off, OEM power policy, GATT proxy unbound) Qt's BLE handler
     // thread raises a DeadObjectException (or its DeadSystemException
-    // subclass if system_server itself died). The Java crash handler catches
+    // subclass if system_server itself died; QTBUG-152552). The Java crash handler catches
     // both, keeps the app alive, and writes a flag file; we poll for it
     // every 10 s and trigger BLE reconnection if found. Issues #189, #1227.
     auto* bleRecoveryTimer = new QTimer();

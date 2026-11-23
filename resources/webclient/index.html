@@ -37,7 +37,7 @@
       ? Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "srcObject") : null;
     const emptyVideoStream = iosVideo ? new MediaStream() : null;
     // Qt 6.12 creates hidden body-level videos without playsinline
-    // (qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:586-620).
+    // (QTBUG-152548; qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:586-620).
     // Keep iOS playback on the QML surface so taps reach its wake control.
     new MutationObserver(records => {
       for (const record of records)

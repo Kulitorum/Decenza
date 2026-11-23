@@ -124,10 +124,9 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         finishMeasurement(/*complete=*/false);
     });
 
-    // BLE stack constraint: Qt's BLE layer (Android BluetoothLE + iOS CoreBluetooth)
-    // provides no "ready after characteristic discovery" signal. This 100ms delay is
-    // inherited from de1app and required for reliable CCCD writes. No event-based
-    // alternative exists — this is a platform limitation, not a workaround.
+    // Started on characteristic discovery (onCharacteristicsDiscoveryFinished). The extra
+    // 100 ms before the first CCCD write is device timing inherited from de1app, not a Qt
+    // limitation.
     m_initTimer.setSingleShot(true);
     m_initTimer.setInterval(100);
     connect(&m_initTimer, &QTimer::timeout, this, [this]() {

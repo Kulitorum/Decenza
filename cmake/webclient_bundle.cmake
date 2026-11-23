@@ -121,7 +121,7 @@ if(NOT DECENZA_EMBED_WEB_BUNDLE)
     return()
 endif()
 # Qt6CoreMacros.cmake:616-623 expands TARGET_OBJECTS inside rcc pass 2,
-# which Xcode cannot represent for universal builds. Use regular C++
+# which Xcode cannot represent for universal builds (QTBUG-103497). Use regular C++
 # resources for Xcode (including iOS); retain direct objects elsewhere.
 set(_webclient_big_resources)
 if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
