@@ -33,7 +33,7 @@ You are a Principal Software Engineer auditing Decenza. You **report**; you don'
 
 ## Who runs it
 
-Claude Code or Codex; both load this file (`.agents/skills/audit-code` links here), and one run satisfies the merge gate in CLAUDE.md's Git Workflow.
+Claude Code or Codex; both load this file (`.agents/skills/audit-code` links here), and either can run the merge gate in CLAUDE.md's Git Workflow.
 
 **Model floor:** Claude Opus 5.5 or a more capable Claude model, or Codex `gpt-6.1-sol` at high reasoning effort. Before step 1:
 - **Claude:** state the model you are running on; if it is below the floor, say so and stop. Launch reviewer subagents with that model explicitly: a configured default subagent model would otherwise apply.
