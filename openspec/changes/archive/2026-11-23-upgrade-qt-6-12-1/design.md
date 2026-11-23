@@ -115,7 +115,9 @@ say "in 6.12.0" explicitly are dated and left alone.
 
 Keeping the abort path "for the override's return" was rejected: it is unreachable code in the
 start-operation path of the machine, and it would rot against a library nobody is building.
-`btlogfilter`'s `CAP_NET_ADMIN` filter stays; its "window doesn't exist" drop goes too (decision 15).
+`btlogfilter` goes entirely: its "window doesn't exist" drop with decision 15, and its
+`CAP_NET_ADMIN` filter because 6.12.1 logs that line with `qCInfo` only when the effective bit is
+clear (`bluetoothmanagement.cpp:121`), so a warning-only filter can never match.
 
 **11. `DE1Device` members go only if the abort path was their last reader.**
 `hasCurrentStateInfo()`, `requestCurrentStateInfo()`, `m_stateInfoReceived` and the

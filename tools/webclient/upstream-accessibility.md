@@ -53,7 +53,7 @@ Button {
 
 **Observed on Qt 6.12.0 Wasm:** the visible QML TextField updates to “updated value”; the browser accessibility shadow input retains “initial value”. The Qt 6.12 Wasm accessibility bridge does not process the `TextUpdated` event emitted for this programmatic update.
 
-**Source:** `qtdeclarative/src/quick/items/qquicktextinput.cpp:3880-3889` emits `QAccessibleTextUpdateEvent` from `internalSetText()`; `qtbase/src/gui/accessible/qaccessible.h:546-560` assigns that event type `TextUpdated`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:802-840` handles `TextInserted`/`TextRemoved` and caret movement but has no `TextUpdated` branch. `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:691-701` reads the current `displayText`, so the current value is available to the interface.
+**Source:** `qtdeclarative/src/quick/items/qquicktextinput.cpp:3880-3889` emits `QAccessibleTextUpdateEvent` from `internalSetText()`; `qtbase/src/gui/accessible/qaccessible.h:546-560` assigns that event type `TextUpdated`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:838-879` (6.12.1) handles `TextInserted`/`TextRemoved` and caret movement but has no `TextUpdated` branch. `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:691-701` reads the current `displayText`, so the current value is available to the interface.
 
 ## Existing upstream coverage checked
 

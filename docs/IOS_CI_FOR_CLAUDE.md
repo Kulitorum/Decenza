@@ -12,7 +12,7 @@ The iOS build runs entirely on GitHub's macOS servers. You don't need a Mac, Xco
 
 1. **Trigger**: You trigger the workflow via GitHub CLI or the GitHub website
 2. **GitHub spins up a macOS VM** with Xcode pre-installed
-3. **Qt for iOS**, at the version in `qt-version.txt`, is installed (cached after first run, takes ~20 seconds)
+3. **Qt for iOS**, at the version in `qt-version.txt`, is installed on every run (not cached; ~5 minutes)
 4. **Signing credentials** are decoded from GitHub Secrets and installed
 5. **CMake configures** the project using Qt's `qt-cmake`
 6. **Xcode builds and archives** the app

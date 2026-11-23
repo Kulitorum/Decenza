@@ -217,7 +217,6 @@ extern "C" const char* __ubsan_default_options()
 
 #include "core/asynclogger.h"
 #include "core/deviceinfo.h"
-#include "core/btlogfilter.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/themeeditoroptions.h"
@@ -552,11 +551,6 @@ int main(int argc, char *argv[])
         DIAG_WARN(APP, "main") << "The previous run crashed after main() returned, but its crash.log "
                                   "could not be deleted; it will be checked again at every launch";
     }
-
-    // Suppress Qt's spurious "Missing CAP_NET_ADMIN" bluetooth warning
-    // when our own probe says caps are effective. Must run before Qt
-    // Bluetooth classes are constructed.
-    BtLogFilter::install();
 
 #ifdef Q_OS_WIN
     // Windows expresses monitor scaling as a percentage (100/125/150/175/200%),

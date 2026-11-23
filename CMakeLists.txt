@@ -767,7 +767,6 @@ set(SOURCES
     src/ble/transport/scalebletransport.cpp
     src/ble/transport/qtscalebletransport.cpp
     src/core/asynclogger.cpp
-    src/core/btlogfilter.cpp
     src/machine/machinestate.cpp
     src/machine/weightprocessor.cpp
     src/machine/stepexitarbiter.cpp
@@ -1190,7 +1189,6 @@ set(HEADERS
     src/ble/transport/scalebletransport.h
     src/ble/transport/qtscalebletransport.h
     src/core/asynclogger.h
-    src/core/btlogfilter.h
     src/machine/machinestate.h
     src/machine/frameexitreason.h
     src/machine/weightprocessor.h

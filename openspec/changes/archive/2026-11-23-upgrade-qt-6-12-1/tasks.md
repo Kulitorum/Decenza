@@ -56,7 +56,8 @@ shared resource or spend CI time and need a go-ahead first.
 - [x] 3.3 `src/core/btlogfilter.{h,cpp}`: remove `enableGcCrossValidation`, `setGcPageStack`,
       `setGcMismatchHandler`, `gcCrossValidationLine` and its helpers, the batch state and
       `recordGcMiss`, the `DEFERRED_ABORT` branch, the Android stack capture, and the includes
-      only they used. Keep the `CAP_NET_ADMIN` filter (the "window doesn't exist" one goes in 6b.2). Rewrite the
+      only they used. Keep the `CAP_NET_ADMIN` filter (the "window doesn't exist" one goes in 6b.2); the
+      final audit later removed it too, as it can never match on 6.12.1. Rewrite the
       header comment to describe the one filter that remains.
 - [x] 3.4 `src/network/crashreporter.cpp`: remove the `BtLogFilter::setGcPageStack` call from
       `setPageStack` and the include if nothing else uses it.

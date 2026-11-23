@@ -89,14 +89,6 @@ private slots:
         f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ready));
         QVERIFY(f.device.isSteamPurgeActive());
 
-        // The stop-at-weight stop.
-        f.transport.clearWrites();
-        f.device.stopOperationUrgent();
-        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{QByteArray(1, char(DE1::State::Idle))});
-        using Write = QPair<QBluetoothUuid, QByteArray>;
-        const QList<Write> urgentIdle{{DE1::Characteristic::REQUESTED_STATE, QByteArray(1, char(DE1::State::Idle))}};
-        QCOMPARE(f.transport.urgentWrites, urgentIdle);  // jumps the queue
-
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
             QStringLiteral(".*DE1 DISCONNECTED while Steam.*unrequested drop.*")));
         f.device.onTransportDisconnected();
@@ -150,8 +142,15 @@ private slots:
             emit f.transport.writeAbandoned(DE1::Characteristic::HEADER_WRITE, purge);
         else if (event == "cancel" || event == "cancel-transient")
             f.device.requestIdle();
-        else if (event == "urgent")
+        else if (event == "urgent") {
+            // The stop-at-weight stop jumps the queue.
+            f.transport.clearWrites();
             f.device.stopOperationUrgent();
+            using Write = QPair<QBluetoothUuid, QByteArray>;
+            const QList<Write> urgentIdle{{DE1::Characteristic::REQUESTED_STATE,
+                                           QByteArray(1, char(DE1::State::Idle))}};
+            QCOMPARE(f.transport.urgentWrites, urgentIdle);
+        }
         else {
             f.transport.pendingQueueSize = event == "clear" ? 1 : 0;
             f.device.clearCommandQueue();
