@@ -58,7 +58,7 @@ codex exec -m gpt-6.1-sol -c model_reasoning_effort=high -s read-only -C <repo> 
 
 Say in one line what you resolved to (e.g. "Auditing `main..feat-x`: 14 files, +612/−88"). If the arguments are ambiguous, pick the likely reading and say so; don't ask.
 
-For a diff, the diff is the focus but not the boundary: read each changed function whole and check its callers. For QML, that includes the bindings that read a changed property and the delegates of a changed base type. When the diff calls an existing function from a new state, trace what that function leaves pending (running timers, queued `invokeMethod` calls, sockets still closing): their callbacks run later, outside the diff, and that is where these bugs hide.
+For a diff, the diff is the focus but not the boundary: read each changed function whole and check its callers. A merge-gate audit of one commit after a clean full audit also reads every file that commit touches in full (CLAUDE.md, Git Workflow). For QML, that includes the bindings that read a changed property and the delegates of a changed base type. When the diff calls an existing function from a new state, trace what that function leaves pending (running timers, queued `invokeMethod` calls, sockets still closing): their callbacks run later, outside the diff, and that is where these bugs hide.
 
 ## 2. Load the repo's rules
 
