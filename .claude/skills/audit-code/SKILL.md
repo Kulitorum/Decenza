@@ -102,7 +102,7 @@ Get cheap ground truth before reading code: line counts with `git ls-files <path
 
 Reviewer reports are model output, not facts. They overstate severity, miss mitigations and miscount. Before writing:
 - **Re-read the code for every Critical and High, and any Medium on a high-frequency path.** Use targeted `rg -n` or line-range reads, not whole files. Drop anything that doesn't hold; fix line numbers that drifted.
-- **Claims about Qt behaviour need a source.** Check `~/Qt/6.12.0/Src` and cite file and line, or drop the claim.
+- **Claims about Qt behaviour need a source.** Check `~/Qt/<version>/Src` (`<version>` is in `qt-version.txt`) and cite file and line, or drop the claim.
 - **Calibrate severity against context**, then merge duplicates across reviewers and fold findings that share a fix.
 
 Severity:

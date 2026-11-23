@@ -33,17 +33,12 @@ Item {
 
     // Authority returns to `value` the moment the consumer reports one, whether
     // that is the value we asked for or a different one it clamped to.
-    onValueChanged: {
-        _hasPending = false
-        AccessibleValueChange.notifyNumericValueChanged(root)
-    }
+    onValueChanged: _hasPending = false
 
-    // Qt connects value notifications before this Item receives its Slider role
-    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:349–394).
-    // Wasm resyncs its numeric DOM value only on ValueChanged
-    // (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:1102–1116).
-    // Completion also covers host values bound before the role was established.
-    Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(root)
+    // Qt sends ValueChanged for `value` itself, the bound starting value included:
+    // setting the role literal connects it before bindings run
+    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:479, helper :383-385). A second
+    // sender makes a screen reader repeat the value.
 
     // Hand authority back to `value`. Called wherever an interaction starts or
     // ends — press, popup open, commit, and every cancel. A cancel neither
@@ -629,7 +624,7 @@ Item {
                 }
 
                 background: Rectangle {
-                    color: "#80000000"
+                    color: Theme.dialogDimColor
                 }
 
                 // Content
@@ -736,8 +731,6 @@ Item {
                                 readonly property real from: root.from
                                 readonly property real to: root.to
                                 readonly property real stepSize: root.gearToStep(popupContent.currentGear)
-                                onValueChanged: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
-                                Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
                                 Accessible.onIncreaseAction: { popupContent.adjust(1); root.commitValue() }
                                 Accessible.onDecreaseAction: { popupContent.adjust(-1); root.commitValue() }
 

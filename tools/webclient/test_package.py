@@ -23,7 +23,8 @@ SPEC.loader.exec_module(package_webclient)
 BUILD_SPEC = importlib.util.spec_from_file_location("build_webclient", REPOSITORY_ROOT / "scripts/build_webclient.py")
 assert BUILD_SPEC and BUILD_SPEC.loader
 build_webclient = importlib.util.module_from_spec(BUILD_SPEC)
-with patch.dict(sys.modules, {"package_webclient": package_webclient}):
+with patch.dict(sys.modules, {"package_webclient": package_webclient}), \
+        patch.object(sys, "path", [str(REPOSITORY_ROOT / "scripts"), *sys.path]):
     BUILD_SPEC.loader.exec_module(build_webclient)
 REAL_BROTLI_COMMAND = package_webclient._brotli_command
 
@@ -127,18 +128,107 @@ class PackageWebClientTests(unittest.TestCase):
                       DECENZA_QTRO_PREFIX=configuration["qtro"],
                       DECENZA_QTMULTIMEDIA_PREFIX=configuration["multimedia"],
                       DECENZA_WASM_FAST_LINK="OFF")
-        for stale in (False, True):
+        # A configure that failed part-way leaves a matching cache and no build.ninja;
+        # building that directory fails with "loading 'build.ninja'", so it must configure.
+        ninja_file = Path(configuration["build"]) / "build.ninja"
+        for stale, has_ninja in ((False, True), (True, True), (False, False)):
             shutil.rmtree(staged)
             events.clear()
             cache = dict(cached)
             if stale:
                 cache["QT_HOST_PATH"] = "old-kit"
+            ninja_file.parent.mkdir(parents=True, exist_ok=True)
+            if has_ninja:
+                ninja_file.write_text("", encoding="utf-8")
+            else:
+                ninja_file.unlink(missing_ok=True)
             with patch.object(build_webclient, "child_environment", return_value={}), \
                     patch.object(build_webclient, "ensure_modules"), \
                     patch.object(build_webclient, "read_cache", return_value=cache), \
                     patch.object(package_webclient, "install_bundle", side_effect=verify):
                 build_webclient.build_and_stage(configuration, self.package_id, staged, runner=run)
-            self.assertEqual(events, (["configure"] if stale else []) + ["build", "verify"])
+            configures = stale or not has_ninja
+            self.assertEqual(events, (["configure"] if configures else []) + ["build", "verify"])
+
+    def test_wasm_modules_rebuild_only_owned_prefixes_from_another_qt(self) -> None:
+        source = self.root / "checkout"
+        qt_sources = self.root / "qt" / "Src"
+        configuration = {
+            "source": str(source), "build": str(source / "build" / "wasm"),
+            "qt_wasm": str(self.root / "qt" / "wasm_singlethread"), "qt_host": str(self.root / "host"),
+            "cmake": "cmake", "ninja": "ninja",
+            "multimedia": str(source / build_webclient.DEFAULT_PREFIXES["multimedia"]),
+            "qtro": str(source / build_webclient.DEFAULT_PREFIXES["qtro"]),
+        }
+
+        def install(prefix: Path, module: str, version: str) -> None:
+            package = prefix / f"lib/cmake/Qt6{module}"
+            package.mkdir(parents=True, exist_ok=True)
+            (package / f"Qt6{module}Config.cmake").write_text("", encoding="utf-8")
+            (package / f"Qt6{module}ConfigVersionImpl.cmake").write_text(
+                f'set(PACKAGE_VERSION "{version}")\n', encoding="utf-8")
+
+        def provide_sources(version: str) -> None:
+            for name in ("qtmultimedia", "qtremoteobjects"):
+                (qt_sources / name).mkdir(parents=True, exist_ok=True)
+                (qt_sources / name / ".cmake.conf").write_text(
+                    f'set(QT_REPO_MODULE_VERSION "{version}")\n', encoding="utf-8")
+
+        multimedia, qtro = Path(configuration["multimedia"]), Path(configuration["qtro"])
+        commands = []
+        run = lambda command, environment: commands.append(command)
+        with patch.object(build_webclient, "QT_VERSION", "9.8.7"):
+            # Current installs are kept and nothing is built.
+            install(multimedia, "Multimedia", "9.8.7")
+            install(qtro, "RemoteObjects", "9.8.7")
+            build_webclient.ensure_modules(configuration, {}, run)
+            self.assertEqual(commands, [])
+
+            # Without matching sources a stale install is left alone.
+            install(multimedia, "Multimedia", "9.8.6")
+            with self.assertRaisesRegex(ValueError, "Sources/qtmultimedia"):
+                build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue(multimedia.exists())
+
+            # With sources, a stale default install is deleted and rebuilt into the same prefix,
+            # and its build tree, configured for the previous kit, goes with it.
+            provide_sources("9.8.7")
+            module_build = Path(configuration["build"]) / "qt-dependencies" / "qtmultimedia"
+            cache = module_build / "CMakeCache.txt"
+
+            # A first build has no tree to keep; a tree configured for this kit is kept.
+            shutil.rmtree(multimedia)
+            build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue(commands)
+            module_build.mkdir(parents=True)
+            cache.write_text("CMAKE_TOOLCHAIN_FILE:FILEPATH=" + build_webclient.toolchain_file(configuration)
+                             + "\n", encoding="utf-8")
+            build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue(module_build.exists())
+
+            install(multimedia, "Multimedia", "9.8.6")
+            cache.write_text("CMAKE_TOOLCHAIN_FILE:FILEPATH=/Qt/9.8.6/qt.toolchain.cmake\n", encoding="utf-8")
+            commands.clear()
+            build_webclient.ensure_modules(configuration, {}, run)
+            self.assertFalse((multimedia / "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake").exists())
+            self.assertFalse(module_build.exists())
+            self.assertIn("-DQT_MULTIMEDIA_INSTALL_PREFIX=" + str(multimedia), commands[0])
+            self.assertTrue(qtro.exists())
+
+            # Any other stale prefix is refused: an installed Qt kit, or a shared build tree.
+            for other in (self.root / "Qt" / "9.8.6" / "wasm_singlethread", Path(configuration["build"])):
+                install(other, "Multimedia", "9.8.6")
+                with self.assertRaisesRegex(ValueError, "not this script's default prefix"):
+                    build_webclient.ensure_modules(dict(configuration, multimedia=str(other)), {}, run)
+                self.assertTrue((other / "lib/cmake/Qt6Multimedia").exists())
+
+            # So is the default prefix when it is a symlink to somewhere shared.
+            shared = self.root / "shared"
+            install(shared, "Multimedia", "9.8.6")
+            multimedia.symlink_to(shared, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "not this script's default prefix"):
+                build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue((shared / "lib/cmake/Qt6Multimedia").exists())
 
     def test_local_build_rejects_mismatched_output_before_native_staging(self) -> None:
         self.pack()

@@ -3,12 +3,11 @@
 
 WHY IT READS JSON, NEVER THE TEXT OUTPUT
 ----------------------------------------
-qmllint's text output loses findings. Each file's messages are buffered until the file is done
-(qqmljslinter.cpp:685, flushed at :617), and a function whose type propagation re-runs (typically a
-loop) clears the WHOLE buffer (qqmljslogger.cpp:411-418 -> qcoloroutput.cpp:64-67). The message
-list behind --json is untouched. On Qt 6.12.0 that hid 60 findings in this tree, four of them
-ReferenceErrors that shipped (PostShotReviewPage `pa`, #2176's log). Upstream: QTBUG-151969, fixed
-by Gerrit 768762 for 6.12.1; JSON stays because it names every file linted, so coverage is proven.
+Up to Qt 6.12.0, qmllint's text output lost findings: a function whose type propagation re-ran
+(typically a loop) cleared the file's whole message buffer (qqmljslogger.cpp:411-418 in 6.12.0). It
+hid 60 findings in this tree, four of them ReferenceErrors that shipped (PostShotReviewPage `pa`,
+#2176's log). Fixed upstream (QTBUG-151969, Gerrit 768762): the logger now truncates to a mark
+(qqmljslogger.cpp:387,419). JSON stays because it names every file linted, so coverage is proven.
 
 WHAT IT IS FOR
 --------------
@@ -44,6 +43,8 @@ import tempfile
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+import qt_version
 
 REPO = Path(__file__).resolve().parent.parent
 BASELINE = REPO / "qml-diagnostics-baseline.json"
@@ -98,8 +99,8 @@ def relative_to_repo(path: str) -> str:
 
 def find_qmllint() -> str:
     for c in (
-        Path.home() / "Qt/6.12.0/macos/bin/qmllint",
-        Path("C:/Qt/6.12.0/msvc2022_64/bin/qmllint.exe"),
+        Path.home() / f"Qt/{qt_version.pinned()}/macos/bin/qmllint",
+        Path(f"C:/Qt/{qt_version.pinned()}/msvc2022_64/bin/qmllint.exe"),
     ):
         if c.exists():
             return str(c)

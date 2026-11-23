@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <memory>
 
-#include "accessiblevaluechange.h"
 
 static QString qmlBlock(const QString& source, const QString& marker)
 {
@@ -65,7 +64,6 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
                                 QStringLiteral("adjustValueWithStep")})
         functions += qmlBlock(source, QStringLiteral("function %1(").arg(name)) + QLatin1Char('\n');
     for (QString* block : {&header, &semantics, &popup, &functions}) {
-        block->replace(QStringLiteral("AccessibleValueChange"), QStringLiteral("root.notifier"));
         block->replace(QStringLiteral("TranslationManager"), QStringLiteral("root.translator"));
         block->replace(QStringLiteral("Theme."), QStringLiteral("root.themeMock."));
         block->replace(QStringLiteral("AccessibilityManager"), QStringLiteral("root.accessibilityMock"));
@@ -101,14 +99,12 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     });
 
     QQmlEngine engine;
-    auto* notifier = AccessibleValueChange::create(&engine, &engine);
     QQmlComponent component(&engine);
     component.setData(QStringLiteral(R"QML(
         import QtQuick
         import QtQuick.Layouts
         Item {
             id: root
-            property QtObject notifier
             property real hostValue: 200
             property bool echo: false
             property int modifications: 0
@@ -143,7 +139,6 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
         }
     )QML").arg(header, semantics, popup, functions).toUtf8(), QUrl());
     std::unique_ptr<QObject> object(component.createWithInitialProperties({
-        {QStringLiteral("notifier"), QVariant::fromValue(notifier)},
         {QStringLiteral("to"), 1000.0}}));
     QVERIFY2(object, qPrintable(component.errorString()));
     auto* popupItem = object->findChild<QQuickItem*>();
@@ -162,8 +157,15 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
                 && event.id != 0 && event.child == -1 && event.resolvedObject == target;
         });
     };
-    QVERIFY(sawValue(object.get(), 200)); // Completion covers values bound before role assignment.
+    const auto eventsFor = [&](QObject* target) {
+        return std::count_if(events.cbegin(), events.cend(),
+                             [=](const NumericEvent& event) { return event.object == target; });
+    };
+    // Qt sends the bound starting value itself; a second sender would repeat it.
+    QVERIFY(sawValue(object.get(), 200));
     QVERIFY(sawValue(popupItem, 200));
+    QCOMPARE(eventsFor(object.get()), 1);
+    QCOMPARE(eventsFor(popupItem), 1);
     QCOMPARE(popupIface->valueInterface()->minimumValue().toDouble(), 0.0);
     QCOMPARE(popupIface->valueInterface()->maximumValue().toDouble(), 1000.0);
     for (const double value : {500.0, 200.0, 40.0, 80.0}) {
@@ -171,6 +173,9 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
         QVERIFY(object->setProperty("hostValue", value));
         QVERIFY(sawValue(object.get(), value));
         QVERIFY(sawValue(popupItem, value));
+        // Qt sends these itself; a second sender makes a screen reader repeat the value.
+        QCOMPARE(eventsFor(object.get()), 1);
+        QCOMPARE(eventsFor(popupItem), 1);
         QCOMPARE(iface->valueInterface()->currentValue().toDouble(), value);
         QCOMPARE(popupIface->valueInterface()->currentValue().toDouble(), value);
     }
@@ -202,15 +207,6 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     QVERIFY(object->setProperty("hostValue", 1000.0));
     iface->actionInterface()->doAction(QAccessibleActionInterface::increaseAction());
     QCOMPARE(object->property("commits").toInt(), 4); // A pinned step is a no-op.
-
-    QAccessible::setActive(false);
-    events.clear();
-    QVERIFY(object->setProperty("hostValue", 65.0));
-    QVERIFY(events.isEmpty());
-    QAccessible::setActive(true);
-    QCOMPARE(iface->valueInterface()->currentValue().toDouble(), 65.0);
-    notifier->notifyNumericValueChanged(object.get());
-    QVERIFY(sawValue(object.get(), 65));
 }
 
 void NumericAccessibilityRegression::stringBrowserRefreshRetainsRowsAndAcceptsDeferredChanges()

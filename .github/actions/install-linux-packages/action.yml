@@ -23,12 +23,15 @@ runs:
       env:
         EXTRA: ${{ inputs.extra-packages }}
       run: |
+        # libva2/libva-drm2: Qt 6.12.1's libQt6Multimedia links VA-API directly
+        # (qtmultimedia/src/multimedia/CMakeLists.txt:191-195).
         base="build-essential cmake ninja-build fuse libfuse2 libssl-dev pkg-config
           libgl1-mesa-dev libgstreamer-gl1.0-0 libpulse-dev libpulse0 libspeechd2
           libxkbcommon-dev libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-glx0
           libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render0
           libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-util1
-          libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb-dev"
+          libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb-dev
+          libva2 libva-drm2"
         list=$(printf '%s %s' "$base" "$EXTRA" | tr -s ' \n' '\n\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
         echo "list=$list" >> "$GITHUB_OUTPUT"
         echo "hash=$(printf '%s' "$list" | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"

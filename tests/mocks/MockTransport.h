@@ -18,8 +18,9 @@ class MockTransport : public DE1Transport {
 public:
     explicit MockTransport(QObject* parent = nullptr) : DE1Transport(parent) {}
 
-    // Captured writes
+    // Captured writes; urgent ones also land in urgentWrites.
     QList<QPair<QBluetoothUuid, QByteArray>> writes;
+    QList<QPair<QBluetoothUuid, QByteArray>> urgentWrites;
     // Captured reads, in submission order.
     QList<QBluetoothUuid> reads;
 
@@ -43,6 +44,10 @@ public:
     // DE1Transport interface
     void write(const QBluetoothUuid& uuid, const QByteArray& data) override {
         writes.append({uuid, data});
+    }
+    void writeUrgent(const QBluetoothUuid& uuid, const QByteArray& data) override {
+        urgentWrites.append({uuid, data});
+        write(uuid, data);
     }
     // Recorded, not answered: a read on the real transport queues behind the
     // write and comes back as dataReceived() later, which tests drive by hand.
@@ -95,7 +100,7 @@ public:
 
     // Test helpers
     QByteArray lastWriteData() const { return writes.isEmpty() ? QByteArray() : writes.last().second; }
-    void clearWrites() { writes.clear(); }
+    void clearWrites() { writes.clear(); urgentWrites.clear(); }
 
     // Flip simulated connection state and emit the matching transport signal.
     // Used by tests that verify behaviour across a disconnect/reconnect cycle.

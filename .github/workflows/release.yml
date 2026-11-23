@@ -33,7 +33,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  QT_VERSION: '6.12.0'
+  # Both Apple jobs build with this Xcode on the xcode-27 image. Apple requires the iOS 27 SDK for
+  # App Store uploads from April 2027 (developer.apple.com/news/?id=k1mtkt1k).
+  XCODE_VERSION: '27.2'
 
 jobs:
   plan:
@@ -42,7 +44,22 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       platforms: ${{ steps.select.outputs.platforms }}
+      qt_version: ${{ steps.qt.outputs.version }}
     steps:
+      # qt-version.txt is the only place the Qt version is written (build-config spec).
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            qt-version.txt
+            scripts/qt_version.py
+          sparse-checkout-cone-mode: false
+
+      - name: Read the Qt version
+        id: qt
+        run: |
+          version="$(python3 scripts/qt_version.py)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Validate selected platforms
         id: select
         env:
@@ -73,6 +90,7 @@ jobs:
         if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/github-script@v9
         with:
+          retries: 3
           script: |
             let tag;
             if (context.ref.startsWith('refs/tags/v')) {
@@ -110,13 +128,24 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      # The reusable Qt Wasm module recipe, named once for every step below.
+      - name: Name the Qt Wasm module recipe
+        id: wasm-recipe
+        env:
+          QT: ${{ needs.plan.outputs.qt_version }}
+          HASH: ${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh', 'tools/qtmodules-wasm/wasm_module_recipe.py') }}
+        run: |
+          echo "artifact=qt-wasm-modules-$QT-emscripten-5.0.5-wasm-singlethread-$HASH" >> "$GITHUB_OUTPUT"
+          echo "key=qt-wasm-modules-singlethread-$QT-emscripten5.0.5-$HASH" >> "$GITHUB_OUTPUT"
+
       - name: Find a reusable Qt Wasm module artifact
         id: wasm-module-artifact
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
         uses: actions/github-script@v9
         env:
-          ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          ARTIFACT_NAME: ${{ steps.wasm-recipe.outputs.artifact }}
         with:
+          retries: 3
           script: |
             const artifactName = process.env.ARTIFACT_NAME;
             const repository = await github.rest.repos.get(context.repo);
@@ -159,7 +188,7 @@ jobs:
         if: steps.wasm-module-artifact.outputs.run_id != ''
         uses: actions/download-artifact@v8
         with:
-          name: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          name: ${{ steps.wasm-recipe.outputs.artifact }}
           path: ${{ runner.temp }}/qt-wasm-module-artifact
           run-id: ${{ steps.wasm-module-artifact.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -167,7 +196,7 @@ jobs:
       - name: Verify and install reusable Qt Wasm modules
         if: steps.wasm-module-artifact.outputs.run_id != ''
         env:
-          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          QT_WASM_MODULE_RECIPE_KEY: ${{ steps.wasm-recipe.outputs.key }}
         run: |
           python3 tools/qtmodules-wasm/verify-ci-package.py \
             "$RUNNER_TEMP/qt-wasm-module-artifact" \
@@ -199,7 +228,7 @@ jobs:
       - name: Set up Wasm compiler cache
         uses: ./.github/actions/setup-compiler-cache
         with:
-          key: wasm-qt6.12.0-emscripten5.0.5
+          key: wasm-qt${{ needs.plan.outputs.qt_version }}-emscripten5.0.5
           use_cache: ${{ inputs.use_cache }}
           # One cache serves the Qt modules and app for every native platform.
           # A cold build with the modules occupied ~425 MB; the app alone ~50 MB
@@ -224,7 +253,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           host: linux
           target: desktop
           arch: linux_gcc_64
@@ -245,26 +274,26 @@ jobs:
 
       # install-qt-action caches its whole `dir` (main.ts:930), so the SDK gets its
       # own: in the host's folder its entry also held the shared host Qt (483 MiB,
-      # run 40278609430). aqt skips installing a host when <dir>/6.12.0/gcc_64/bin/qmake
+      # run 40278609430). aqt skips installing a host when <dir>/<version>/gcc_64/bin/qmake
       # is a file (metadata.py:608-613), which a symlink satisfies; tar caches the link.
       - name: Point the Wasm SDK folder at the shared host Qt
         run: |
-          mkdir -p "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0"
-          ln -sfn "$DECENZA_WASM_HOST_QT" "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/gcc_64"
-          test -f "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/gcc_64/bin/qmake"
+          mkdir -p "$RUNNER_TEMP/qt-wasm-sdk/Qt/${{ needs.plan.outputs.qt_version }}"
+          ln -sfn "$DECENZA_WASM_HOST_QT" "$RUNNER_TEMP/qt-wasm-sdk/Qt/${{ needs.plan.outputs.qt_version }}/gcc_64"
+          test -f "$RUNNER_TEMP/qt-wasm-sdk/Qt/${{ needs.plan.outputs.qt_version }}/gcc_64/bin/qmake"
 
       - name: Install single-threaded Qt Wasm SDK
         uses: jurplel/install-qt-action@v4
         with:
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           host: all_os
           target: wasm
           arch: wasm_singlethread
           modules: ${{ steps.qt_modules.outputs.list }}
           dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: true
-          cache-key-prefix: qt-wasm-singlethread-6.12.0-v4
+          cache-key-prefix: qt-wasm-singlethread-${{ needs.plan.outputs.qt_version }}-v4
 
       - name: Install Emscripten 5.0.5
         # Qt 6.12's binary SDK requires this ABI: https://doc.qt.io/qt-6.12/wasm.html
@@ -277,7 +306,7 @@ jobs:
       - name: Fetch stock Qt module sources
         if: steps.wasm-module-artifact.outputs.run_id == ''
         run: |
-          python -m aqt install-src linux 6.12.0 --outputdir "$RUNNER_TEMP/qt-wasm-src/Qt" --archives qtmultimedia qtremoteobjects
+          python -m aqt install-src linux ${{ needs.plan.outputs.qt_version }} --outputdir "$RUNNER_TEMP/qt-wasm-src/Qt" --archives qtmultimedia qtremoteobjects
 
       - name: Build stock Multimedia and Remote Objects for Wasm
         id: wasm-module-build
@@ -289,7 +318,7 @@ jobs:
           tools/qtmodules-wasm/build-ci.sh \
             "$QT_ROOT_DIR" \
             "$DECENZA_WASM_HOST_QT" \
-            "$RUNNER_TEMP/qt-wasm-src/Qt/6.12.0/Src"
+            "$RUNNER_TEMP/qt-wasm-src/Qt/${{ needs.plan.outputs.qt_version }}/Src"
           ccache --show-stats --verbose
           ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
@@ -335,8 +364,8 @@ jobs:
         id: wasm-module-package
         if: steps.wasm-module-artifact.outputs.run_id == ''
         env:
-          QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-src/Qt/6.12.0/Src
-          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-src/Qt/${{ needs.plan.outputs.qt_version }}/Src
+          QT_WASM_MODULE_RECIPE_KEY: ${{ steps.wasm-recipe.outputs.key }}
         run: |
           python3 tools/qtmodules-wasm/package-ci.py \
             "$GITHUB_WORKSPACE/build/qt-wasm-module-package" \
@@ -346,7 +375,7 @@ jobs:
         id: wasm-module-artifact-upload
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          name: ${{ steps.wasm-recipe.outputs.artifact }}
           path: build/qt-wasm-module-package/
           if-no-files-found: error
           overwrite: true
@@ -358,8 +387,9 @@ jobs:
         continue-on-error: true
         uses: actions/github-script@v9
         env:
-          ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          ARTIFACT_NAME: ${{ steps.wasm-recipe.outputs.artifact }}
         with:
+          retries: 3
           script: |
             const artifactName = process.env.ARTIFACT_NAME;
             const repository = await github.rest.repos.get(context.repo);
@@ -484,24 +514,13 @@ jobs:
           # list stops at 6.7.3 and the step fails before the cache lookup. aqt's
           # --autodesktop still installs the Linux host Qt alongside it.
           host: 'all_os'
-          version: ${{ env.QT_VERSION }}
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'android'
           arch: 'android_arm64_v8a'
           modules: ${{ steps.qt_modules.outputs.list }}
           install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
           cache: true
           cache-key-prefix: 'qt-android-v1'
-
-      - name: Install instrumented QtQml
-        run: |
-          # Keep the downloaded SDK cache stock and reject a different Qt build.
-          python3 tools/qt-gc-diagnostics/verify_artifact.py --sdk-root "$QT_ROOT_DIR"
-          STAGED_QT="$RUNNER_TEMP/qt-android-gc"
-          cp -a "$QT_ROOT_DIR" "$STAGED_QT"
-          rm -f "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
-          cp android/qt-overrides/libQt6Qml_arm64-v8a.so "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
-          echo "QT_ROOT_DIR=$STAGED_QT" >> "$GITHUB_ENV"
-          echo "$STAGED_QT/bin" >> "$GITHUB_PATH"
 
       - name: Install Android NDK and compile platform
         run: |
@@ -552,16 +571,16 @@ jobs:
       # gradle distribution and re-resolves every dependency on each run
       # (~1m14s of the job). Stable key: an exact hit skips re-saving, so
       # this entry never accumulates timestamped copies. The Qt version
-      # pins the gradle/AGP generation — bump the key with Qt upgrades.
+      # pins the gradle/AGP generation, so the key carries it.
       - name: Cache Gradle (androiddeployqt)
         uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-android-qt6.12.0-${{ hashFiles('android/build.gradle', 'android/settings.gradle') }}
+          key: gradle-android-qt${{ needs.plan.outputs.qt_version }}-${{ hashFiles('android/build.gradle', 'android/settings.gradle') }}
           restore-keys: |
-            gradle-android-qt6.12.0-
+            gradle-android-qt${{ needs.plan.outputs.qt_version }}-
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
@@ -666,18 +685,6 @@ jobs:
           APK="$(dirname "${SIGNED[0]}")/Decenza_${VERSION}.apk"
           cp "${SIGNED[0]}" "$APK"
           echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-
-      - name: Verify instrumented QtQml in the APK
-        run: |
-          READELF="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          unzip -p "${{ steps.apk.outputs.apk_path }}" lib/arm64-v8a/libQt6Qml_arm64-v8a.so > "$RUNNER_TEMP/apk-qtqml.so"
-          # androiddeployqt may strip the packaged copy; build ID and revision survive.
-          REVISION=$(python3 -c 'import json; print(json.load(open("android/qt-overrides/manifest.json"))["revision_marker"])')
-          grep -aFq "$REVISION" "$RUNNER_TEMP/apk-qtqml.so"
-          EXPECTED=$("$READELF" -n android/qt-overrides/libQt6Qml_arm64-v8a.so | awk '/Build ID:/ {print $NF}')
-          ACTUAL=$("$READELF" -n "$RUNNER_TEMP/apk-qtqml.so" | awk '/Build ID:/ {print $NF}')
-          test -n "$EXPECTED" && test "$EXPECTED" = "$ACTUAL"
-          echo "Verified QtQml build ID: $ACTUAL"
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7.0.2
@@ -809,7 +816,7 @@ jobs:
     concurrency:
       group: native-ios-${{ github.ref }}
       cancel-in-progress: true
-    runs-on: macos-26
+    runs-on: xcode-27
 
     steps:
       - name: Checkout code
@@ -831,7 +838,7 @@ jobs:
       - name: Set up Xcode (pin + deployment-target shims)
         uses: ./.github/actions/setup-xcode
         with:
-          xcode-version: '26.4.1'
+          xcode-version: ${{ env.XCODE_VERSION }}
       - name: Pin Python for aqtinstall (aqtinstall#1042)
         uses: actions/setup-python@v7
         with:
@@ -853,7 +860,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'desktop'
           arch: 'clang_64'
           modules: ${{ steps.qt_modules.outputs.list }}
@@ -864,11 +871,11 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'ios'
-          # Qt 6.12.0 split iOS into qt6_6120_device / _simulator_* folders built
-          # with the release (6.12.0-0-202609280346). The old combined `ios`
-          # package aqt 3.3 installs is a July snapshot (6.12.0-0-202607081031)
+          # Since 6.12.0 Qt ships iOS as ios_device / ios_simulator_* folders built
+          # with each release (6.12.1 lists ios_device, checked 2026-11-23). The old
+          # combined `ios` package aqt 3.3 installs was, for 6.12.0, a July snapshot
           # whose Qt6QmlMacros.cmake predates _qt_internal_qml_get_cachegen_compiled_file,
           # which broke configure. aqt 3.3 knows only `ios`; ios_device comes from
           # miurahr/aqtinstall#1048 (open, unmerged), pinned to its head commit.
@@ -897,7 +904,7 @@ jobs:
           # compiler_check sees the same `-v` banner from clang.real
           # whatever the shim does, so a key bump is the only reliable way
           # to invalidate.
-          key: 'ios-arm64-xcode26.4.1-s3'
+          key: ios-arm64-xcode${{ env.XCODE_VERSION }}-s3
           use_cache: ${{ inputs.use_cache }}
           # The 500M default could not hold one -O3 -g build: run 41673682254
           # evicted 334 times and hit 28% while the other legs hit ~73%.
@@ -1163,7 +1170,7 @@ jobs:
     concurrency:
       group: native-macos-${{ github.ref }}
       cancel-in-progress: true
-    runs-on: macos-26
+    runs-on: xcode-27
 
     steps:
       - name: Checkout code
@@ -1204,11 +1211,11 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Select Qt modules (app desktop macos)
+      - name: Select Qt modules (app desktop)
         id: qt_modules
         shell: bash
         run: |
-          list="$(bash scripts/qt_modules.sh app desktop macos)"
+          list="$(bash scripts/qt_modules.sh app desktop)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
@@ -1216,7 +1223,7 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'desktop'
           arch: 'clang_64'
           modules: ${{ steps.qt_modules.outputs.list }}
@@ -1227,7 +1234,7 @@ jobs:
       - name: Set up Xcode (pin + deployment-target shims)
         uses: ./.github/actions/setup-xcode
         with:
-          xcode-version: '26.4.1'
+          xcode-version: ${{ env.XCODE_VERSION }}
 
       - name: Install Apple Developer ID certificate
         env:
@@ -1286,8 +1293,12 @@ jobs:
       - name: Verify universal embedded resources
         run: |
           cmake --build build/macos --config Release --target decenza-verify-webclient --parallel
-          lipo build/macos/Release/Decenza.app/Contents/MacOS/Decenza -verify_arch x86_64 arm64
-          lipo build/macos/Release/decenza-verify-webclient -verify_arch x86_64 arm64
+          # Xcode 27.2's lipo rejects more than one arch per -verify_arch ("requires exactly
+          # one input file"), so check them one at a time.
+          for binary in build/macos/Release/Decenza.app/Contents/MacOS/Decenza \
+                        build/macos/Release/decenza-verify-webclient; do
+            for arch in x86_64 arm64; do lipo "$binary" -verify_arch "$arch"; done
+          done
           arch -arm64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
           arch -x86_64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
 
@@ -1490,7 +1501,7 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'desktop'
           arch: 'win64_msvc2022_64'
           modules: ${{ steps.qt_modules.outputs.list }}
@@ -1531,7 +1542,7 @@ jobs:
         uses: ./.github/actions/setup-compiler-cache
         with:
           variant: sccache
-          key: 'sccache-windows-x64-qt6.12.0-vs2026'
+          key: 'sccache-windows-x64-qt${{ needs.plan.outputs.qt_version }}-vs2026'
           use_cache: ${{ inputs.use_cache }}
 
       - name: Locate OpenSSL 3
@@ -1539,9 +1550,9 @@ jobs:
         shell: powershell
         run: |
           # Qt's Windows TLS plugin loads libssl-<major>-x64.dll for the OpenSSL major
-          # it was built against (qsslsocket_openssl_symbols.cpp:670-716). That was 3
-          # for 6.11.2; confirm it for 6.12.0 (upgrade-qt-6-12 task 2.7) — 6.12 can
-          # build against OpenSSL 4, which would need libssl-4-x64.dll here instead. We previously installed
+          # it was built against (qsslsocket_openssl_symbols.cpp:670-716). Qt's Windows
+          # packages build against OpenSSL 3.5.4 (coin/provisioning/common/windows/openssl.ps1:20);
+          # a move to OpenSSL 4 would need libssl-4-x64.dll here instead. We previously installed
           # OpenSSL via `choco install openssl`, but:
           #   - Unpinned, Chocolatey will ship OpenSSL 4.x which has an incompatible ABI.
           #   - The chocolatey package downloads from slproweb.com/download/Win64OpenSSL-<ver>.exe,
@@ -1734,7 +1745,7 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'desktop'
           arch: 'linux_gcc_64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.
@@ -1957,7 +1968,7 @@ jobs:
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
-          version: '6.12.0'
+          version: ${{ needs.plan.outputs.qt_version }}
           target: 'desktop'
           arch: 'linux_gcc_arm64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.

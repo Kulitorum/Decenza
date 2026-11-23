@@ -8,7 +8,7 @@ whether AOT is worth paying for.
 **Undated rebuild-cost numbers were measured on 2026-07-27 at commit `99f8f8f1`; the
 AOT coverage section was re-measured on 2026-07-29** after the QML cleanup landed.
 macOS Debug build, Qt 6.11.1 — the version they were taken under, left as measured
-rather than relabelled to the current 6.12.0. Sections dated 2026-10 were measured
+rather than relabelled to a later version. Sections dated 2026-10 were measured
 under Qt 6.12.0. They are a snapshot, not a contract.
 Every one is re-derivable with the commands in "How to re-derive" at the bottom — do
 that rather than trusting these figures after the QML tree or the Qt version has moved.
@@ -128,9 +128,9 @@ output fails the registration test. On the local Mac Ninja graph this reduced
 `build_tests` from 1,735 to 983 compile commands (43.3%), with zero app objects or
 app QML units in either the test or lint closure. These are dependency-graph
 counts, not a measured Linux time reduction. Both sanitizer legs, instrumentation,
-leak checks and cache budget remain unchanged. Qt's Xcode generator deliberately
-makes its metadata target depend on the module (Qt6QmlMacros.cmake:4445–4458);
-the nightly uses Ninja.
+leak checks and cache budget remain unchanged. Qt's Xcode, Visual Studio and Makefile
+generators deliberately make the metadata target depend on the module
+(Qt6QmlMacros.cmake:4483–4503); Ninja is exempt, and the nightly uses Ninja.
 
 The first optimized Linux ASan run (`40115684359`) compiled 976 objects and no
 native app objects; its Build step took 24m36s, versus 60m19s in the earlier run
@@ -187,7 +187,7 @@ correctness. The goal is to reduce how often it changes, not to sever the edge.
 Both the metatypes and qmltypes edges carry `restat = 1`. A generator must preserve
 the output timestamp for identical content before Ninja can prune downstream
 work. Qt 6.12's metatype collection uses `copy_if_different`
-(`macos/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:1654-1657`). This is why most
+(`macos/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:1675-1678`). This is why most
 C++ edits do *not* trigger the full rebuild:
 only metadata-visible changes (a new `Q_PROPERTY`, signal, slot, `Q_INVOKABLE`,
 `Q_ENUM`) alter the JSON. Editing a function body does not.
@@ -286,7 +286,7 @@ is the thing being fixed.
 ### Content-stable cachegen keeps that dependency cheap (2026-10-25)
 
 `qSaveQmlJSUnitAsCpp()` commits its output unconditionally
-(`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588, 711`), so `restat`
+(`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:595-599, 722`), so `restat`
 alone never pruned anything and every QML edit recompiled all ~360 objects.
 `decenza_use_stable_qmlcachegen()` (`cmake/QmlCacheGeneration.cmake`) points Qt's
 documented `QT_QMLCACHEGEN_EXECUTABLE` at `cmake/qmlcachegen_stable.py`, which
@@ -592,10 +592,10 @@ memory. **An unexplained mechanism is a reason to keep investigating, not a reas
 to write a ban into a reference doc.**
 
 Annotations do still change runtime semantics, not just codegen: a `string` parameter
-converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:368-369` ->
-`qv4runtime.cpp:620-621`), which silently defeats an `if (!x) return ""` guard. Optional
+converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:379-380` ->
+`qv4runtime.cpp:624-625`), which silently defeats an `if (!x) return ""` guard. Optional
 parameters and guarded ones must be `var`, which coerces nothing
-(`qv4jscall_p.h:362-363`).
+(`qv4jscall_p.h:373-374`).
 
 **Context properties: gone.** `src/main.cpp` now contains zero `setContextProperty`
 calls and 23 QML singletons (`src/core/contextsingletons_qml.h`). The entire
@@ -710,7 +710,7 @@ The condition is `variant() == ObjectById && !retrieved->isReferenceType()`
 (`qqmljstypepropagator.cpp:350-353`): `genericType()` walks the base chain looking
 for a scope whose `internalName()` is literally `QObject`, and returns
 `m_jsValueType` — a value type — when the walk does not get there
-(`qqmljstyperesolver.cpp:891-972`).
+(`qqmljstyperesolver.cpp:892-973`).
 
 **Referencing by `id` any object whose type comes from QtQuick.Controls fails.
 Everything else works.** Established by controlled experiment (an 11-line probe

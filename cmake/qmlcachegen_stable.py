@@ -1,7 +1,7 @@
 """Run qmlcachegen, but replace its outputs only when their bytes change.
 
 qmlcachegen commits its output unconditionally (QSaveFile + Truncate,
-qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588, 711 in 6.12.0),
+qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:595-599, 722),
 so Ninja's restat on Qt's edges never sees an unchanged output and every
 dependent object recompiles. Leaving an identical output untouched lets
 restat prune that compile.

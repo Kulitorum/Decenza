@@ -1,59 +1,25 @@
 # Qt patches kept as source
 
-**Nothing in this directory is built, packaged or shipped.** These are `git format-patch` exports of
-Qt changes Decenza once carried as a patched binary, kept so the work is recoverable if a decision
-to stop shipping it is reversed. Decenza builds against stock Qt — see the
-`Decenza Ships Stock Qt Runtime Binaries` requirement in `openspec/specs/build-config/spec.md`.
+**Nothing here is built, packaged or shipped.** This records Qt changes Decenza once carried as a
+patched binary: where each one went, and where to recover it. Decenza builds against stock Qt — see
+the `Decenza Ships Stock Qt Runtime Binaries` requirement in `openspec/specs/build-config/spec.md`.
+No patch is kept in this directory today.
 
-A patch here is not an endorsement of applying it. It is a record.
+## Android deadlock-protector abort (fixed upstream in Qt 6.12.1)
 
-## `qtbase-android-deadlock-protector-no-abort.patch`
+`QAndroidPlatformOpenGLWindow::eglSurface()` called `qFatal()` when it could not acquire the
+process-wide `AndroidDeadlockProtector` (QTBUG-140490, QTBUG-144207; field reports on
+[#1663](https://github.com/Kulitorum/Decenza/issues/1663)). Decenza shipped a patch for it until
+Qt 6.11.2, then kept it here as source only.
 
-**What it fixes.** `QAndroidPlatformOpenGLWindow::eglSurface()` calls `qFatal()` when it cannot
-acquire the process-wide `AndroidDeadlockProtector`, killing the app. Losing that race is not a
-deadlock — some unrelated subsystem (input method, accessibility, permissions) is simply mid-call
-and holding the single global flag. The recoverable path is already written directly below the
-`qFatal` and is merely unreachable; the Vulkan backend in the same release takes exactly that path
-on the identical condition. The patch's own commit message carries the full reasoning, the field
-data and the trade-offs — read it rather than this summary.
+Qt 6.12.1 removes the cause. Gerrit 775580 (`dev`) rewrote the Android surface lifecycle for
+single-thread ownership, and its cherry-pick 782087 merged on `6.12`. In the 6.12.1 source,
+`qtbase/src/plugins/platforms/android/qandroidplatformopenglwindow.cpp` no longer acquires the
+protector, and "Failed to acquire deadlock protector" appears nowhere in the Android platform
+plugin. The patch was deleted with the 6.12.1 upgrade; it is in git history before that change.
 
-- **Upstream bugs**: QTBUG-140490, QTBUG-144207
-- **Origin**: qtbase commit `358540b2`, authored 2026-07-27, on top of `bb680db3`
-- **Also at**: `github.com/skialpine/qtbase`, branch `a11y/android-talkback-fixes`
-- **Touches**: `src/plugins/platforms/android/qandroidplatformopenglwindow.cpp`, +16 −1
+## QtQml garbage-collection diagnostics
 
-**Verified to apply to `v6.11.2`** (`git apply --check`, 2026-08-18) **and `v6.12.0`**
-(`patch --dry-run` against `~/Qt/6.12.0/Src`, 2026-10-01). The `qFatal` this replaces is still
-present at both tags, at `qandroidplatformopenglwindow.cpp:68`.
-
-**Why it is not shipped.** Decenza shipped it as a patched Android platform plugin in
-`android/qt-overrides/` until the Qt 6.11.2 upgrade, which deleted that directory. The other two
-patches that directory carried (TalkBack typing echo QTBUG-118858, keyboard-on-accessibility-focus
-QTBUG-145786) are upstream in 6.11.2 and are gone for good. This one is not upstream, so dropping it
-gives back the crash it prevents — 9 reports in roughly 8 months across a user base in the hundreds,
-judged not to justify a permanent fork with an ABI lock and a rebuild obligation on every Qt bump.
-
-**The upstream fix, if it lands, supersedes this.** Gerrit
-[775580](https://codereview.qt-project.org/c/qt/qtbase/+/775580) — "Android: rewrite surface
-lifecycle for single-thread ownership" — moves surface ownership to the GUI thread so the protector
-no longer guards these paths, which is the better fix. It carries `Fixes: QTBUG-140490` /
-`QTBUG-144207` and `Pick-to: 6.12`, so once merged it lands in a 6.12 patch release and makes this
-file dead. As of 2026-10-06 it is `NEW` on `dev`. It replaced Gerrit 735089, abandoned 2026-09-28,
-which the patch's commit message still cites.
-
-**Field status** is tracked on [#1663](https://github.com/Kulitorum/Decenza/issues/1663): since
-v2.0.4 ships without the patch, a report carrying `Failed to acquire deadlock protector` is the
-signal to reconsider.
-
-**If it has to come back.** Rebuild the Android platform plugin from qtbase at the tag Decenza
-builds against:
-
-```
-git checkout v<qt-version> && git am <this-patch>
-```
-
-then restore the `release.yml` override step *together with* the `BUILT_AGAINST_QT`
-version-lock guard that fails the build on a Qt/artifact mismatch — the guard is what keeps a stale
-plugin from producing an APK that dies at startup on every device, and it must not be reintroduced
-without it. The spec requires the change that does this to state the observed crash rate it is
-responding to.
+The instrumented Android `libQt6Qml` that shipped for #2179 was retired with the Qt 6.12.1
+upgrade. Its patches, rebuild recipe and recovery commits (its tests are at `62fef1177`) are kept beside the probes that
+exercise them, in [`tools/qt-gc-diagnostics/`](../../tools/qt-gc-diagnostics/README.md).

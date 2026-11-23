@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(Decenza VERSION 2.2.0 LANGUAGES C CXX)
 
+include("${CMAKE_SOURCE_DIR}/cmake/DecenzaQtVersion.cmake")
 include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
 decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
 include_directories("${DECENZA_PACKAGE_ID_INCLUDE_DIR}")
@@ -144,7 +145,7 @@ endif()
 option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" ${_tsnet_default})
 
 # Qt 6 modules - core required components
-find_package(Qt6 6.12.0 REQUIRED COMPONENTS
+find_package(Qt6 ${DECENZA_QT_VERSION} REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui
@@ -201,11 +202,8 @@ if(ENABLE_QUICK3D)
     endif()
 endif()
 
-# Silence Qt policy warnings (qt_policy introduced in Qt 6.5)
-if(Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0")
-    qt_policy(SET QTP0001 NEW)
-    qt_policy(SET QTP0004 NEW)
-endif()
+qt_policy(SET QTP0001 NEW)
+qt_policy(SET QTP0004 NEW)
 
 # Enable QML debugging in debug builds, or in an optimised build with DECENZA_QML_DEBUG
 # (release.yml's qml_profiling input): the QML profiler needs the debug services,
@@ -769,7 +767,6 @@ set(SOURCES
     src/ble/transport/scalebletransport.cpp
     src/ble/transport/qtscalebletransport.cpp
     src/core/asynclogger.cpp
-    src/core/btlogfilter.cpp
     src/machine/machinestate.cpp
     src/machine/weightprocessor.cpp
     src/machine/stepexitarbiter.cpp
@@ -1192,7 +1189,6 @@ set(HEADERS
     src/ble/transport/scalebletransport.h
     src/ble/transport/qtscalebletransport.h
     src/core/asynclogger.h
-    src/core/btlogfilter.h
     src/machine/machinestate.h
     src/machine/frameexitreason.h
     src/machine/weightprocessor.h

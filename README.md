@@ -3,7 +3,7 @@
 A modern Qt/QML controller application for the Decent DE1 espresso machine with Bluetooth LE connectivity.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-blue)
-![Qt](https://img.shields.io/badge/Qt-6.12.0+-green)
+![Qt](https://img.shields.io/badge/Qt-6.12-green)
 ![License](https://img.shields.io/badge/license-LGPL--3.0-orange)
 
 ## Developer Note (Qt Creator)
@@ -47,7 +47,7 @@ If Qt Creator shows `No executable specified` after pulling changes:
 
 1. Download and install Qt from [qt.io](https://www.qt.io/download-qt-installer)
 2. Run the Qt Online Installer
-3. Select **Qt 6.12.0** — the matching native/Wasm package currently pins this version. Follow the [toolchain setup guide](tools/webclient/README.md#one-time-toolchain-setup) for its modules and Emscripten version.
+3. Select the Qt version in [`qt-version.txt`](qt-version.txt) — the native and Wasm builds both require it. Follow the [toolchain setup guide](tools/webclient/README.md#one-time-toolchain-setup) for its modules and Emscripten version.
 
 ### Required Qt Modules
 

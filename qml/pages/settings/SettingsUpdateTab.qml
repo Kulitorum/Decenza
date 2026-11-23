@@ -760,9 +760,8 @@ Item {
 
                             Accessible.role: Accessible.StaticText
                             Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
-                            // toAccessibleText: `text` is HTML now, so tags and the emoji
-                            // <img>s are what need stripping, not markdown syntax.
-                            Accessible.description: Theme.toAccessibleText(text)
+                            // `text` is rendered HTML; describe the Markdown source instead.
+                            Accessible.description: Theme.stripMarkdown(releaseNotesContent.markdown)
                             Accessible.focusable: true
                             activeFocusOnTab: true
                         }
@@ -967,7 +966,7 @@ Item {
 
                         Accessible.role: Accessible.StaticText
                         Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
-                        Accessible.description: Theme.stripMarkdown(text)
+                        Accessible.description: Theme.stripMarkdown(releaseNotesContent.markdown)
                         Accessible.focusable: true
                         activeFocusOnTab: true
                     }

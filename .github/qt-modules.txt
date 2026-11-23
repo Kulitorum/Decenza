@@ -1,9 +1,10 @@
 # Qt add-on modules for every install-qt-action step, by install profile. Read through
 # scripts/qt_modules.sh; scripts/check_qt_module_lists.py refuses a hand-written `modules:`.
 #
-# Profiles: app (every native app build), desktop (Linux/Windows/macOS on top of app),
-# macos (macOS on top of desktop), wasm (Wasm target). The Wasm build's host tools install
-# app + desktop, the Linux job's set, so the two share one cache entry.
+# Profiles: app (every native app build), desktop (Linux/Windows/macOS on top of app), wasm
+# (Wasm target). The Wasm build's host tools install app + desktop, the Linux job's set, so the
+# two share one cache entry. macOS needs no Qt WebEngine: its Qt WebView uses the native WebKit
+# backend (plugins/webview/libqtwebview_darwin.dylib).
 #
 # qttasktree is unused by Decenza. Qt6Qml includes every installed QML plugin config
 # (qtbase/cmake/QtPublicPluginHelpers.cmake:596-640), and Qt.labs.assetdownloader, built from
@@ -11,7 +12,7 @@
 # Without it every native configure warns "...dependency Qt6TaskTree could not be found".
 #
 # The `profiles` line declares every valid profile; a row naming any other is an error.
-profiles            app desktop macos wasm
+profiles            app desktop wasm
 #
 # module            profiles
 qtquick3d           app wasm
@@ -28,4 +29,3 @@ qtimageformats      app wasm
 qtcanvaspainter     app wasm
 qttasktree          app
 qtserialport        desktop
-qtwebengine         macos

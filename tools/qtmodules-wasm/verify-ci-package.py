@@ -9,24 +9,9 @@ import sys
 import tarfile
 import tempfile
 
+import wasm_module_recipe as recipe
 
-EXPECTED = {
-    "formatVersion": 1,
-    "qtVersion": "6.12.0",
-    "emscriptenVersion": "5.0.5",
-    "target": "wasm_singlethread",
-    "modules": ["qtmultimedia", "qtremoteobjects"],
-    "qtSources": {
-        "version": "6.12.0",
-        "qtmultimedia": "https://code.qt.io/qt/qtmultimedia.git",
-        "qtremoteobjects": "https://code.qt.io/qt/qtremoteobjects.git",
-    },
-}
-REQUIRED = {
-    "qtmultimedia-wasm-install/lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake",
-    "qtro-wasm-install/lib/cmake/Qt6RemoteObjects/Qt6RemoteObjectsConfig.cmake",
-    "manifest.json",
-}
+REQUIRED = recipe.PACKAGE_FILES | {"manifest.json"}
 
 
 def sha256(path: Path) -> str:
@@ -49,9 +34,7 @@ def main() -> int:
     if len(archives) != 1:
         raise SystemExit(f"Expected one Qt Wasm module archive in {artifact_dir}; found {len(archives)}")
     archive_path = archives[0]
-    recipe_hash = recipe_key.rsplit("-", 1)[-1]
-    expected_filename = f"qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm_singlethread-recipe-{recipe_hash}.tar.gz"
-    if archive_path.name != expected_filename:
+    if archive_path.name != recipe.archive_name(recipe_key):
         raise SystemExit("Qt Wasm module archive filename does not match the expected recipe identity")
     checksum_path = artifact_dir / f"{archive_path.name}.sha256"
     manifest_path = artifact_dir / f"{archive_path.name}.manifest.json"
@@ -62,7 +45,7 @@ def main() -> int:
     if listed_name != archive_path.name or sha256(archive_path) != expected_digest:
         raise SystemExit("Qt Wasm module archive checksum validation failed")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if any(manifest.get(key) != value for key, value in EXPECTED.items()):
+    if any(manifest.get(key) != value for key, value in recipe.IDENTITY.items()):
         raise SystemExit("Qt Wasm module package has incompatible Qt, Emscripten, target, or format metadata")
     if manifest.get("recipeCacheKey") != recipe_key:
         raise SystemExit("Qt Wasm module package recipe key does not match this workflow")
@@ -83,7 +66,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="qt-wasm-verify-") as temp_name:
             extracted = Path(temp_name)
             archive.extractall(path=extracted, filter="data")
-            for prefix in ("qtmultimedia-wasm-install", "qtro-wasm-install"):
+            for prefix in recipe.PREFIXES:
                 source = extracted / prefix
                 destination = build_dir / prefix
                 if not source.is_dir():

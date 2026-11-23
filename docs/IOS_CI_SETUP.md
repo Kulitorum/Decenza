@@ -5,7 +5,7 @@ This guide explains how to set up automated iOS builds that can be triggered fro
 ## Overview
 
 The workflow (`.github/workflows/release.yml`) will:
-1. Build the iOS app using Qt 6.12.0
+1. Build the iOS app using the Qt version in `qt-version.txt`
 2. Sign it with your distribution certificate
 3. Upload to App Store Connect
 4. Save the IPA as a downloadable artifact

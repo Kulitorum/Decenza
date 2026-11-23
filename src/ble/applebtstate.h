@@ -4,17 +4,12 @@
 
 // Apple-platform adapter for CoreBluetooth's CBCentralManager.state.
 //
-// Replaces two broken paths in BLEManager::isBluetoothAvailable():
-//   * macOS — QBluetoothLocalDevice::hostMode() reports HostConnectable
-//     even when the user has Bluetooth turned off (QTBUG-50838), so the
-//     "Bluetooth is powered off" banner never fires.
-//   * iOS — QBluetoothLocalDevice isn't available at all, and the current
-//     code unconditionally returns true, so the banner can't fire there
-//     either (including when the user has denied the Bluetooth permission).
-//
-// CBCentralManager is the native source of truth on both platforms. Its
-// delegate fires whenever the state transitions (e.g. the user toggles
-// BT, revokes permission, or airplane mode flips).
+// Backs BLEManager::isBluetoothAvailable() on both Apple platforms. iOS has no
+// QBluetoothLocalDevice, so CBCentralManager is the only source there, and using
+// it on macOS too gives one path that also reports a denied Bluetooth permission.
+// (Qt 6.12's macOS hostMode() does read the controller's power state,
+// qtconnectivity/src/bluetooth/qbluetoothlocaldevice_macos.mm:435-447.) Its delegate fires whenever the state
+// transitions (e.g. the user toggles BT, revokes permission, or airplane mode flips).
 //
 // This header is a plain QObject declaration and compiles on every
 // platform. The implementation in applebtstate.mm is Apple-only and is

@@ -87,10 +87,16 @@ jobs:
           list="$(bash scripts/qt_modules.sh app desktop)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
+      - name: Read the Qt version
+        id: qt
+        run: |
+          version="$(python3 scripts/qt_version.py)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.12.0'
+          version: ${{ steps.qt.outputs.version }}
           target: 'desktop'
           arch: 'linux_gcc_64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.
@@ -140,9 +146,7 @@ jobs:
           # CMake omits qmllint_check entirely when it cannot find qmllint next to
           # Qt's bin/ — a runtime-only Qt install lacks it. Fail loudly rather than
           # let `ninja` no-op: a gate that silently does not exist is precisely the
-          # green-while-blind failure this gate was written to end. (Whether
-          # install-qt-action ships qmllint on Linux was never confirmed; this step
-          # is what answers that, on the first night it runs.)
+          # green-while-blind failure this gate was written to end.
           if ! ninja -t targets all | grep -q '^qmllint_check:'; then
             echo "::error::qmllint_check target absent — qmllint was not found next to Qt's bin/ at configure time, so the QML diagnostics gate did NOT run."
             exit 1

@@ -359,15 +359,11 @@ QtObject {
         return out.join(sep)
     }
 
+    readonly property int accessibleTextCap: 2000
+
     // Truncate a UTF-16 string at `cap` code units and append an ellipsis,
     // backing off one unit if cap would split a surrogate pair so we
     // don't emit an orphaned high surrogate to the accessibility tree.
-    //
-    // `cap: int` is only safe because BOTH callers resolve `maxLen ?? 2000` into a real
-    // number before calling. Forward an optional maxLen straight through and int coerces
-    // undefined to 0: `s.length <= 0` is false, charCodeAt(-1) is NaN, cut is 0, and every
-    // string becomes a bare ellipsis. That exact bug was hit and reverted on the `maxLen`
-    // parameters below, which is why they are `var`. Keep the `??` at the call site.
     function _truncateWithEllipsis(s: string, cap: int): string {
         if (s.length <= cap) return s
         var c = s.charCodeAt(cap - 1)
@@ -379,15 +375,14 @@ QtObject {
     // characters (e.g. "star star bold star star" for **bold**). Also
     // caps length so large transcripts don't flood the accessibility tree.
     // Pass to Accessible.description on read-only TextAreas that render
-    // Text.MarkdownText. Default cap: 2000 characters.
+    // Text.MarkdownText. Capped at accessibleTextCap characters.
     // Note: the regex chain is a best-effort cleanup and does NOT handle
     // nested or malformed spans (e.g. ***bold-italic***, unclosed **bold) —
     // those pass through partially un-stripped, which is acceptable for an
     // accessibility hint.
-    function stripMarkdown(text: var, maxLen: var): string {
+    function stripMarkdown(text: var): string {
         if (!text) return ""
-        var cap = maxLen ?? 2000
-        var s = text
+        var s = String(text)
             .replace(/```[\s\S]*?```/g, " ")
             .replace(/`([^`]+)`/g, "$1")
             .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
@@ -404,17 +399,16 @@ QtObject {
             .replace(/^\s*-{3,}\s*$/gm, "")
             .replace(/\n{3,}/g, "\n\n")
             .trim()
-        return _truncateWithEllipsis(s, cap)
+        return _truncateWithEllipsis(s, accessibleTextCap)
     }
 
     // Cap plain text length for Accessible.description so very large
     // strings (log output, crash dumps) don't flood the accessibility
-    // tree. Default cap: 2000 characters. For Markdown-formatted content,
+    // tree; capped at accessibleTextCap characters. For Markdown-formatted content,
     // use stripMarkdown instead so formatting chars aren't read literally.
-    function capAccessibleText(text: var, maxLen: var): string {
+    function capAccessibleText(text: var): string {
         if (!text) return ""
-        var cap = maxLen ?? 2000
-        return _truncateWithEllipsis(text, cap)
+        return _truncateWithEllipsis(String(text), accessibleTextCap)
     }
 
     // --- Temperature unit (display/entry only; storage stays Celsius) ---

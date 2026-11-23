@@ -8,7 +8,7 @@ The QtRO transport and `.rep` contract are adapted from the Apache-2.0 licensed 
 
 ## Build in Qt Creator
 
-First build **unmodified** `Qt/6.12.0/Src/qtremoteobjects` using the existing single-threaded Wasm kit. The recorded Mac run used a byte-identical source copy in `build/qtro-wasm-source` so Qt Creator's project settings stay in this workspace. Use Release, the kit's `qt.toolchain.cmake`, native `QT_HOST_PATH`, and these CMake values:
+First build **unmodified** `Qt/<version>/Src/qtremoteobjects` (`<version>` from `qt-version.txt`) using the existing single-threaded Wasm kit. The recorded Mac run used a byte-identical source copy in `build/qtro-wasm-source` so Qt Creator's project settings stay in this workspace. Use Release, the kit's `qt.toolchain.cmake`, native `QT_HOST_PATH`, and these CMake values:
 
 ```text
 CMAKE_INSTALL_PREFIX=<workspace>/build/qtro-wasm-install

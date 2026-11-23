@@ -87,6 +87,9 @@ name: Text invariants
 #     has a search title, and the committed generated index matches the tabs. Blocking: a setting
 #     search cannot find fails silently, and the fix is always mechanical.
 #
+#   check_qt_version_pins.py — the Qt version is written only in qt-version.txt, never in a
+#     workflow, CMake file or build script. Blocking: a second copy is what a bump leaves stale.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -121,19 +124,20 @@ on:
       - 'src/**'
       - 'android/**'
       - 'ios/**'
-      - 'scripts/check_*.py'
-      - 'scripts/settings_search_index.py'
-      - 'scripts/source_lexer.py'
-      - 'tests/CMakeLists.txt'
-      - 'tests/qml/**'
-      - 'tools/webclient/*.qml'
+      - 'tests/**'
+      - 'tools/**'
+      - 'scripts/**'
+      - 'cmake/**'
+      - '**/CMakeLists.txt'
+      - 'qt-version.txt'
+      - 'installer/**'
+      - '*.sh'
+      - '*.bat'
+      - '*.ps1'
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/*.qrc'
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - '.github/qt-modules.txt'
-      - 'scripts/qt_modules.sh'
+      - '.github/**'
   push:
     branches: [main]
     paths:
@@ -141,19 +145,20 @@ on:
       - 'src/**'
       - 'android/**'
       - 'ios/**'
-      - 'scripts/check_*.py'
-      - 'scripts/settings_search_index.py'
-      - 'scripts/source_lexer.py'
-      - 'tests/CMakeLists.txt'
-      - 'tests/qml/**'
-      - 'tools/webclient/*.qml'
+      - 'tests/**'
+      - 'tools/**'
+      - 'scripts/**'
+      - 'cmake/**'
+      - '**/CMakeLists.txt'
+      - 'qt-version.txt'
+      - 'installer/**'
+      - '*.sh'
+      - '*.bat'
+      - '*.ps1'
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/*.qrc'
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - '.github/qt-modules.txt'
-      - 'scripts/qt_modules.sh'
+      - '.github/**'
   workflow_dispatch:
 
 permissions:
@@ -212,6 +217,13 @@ jobs:
       # tag build runs.
       - name: CI Qt modules come from one list
         run: python3 scripts/check_qt_module_lists.py
+
+      # Blocking: a second copy of the Qt version is how a bump leaves one place behind, found
+      # only when that place fails to build.
+      - name: The Qt version is written only in qt-version.txt
+        run: |
+          python3 scripts/check_qt_version_pins.py --self-test
+          python3 scripts/check_qt_version_pins.py
 
       # Blocking: a missed semicolon compiles and lints clean.
       - name: No QML statement glued onto the line above

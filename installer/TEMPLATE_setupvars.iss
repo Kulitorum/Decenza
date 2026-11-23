@@ -5,13 +5,13 @@
 #define SourceDir "C:\CODE\de1-qt"
 
 ; Build directory (where Decenza.exe is located after build)
-#define AppBuildDir "C:\CODE\de1-qt\build\Desktop_Qt_6_10_1_MSVC2022_64bit-Release"
+#define AppBuildDir "C:\CODE\de1-qt\build\<your Qt Creator Release build dir>"
 
 ; Deploy directory (created automatically during installer build)
 #define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
 
-; Qt installation directory
-#define QtDir "C:\Qt\6.10.3\msvc2022_64"
+; Qt installation directory, for the version in qt-version.txt
+#define QtDir "C:\Qt\<version>\msvc2022_64"
 
 ; Directory for MSVC redistributable package (vcredist)
 #define VcRedistDir "C:\Qt\vcredist"

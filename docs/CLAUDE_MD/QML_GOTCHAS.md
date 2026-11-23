@@ -86,7 +86,7 @@ KeyboardAwareContainer {
 
 ## Arrow keys in a ListView drop the focus ring
 
-When keyboard focus sits on a ListView's rows, the first Up/Down hides the ring. The view gives the new current row focus with no key reason (`qquickitemview.cpp:1841`), and a Control draws its ring only for Tab, Backtab or Shortcut (`qquickcontrol.cpp:1432-1436`). `forceActiveFocus(Qt.TabFocusReason)` on that row does nothing, because it already has focus (`qquickitem.cpp:8173`), so drop the focus first:
+When keyboard focus sits on a ListView's rows, the first Up/Down hides the ring. The view gives the new current row focus with no key reason (`qquickitemview.cpp:1841`), and a Control draws its ring only for Tab, Backtab or Shortcut (`qquickcontrol.cpp:1432-1436`). `forceActiveFocus(Qt.TabFocusReason)` on that row does nothing, because it already has focus (`qquickitem.cpp:8195`), so drop the focus first:
 
 ```qml
 onCurrentItemChanged: {
@@ -211,7 +211,7 @@ An invokable **can** work if the same expression also reads a notifying property
 ## Assigning a property from JS deletes its binding — including the caller's
 
 `combo.currentIndex = i` removes whatever `currentIndex: <expr>` was declared on that object
-(`qv4qobjectwrapper.cpp:724`), permanently. Inside a reusable component this deletes the
+(`qv4qobjectwrapper.cpp:726`), permanently. Inside a reusable component this deletes the
 *caller's* binding, so the control stops following its model after one user action — and a
 reused dialog then shows the previous pick over a different value. A write through the C++
 setter keeps the binding (`QQuickComboBox::setCurrentIndex`, `qquickcombobox.cpp:1240`), which
@@ -371,11 +371,11 @@ The gate runs in every default desktop build and fails it on a new diagnostic; a
    which looks exactly like an improvement — that is how PR Kulitorum/Decenza#1680 shipped three ceilings the tree
    could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
    route around either.
-5. **On Qt 6.12.0, qmllint's text output drops findings; read `--json`.** A function whose type
-   propagation re-runs (typically a loop) discards every finding buffered earlier in that file
-   (`qqmljslogger.cpp:411-418`; QTBUG-151969, fixed for 6.12.1). The gate reads JSON for that
-   reason; a hand run in text mode that prints nothing has proven nothing. It hid 60 findings
-   here, four of them shipped `ReferenceError`s.
+5. **Up to Qt 6.12.0, qmllint's text output dropped findings; the gate reads `--json`.** A function
+   whose type propagation re-ran (typically a loop) discarded every finding buffered earlier in
+   that file (`qqmljslogger.cpp:411-418` in 6.12.0; QTBUG-151969, fixed in 6.12.1 at `:387,419`).
+   It hid 60 findings here, four of them shipped `ReferenceError`s. JSON also names every file
+   linted (`tools/qmllint/main.cpp:562,595`), so a run that prints nothing still proves coverage.
 
 ## Settings search: `SettingsCard`, titles, and the scanner
 
@@ -702,9 +702,9 @@ file on main today. Go by the name, not the number.)
 **What is established and what is not.** The stack proves an event delivered inside the pump
 destroyed the page — `QObject::event` deletes on `DeferredDelete` at `qobject.cpp:1475-1476`. It
 does **not** prove *which* posted event, and the obvious story is the one Qt guards against: a bare
-`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1885-1900`
+`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1861-1876`
 allows one through only when it was posted at a deeper loop+scope level than the pump, or before
-the outermost loop, or when `DeferredDelete` is passed explicitly; `qobject.cpp:2546-2569` records
+the outermost loop, or when `DeferredDelete` is passed explicitly; `qobject.cpp:2547-2570` records
 those levels specifically so that
 
 ```cpp

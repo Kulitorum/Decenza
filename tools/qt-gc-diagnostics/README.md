@@ -1,5 +1,55 @@
 # Qt QML garbage-collection diagnostics
 
+## Retired with Qt 6.12.1
+
+Decenza stopped shipping the instrumented Android `libQt6Qml` with the Qt 6.12.1 upgrade, and
+removed the app code that only it could trigger. Everything below this section describes the
+investigation as it stood on Qt 6.12.0 and is kept as a record.
+
+**Why.** No #2179-shaped report arrived after the allocator fix shipped in the override, and
+that fix (QTBUG-149512) is stock in 6.12.1: `qtdeclarative/src/qml/memory/qv4mm.cpp:265-316`
+clears only the slots it decided to free, where 6.12.0 overwrote the bitmap words. The removal
+rests on that field silence. It does not show that the ownership-change gap below is closed.
+
+**What is kept, and on which Qt.**
+
+| Item | Qt | Status |
+|---|---|---|
+| `qt-6.12.0-gc-diagnostics.patch` | 6.12.0 | Applies cleanly to 6.12.1 (`patch --dry-run`, 2026-11-23) |
+| `qt-6.12.0-gc-weak-history.patch` | 6.12.0 | Applies cleanly on top of patch 1 on 6.12.1 |
+| `qt-6.12.0-sweep-allocation-fix.patch` | 6.12.0 | Superseded: its two sweep hunks are in 6.12.1. Its third hunk only appends the `gcdiag-v2` revision marker to patch 1's startup line; carry that by hand |
+| `tests/` | 6.12.0 | Removed; at `62fef1177` with the app-side code it tests. Needs a QtQml built from the patches with `DECENZA_QML_GC_TEST_HOOKS` |
+| `ownership-repro/` | `qt-version.txt` | Builds against stock Qt; not run on 6.12.1. Its results below are from 6.12.0 |
+
+**Rebuilding the Android library.** Start from the selected Qt's `Src/qtdeclarative` in an
+isolated copy and apply the patches above in order with `patch -p1`: patches 1 and 2 on 6.12.1, all three on 6.12.0. Build the `Qml` target only,
+for arm64 with the stock Android kit, NDK 27.2.12479018, API 28, shared libc++ and `-Oz -DNDEBUG`;
+disabling discovery of `Qt6ShaderTools` and `Qt6ShaderToolsTools` keeps Qt Quick out without
+changing Qml features. Never define `DECENZA_QML_GC_TEST_HOOKS` in it. Before packaging, compare
+exported symbols (with versions), both QtQml feature headers, SONAME, dependencies and ELF
+architecture against the stock SDK, and keep the unstripped output for symbolication.
+
+**Recovering what was removed.**
+
+- The library, its `README.md` and `manifest.json` (`android/qt-overrides/`) and the
+  version-lock guard `verify_artifact.py` are at commit `4229107cf` (#2181). The shipped
+  library's SHA-256 is `045345bf5a993f8d8d1fd79df7ed5d9af64a9ccb483ad5426967db59ef1f1036`, its
+  build ID `0776b3e7e4cf5c336faf00bf7343bfcdb9f2b0e2`, its startup marker
+  `gcdiag-v2 sweep-fix=QTBUG-149512 weak-history=1`. The two `release.yml` steps that installed
+  and verified it are at the same commit.
+- The app side is at `62fef1177`: the `QV4_MM_CROSS_VALIDATE_INCREMENTAL_GC` switch and the
+  deferred-abort coordinator in `src/main.cpp`, `src/core/gcdeferredabort.h`, the GC half of
+  `src/core/btlogfilter.{h,cpp}`, the operation block in `DE1Device::requestState`, the
+  `MARK_PATH` clip in `src/core/crashhandler.cpp`, and their tests. Only the patched library
+  emits the `DEFERRED_ABORT` message that code waits for, so the two return together or not at
+  all.
+
+**Bringing it back.** A recurrence of #2179 is the trigger. The `build-config` spec's
+"decision is revisited" scenario then requires the change to state the observed report rate
+and to restore the version-lock guard before any artifact is packaged.
+
+## The investigation on Qt 6.12.0
+
 `qt-6.12.0-gc-diagnostics.patch` applies to Qt 6.12.0's `qtdeclarative` source.
 It instruments QtQml only. In an incremental collection, Qt rescans the JS stack
 before cross-validation. When the full mark still finds objects the incremental
@@ -28,8 +78,8 @@ The app's deferred abort policy is tested separately. The Android arm64
 original library has been built with the test hooks disabled and checked against the Qt
 6.12.0 SDK's exported symbols, feature headers, SONAME and dependencies. It
 still needs Android runtime and crash-report verification before release.
-The checked-in Android replacement now includes the allocator fix and weak-history
-additions below; `android/qt-overrides/manifest.json` records its build and checksums.
+The Android replacement that shipped included the allocator fix and weak-history
+additions below; its checksums are in the retirement section above.
 
 ## Ownership-change investigation (#2179)
 

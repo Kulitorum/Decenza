@@ -37,7 +37,7 @@
       ? Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "srcObject") : null;
     const emptyVideoStream = iosVideo ? new MediaStream() : null;
     // Qt 6.12 creates hidden body-level videos without playsinline
-    // (qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:567-617).
+    // (qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:586-620).
     // Keep iOS playback on the QML surface so taps reach its wake control.
     new MutationObserver(records => {
       for (const record of records)
@@ -57,29 +57,14 @@
             }
           }
     }).observe(document.body, {childList: true});
-    const videoRecoveryKey = "decenza-released-video-handle-reloaded";
-    let videoRecoveryRequested = false;
+    let started = false;
     function reportFailure(error) {
       const message = error && error.message ? error.message : String(error);
       status.dataset.state = "error";
-      status.textContent = `Decenza could not start: ${message}`;
+      status.textContent = `${started ? "Decenza stopped working" : "Decenza could not start"}: ${message}`;
       status.hidden = false;
       retry.hidden = false;
       screen.setAttribute("aria-busy", "false");
-      // Qt's video frame callback holds a raw output pointer across animation
-      // frames (qwasmvideooutput.cpp:1264-1315). Reload once on this error;
-      // retain the ordinary error screen if storage is unavailable or it recurs
-      // before the user interacts, rather than entering a reload loop.
-      if (!message.includes("Cannot use deleted val. handle = 0") || videoRecoveryRequested)
-        return;
-      try {
-        if (sessionStorage.getItem(videoRecoveryKey)) return;
-        sessionStorage.setItem(videoRecoveryKey, "1");
-        videoRecoveryRequested = true;
-        location.reload();
-      } catch (_) {
-        // The Retry button remains available when session storage is blocked.
-      }
     }
     // Everyday iOS Safari re-downloads the ~30 MB runtime on every visit despite its
     // immutable cache headers (measured 2026-10-26), so the page keeps it in Cache Storage.
@@ -117,12 +102,7 @@
       }
       return WebAssembly.compileStreaming(response);
     }
-    function allowVideoRecovery() {
-      try { sessionStorage.removeItem(videoRecoveryKey); } catch (_) {}
-    }
-    window.addEventListener("pointerdown", allowVideoRecovery);
-    window.addEventListener("keydown", allowVideoRecovery);
-    retry.addEventListener("click", () => { allowVideoRecovery(); location.reload(); });
+    retry.addEventListener("click", () => location.reload());
     window.addEventListener("error", event => reportFailure(event.message || "A required resource failed to load."));
     window.addEventListener("unhandledrejection", event => reportFailure(event.reason));
     qtLoad({
@@ -131,6 +111,7 @@
         entryFunction: window.decenza_web_entry,
         containerElements: [document.getElementById("screen")],
         onLoaded: () => {
+          started = true;
           status.hidden = true;
           retry.hidden = true;
           screen.setAttribute("aria-busy", "false");

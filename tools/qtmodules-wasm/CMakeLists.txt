@@ -3,11 +3,12 @@ cmake_minimum_required(VERSION 3.21)
 project(DecenzaQtMultimediaWasm LANGUAGES C CXX)
 
 include(ExternalProject)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DecenzaQtVersion.cmake")
 
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Core)
+find_package(Qt6 ${DECENZA_QT_VERSION} EXACT REQUIRED COMPONENTS Core)
 
 set(QT_MULTIMEDIA_SOURCE_DIR "" CACHE PATH
-    "Path to the unmodified Qt 6.12.0 Src/qtmultimedia checkout (auto-detected beside the selected Qt kit)")
+    "Path to the unmodified Qt ${DECENZA_QT_VERSION} Src/qtmultimedia checkout (auto-detected beside the selected Qt kit)")
 set(QT_MULTIMEDIA_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/../../build/qtmultimedia-wasm-install"
     CACHE PATH "Workspace-local install prefix for the Wasm Qt Multimedia module")
 
@@ -17,7 +18,7 @@ if(NOT QT_MULTIMEDIA_SOURCE_DIR)
     if(EXISTS "${_qt_multimedia_source_candidate}/CMakeLists.txt"
        AND EXISTS "${_qt_multimedia_source_candidate}/.cmake.conf")
         set(QT_MULTIMEDIA_SOURCE_DIR "${_qt_multimedia_source_candidate}" CACHE PATH
-            "Path to the unmodified Qt 6.12.0 Src/qtmultimedia checkout (auto-detected beside the selected Qt kit)"
+            "Path to the unmodified Qt ${DECENZA_QT_VERSION} Src/qtmultimedia checkout (auto-detected beside the selected Qt kit)"
             FORCE)
     endif()
 endif()
@@ -26,25 +27,25 @@ if(NOT QT_MULTIMEDIA_SOURCE_DIR OR
    NOT EXISTS "${QT_MULTIMEDIA_SOURCE_DIR}/CMakeLists.txt" OR
    NOT EXISTS "${QT_MULTIMEDIA_SOURCE_DIR}/.cmake.conf")
     message(FATAL_ERROR
-        "Could not find Qt Multimedia 6.12.0 sources beside the selected kit. Set QT_MULTIMEDIA_SOURCE_DIR to its Src/qtmultimedia directory.")
+        "Could not find Qt Multimedia ${DECENZA_QT_VERSION} sources beside the selected kit. Set QT_MULTIMEDIA_SOURCE_DIR to its Src/qtmultimedia directory.")
 endif()
 
 file(STRINGS "${QT_MULTIMEDIA_SOURCE_DIR}/.cmake.conf" _qt_multimedia_version_line
     REGEX "^set\\(QT_REPO_MODULE_VERSION ")
-if(NOT _qt_multimedia_version_line MATCHES
-   "set\\(QT_REPO_MODULE_VERSION \"6\\.12\\.0\"\\)")
+if(NOT _qt_multimedia_version_line STREQUAL
+   "set(QT_REPO_MODULE_VERSION \"${DECENZA_QT_VERSION}\")")
     message(FATAL_ERROR
-        "Expected Qt Multimedia source version 6.12.0 in ${QT_MULTIMEDIA_SOURCE_DIR}/.cmake.conf; got '${_qt_multimedia_version_line}'.")
+        "Expected Qt Multimedia source version ${DECENZA_QT_VERSION} in ${QT_MULTIMEDIA_SOURCE_DIR}/.cmake.conf; got '${_qt_multimedia_version_line}'.")
 endif()
 
 if(NOT CMAKE_TOOLCHAIN_FILE OR NOT EXISTS "${CMAKE_TOOLCHAIN_FILE}")
-    message(FATAL_ERROR "Configure this project with the Qt 6.12.0 wasm_singlethread kit.")
+    message(FATAL_ERROR "Configure this project with the Qt ${DECENZA_QT_VERSION} wasm_singlethread kit.")
 endif()
 if(NOT QT_HOST_PATH OR NOT IS_DIRECTORY "${QT_HOST_PATH}")
     message(FATAL_ERROR "The Wasm kit must provide QT_HOST_PATH for native Qt build tools.")
 endif()
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-    message(FATAL_ERROR "This module build project is only for the Qt 6.12.0 WebAssembly kit.")
+    message(FATAL_ERROR "This module build project is only for the Qt ${DECENZA_QT_VERSION} WebAssembly kit.")
 endif()
 
 if(NOT TARGET Qt6::Platform)
@@ -86,5 +87,5 @@ ExternalProject_Add(qtmultimedia
     USES_TERMINAL_BUILD TRUE
     USES_TERMINAL_INSTALL TRUE
     STEP_TARGETS configure build install
-    COMMENT "Build and install stock Qt Multimedia 6.12.0 for wasm_singlethread"
+    COMMENT "Build and install stock Qt Multimedia ${DECENZA_QT_VERSION} for wasm_singlethread"
 )

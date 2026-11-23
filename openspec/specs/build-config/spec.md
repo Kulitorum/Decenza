@@ -23,30 +23,29 @@ The build SHALL produce zero CMake Qt policy warnings during configuration.
 
 #### Scenario: Clean CMake configure on any platform
 - **WHEN** CMake configure runs on any supported platform
-- **THEN** no `QTP` policy warning lines appear in configure output; any new policies introduced by
-  Qt 6.11 are explicitly set to NEW inside the `VERSION_GREATER_EQUAL "6.5.0"` guard in
-  `CMakeLists.txt`
+- **THEN** no `QTP` policy warning lines appear in configure output; any policy a Qt release
+  introduces that would warn is set explicitly in `CMakeLists.txt`
 
 ### Requirement: Verification Does Not Wait For A Release Tag
 
-The project SHALL verify changes before they reach a release tag: developer builds SHALL fail on compiler diagnostics, and all six platforms SHALL be built and the sanitizer suite run on a nightly schedule. This requirement does not require per-pull-request CI; the `change-verification` capability holds the evidence for that decision.
+The project SHALL verify changes before they reach a release tag: developer builds SHALL fail on compiler diagnostics, the sanitizer suite SHALL run on Linux on a nightly schedule, and all six platforms SHALL be buildable on demand from any pushed branch through the release workflow. This requirement does not require per-pull-request CI; the `change-verification` capability holds the evidence for that decision.
 
 #### Scenario: Change is verified before it reaches a tag
 - **WHEN** a change is developed
-- **THEN** enabled diagnostics fail the author's own build, the full suite is run locally before the pull request, and the nightly six-platform build covers toolchains the author did not compile on
+- **THEN** enabled diagnostics fail the author's own build, the full suite is run locally before the pull request, and a toolchain the author did not compile on can be covered by dispatching the release workflow for that platform on the branch
 
 #### Scenario: Release workflows keep their existing role
 - **WHEN** a release tag is pushed
-- **THEN** the six platform workflows build and upload artifacts exactly as before, unchanged by any verification workflow
+- **THEN** the release workflow's six platform jobs build and upload artifacts exactly as before, unchanged by any verification workflow
 
 ### Requirement: Debug Builds Are Instrumented By Default
-Desktop Debug builds SHALL enable AddressSanitizer and UndefinedBehaviorSanitizer automatically, so ordinary local development exercises the instrumentation rather than requiring a special configuration nobody remembers to use. Release builds SHALL be untouched.
+Desktop Debug builds made with a single-configuration generator (Ninja or Makefiles) SHALL enable AddressSanitizer automatically, and UndefinedBehaviorSanitizer too except under MSVC, so ordinary local development exercises the instrumentation rather than requiring a special configuration nobody remembers to use. Release builds SHALL be untouched.
 
 UBSan SHALL be in recovering mode for these auto-enabled builds (it reports and continues, so a finding does not halt a debugging session), while an explicit `-DENABLE_UBSAN=ON` SHALL give the halting mode CI uses.
 
 #### Scenario: Developer builds Debug
-- **WHEN** a developer configures a desktop Debug build with no sanitizer flags of their own
-- **THEN** ASan and UBSan are active, and the application reports at startup which sanitizers are on
+- **WHEN** a developer configures a desktop Debug build with a single-configuration generator and no sanitizer flags of their own
+- **THEN** ASan is active, UBSan is active unless the compiler is MSVC, and the application reports at startup which sanitizers are on
 
 #### Scenario: Release build
 - **WHEN** a Release build is configured
@@ -74,12 +73,12 @@ The system SHALL be built with the same released Qt 6.12 patch version across Wi
 Every workflow, dev-machine install path, and active CMake reference SHALL agree on that version. Subsequent patch bumps within the series SHALL NOT introduce deployment-target, JDK, NDK, or module-list changes without investigating and documenting why they are required.
 
 #### Scenario: Windows desktop build
-- **WHEN** the developer configures CMake with the selected Qt 6.12 installation as CMAKE_PREFIX_PATH
+- **WHEN** the developer configures CMake with the selected Qt installation as CMAKE_PREFIX_PATH
 - **THEN** CMake finds all required modules and the project builds without errors
 
 #### Scenario: CI platform build
 - **WHEN** a release tag is pushed and GitHub Actions runs
-- **THEN** all six platform workflows install the same released Qt 6.12 patch via jurplel/install-qt-action@v4 and produce successful build artifacts
+- **THEN** each of the release workflow's six platform jobs installs the version in `qt-version.txt` via jurplel/install-qt-action@v4 and produces a successful build artifact
 - **AND** nightly-sanitizers.yml installs that same version
 
 #### Scenario: A cache key outlives the version it was populated for
@@ -229,3 +228,35 @@ A release raising a supported OS minimum SHALL state the new floor, its cause, a
 - **THEN** release notes SHALL identify iOS/iPadOS 18 and macOS 14.4 as requirements inherited from Qt 6.12
 - **AND** affected-device wording SHALL use OS compatibility rather than an inaccurate universal chipset cutoff
 - **AND** the notes SHALL NOT claim that macOS users are unaffected
+
+### Requirement: The Qt Version Has One Source
+
+The Qt version the project builds against SHALL be written in exactly one file in the repository. CMake projects, build and packaging scripts, and CI workflows that pin a Qt patch version SHALL read it from that file rather than spell it themselves, so that moving to another Qt release changes the version in one place.
+
+#### Scenario: A Qt patch bump
+- **WHEN** the version in the single source file is changed
+- **THEN** every CMake project that requires a Qt version, every build or packaging script that checks one, and every CI job that installs Qt or keys a cache or artifact on it SHALL use the new version without any other file being edited
+
+#### Scenario: A version is hard-coded again
+- **WHEN** a change adds a Qt version as a literal to a workflow, CMake file or build script outside the single source file
+- **THEN** the per-PR text-invariants check SHALL fail and name the file and line
+
+#### Scenario: A dated reference to an earlier Qt version
+- **WHEN** a workflow, CMake file or build script must keep an earlier Qt version as a dated record, or a whole-line comment or prose document names one
+- **THEN** the check SHALL NOT fail on it: a dated file and version are listed in the check's allowlist, and whole-line comments and prose docs are not checked
+
+### Requirement: Apple Builds Use The Current SDK
+
+The iOS and macOS release builds SHALL be produced with one Xcode version whose SDKs App Store Connect accepts for upload, written once in the release workflow. Moving to a newer SDK SHALL NOT raise the deployment floors or drop an architecture the app ships.
+
+#### Scenario: App Store Connect raises its minimum SDK
+- **WHEN** Apple requires uploads to be built with a newer iOS SDK, as it does with the iOS 27 SDK from April 2027
+- **THEN** the iOS build SHALL use an Xcode that provides that SDK before the requirement takes effect
+
+#### Scenario: One toolchain for both Apple jobs
+- **WHEN** the release workflow builds iOS and macOS
+- **THEN** both jobs SHALL select the same Xcode version from a single definition
+
+#### Scenario: Deployment floors survive the SDK move
+- **WHEN** the Apple builds move to a newer SDK
+- **THEN** the iOS package SHALL still declare iOS 18.0 as its minimum, the macOS package macOS 14.4, and the macOS app SHALL still contain both `x86_64` and `arm64`

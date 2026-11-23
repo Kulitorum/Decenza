@@ -34,7 +34,7 @@ ApplicationWindow {
 
 **Observed on Qt 6.12.0 Wasm:** the visible QML TextField renders; its shadow `<input>` has no accessible name/`aria-label`. The Qt Quick accessibility interface does contain the name. A name change reaches the Wasm EditableText handler, but that handler writes `QAccessible::Value` to the DOM `value` property instead of writing the `QAccessible::Name` to an accessible-name attribute.
 
-**Source:** `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:648-660` reads `Accessible.name`; `qtdeclarative/src/quick/items/qquickaccessibleattached_p.h:103-110` emits `NameChanged`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:814-816` handles EditableText `NameChanged` by setting `value`. The same Wasm file's button handler does map `NameChanged` to `aria-label` at `:894-900`.
+**Source:** `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:648-660` reads `Accessible.name`; `qtdeclarative/src/quick/items/qquickaccessibleattached_p.h:103-110` emits `NameChanged`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:850-853` (6.12.1) handles EditableText `NameChanged` by setting `value`. The same Wasm file's button handler does map `NameChanged` to `aria-label` at `:934-935`.
 
 ## Finding B: programmatic TextField text changes do not update the browser shadow value
 
@@ -53,7 +53,7 @@ Button {
 
 **Observed on Qt 6.12.0 Wasm:** the visible QML TextField updates to “updated value”; the browser accessibility shadow input retains “initial value”. The Qt 6.12 Wasm accessibility bridge does not process the `TextUpdated` event emitted for this programmatic update.
 
-**Source:** `qtdeclarative/src/quick/items/qquicktextinput.cpp:3880-3889` emits `QAccessibleTextUpdateEvent` from `internalSetText()`; `qtbase/src/gui/accessible/qaccessible.h:546-560` assigns that event type `TextUpdated`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:802-840` handles `TextInserted`/`TextRemoved` and caret movement but has no `TextUpdated` branch. `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:691-701` reads the current `displayText`, so the current value is available to the interface.
+**Source:** `qtdeclarative/src/quick/items/qquicktextinput.cpp:3880-3889` emits `QAccessibleTextUpdateEvent` from `internalSetText()`; `qtbase/src/gui/accessible/qaccessible.h:546-560` assigns that event type `TextUpdated`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:838-879` (6.12.1) handles `TextInserted`/`TextRemoved` and caret movement but has no `TextUpdated` branch. `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:691-701` reads the current `displayText`, so the current value is available to the interface.
 
 ## Existing upstream coverage checked
 
@@ -90,7 +90,7 @@ accessible names or claim screen-reader acceptance.
 
 ## Finding C: ComboBox is absent from the browser accessibility tree
 
-Stock Qt 6.12 assigns `QAccessible::ComboBox` in `qtdeclarative/src/quicktemplates/qquickcombobox.cpp:2413-2427`, but `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:375-575` has no mapping for that role and its event dispatcher at `:1452-1516` has no handler. The Basic style's noneditable internal TextField (`qtdeclarative/src/quickcontrols/basic/ComboBox.qml:46-65`) appears as a disabled field instead. The real recipe sort picker reproduced this: the named ComboBox was missing and its visible options appeared only as static text. The isolated Qt-only reproduction now also includes an explicitly named ComboBox.
+Stock Qt 6.12 assigns `QAccessible::ComboBox` in `qtdeclarative/src/quicktemplates/qquickcombobox.cpp:2413-2427`, but `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp` (6.12.1) has no mapping for that role in `createHtmlElement` (`:357`) and no handler in its event dispatcher (`:1465-1544`). The Basic style's noneditable internal TextField (`qtdeclarative/src/quickcontrols/basic/ComboBox.qml:46-65`) appears as a disabled field instead. The real recipe sort picker reproduced this: the named ComboBox was missing and its visible options appeared only as static text. The isolated Qt-only reproduction now also includes an explicitly named ComboBox.
 
 This is already covered by [QTBUG-144330](https://bugreports.qt.io/browse/QTBUG-144330), whose ComboBox work remains TODO, and pending [Gerrit 680803](https://codereview.qt-project.org/c/qt/qtbase/+/680803), “wasm: a11y - Support QComboBox” (NEW, dev branch, patchset 26, updated October 1; checked October 20, 2026). [Gerrit 771466](https://codereview.qt-project.org/c/qt/qtbase/+/771466) is another WIP implementation and [Gerrit 725692](https://codereview.qt-project.org/c/qt/qtbase/+/725692) adds tests. No duplicate was filed. The browser recipe sort selector uses an accessible Button and dialog of named Button choices; native controls are unchanged. Recheck this workaround when upstream support ships.
 
@@ -111,11 +111,13 @@ The authenticated tracker check on 2026-10-22 confirmed QTBUG-144330 marks List 
 
 Filed [QTBUG-151799](https://qt-project.atlassian.net/browse/QTBUG-151799) on 2026-10-24 after reproducing the earlier checkbox observation in the Qt-only `AccessibilityRepro.qml`. Enable accessibility, activate Example checkbox through its browser accessibility element, then activate Reset checkbox. QML and the canvas return to false; Safari's macOS accessibility tree still exposes checked = 1. This does not claim actual VoiceOver announcement verification.
 
-Qt 6.12 `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:907-925` updates checkbox state through the checked content attribute; its bool helper at `:303-309` adds/removes the attribute. A live checked property can diverge after user activation. The group-box checkbox path at `:929-946` uses the same update. Focused authenticated tracker searches found no matching state-sync report; the new report references QTBUG-144330.
+In Qt 6.12.0 the checkbox handler set the `checked` content attribute, which a live `checked` property can diverge from after user activation. Qt 6.12.1 sets the live property instead (`qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:953`, group box `:981`), so this may be fixed; re-run `AccessibilityRepro.qml` on 6.12.1 before relying on either. Focused authenticated tracker searches found no matching state-sync report; the new report references QTBUG-144330.
 
-`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:955-971`), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:211-212`). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
+`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:991-1008` in 6.12.1), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:213-214` in 6.12.1). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
 
-## Pending isolation: custom numeric values
+## Resolved: custom numeric values
+
+**Resolved by Qt 6.12.1, 2026-11-23:** `setRole()` now connects the value signal (`qquickaccessibleattached.cpp:479`) and Wasm exposes a slider as `role="slider"` (`qwasmaccessibility.cpp:470-475`) whose `aria-valuenow` follows ValueChanged (`:1149-1154`). `ValueInput` dropped its own ValueChanged notifications, on change and at completion. The two paragraphs below are the superseded investigation; nothing in them is open.
 
 On 2026-10-22 a custom numeric control visibly changed 10→15 and its accessible label changed, while the DOM input `.value` remained `10`. The preference was restored. This application/DOM observation still needs a standalone reproduction before filing another report.
 
