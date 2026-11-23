@@ -23,9 +23,8 @@ The build SHALL produce zero CMake Qt policy warnings during configuration.
 
 #### Scenario: Clean CMake configure on any platform
 - **WHEN** CMake configure runs on any supported platform
-- **THEN** no `QTP` policy warning lines appear in configure output; any new policies introduced by
-  Qt 6.11 are explicitly set to NEW inside the `VERSION_GREATER_EQUAL "6.5.0"` guard in
-  `CMakeLists.txt`
+- **THEN** no `QTP` policy warning lines appear in configure output; any policy a Qt release
+  introduces that would warn is set explicitly in `CMakeLists.txt`
 
 ### Requirement: Verification Does Not Wait For A Release Tag
 

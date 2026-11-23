@@ -1,6 +1,6 @@
 # Qt Wasm media investigations
 
-Confirmed premature completion: [QTBUG-151769](https://qt-project.atlassian.net/browse/QTBUG-151769), filed with a standalone source reproduction on 2026-10-22. Assigning a playable same-origin MP4 and calling `play()` emits `EndOfMedia` before `LoadingMedia`, with position/duration zero and HTML `ended=false`. Qt 6.12's `qwasmvideooutput.cpp:825-834` maps `emptied` to `EndOfMedia`. The shared screensaver ignores completion until the current media has loaded; live app validation remains pending.
+Confirmed premature completion: [QTBUG-151769](https://qt-project.atlassian.net/browse/QTBUG-151769), filed with a standalone source reproduction on 2026-10-22. Assigning a playable same-origin MP4 and calling `play()` emits `EndOfMedia` before `LoadingMedia`, with position/duration zero and HTML `ended=false`. Qt 6.12.1's `qwasmvideooutput.cpp:841-849` maps `emptied` to `EndOfMedia`. The shared screensaver ignores completion until the current media has loaded; live app validation remains pending.
 
 Separate confirmed lifecycle defect: [QTBUG-151767](https://qt-project.atlassian.net/browse/QTBUG-151767), filed with the source-only reproduction in `media-repro/`. Fifty player/output replacements leave 51 HTML video elements; repeating leaves 101. This does not establish the autoplay hypothesis below or quantify heap retention.
 

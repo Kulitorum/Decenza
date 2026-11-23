@@ -113,7 +113,7 @@ Filed [QTBUG-151799](https://qt-project.atlassian.net/browse/QTBUG-151799) on 20
 
 In Qt 6.12.0 the checkbox handler set the `checked` content attribute, which a live `checked` property can diverge from after user activation. Qt 6.12.1 sets the live property instead (`qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:953`, group box `:981`), so this may be fixed; re-run `AccessibilityRepro.qml` on 6.12.1 before relying on either. Focused authenticated tracker searches found no matching state-sync report; the new report references QTBUG-144330.
 
-`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:991-1008` in 6.12.1), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:211-212`). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
+`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:991-1008` in 6.12.1), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:213-214` in 6.12.1). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
 
 ## Resolved: custom numeric values
 
