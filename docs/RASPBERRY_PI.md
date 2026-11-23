@@ -53,10 +53,6 @@ cd ~
 git clone https://github.com/Kulitorum/Decenza.git
 cd Decenza
 
-# Create logo directory and copy qrcode.png (gitignored)
-mkdir -p logo
-# Copy logo/qrcode.png from another source if needed
-
 # Build the native app without the optional bundled browser client
 "$DECENZA_QT_PREFIX/bin/qt-cmake" -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DDECENZA_WEB_BUNDLE_MODE=OFF
@@ -153,19 +149,6 @@ sudo setcap 'cap_net_admin+eip' ~/Decenza/build/Decenza
 ```
 
 Or run as root (not recommended for production).
-
-### Missing qrcode.png
-
-The `logo/qrcode.png` file is gitignored. If the build fails with:
-```
-No rule to make target 'logo/qrcode.png'
-```
-
-Create the logo directory and add the file:
-```bash
-mkdir -p ~/Decenza/logo
-# Copy qrcode.png from another source
-```
 
 ## Hardware Notes
 
