@@ -55,7 +55,8 @@ be built with the iOS 27 SDK or later. Our iOS and macOS jobs build with Xcode 2
   drop, and a wrong QTBUG citation in `applebtstate.h`. Fix the `Theme` accessible-text helpers
   found while testing.
 - State what is not fixed: the `OperationCompletionOverlay.qml` qmlcachegen workaround stays
-  (QTBUG-152061, 6.12.2), and none of the filed Wasm accessibility or media bugs are in 6.12.1.
+  (QTBUG-152061, 6.12.2), and of the filed Wasm accessibility and media bugs only QTBUG-151767 (video element left behind)
+  is fixed in 6.12.1.
 
 Nothing here changes what a user does, so there is no manual entry. A screen reader no longer
 hears a slider's value twice, and the web screensaver recreates its player per video; the platforms

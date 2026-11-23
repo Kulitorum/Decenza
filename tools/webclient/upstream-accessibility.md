@@ -34,7 +34,7 @@ ApplicationWindow {
 
 **Observed on Qt 6.12.0 Wasm:** the visible QML TextField renders; its shadow `<input>` has no accessible name/`aria-label`. The Qt Quick accessibility interface does contain the name. A name change reaches the Wasm EditableText handler, but that handler writes `QAccessible::Value` to the DOM `value` property instead of writing the `QAccessible::Name` to an accessible-name attribute.
 
-**Source:** `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:648-660` reads `Accessible.name`; `qtdeclarative/src/quick/items/qquickaccessibleattached_p.h:103-110` emits `NameChanged`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:814-816` handles EditableText `NameChanged` by setting `value`. The same Wasm file's button handler does map `NameChanged` to `aria-label` at `:894-900`.
+**Source:** `qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:648-660` reads `Accessible.name`; `qtdeclarative/src/quick/items/qquickaccessibleattached_p.h:103-110` emits `NameChanged`; `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:850-853` (6.12.1) handles EditableText `NameChanged` by setting `value`. The same Wasm file's button handler does map `NameChanged` to `aria-label` at `:934-935`.
 
 ## Finding B: programmatic TextField text changes do not update the browser shadow value
 
@@ -90,7 +90,7 @@ accessible names or claim screen-reader acceptance.
 
 ## Finding C: ComboBox is absent from the browser accessibility tree
 
-Stock Qt 6.12 assigns `QAccessible::ComboBox` in `qtdeclarative/src/quicktemplates/qquickcombobox.cpp:2413-2427`, but `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:375-575` has no mapping for that role and its event dispatcher at `:1452-1516` has no handler. The Basic style's noneditable internal TextField (`qtdeclarative/src/quickcontrols/basic/ComboBox.qml:46-65`) appears as a disabled field instead. The real recipe sort picker reproduced this: the named ComboBox was missing and its visible options appeared only as static text. The isolated Qt-only reproduction now also includes an explicitly named ComboBox.
+Stock Qt 6.12 assigns `QAccessible::ComboBox` in `qtdeclarative/src/quicktemplates/qquickcombobox.cpp:2413-2427`, but `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp` (6.12.1) has no mapping for that role in `createHtmlElement` (`:357`) and no handler in its event dispatcher (`:1465-1544`). The Basic style's noneditable internal TextField (`qtdeclarative/src/quickcontrols/basic/ComboBox.qml:46-65`) appears as a disabled field instead. The real recipe sort picker reproduced this: the named ComboBox was missing and its visible options appeared only as static text. The isolated Qt-only reproduction now also includes an explicitly named ComboBox.
 
 This is already covered by [QTBUG-144330](https://bugreports.qt.io/browse/QTBUG-144330), whose ComboBox work remains TODO, and pending [Gerrit 680803](https://codereview.qt-project.org/c/qt/qtbase/+/680803), “wasm: a11y - Support QComboBox” (NEW, dev branch, patchset 26, updated October 1; checked October 20, 2026). [Gerrit 771466](https://codereview.qt-project.org/c/qt/qtbase/+/771466) is another WIP implementation and [Gerrit 725692](https://codereview.qt-project.org/c/qt/qtbase/+/725692) adds tests. No duplicate was filed. The browser recipe sort selector uses an accessible Button and dialog of named Button choices; native controls are unchanged. Recheck this workaround when upstream support ships.
 

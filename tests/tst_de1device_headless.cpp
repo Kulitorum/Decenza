@@ -93,7 +93,9 @@ private slots:
         f.transport.clearWrites();
         f.device.stopOperationUrgent();
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{QByteArray(1, char(DE1::State::Idle))});
-        QCOMPARE(f.transport.urgentWrites.size(), 1);  // jumps the queue
+        using Write = QPair<QBluetoothUuid, QByteArray>;
+        const QList<Write> urgentIdle{{DE1::Characteristic::REQUESTED_STATE, QByteArray(1, char(DE1::State::Idle))}};
+        QCOMPARE(f.transport.urgentWrites, urgentIdle);  // jumps the queue
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
             QStringLiteral(".*DE1 DISCONNECTED while Steam.*unrequested drop.*")));

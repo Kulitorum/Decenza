@@ -146,9 +146,7 @@ jobs:
           # CMake omits qmllint_check entirely when it cannot find qmllint next to
           # Qt's bin/ — a runtime-only Qt install lacks it. Fail loudly rather than
           # let `ninja` no-op: a gate that silently does not exist is precisely the
-          # green-while-blind failure this gate was written to end. (Whether
-          # install-qt-action ships qmllint on Linux was never confirmed; this step
-          # is what answers that, on the first night it runs.)
+          # green-while-blind failure this gate was written to end.
           if ! ninja -t targets all | grep -q '^qmllint_check:'; then
             echo "::error::qmllint_check target absent — qmllint was not found next to Qt's bin/ at configure time, so the QML diagnostics gate did NOT run."
             exit 1

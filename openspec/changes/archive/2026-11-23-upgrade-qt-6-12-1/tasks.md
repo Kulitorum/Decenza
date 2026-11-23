@@ -312,6 +312,9 @@ fixes. 4.4-4.6 replace those literals with the single source.
       Dispatch 45245932541 on `312fafc86`: all seven platforms green; Linux ctest 201/201 with
       none passing only on retry; Wasm module artifact
       `qt-wasm-modules-6.12.1-emscripten-5.0.5-wasm-singlethread-…`.
+      Module list: macOS no longer installs `qtwebengine` (`.github/qt-modules.txt`). Its Qt
+      WebView uses the native WebKit backend (`plugins/webview/libqtwebview_darwin.dylib` is in
+      the 6.12.1 kit); the macOS job in this dispatch is green without it.
 - [x] 9.3 From the Android job's APK, confirm `lib/arm64-v8a/libQt6Qml_arm64-v8a.so` does not
       contain the string `gcdiag` and that the manifest still declares targetSdkVersion 37 and
       minSdkVersion 28.

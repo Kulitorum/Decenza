@@ -8,6 +8,8 @@ TARGET="OSX"
 BUILD_TYPE="Release"
 CLEAN=false
 OS=$(uname)
+# Paths below are relative to the repository root.
+cd "$(dirname "$0")" || exit 1
 
 # Usage information
 usage() {
@@ -50,7 +52,7 @@ echo "Building for target: $TARGET ($BUILD_TYPE)"
 if [[ "$OS" == "Darwin" ]]; then
     # macOS host
     QT_PATH=~/Qt
-    QT_VERSION=$(python3 "$(dirname "$0")/scripts/qt_version.py") || exit 1
+    QT_VERSION=$(python3 scripts/qt_version.py) || exit 1
     NINJA=$(find "$QT_PATH/Tools" -name "ninja" | head -1)
 
     if [ -z "$NINJA" ]; then

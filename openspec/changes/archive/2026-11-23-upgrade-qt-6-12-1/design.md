@@ -96,7 +96,8 @@ their "reproduced on 6.12.0" statements, which are dated observations.
 - `OperationCompletionOverlay.qml` keeps its `_selectedPitcher` workaround. QTBUG-152061 is
   fixed for 6.12.2, not 6.12.1.
 - The Wasm bugs Decenza filed (QTBUG-151710, 151711, 151799, 151767, 151769, 151807) are absent
-  from the 6.12.1 release note; their workarounds and notes stay.
+  from the 6.12.1 release note; each workaround was checked against the 6.12.1 source
+  (decision 15), and those whose defect is gone were removed.
 
 **9. Line citations into Qt source are re-checked, not bulk-rewritten.** `CLAUDE.md` and
 `docs/CLAUDE_MD/` cite file and line in `~/Qt/6.12.0/Src`. The path moves to 6.12.1, and each
@@ -223,7 +224,7 @@ note, the Qt Jira status of every cited bug, and the 6.12.1 source:
   QTBUG-151799 (checkbox `checked`) is fixed in the source while Jira still says Reported, and
   no workaround of ours depended on it. QTBUG-151711 and QTBUG-151770 are fixed for 6.12.2,
   QTBUG-151769 for 6.13; QTBUG-151710 and QTBUG-151807 are open. Kept because 6.12.1 still has
-  the defect: `playsinline`, the `srcObject` shim, pause-before-stop, the `emptied` filter, mute
+  the defect: `playsinline`, the `srcObject` shim, the `emptied` filter, mute
   ordering, wheel line scaling, scroll phases (QTBUG-141540), async Blob reads, `inert`-only
   dialogs. Removed after a browser run: the screensaver's single reused video output and its
   pause-before-stop; the web client now recreates the player per video like native (task

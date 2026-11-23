@@ -17,8 +17,10 @@ import sys
 import qt_version
 
 ROOT = Path(__file__).resolve().parent.parent
-ROOTS = (".github", "cmake", "scripts", "tools", "src", "tests", "android", "ios")
-SUFFIXES = {".yml", ".yaml", ".cmake", ".py", ".sh", ".ps1", ".bat", ".gradle", ".rb"}
+ROOTS = (".github", "cmake", "scripts", "tools", "src", "tests", "android", "ios", "installer")
+SUFFIXES = {".yml", ".yaml", ".cmake", ".py", ".sh", ".ps1", ".bat", ".gradle", ".rb", ".iss"}
+# Whole-line comment markers. Inno Setup comments with `;`; its `#define` lines are the pins.
+COMMENTS = {".iss": (";",)}
 # Build scripts at the repository root, which the directory roots above do not reach.
 ROOT_SCRIPTS = tuple(f":(top,glob)*{suffix}" for suffix in (".sh", ".ps1", ".bat"))
 QT_VERSION = re.compile(r"(?<![\d.])6(?:\\*\.|_)(?:[1-9]\d)(?:\\*\.|_)(?:\d+(?![\d])|\*)")
@@ -43,10 +45,11 @@ def normalized(found: str) -> str:
     return re.sub(r"\\*\.|_", ".", found)
 
 
-def findings(text: str, allowed: set[str] = frozenset()) -> list[tuple[int, str]]:
+def findings(text: str, allowed: set[str] = frozenset(),
+             comments: tuple[str, ...] = ("#", "//")) -> list[tuple[int, str]]:
     hits = []
     for n, line in enumerate(text.splitlines(), 1):
-        if line.lstrip().startswith(("#", "//")):
+        if line.lstrip().startswith(comments):
             continue
         for match in QT_VERSION.finditer(line):
             version = normalized(match.group(0))
@@ -57,6 +60,8 @@ def findings(text: str, allowed: set[str] = frozenset()) -> list[tuple[int, str]
 
 def self_test() -> None:
     assert findings("version: '6.18.7'\n") == [(1, "6.18.7")]
+    assert findings('#define QtDir "C:\\Qt\\6.18.7\\msvc"\n', comments=(";",)) == [(1, "6.18.7")]
+    assert findings("; Qt 6.18.7 notes\n", comments=(";",)) == []
     assert findings("  # checked on 6.18.7\n") == []
     assert findings("  // checked on 6.18.7\n") == []
     assert findings("x: 6.18.7  # trailing comment still a pin\n") == [(1, "6.18.7")]
@@ -70,7 +75,8 @@ def self_test() -> None:
     assert findings("find_package(Qt6 6.18.6 EXACT)\n", {"6.18.6"}) == []
     files = {f.relative_to(ROOT).as_posix() for f in scanned_files()}
     for expected in (".github/workflows/release.yml", "CMakeLists.txt", "cmake/DecenzaQtVersion.cmake",
-                     "tests/CMakeLists.txt", "tools/qtmodules-wasm/build-ci.sh", "build.sh"):
+                     "tests/CMakeLists.txt", "tools/qtmodules-wasm/build-ci.sh", "build.sh",
+                     "installer/TEMPLATE_setupvars.iss"):
         assert expected in files, f"not scanned: {expected}"
     assert "qt-version.txt" not in files
     for dated in DATED:
@@ -90,7 +96,8 @@ def main() -> int:
     bad = []
     for path in files:
         rel = path.relative_to(ROOT).as_posix()
-        for line, found in findings(path.read_text(encoding="utf-8", errors="replace"), DATED.get(rel, set())):
+        for line, found in findings(path.read_text(encoding="utf-8", errors="replace"), DATED.get(rel, set()),
+                                    COMMENTS.get(path.suffix, ("#", "//"))):
             bad.append(f"{rel}:{line}: {found}")
     if bad:
         print(f"check_qt_version_pins: a Qt version is written outside qt-version.txt (now {version}). "

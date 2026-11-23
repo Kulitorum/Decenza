@@ -37,6 +37,7 @@ check of a cached H.264 MP4 succeeded (`readyState: 4`, `paused: false`, no HTML
 media error), and all three H.264 `canPlayType` probes returned `probably`.
 
 The destruction result is a DOM-retention reproduction, not a measured native
-heap allocation total. Qt's destructor does not remove its appended video node.
+heap allocation total. Through Qt 6.12.0 the destructor did not remove its appended video
+node; Qt 6.12.1 removes it (`qwasmvideooutput.cpp:130-134`).
 A retained output in the application bounds growth during playlist changes;
 page/player destruction still needs an upstream fix or a lifecycle workaround.
