@@ -33,7 +33,8 @@ cmake --build build/ci-wasm-multimedia --target qtmultimedia --parallel "$(nproc
 
 # Same stock source and isolated-prefix configure as the recorded probe
 # (tools/qtremoteobjects-probe/README.md).
-grep -Eq '^set\(QT_REPO_MODULE_VERSION "6\.12\.0"\)' "$qt_sources/qtremoteobjects/.cmake.conf"
+grep -Fqx "set(QT_REPO_MODULE_VERSION \"$(python3 "$repo_root/scripts/qt_version.py")\")" \
+    "$qt_sources/qtremoteobjects/.cmake.conf"
 cmake -S "$qt_sources/qtremoteobjects" -B build/ci-wasm-qtro -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$qt_prefix/lib/cmake/Qt6/qt.toolchain.cmake" \
     -DQT_HOST_PATH="$host_qt_prefix" \

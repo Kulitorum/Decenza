@@ -1200,7 +1200,7 @@ jobs:
         id: qt_modules
         shell: bash
         run: |
-          list="$(bash scripts/qt_modules.sh app desktop macos)"
+          list="$(bash scripts/qt_modules.sh app desktop)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
