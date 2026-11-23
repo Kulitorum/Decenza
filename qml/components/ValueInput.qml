@@ -35,12 +35,10 @@ Item {
     // that is the value we asked for or a different one it clamped to.
     onValueChanged: _hasPending = false
 
-    // Qt sends ValueChanged for each later change: setRole() connects `value`
-    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:479). It sends
-    // nothing for the value the item starts with, and Wasm sets a slider's
-    // aria-valuenow only on ValueChanged (qtbase/src/plugins/platforms/wasm/
-    // qwasmaccessibility.cpp:1149-1154), so send the first one here.
-    Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(root)
+    // Qt sends ValueChanged for `value` itself, the bound starting value included:
+    // the role literal connects it before bindings run
+    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:383-385). A second
+    // sender makes a screen reader repeat the value.
 
     // Hand authority back to `value`. Called wherever an interaction starts or
     // ends — press, popup open, commit, and every cancel. A cancel neither
@@ -733,7 +731,6 @@ Item {
                                 readonly property real from: root.from
                                 readonly property real to: root.to
                                 readonly property real stepSize: root.gearToStep(popupContent.currentGear)
-                                Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
                                 Accessible.onIncreaseAction: { popupContent.adjust(1); root.commitValue() }
                                 Accessible.onDecreaseAction: { popupContent.adjust(-1); root.commitValue() }
 

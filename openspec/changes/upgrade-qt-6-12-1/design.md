@@ -68,7 +68,7 @@ from the tests that exercise them.
 **4. The binary is recovered from git history, not kept in the tree.** The retirement record
 names the last commit that contains it (`4229107cf`, #2181), its SHA-256 and build ID from the
 manifest, and notes that the override README, manifest and `verify_artifact.py` are at the same
-commit. It also names the commit this change is based on as the place to recover the app-side
+commit. It also names `62fef1177`, where this branch started, as the place to recover the app-side
 code from decision 10, which changed after #2181. Keeping a 10 MB library that nothing packages was the alternative; history already
 holds it.
 
@@ -114,7 +114,7 @@ say "in 6.12.0" explicitly are dated and left alone.
 
 Keeping the abort path "for the override's return" was rejected: it is unreachable code in the
 start-operation path of the machine, and it would rot against a library nobody is building.
-`btlogfilter`'s unrelated filters (the `CAP_NET_ADMIN` and "window doesn't exist" drops) stay.
+`btlogfilter`'s `CAP_NET_ADMIN` filter stays; its "window doesn't exist" drop goes too (decision 15).
 
 **11. `DE1Device` members go only if the abort path was their last reader.**
 `hasCurrentStateInfo()`, `requestCurrentStateInfo()`, `m_stateInfoReceived` and the
@@ -194,11 +194,13 @@ shims are harmless when it does not.
 An inventory of the code's Qt workarounds (152 sites) was checked against the 6.12.1 release
 note, the Qt Jira status of every cited bug, and the 6.12.1 source:
 
-- *Removed:* `ValueInput`'s two `onValueChanged` accessibility notifications. 6.12.1's
-  `setRole()` connects `value` itself (`qquickaccessibleattached.cpp:479`), so each change sent
-  two ValueChanged events; `tst_sharedformcontrols` counted 2 with the old code. The
-  `Component.onCompleted` calls stay: Qt sends no event for the starting value and the Wasm
-  slider sets its DOM value only on ValueChanged (`qwasmaccessibility.cpp:1126-1131`).
+- *Removed:* `ValueInput`'s four accessibility value notifications. 6.12.1's `setRole()`
+  connects `value` itself (`qquickaccessibleattached.cpp:383-385`, reached from `:479`). The role
+  is a literal, so the connection exists before the value binding runs, and the bound starting
+  value is sent as well. Each change and the starting value were sent twice;
+  `tst_sharedformcontrols` counted 2 for each with the old code. A value left at its default
+  needs no event: the Wasm slider reads the current value when it creates its element
+  (`qwasmaccessibility.cpp:470-485`).
 - *Removed:* `BtLogFilter`'s drop of "window doesn't exist." (QTBUG-146779, fixed in 6.12.0 RC).
   In 6.12.x the line is a `qCDebug` on `qt.graphs2d.general`, off by default, and the app sets no
   logging rules. The filter is now Linux-only, its one remaining rule.

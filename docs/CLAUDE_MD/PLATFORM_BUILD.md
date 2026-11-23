@@ -58,7 +58,7 @@ packaging/signing stage and should not be treated as a deployable release.
 
 **Configure iOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_for_iOS && mkdir -p build/Qt_for_iOS && cd build/Qt_for_iOS && ~/Qt/$QT_VER/ios/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_for_iOS && mkdir -p build/Qt_for_iOS && cd build/Qt_for_iOS && ~/Qt/$QT_VER/ios_device/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Inject the Home Screen widget extension (iOS only, after configure):**

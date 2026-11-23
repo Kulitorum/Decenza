@@ -8,7 +8,7 @@ whether AOT is worth paying for.
 **Undated rebuild-cost numbers were measured on 2026-07-27 at commit `99f8f8f1`; the
 AOT coverage section was re-measured on 2026-07-29** after the QML cleanup landed.
 macOS Debug build, Qt 6.11.1 — the version they were taken under, left as measured
-rather than relabelled to the current 6.12.0. Sections dated 2026-10 were measured
+rather than relabelled to a later version. Sections dated 2026-10 were measured
 under Qt 6.12.0. They are a snapshot, not a contract.
 Every one is re-derivable with the commands in "How to re-derive" at the bottom — do
 that rather than trusting these figures after the QML tree or the Qt version has moved.

@@ -89,7 +89,9 @@ jobs:
 
       - name: Read the Qt version
         id: qt
-        run: echo "version=$(python3 scripts/qt_version.py)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(python3 scripts/qt_version.py)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4

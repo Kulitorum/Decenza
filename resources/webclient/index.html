@@ -57,10 +57,11 @@
             }
           }
     }).observe(document.body, {childList: true});
+    let started = false;
     function reportFailure(error) {
       const message = error && error.message ? error.message : String(error);
       status.dataset.state = "error";
-      status.textContent = `Decenza could not start: ${message}`;
+      status.textContent = `${started ? "Decenza stopped working" : "Decenza could not start"}: ${message}`;
       status.hidden = false;
       retry.hidden = false;
       screen.setAttribute("aria-busy", "false");
@@ -110,6 +111,7 @@
         entryFunction: window.decenza_web_entry,
         containerElements: [document.getElementById("screen")],
         onLoaded: () => {
+          started = true;
           status.hidden = true;
           retry.hidden = true;
           screen.setAttribute("aria-busy", "false");

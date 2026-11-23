@@ -11,8 +11,8 @@ All release jobs live in `.github/workflows/release.yml`.
 | Platform | Job | Runner | Output |
 |----------|-----|--------|--------|
 | Android | `build-android` | ubuntu-24.04 | Signed APK |
-| iOS | `build-ios` | macos-26 | IPA → App Store |
-| macOS | `build-macos` | macos-26 | Signed + notarized DMG |
+| iOS | `build-ios` | xcode-27 | IPA → App Store |
+| macOS | `build-macos` | xcode-27 | Signed + notarized DMG |
 | Windows | `build-windows` | windows-latest | Inno Setup installer |
 | Linux | `build-linux` | ubuntu-24.04 | AppImage |
 | Linux ARM64 | `build-linux-arm64` | ubuntu-24.04-arm | AppImage (aarch64) |

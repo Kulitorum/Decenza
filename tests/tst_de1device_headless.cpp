@@ -56,6 +56,13 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void shortStateInfoIsIgnored() {
+        TestFixture f;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        f.device.parseStateInfo(QByteArray(1, '\0'));  // a Sleep byte with no substate
+        QCOMPARE(f.device.state(), DE1::State::Idle);
+    }
+
     void defaultsToHeadless() {
         // A freshly constructed device (no GHC read yet) must allow app starts.
         DE1Device device;

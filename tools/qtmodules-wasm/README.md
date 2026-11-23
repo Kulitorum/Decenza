@@ -8,7 +8,7 @@ By default, CMake looks beside the selected Qt installation for `Src/qtmultimedi
 ~/Qt/<version>/Src/qtmultimedia
 ```
 
-If the source is elsewhere, override the `QT_MULTIMEDIA_SOURCE_DIR` cache path. The CMake project verifies that `.cmake.conf` identifies the source as that Qt version and that Qt Creator selected an Emscripten, single-threaded kit. Normal app builds invoke this wrapper automatically; see [the single-project setup](../webclient/README.md). For an isolated module build, open this directory as a CMake project in Qt Creator, select the existing Qt 6.12.1 WebAssembly single-threaded kit then build the `qtmultimedia` target. The target configures, builds, and installs the module under:
+If the source is elsewhere, override the `QT_MULTIMEDIA_SOURCE_DIR` cache path. The CMake project verifies that `.cmake.conf` identifies the source as that Qt version and that Qt Creator selected an Emscripten, single-threaded kit. Normal app builds invoke this wrapper automatically; see [the single-project setup](../webclient/README.md). For an isolated module build, open this directory as a CMake project in Qt Creator, select the existing Qt `<version>` WebAssembly single-threaded kit then build the `qtmultimedia` target. The target configures, builds, and installs the module under:
 
 ```text
 build/qtmultimedia-wasm-install

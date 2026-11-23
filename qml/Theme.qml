@@ -359,11 +359,11 @@ QtObject {
         return out.join(sep)
     }
 
+    readonly property int accessibleTextCap: 2000
+
     // Truncate a UTF-16 string at `cap` code units and append an ellipsis,
     // backing off one unit if cap would split a surrogate pair so we
     // don't emit an orphaned high surrogate to the accessibility tree.
-    readonly property int accessibleTextCap: 2000
-
     function _truncateWithEllipsis(s: string, cap: int): string {
         if (s.length <= cap) return s
         var c = s.charCodeAt(cap - 1)

@@ -277,10 +277,7 @@ void DE1Device::onTransportDisconnected() {
     // Tier by whether the machine was BUSY, because that is what separates a
     // fault from a shutdown, and nothing else here can.
     //
-    // I first wrote this as a flat INFO, reasoning that a bare disconnect fires
-    // on every app close so WARN would cry wolf, and that a real fault is warned
-    // elsewhere. The second half was wrong — all three backstops I named fail on
-    // the path that matters:
+    // A flat INFO would hide a mid-shot drop: none of the other warnings covers it.
     //   - de1LinkFault fires on controller errors, write-retry exhaustion and
     //     zombie links. BLEManager::onDe1LinkFault's own contract says it fires
     //     "never on plain device-absence" — and a machine switched off at the
@@ -718,8 +715,8 @@ void DE1Device::disconnect() {
     // Also cleared in onTransportDisconnected(), which this function deliberately
     // prevents from running (it drops the transport's signals just below to avoid
     // double-emitting). Both teardown paths have to clear it: this one is the
-    // BLE<->USB transport switch (main.cpp:2254) and the Android BLE-recovery
-    // reconnect (main.cpp:1844), after which a stale "this machine has answered"
+    // BLE<->USB transport switch (main.cpp's USBManager::de1Discovered handler) and the
+    // Android dead-binder BLE recovery in main.cpp, after which a stale "this machine has answered"
     // opens a write against a baseline the new machine never reported.
     clearCalibrationCache();
 

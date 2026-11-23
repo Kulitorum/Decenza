@@ -11,12 +11,9 @@ class QJSEngine;
 // TextUpdated for programmatic TextInput::setText() changes, but the Wasm
 // accessibility backend does not handle that event in its editable-text path
 // (qtdeclarative/src/quick/items/qquicktextinput.cpp:3885-3889;
-// qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:802-841). Send the
+// qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:838-879). Send the
 // ValueChanged event that the existing Wasm handler does handle
-// (qwasmaccessibility.cpp:814-817). Text notifications are a native no-op.
-// Numeric notifications send a custom Quick Item's starting value, which Qt
-// does not; Qt sends the later changes itself once the role is set
-// (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:479).
+// (qwasmaccessibility.cpp:850-853). A native no-op.
 class AccessibleValueChange final : public QObject
 {
     Q_OBJECT
@@ -27,7 +24,6 @@ public:
     static AccessibleValueChange* create(QQmlEngine* engine, QJSEngine* jsEngine);
 
     Q_INVOKABLE void notifyTextValueChanged(QObject* textField);
-    Q_INVOKABLE void notifyNumericValueChanged(QObject* control);
 
 private:
     explicit AccessibleValueChange(QObject* parent = nullptr);

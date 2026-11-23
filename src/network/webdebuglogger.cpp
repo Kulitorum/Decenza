@@ -195,7 +195,7 @@ WebDebugLogger::~WebDebugLogger()
 {
     // Nothing should destroy the process-wide logger now that it is CppOwnership, but a
     // static left pointing at freed memory is the bug above, so do not leave one. The
-    // handler stays installed: it is not ours to restore (btlogfilter installed over us),
+    // handler stays installed: it may not be ours to restore (btlogfilter chains over us on Linux),
     // and messageHandler() already null-checks s_instance and forwards to the previous
     // handler, so logging keeps working without the web buffer.
     if (s_instance == this)

@@ -7,7 +7,6 @@
 
 #include <QJSEngine>
 #include <QQmlEngine>
-#include <QVariant>
 
 AccessibleValueChange::AccessibleValueChange(QObject* parent)
     : QObject(parent)
@@ -37,26 +36,5 @@ void AccessibleValueChange::notifyTextValueChanged(QObject* textField)
     QAccessible::updateAccessibility(&event);
 #else
     Q_UNUSED(textField);
-#endif
-}
-
-void AccessibleValueChange::notifyNumericValueChanged(QObject* control)
-{
-#if QT_CONFIG(accessibility)
-    if (!control || !QAccessible::isActive())
-        return;
-
-    auto* iface = QAccessible::queryAccessibleInterface(control);
-    auto* value = iface ? iface->valueInterface() : nullptr;
-    if (!value)
-        return;
-
-    // Use the QObject overload: Qt 6.12's interface constructor stores its ID
-    // in the child-index union even when object() is non-null (qtbase/src/gui/
-    // accessible/qaccessible.h:366–380; qaccessible.cpp:1466–1477).
-    QAccessibleValueChangeEvent event(control, value->currentValue());
-    QAccessible::updateAccessibility(&event);
-#else
-    Q_UNUSED(control);
 #endif
 }

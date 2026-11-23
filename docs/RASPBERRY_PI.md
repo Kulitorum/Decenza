@@ -43,7 +43,7 @@ Install a Qt `<version>` AArch64 development kit compatible with your Pi OS, inc
 Set the prefix to your actual AArch64 Qt installation:
 
 ```bash
-export DECENZA_QT_PREFIX=/usr/local/Qt-$(cat qt-version.txt)
+export DECENZA_QT_PREFIX=/usr/local/Qt-<version>   # your AArch64 kit's prefix
 ```
 
 ## 3. Clone and Build

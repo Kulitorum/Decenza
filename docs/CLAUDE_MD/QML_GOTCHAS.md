@@ -702,7 +702,7 @@ file on main today. Go by the name, not the number.)
 **What is established and what is not.** The stack proves an event delivered inside the pump
 destroyed the page — `QObject::event` deletes on `DeferredDelete` at `qobject.cpp:1475-1476`. It
 does **not** prove *which* posted event, and the obvious story is the one Qt guards against: a bare
-`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1850-1865`
+`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1861-1876`
 allows one through only when it was posted at a deeper loop+scope level than the pump, or before
 the outermost loop, or when `DeferredDelete` is passed explicitly; `qobject.cpp:2547-2570` records
 those levels specifically so that

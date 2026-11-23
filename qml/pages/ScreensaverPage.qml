@@ -287,7 +287,6 @@ T.Page {
                 // Destroy video decoder to stop rendering to dead EGL surface
                 if (mediaPlayerLoader.active) {
                     screensaverPage.stopVideoPlayer()
-                    mediaPlayerLoader.active = false
                 }
                 imageDisplayTimer.stop()
                 gradientAnimation.running = false
@@ -438,8 +437,7 @@ T.Page {
                     // that survives both Loader destruction and full page teardown.
                     // Stop playing videos to prevent the leak from reaching SIGBUS.
                     // The screensaver stays visible with the fallback gradient.
-                    pendingVideoSource = ""
-                    mediaPlayerLoader.active = false
+                    stopVideoPlayer()
                     mediaPlaying = false
                     return
                 }
@@ -1051,7 +1049,6 @@ T.Page {
     StackView.onRemoved: {
         WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Waking: restoring brightness and cleaning up"].map(String).join(" "))
         stopVideoPlayer()
-        mediaPlayerLoader.active = false
         mediaPlaying = false
         if (currentMediaTicket.length > 0) {
             ScreensaverService.markPlayed(currentMediaTicket)

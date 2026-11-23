@@ -14,7 +14,7 @@ shared resource or spend CI time and need a go-ahead first.
       `android/qt-overrides/README.md` into that section, cut to what a rebuild needs: kit, NDK
       27.2.12479018, API 28, `-Oz -DNDEBUG`, patch order, the ABI comparison, never defining
       `DECENZA_QML_GC_TEST_HOOKS`. Record port status: patch 1 applies to 6.12.1, patch 2
-      untested on top of it, patch 3 superseded. Verify each `patch --dry-run` claim against
+      applies on top of it, patch 3 superseded. Verify each `patch --dry-run` claim against
       `~/Qt/6.12.1/Src/qtdeclarative` before writing it.
 - [x] 1.3 Record recovery of the binary: last commit holding it (`4229107cf`), its SHA-256 and
       build ID copied from `manifest.json`, and that the override README, manifest and
@@ -56,7 +56,7 @@ shared resource or spend CI time and need a go-ahead first.
 - [x] 3.3 `src/core/btlogfilter.{h,cpp}`: remove `enableGcCrossValidation`, `setGcPageStack`,
       `setGcMismatchHandler`, `gcCrossValidationLine` and its helpers, the batch state and
       `recordGcMiss`, the `DEFERRED_ABORT` branch, the Android stack capture, and the includes
-      only they used. Keep the `CAP_NET_ADMIN` and "window doesn't exist" filters. Rewrite the
+      only they used. Keep the `CAP_NET_ADMIN` filter (the "window doesn't exist" one goes in 6b.2). Rewrite the
       header comment to list the two filters that remain.
 - [x] 3.4 `src/network/crashreporter.cpp`: remove the `BtLogFilter::setGcPageStack` call from
       `setPageStack` and the include if nothing else uses it.
@@ -179,14 +179,17 @@ fixes. 4.4-4.6 replace those literals with the single source.
 
 ## 6b. Remove workarounds 6.12.1 makes unneeded
 
-- [x] 6b.1 `qml/components/ValueInput.qml`: drop the two `onValueChanged` calls to
-      `AccessibleValueChange.notifyNumericValueChanged`, keep the `Component.onCompleted` ones,
-      and cite the 6.12.1 source. `tst_sharedformcontrols` now asserts one ValueChanged per
-      change and checks the helper's inactive guard directly. Verified 2026-11-23: passes, and
-      with one old call restored it fails with 2 events for one change.
-      Web client, Wasm screen reader on (2026-11-23): Machine tab's three `ValueInput`s are
-      `role="slider"` with correct starting `aria-valuenow` (3, 31, 5); stepping Water refill
-      5 -> 6 -> 5 mm wrote `aria-valuenow` exactly once per change; setting restored to 5.
+- [ ] 6b.1 `qml/components/ValueInput.qml`: drop all four calls to
+      `AccessibleValueChange.notifyNumericValueChanged`, the two `onValueChanged` ones and the two
+      `Component.onCompleted` ones, delete the helper's numeric method, and cite the 6.12.1 source.
+      `tst_sharedformcontrols` asserts exactly one ValueChanged for the starting value and for
+      each change. Verified 2026-11-23: with one old `onValueChanged` call restored it fails with
+      2 events for one change, and with the completion calls still present it failed with 2 for
+      the starting value (`root:200 popup:200 root:200 popup:200`).
+      Web client, Wasm screen reader on, with the completion calls still present (2026-11-23):
+      Machine tab's three `ValueInput`s are `role="slider"` with correct starting
+      `aria-valuenow` (3, 31, 5); stepping Water refill 5 -> 6 -> 5 mm wrote `aria-valuenow`
+      exactly once per change. Still to do: repeat the starting-value check without them.
 - [x] 6b.2 `src/core/btlogfilter.{h,cpp}`: remove the QTBUG-146779 drop, compile the filter only
       on Linux.
 - [x] 6b.3 `src/ble/applebtstate.h`, `src/ble/blemanager.cpp`: replace the wrong QTBUG-50838

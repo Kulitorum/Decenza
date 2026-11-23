@@ -115,9 +115,9 @@ Qt 6.12 `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:907-925` updat
 
 `SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:955-971`), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:211-212`). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
 
-## Pending isolation: custom numeric values
+## Resolved: custom numeric values
 
-**Resolved by Qt 6.12.1, 2026-11-23:** `setRole()` now connects the value signal (`qquickaccessibleattached.cpp:479`) and Wasm exposes a slider as `role="slider"` with `aria-valuenow` (`qwasmaccessibility.cpp:1149-1154`). `ValueInput` dropped its per-change notification; the record below is kept as history.
+**Resolved by Qt 6.12.1, 2026-11-23:** `setRole()` now connects the value signal (`qquickaccessibleattached.cpp:479`) and Wasm exposes a slider as `role="slider"` (`qwasmaccessibility.cpp:470-475`) whose `aria-valuenow` follows ValueChanged (`:1149-1154`). `ValueInput` dropped its per-change notification; the record below is kept as history.
 
 On 2026-10-22 a custom numeric control visibly changed 10→15 and its accessible label changed, while the DOM input `.value` remained `10`. The preference was restored. This application/DOM observation still needs a standalone reproduction before filing another report.
 

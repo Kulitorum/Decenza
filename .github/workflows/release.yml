@@ -56,7 +56,9 @@ jobs:
 
       - name: Read the Qt version
         id: qt
-        run: echo "version=$(python3 scripts/qt_version.py)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(python3 scripts/qt_version.py)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Validate selected platforms
         id: select
@@ -125,12 +127,22 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      # The reusable Qt Wasm module recipe, named once for every step below.
+      - name: Name the Qt Wasm module recipe
+        id: wasm-recipe
+        env:
+          QT: ${{ needs.plan.outputs.qt_version }}
+          HASH: ${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        run: |
+          echo "artifact=qt-wasm-modules-$QT-emscripten-5.0.5-wasm-singlethread-$HASH" >> "$GITHUB_OUTPUT"
+          echo "key=qt-wasm-modules-singlethread-$QT-emscripten5.0.5-$HASH" >> "$GITHUB_OUTPUT"
+
       - name: Find a reusable Qt Wasm module artifact
         id: wasm-module-artifact
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
         uses: actions/github-script@v9
         env:
-          ARTIFACT_NAME: qt-wasm-modules-${{ needs.plan.outputs.qt_version }}-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          ARTIFACT_NAME: ${{ steps.wasm-recipe.outputs.artifact }}
         with:
           script: |
             const artifactName = process.env.ARTIFACT_NAME;
@@ -174,7 +186,7 @@ jobs:
         if: steps.wasm-module-artifact.outputs.run_id != ''
         uses: actions/download-artifact@v8
         with:
-          name: qt-wasm-modules-${{ needs.plan.outputs.qt_version }}-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          name: ${{ steps.wasm-recipe.outputs.artifact }}
           path: ${{ runner.temp }}/qt-wasm-module-artifact
           run-id: ${{ steps.wasm-module-artifact.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -182,7 +194,7 @@ jobs:
       - name: Verify and install reusable Qt Wasm modules
         if: steps.wasm-module-artifact.outputs.run_id != ''
         env:
-          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-${{ needs.plan.outputs.qt_version }}-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          QT_WASM_MODULE_RECIPE_KEY: ${{ steps.wasm-recipe.outputs.key }}
         run: |
           python3 tools/qtmodules-wasm/verify-ci-package.py \
             "$RUNNER_TEMP/qt-wasm-module-artifact" \
@@ -351,7 +363,7 @@ jobs:
         if: steps.wasm-module-artifact.outputs.run_id == ''
         env:
           QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-src/Qt/${{ needs.plan.outputs.qt_version }}/Src
-          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-${{ needs.plan.outputs.qt_version }}-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          QT_WASM_MODULE_RECIPE_KEY: ${{ steps.wasm-recipe.outputs.key }}
         run: |
           python3 tools/qtmodules-wasm/package-ci.py \
             "$GITHUB_WORKSPACE/build/qt-wasm-module-package" \
@@ -361,7 +373,7 @@ jobs:
         id: wasm-module-artifact-upload
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: qt-wasm-modules-${{ needs.plan.outputs.qt_version }}-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          name: ${{ steps.wasm-recipe.outputs.artifact }}
           path: build/qt-wasm-module-package/
           if-no-files-found: error
           overwrite: true
@@ -373,7 +385,7 @@ jobs:
         continue-on-error: true
         uses: actions/github-script@v9
         env:
-          ARTIFACT_NAME: qt-wasm-modules-${{ needs.plan.outputs.qt_version }}-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          ARTIFACT_NAME: ${{ steps.wasm-recipe.outputs.artifact }}
         with:
           script: |
             const artifactName = process.env.ARTIFACT_NAME;
@@ -1532,7 +1544,7 @@ jobs:
         run: |
           # Qt's Windows TLS plugin loads libssl-<major>-x64.dll for the OpenSSL major
           # it was built against (qsslsocket_openssl_symbols.cpp:670-716). That was 3
-          # for 6.11.2; confirm it for 6.12.0 (upgrade-qt-6-12 task 2.7) — 6.12 can
+          # for 6.11.2 and has not been re-checked for 6.12 — 6.12 can
           # build against OpenSSL 4, which would need libssl-4-x64.dll here instead. We previously installed
           # OpenSSL via `choco install openssl`, but:
           #   - Unpinned, Chocolatey will ship OpenSSL 4.x which has an incompatible ABI.

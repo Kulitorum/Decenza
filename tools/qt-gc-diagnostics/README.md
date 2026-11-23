@@ -18,11 +18,11 @@ rests on that field silence. It does not show that the ownership-change gap belo
 | `qt-6.12.0-gc-diagnostics.patch` | 6.12.0 | Applies cleanly to 6.12.1 (`patch --dry-run`, 2026-11-23) |
 | `qt-6.12.0-gc-weak-history.patch` | 6.12.0 | Applies cleanly on top of patch 1 on 6.12.1 |
 | `qt-6.12.0-sweep-allocation-fix.patch` | 6.12.0 | Superseded: its two sweep hunks are in 6.12.1. Its third hunk only appends the `gcdiag-v2` revision marker to patch 1's startup line; carry that by hand |
-| `tests/` | 6.12.0 | Needs a QtQml built from the patches with `DECENZA_QML_GC_TEST_HOOKS`, and the app-side code below checked out from `62fef1177`; not ported |
+| `tests/` | 6.12.0 | Needs a QtQml built from the patches with `DECENZA_QML_GC_TEST_HOOKS`, and the app-side code below checked out from `62fef1177`; not ported. The same goes for `ownership-repro`'s optional `tst_qtgc_history_compile` target |
 | `ownership-repro/` | 6.12.1 | Builds against stock Qt; not run on 6.12.1. Its results below are from 6.12.0 |
 
 **Rebuilding the Android library.** Start from the selected Qt's `Src/qtdeclarative` in an
-isolated copy and apply the patches above in order with `patch -p1`. Build the `Qml` target only,
+isolated copy and apply the patches above in order with `patch -p1`: patches 1 and 2 on 6.12.1, all three on 6.12.0. Build the `Qml` target only,
 for arm64 with the stock Android kit, NDK 27.2.12479018, API 28, shared libc++ and `-Oz -DNDEBUG`;
 disabling discovery of `Qt6ShaderTools` and `Qt6ShaderToolsTools` keeps Qt Quick out without
 changing Qml features. Never define `DECENZA_QML_GC_TEST_HOOKS` in it. Before packaging, compare
