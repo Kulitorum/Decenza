@@ -21,5 +21,5 @@ plugin. The patch was deleted with the 6.12.1 upgrade; it is in git history befo
 ## QtQml garbage-collection diagnostics
 
 The instrumented Android `libQt6Qml` that shipped for #2179 was retired with the Qt 6.12.1
-upgrade. Its patches, tests, rebuild recipe and recovery commits are kept beside the probes that
+upgrade. Its patches, rebuild recipe and recovery commits (its tests are at `62fef1177`) are kept beside the probes that
 exercise them, in [`tools/qt-gc-diagnostics/`](../../tools/qt-gc-diagnostics/README.md).

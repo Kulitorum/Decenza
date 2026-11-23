@@ -1,11 +1,11 @@
 # Qt Wasm media lifecycle reproduction
 
-This standalone Qt 6.12.0 WebAssembly project tests whether destroying a QML
+This standalone Qt WebAssembly project tests whether destroying a QML
 `MediaPlayer` and `VideoOutput` removes the HTML `<video>` element created by
 Qt Multimedia. The default run needs no media file and makes no network request.
 
-Open this directory as a CMake project in Qt Creator and select the same Qt
-6.12.0 `wasm_singlethread` kit used for the stock Qt Multimedia Wasm package.
+Open this directory as a CMake project in Qt Creator and select the `wasm_singlethread`
+kit for the Qt version in `qt-version.txt`, the same one used for the stock Qt Multimedia Wasm package.
 The CMake project uses `build/qtmultimedia-wasm-install` by default; override
 `DECENZA_QTMULTIMEDIA_PREFIX` if that package is elsewhere. Build and run the
 generated web bundle from an HTTP server. Click **Run 50 create/destroy

@@ -21,7 +21,7 @@ ROOTS = (".github", "cmake", "scripts", "tools", "src", "tests", "android", "ios
 SUFFIXES = {".yml", ".yaml", ".cmake", ".py", ".sh", ".ps1", ".bat", ".gradle", ".rb"}
 # Build scripts at the repository root, which the directory roots above do not reach.
 ROOT_SCRIPTS = tuple(f":(top,glob)*{suffix}" for suffix in (".sh", ".ps1", ".bat"))
-QT_VERSION = re.compile(r"(?<![\d.\\])6(?:\\?\.|_)(?:[1-9]\d)(?:\\?\.|_)\d+(?![\d])")
+QT_VERSION = re.compile(r"(?<![\d.\\])6(?:\\*\.|_)(?:[1-9]\d)(?:\\*\.|_)\d+(?![\d])")
 
 # Versions that are history, not pins: file (relative to the repo root) -> versions it may name.
 DATED = {
@@ -40,7 +40,7 @@ def scanned_files() -> list[Path]:
 
 
 def normalized(found: str) -> str:
-    return re.sub(r"\\?\.|_", ".", found)
+    return re.sub(r"\\*\.|_", ".", found)
 
 
 def findings(text: str, allowed: set[str] = frozenset()) -> list[tuple[int, str]]:
@@ -61,6 +61,7 @@ def self_test() -> None:
     assert findings("  // checked on 6.18.7\n") == []
     assert findings("x: 6.18.7  # trailing comment still a pin\n") == [(1, "6.18.7")]
     assert findings(r"grep '6\.18\.7' f" + "\n") == [(1, "6.18.7")]
+    assert findings(r'MATCHES "6\\.18\\.7"' + "\n") == [(1, "6.18.7")]
     assert findings("build/Qt_6_18_7_for_macOS\n") == [(1, "6.18.7")]
     assert findings('VERSION_GREATER_EQUAL "6.5.0"\n') == []
     assert findings("v16.18.70 and 26.18.7\n") == []

@@ -185,8 +185,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
       `AccessibleValueChange.notifyNumericValueChanged`, the two `onValueChanged` ones and the two
       `Component.onCompleted` ones, delete the helper's numeric method, and cite the 6.12.1 source.
       `tst_sharedformcontrols` asserts exactly one ValueChanged for the starting value and for
-      each change. Verified 2026-11-23: with one old `onValueChanged` call restored it fails with
-      2 events for one change, and with the completion calls still present it failed with 2 for
+      each change. Verified 2026-11-23, while the fixture still swapped in a notifier: with one
+      old `onValueChanged` call restored it failed with 2 events for one change, and with the completion calls still present it failed with 2 for
       the starting value (`root:200 popup:200 root:200 popup:200`).
       Web client, Wasm screen reader on, with the completion calls still present (2026-11-23):
       Machine tab's three `ValueInput`s are `role="slider"` with correct starting
@@ -300,7 +300,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
 ## 9. CI and field validation
 
 - [x] 9.1 Read the `text-invariants.yml` run on the PR before anything else.
-      Green on every pushed commit, last on `312fafc86` (run 45245952507).
+      Green on every pushed commit; on the last code commit before the final audit fixes,
+      `87d8aba84`, run 45265584820.
 - [x] 9.2 **(ask Jeff)** Dispatch `release.yml` on the branch for all platforms with
       `upload_to_release=false`. Verify every platform job is green and the Wasm module
       artifact carries the 6.12.1 name. This is the only compile of the Android-guarded code

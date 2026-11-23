@@ -19,7 +19,7 @@ rests on that field silence. It does not show that the ownership-change gap belo
 | `qt-6.12.0-gc-weak-history.patch` | 6.12.0 | Applies cleanly on top of patch 1 on 6.12.1 |
 | `qt-6.12.0-sweep-allocation-fix.patch` | 6.12.0 | Superseded: its two sweep hunks are in 6.12.1. Its third hunk only appends the `gcdiag-v2` revision marker to patch 1's startup line; carry that by hand |
 | `tests/` | 6.12.0 | Removed; at `62fef1177` with the app-side code it tests. Needs a QtQml built from the patches with `DECENZA_QML_GC_TEST_HOOKS` |
-| `ownership-repro/` | 6.12.1 | Builds against stock Qt; not run on 6.12.1. Its results below are from 6.12.0 |
+| `ownership-repro/` | `qt-version.txt` | Builds against stock Qt; not run on 6.12.1. Its results below are from 6.12.0 |
 
 **Rebuilding the Android library.** Start from the selected Qt's `Src/qtdeclarative` in an
 isolated copy and apply the patches above in order with `patch -p1`: patches 1 and 2 on 6.12.1, all three on 6.12.0. Build the `Qml` target only,

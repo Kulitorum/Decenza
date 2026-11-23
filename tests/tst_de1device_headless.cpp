@@ -93,6 +93,7 @@ private slots:
         f.transport.clearWrites();
         f.device.stopOperationUrgent();
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{QByteArray(1, char(DE1::State::Idle))});
+        QCOMPARE(f.transport.urgentWrites.size(), 1);  // jumps the queue
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
             QStringLiteral(".*DE1 DISCONNECTED while Steam.*unrequested drop.*")));
