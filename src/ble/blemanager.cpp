@@ -2223,6 +2223,8 @@ bool BLEManager::hasSavedBleScale() const {
     });
 }
 
+// One-way by design: a failing WiFi link may fall back to BLE, never the reverse, because
+// Bluetooth is the more reliable transport for this scale.
 void BLEManager::beginWifiFallbackToBleScan() {
     if (m_firmwareUpdateActive) return;
     const QString hostname = m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)

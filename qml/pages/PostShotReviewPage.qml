@@ -196,6 +196,8 @@ T.Page {
         _reviewActive = false
         ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
         HomePresetActions.withdrawMilkSample("review")
+        // Saves the latest refractometer reading even if it was still settling; accepted, since a
+        // late reading is within measurement error. An early one reads high.
         autosave()
     }
 
