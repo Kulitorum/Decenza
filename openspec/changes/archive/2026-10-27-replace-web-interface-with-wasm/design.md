@@ -417,6 +417,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/DecenzaDialog.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
 | `qml/components/DecenzaFileDialog.qml` | 18 / 23 / 24 / 25 | native + Wasm | presentation; `ProfileImportPage.qml` (18) |
 | `qml/components/DecenzaFolderDialog.qml` | 18 / 23 | native + Wasm | presentation; `ProfileImportPage.qml` (18) |
+| `qml/components/DonateOption.qml` | 23 | native + Wasm | presentation; `SettingsUpdateTab.qml` (23) |
 | `qml/components/DrinkType.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
 | `qml/components/DrinkTypeCatalog.js` | 26 | native + Wasm | policy/data producer; `AutoFavoritesPage.qml` (18) |
 | `qml/components/EquipmentCard.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
