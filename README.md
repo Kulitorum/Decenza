@@ -4,28 +4,28 @@ A modern Qt/QML controller application for the Decent DE1 espresso machine with 
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-blue)
 ![Qt](https://img.shields.io/badge/Qt-6.12-green)
-![License](https://img.shields.io/badge/license-LGPL--3.0-orange)
+![License](https://img.shields.io/badge/license-GPL--3.0-orange)
 
-## Developer Note (Qt Creator)
-
-The executable target name is `Decenza` (renamed from `Decenza_DE1`).
-
-If Qt Creator shows `No executable specified` after pulling changes:
-
-1. Run CMake reconfigure (or delete/recreate the build directory).
-2. Open `Projects > Run`.
-3. Select/add the `Decenza` Run configuration.
+**[Download a release](https://github.com/Kulitorum/Decenza/releases)** · **[User manual](https://github.com/Kulitorum/Decenza/wiki/Manual)**
 
 ## Features
 
-- **Bluetooth LE connectivity** to DE1 espresso machine and compatible scales
+- **Bluetooth LE connectivity** to the DE1 espresso machine and compatible scales
 - **Real-time shot monitoring** with pressure, flow, temperature, and weight graphs
-- **Profile editor** with visual frame-based editing
-- **Profile favorites** for quick access to your preferred profiles
-- **Multiple scale support**: Acaia, Decent, Felicita, Skale, Bookoo, and more
-- **Screensaver** with beautiful videos from Pexels
-- **Visualizer.coffee integration** for shot history and analysis
+- **Shot history and review**, with shot comparison and automatic shot-quality checks
+- **Profile editors** (D-Flow, A-Flow, pressure, flow, and advanced frame-based editing) and profile favorites
+- **Drink recipes** that bundle profile, dose, grind, and steam settings
+- **Stop-at-weight** that learns per profile and scale, and automatic flow calibration
+- **AI dialing advisor** using the AI provider and model you choose
+- **MCP server** so AI assistants can read shots and control the machine
+- **Browser interface**: the same UI served to any browser on your network
+- **Integrations**: Visualizer.coffee, decentespresso.com shot upload, Bean Base, and MQTT for home automation
+- **Multiple scale support** over Bluetooth, USB, and WiFi (see [Supported Scales](#supported-scales))
+- **Home Screen widget** on Android and iOS
+- **Screensaver** with videos from Pexels
+- **Screen reader support** (TalkBack / VoiceOver) and community translations
 - **Cross-platform**: Windows, macOS, Linux, Android, iOS
+- **Belka PORTAL** support: [short user guide](docs/PORTAL.md)
 
 ## Screenshots
 
@@ -61,11 +61,22 @@ Select the following components during installation:
   - iOS (if targeting iOS)
 
 **Additional Libraries:**
-- Qt Bluetooth
-- Qt Canvas Painter
-- Qt Charts
+- Qt Connectivity (Bluetooth)
+- Qt Graphs
 - Qt Multimedia
-- Qt Quick (included by default)
+- Qt Positioning
+- Qt Speech
+- Qt WebSockets
+- Qt Remote Objects
+- Qt WebView
+- Qt Image Formats
+- Qt Canvas Painter
+- Qt Quick 3D
+- Qt Shader Tools
+- Qt Task Tree
+- Qt Serial Port (desktop only)
+
+[`.github/qt-modules.txt`](.github/qt-modules.txt) is the list CI installs from; if it and this list disagree, that file is right.
 
 **Developer Tools:**
 - Qt Creator (recommended IDE)
@@ -155,24 +166,31 @@ cmake --build . --parallel
 ## Project Structure
 
 ```
-de1-qt/
+Decenza/
 ├── src/
-│   ├── ble/           # Bluetooth LE device communication
-│   │   ├── de1device  # DE1 machine protocol
-│   │   ├── scaledevice # Scale abstraction
-│   │   └── scales/    # Scale implementations (Acaia, Decent, etc.)
+│   ├── ai/            # AI dialing advisor, shot analysis
+│   ├── ble/           # Bluetooth LE: DE1 protocol, scale drivers (ble/scales/)
 │   ├── controllers/   # Business logic
 │   ├── core/          # Settings, utilities
+│   ├── history/       # Shot history database
 │   ├── machine/       # Machine state management
-│   ├── models/        # Data models (shot data, profiles)
-│   ├── network/       # Visualizer.coffee integration
-│   └── profile/       # Profile parsing and management
+│   ├── mcp/           # MCP server and tools
+│   ├── models/        # Data models
+│   ├── network/       # Visualizer, Bean Base, uploads, web server
+│   ├── profile/       # Profile parsing and management
+│   ├── remote/        # Services shared with the browser interface
+│   ├── usb/           # USB and serial scales
+│   ├── webclient/     # WebAssembly browser interface
+│   └── widget/        # Home Screen widget data
 ├── qml/
 │   ├── components/    # Reusable QML components
 │   └── pages/         # Application pages
-├── resources/         # Icons, images
-├── profiles/          # Built-in espresso profiles
-└── android/           # Android-specific files
+├── resources/         # Icons, images, fonts, built-in profiles
+├── tests/             # Qt Test suite
+├── docs/              # Developer documentation
+├── openspec/          # Change proposals and specs
+├── android/           # Android-specific files
+└── ios/               # iOS-specific files
 ```
 
 ## Supported Scales
@@ -180,7 +198,7 @@ de1-qt/
 | Scale | Status |
 |-------|--------|
 | Acaia Lunar/Pearl/Pyxis | Supported |
-| Decent Scale | Supported |
+| Decent Scale (Bluetooth, USB, WiFi) | Supported |
 | Felicita Arc | Supported |
 | Skale | Supported |
 | Bookoo | Supported |
@@ -189,6 +207,11 @@ de1-qt/
 | Hiroia Jimmy | Supported |
 | Varia Aku | Supported |
 | SmartChef | Supported |
+| Timemore | Supported |
+| Atomheart Eclair | Supported |
+| Solo Barista | Supported |
+
+Without a scale, Decenza can estimate cup weight from the machine's flow.
 
 ## Troubleshooting
 
@@ -204,6 +227,10 @@ sudo usermod -aG bluetooth $USER
 - Click "Set Up SDK" to auto-download components
 - Ensure all status indicators show green checkmarks
 
+### Qt Creator shows "No executable specified"
+
+The executable target is `Decenza` (renamed from `Decenza_DE1`). Re-run CMake, then select the `Decenza` Run configuration under **Projects > Run**.
+
 ### Scale not connecting
 - Ensure scale is in pairing mode
 - Check that Bluetooth is enabled on your device
@@ -211,17 +238,26 @@ sudo usermod -aG bluetooth $USER
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## Supporting the Project
+
+Decenza is free and open source, and will stay that way. If it has earned a place next to your machine, you can support the people who build it. Donations are welcome and never expected.
+
+- **Michael Holm** created Decenza: [donate via PayPal](https://www.paypal.com/donate/?business=QS7GZPKLQ8HNU&no_recurring=0&item_name=For+work+on+Decenza)
+- **Jeff Heller** has led development since: [Buy Me a Coffee](https://buymeacoffee.com/jeff.heller)
+
+The same links are in the app under Settings → About → Support This Project.
 
 ## License
 
-This project is licensed under the **GNU Lesser General Public License v3.0 (LGPL-3.0)**.
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. The full text is in [LICENSE](LICENSE).
 
 This means:
-- You can use this software freely, including in commercial applications
+- You can use this software freely, including commercially
 - You can modify the source code
-- If you distribute modified versions, you must make your modifications available under LGPL-3.0
-- You must provide attribution to the original project
+- If you distribute it, modified or not, you must make the source available under GPL-3.0
+- You must keep the copyright and licence notices
 
 ### Third-Party Licenses
 
@@ -248,5 +284,3 @@ This application implements the DE1 Bluetooth LE protocol based on publicly avai
 ## Disclaimer
 
 Decenza is an independent, community-developed application and is not affiliated with, endorsed by, or supported by Decent Espresso. "Decent" and "DE1" are trademarks of Decent Espresso.
-
-Fork-specific PORTAL features: [short user guide](docs/PORTAL.md).

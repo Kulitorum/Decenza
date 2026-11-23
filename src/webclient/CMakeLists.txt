@@ -109,7 +109,7 @@ set(shared_qml_files
     LocalFileTransfer.qml LocalFileDownload.qml HostFileDownload.qml MemoryUsageDialog.qml LocalTextFileReader.qml SystemLogDownload.qml LanguageStringEditor.qml LanguageFileActions.qml
     SettingsTabs.qml SettingsSearchEntries.js SettingsSearchMatcher.mjs
     BackgroundPickerDialog.qml ThemeAdvancedDialog.qml StyledTabBar.qml StyledTabButton.qml
-    FocusIndicator.qml PortalDevicePanel.qml QrCode.qml qrcode.js
+    FocusIndicator.qml PortalDevicePanel.qml QrCode.qml qrcode.js DonateOption.qml
     CrtOverlay.qml CrtShaderEffect.qml
     CommunitySuggestionsCard.qml BeanSuggestionsDialog.qml
     ConversationOverlay.qml
@@ -438,7 +438,7 @@ qt_add_resources(decenza-web shared_ghc_image
     FILES ../../resources/GHC_Small.png)
 qt_add_resources(decenza-web shared_qr_image
     PREFIX "/" BASE ../../Logo
-    FILES ../../Logo/qrcode.png)
+    FILES ../../Logo/qrcode.png ../../Logo/qrcode-jeff.png)
 # Shared QML resolves icons by their canonical qrc:/icons/<filename> URLs. Keep
 # the Wasm bundle in sync with the native icon catalogue instead of maintaining
 # a page-by-page whitelist that silently misses icons as shared pages are added.
