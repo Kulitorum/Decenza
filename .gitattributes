@@ -2,5 +2,6 @@
 *.sh                    text eol=lf
 .github/qt-modules.txt  text eol=lf
 
-# Read by CMake, Python and shell; a CRLF checkout would put \r in `$(cat qt-version.txt)`.
+# Its bytes are hashed into the web package identity (cmake/wasm_package_identity.cmake),
+# so a CRLF checkout would give Windows a different identity for the same tree.
 qt-version.txt          text eol=lf

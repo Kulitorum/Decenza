@@ -571,7 +571,7 @@ jobs:
       # gradle distribution and re-resolves every dependency on each run
       # (~1m14s of the job). Stable key: an exact hit skips re-saving, so
       # this entry never accumulates timestamped copies. The Qt version
-      # pins the gradle/AGP generation — bump the key with Qt upgrades.
+      # pins the gradle/AGP generation, so the key carries it.
       - name: Cache Gradle (androiddeployqt)
         uses: actions/cache@v6
         with:
@@ -1211,7 +1211,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Select Qt modules (app desktop macos)
+      - name: Select Qt modules (app desktop)
         id: qt_modules
         shell: bash
         run: |
@@ -1550,9 +1550,9 @@ jobs:
         shell: powershell
         run: |
           # Qt's Windows TLS plugin loads libssl-<major>-x64.dll for the OpenSSL major
-          # it was built against (qsslsocket_openssl_symbols.cpp:670-716). That was 3
-          # for 6.11.2 and has not been re-checked for 6.12 — 6.12 can
-          # build against OpenSSL 4, which would need libssl-4-x64.dll here instead. We previously installed
+          # it was built against (qsslsocket_openssl_symbols.cpp:670-716). Qt's Windows
+          # packages build against OpenSSL 3.5.4 (coin/provisioning/common/windows/openssl.ps1:20);
+          # a move to OpenSSL 4 would need libssl-4-x64.dll here instead. We previously installed
           # OpenSSL via `choco install openssl`, but:
           #   - Unpinned, Chocolatey will ship OpenSSL 4.x which has an incompatible ABI.
           #   - The chocolatey package downloads from slproweb.com/download/Win64OpenSSL-<ver>.exe,

@@ -87,6 +87,9 @@ name: Text invariants
 #     has a search title, and the committed generated index matches the tabs. Blocking: a setting
 #     search cannot find fails silently, and the fix is always mechanical.
 #
+#   check_qt_version_pins.py — the Qt version is written only in qt-version.txt, never in a
+#     workflow, CMake file or build script. Blocking: a second copy is what a bump leaves stale.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the

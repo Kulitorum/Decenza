@@ -27,8 +27,6 @@ QT_VERSION = re.compile(r"(?<![\d.\\])6(?:\\?\.|_)(?:[1-9]\d)(?:\\?\.|_)\d+(?![\
 DATED = {
     # Notes on when qmllint's text output and its OOM were fixed.
     "scripts/qmllint_report.py": {"6.12.0", "6.11.2"},
-    # Frozen with the unported GC patches it tests (tools/qt-gc-diagnostics/README.md).
-    "tools/qt-gc-diagnostics/tests/CMakeLists.txt": {"6.12.0"},
 }
 
 

@@ -124,7 +124,7 @@ The Windows installer is built with Inno Setup (`installer/setup.iss`). It uses 
 Copy `installer/TEMPLATE_setupvars.iss` to `installer/setupvars.iss` and adjust paths for your machine:
 ```iss
 #define SourceDir "C:\CODE\de1-qt"
-#define AppBuildDir "C:\CODE\de1-qt\build\Desktop_Qt_6_10_1_MSVC2022_64bit-Release"
+#define AppBuildDir "C:\CODE\de1-qt\build\<your Qt Creator Release build dir>"
 #define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
 #define QtDir "C:\Qt\<version from qt-version.txt>\msvc2022_64"
 #define VcRedistDir "C:\Qt\vcredist"

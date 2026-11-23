@@ -179,7 +179,7 @@ These secrets are configured in the repository and should NOT be modified unless
 
 **Solution:**
 - Check https://github.com/jurplel/install-qt-action for supported versions
-- The workflow installs the Qt version in `qt-version.txt` - if unavailable for iOS, that file is what to change
+- iOS installs through a pinned aqtinstall fork (`aqtsource` in the iOS Install Qt step); confirm `aqt list-qt mac ios --arch <version>` lists `ios_device` before changing anything. `qt-version.txt` moves every platform.
 
 ## Updating Credentials
 

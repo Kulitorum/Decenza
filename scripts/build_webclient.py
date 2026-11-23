@@ -161,17 +161,19 @@ def ensure_modules(config: dict[str, str], environment: dict[str, str], runner) 
         module_source = qt_sources / name
         version_file = module_source / ".cmake.conf"
         if not version_file.is_file() or f'set(QT_REPO_MODULE_VERSION "{QT_VERSION}")' not in version_file.read_text(encoding="utf-8"):
-            raise ValueError(f"Install stock Qt {QT_VERSION} Sources/{name}; missing Wasm module at {prefix}")
+            state = "is for another Qt version" if installed else "is missing"
+            raise ValueError(f"Install stock Qt {QT_VERSION} Sources/{name}; the Wasm module at {prefix} {state}")
         if installed:
-            # A prefix outlives a Qt bump. Delete only the default prefix: the cache path is
-            # user-settable and could name a shared build tree or an installed Qt kit.
-            if prefix.resolve() != (source / DEFAULT_PREFIXES[prefix_key]).resolve():
+            # A prefix outlives a Qt bump. Delete only the default prefix, and never through a
+            # symlink: the cache path is user-settable and could name a shared tree or a Qt kit.
+            default = source / DEFAULT_PREFIXES[prefix_key]
+            if prefix.is_symlink() or os.path.abspath(prefix) != os.path.abspath(default):
                 raise ValueError(f"{prefix} holds {name} for another Qt version and is not this "
                                  f"script's default prefix; remove it or point the prefix elsewhere")
             print(f"[webclient] {prefix} is not Qt {QT_VERSION}; rebuilding {name}", flush=True)
             shutil.rmtree(prefix)
         module_build = Path(config["build"]) / "qt-dependencies" / name
-        # A tree configured for another Qt kit is unusable: CMake refuses its cache for a new -S.
+        # A tree configured for another Qt kit keeps that kit's toolchain and compiler in its cache.
         cached_toolchain = read_cache(module_build / "CMakeCache.txt").get("CMAKE_TOOLCHAIN_FILE")
         if cached_toolchain not in (None, toolchain_file(config)):
             shutil.rmtree(module_build)

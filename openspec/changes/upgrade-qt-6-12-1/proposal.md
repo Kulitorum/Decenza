@@ -32,8 +32,8 @@ be built with the iOS 27 SDK or later. Our iOS and macOS jobs build with Xcode 2
   that only the patched library can trigger: the coordinator in `main.cpp`, `gcdeferredabort.h`,
   the GC half of `btlogfilter`, the operation block in `DE1Device`, and a crash-report special
   case. All of it goes, with its tests and its `LOGGING.md` section.
-- **Keep the GC diagnostics as source, unported.** The three patches and the instrumentation
-  test stay in `tools/qt-gc-diagnostics/` under their 6.12.0 names, with a retirement record:
+- **Keep the GC diagnostics as source, unported.** The three patches stay in
+  `tools/qt-gc-diagnostics/` under their 6.12.0 names, with a retirement record:
   why it was removed, how to rebuild it, where the last shipped binary and the app-side code are
   in git history, and what would bring it back.
 - **Re-pin `ownership-repro/` to 6.12.1, without running it.** It builds against stock Qt, so it
@@ -49,10 +49,16 @@ be built with the iOS 27 SDK or later. Our iOS and macOS jobs build with Xcode 2
   and `..._MACOS_SDK_VERSION` are 27). Deployment floors stay iOS 18.0 and macOS 14.4, and the
   macOS app stays universal (`x86_64` and `arm64`): the 27.2 SDKs accept both floors and both
   architectures.
+- **Remove the app workarounds 6.12.1 makes unneeded** (design decision 15, tasks 6b):
+  `ValueInput`'s own accessibility value notifications, the web client's "deleted val. handle"
+  reload, the screensaver's single reused video player, the BtLogFilter "window doesn't exist"
+  drop, and a wrong QTBUG citation in `applebtstate.h`. Fix the `Theme` accessible-text helpers
+  found while testing.
 - State what is not fixed: the `OperationCompletionOverlay.qml` qmlcachegen workaround stays
   (QTBUG-152061, 6.12.2), and none of the filed Wasm accessibility or media bugs are in 6.12.1.
 
-Nothing here changes what a user sees or does, so there is no manual entry; the platforms
+Nothing here changes what a user does, so there is no manual entry. A screen reader no longer
+hears a slider's value twice, and the web screensaver recreates its player per video; the platforms
 Decenza runs on are unchanged. The one thing a
 user may feel is fewer GC pauses, since each collection no longer runs a second full mark.
 
@@ -84,7 +90,10 @@ None.
 - **App code**: `src/main.cpp`, `src/core/btlogfilter.{h,cpp}`, `src/core/gcdeferredabort.h`
   (deleted), `src/core/crashhandler.cpp`, `src/network/crashreporter.cpp`,
   `src/ble/de1device.{h,cpp}`, `tests/tst_webdebuglogger.cpp`,
-  `tests/tst_de1device_headless.cpp`, `docs/CLAUDE_MD/LOGGING.md`. `DE1Device` no longer refuses
+  `tests/tst_de1device_headless.cpp`, `docs/CLAUDE_MD/LOGGING.md`; for the 6b removals,
+  `qml/components/ValueInput.qml`, `qml/pages/ScreensaverPage.qml`, `qml/Theme.qml`,
+  `qml/pages/settings/SettingsUpdateTab.qml`, `resources/webclient/index.html`,
+  `src/core/accessiblevaluechange.{h,cpp}` and `src/ble/{applebtstate.h,blemanager.cpp}`. `DE1Device` no longer refuses
   to start an operation while a GC crash report is pending, because nothing can set that state.
 - **Android**: the packaged `libQt6Qml` is stock. The `gcdiag-v2` startup log marker and
   `WEAK_HISTORY` crash-report lines disappear. The EGL surface lifecycle is rewritten upstream,

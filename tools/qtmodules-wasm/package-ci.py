@@ -12,12 +12,7 @@ import tarfile
 import tempfile
 from datetime import datetime, timezone
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-import qt_version  # noqa: E402
-
-QT_VERSION = qt_version.pinned()
-EMSCRIPTEN_VERSION = "5.0.5"
-TARGET = "wasm_singlethread"
+import wasm_module_recipe as recipe
 
 
 def sha256(path: Path) -> str:
@@ -53,14 +48,8 @@ def main() -> int:
     if source_root is not None and not source_root.is_dir():
         source_root = None
 
-    installs = {
-        "qtmultimedia-wasm-install": repo_root / "build/qtmultimedia-wasm-install",
-        "qtro-wasm-install": repo_root / "build/qtro-wasm-install",
-    }
-    required = {
-        "qtmultimedia-wasm-install/lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake",
-        "qtro-wasm-install/lib/cmake/Qt6RemoteObjects/Qt6RemoteObjectsConfig.cmake",
-    }
+    installs = {prefix: repo_root / "build" / prefix for prefix in recipe.PREFIXES}
+    required = recipe.PACKAGE_FILES
     for name, path in installs.items():
         if not path.is_dir():
             raise SystemExit(f"Missing Qt module install prefix: {path}")
@@ -75,7 +64,7 @@ def main() -> int:
         raise SystemExit("Installed Qt Wasm modules exceed the 200 MiB package allowance")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"qt-wasm-modules-{QT_VERSION}-emscripten-{EMSCRIPTEN_VERSION}-{TARGET}-recipe-{recipe_hash}.tar.gz"
+    filename = recipe.archive_name(recipe_key)
     archive_path = output_dir / filename
     manifest_path = output_dir / f"{filename}.manifest.json"
     checksum_path = output_dir / f"{filename}.sha256"
@@ -109,17 +98,8 @@ def main() -> int:
             shutil.copytree(previous_notices, notices)
 
         manifest = {
-            "formatVersion": 1,
-            "qtVersion": QT_VERSION,
-            "emscriptenVersion": EMSCRIPTEN_VERSION,
-            "target": TARGET,
-            "modules": ["qtmultimedia", "qtremoteobjects"],
+            **recipe.IDENTITY,
             "recipeCacheKey": recipe_key,
-            "qtSources": {
-                "version": QT_VERSION,
-                "qtmultimedia": "https://code.qt.io/qt/qtmultimedia.git",
-                "qtremoteobjects": "https://code.qt.io/qt/qtremoteobjects.git",
-            },
             "recipeRepositoryRevision": os.environ.get("GITHUB_SHA", ""),
             "packagedAtUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "installPrefixes": list(installs),

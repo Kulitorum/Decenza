@@ -194,9 +194,21 @@ class PackageWebClientTests(unittest.TestCase):
             # and its build tree, configured for the previous kit, goes with it.
             provide_sources("9.8.7")
             module_build = Path(configuration["build"]) / "qt-dependencies" / "qtmultimedia"
+            cache = module_build / "CMakeCache.txt"
+
+            # A first build has no tree to keep; a tree configured for this kit is kept.
+            shutil.rmtree(multimedia)
+            build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue(commands)
             module_build.mkdir(parents=True)
-            (module_build / "CMakeCache.txt").write_text(
-                "CMAKE_TOOLCHAIN_FILE:FILEPATH=/Qt/9.8.6/qt.toolchain.cmake\n", encoding="utf-8")
+            cache.write_text("CMAKE_TOOLCHAIN_FILE:FILEPATH=" + build_webclient.toolchain_file(configuration)
+                             + "\n", encoding="utf-8")
+            build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue(module_build.exists())
+
+            install(multimedia, "Multimedia", "9.8.6")
+            cache.write_text("CMAKE_TOOLCHAIN_FILE:FILEPATH=/Qt/9.8.6/qt.toolchain.cmake\n", encoding="utf-8")
+            commands.clear()
             build_webclient.ensure_modules(configuration, {}, run)
             self.assertFalse((multimedia / "lib/cmake/Qt6Multimedia/Qt6MultimediaConfig.cmake").exists())
             self.assertFalse(module_build.exists())
@@ -209,6 +221,14 @@ class PackageWebClientTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "not this script's default prefix"):
                     build_webclient.ensure_modules(dict(configuration, multimedia=str(other)), {}, run)
                 self.assertTrue((other / "lib/cmake/Qt6Multimedia").exists())
+
+            # So is the default prefix when it is a symlink to somewhere shared.
+            shared = self.root / "shared"
+            install(shared, "Multimedia", "9.8.6")
+            multimedia.symlink_to(shared, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "not this script's default prefix"):
+                build_webclient.ensure_modules(configuration, {}, run)
+            self.assertTrue((shared / "lib/cmake/Qt6Multimedia").exists())
 
     def test_local_build_rejects_mismatched_output_before_native_staging(self) -> None:
         self.pack()

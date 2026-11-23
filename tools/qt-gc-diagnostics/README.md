@@ -18,7 +18,7 @@ rests on that field silence. It does not show that the ownership-change gap belo
 | `qt-6.12.0-gc-diagnostics.patch` | 6.12.0 | Applies cleanly to 6.12.1 (`patch --dry-run`, 2026-11-23) |
 | `qt-6.12.0-gc-weak-history.patch` | 6.12.0 | Applies cleanly on top of patch 1 on 6.12.1 |
 | `qt-6.12.0-sweep-allocation-fix.patch` | 6.12.0 | Superseded: its two sweep hunks are in 6.12.1. Its third hunk only appends the `gcdiag-v2` revision marker to patch 1's startup line; carry that by hand |
-| `tests/` | 6.12.0 | Needs a QtQml built from the patches with `DECENZA_QML_GC_TEST_HOOKS`, and the app-side code below checked out from `62fef1177`; not ported. The same goes for `ownership-repro`'s optional `tst_qtgc_history_compile` target |
+| `tests/` | 6.12.0 | Removed; at `62fef1177` with the app-side code it tests. Needs a QtQml built from the patches with `DECENZA_QML_GC_TEST_HOOKS` |
 | `ownership-repro/` | 6.12.1 | Builds against stock Qt; not run on 6.12.1. Its results below are from 6.12.0 |
 
 **Rebuilding the Android library.** Start from the selected Qt's `Src/qtdeclarative` in an
@@ -78,7 +78,7 @@ The app's deferred abort policy is tested separately. The Android arm64
 original library has been built with the test hooks disabled and checked against the Qt
 6.12.0 SDK's exported symbols, feature headers, SONAME and dependencies. It
 still needs Android runtime and crash-report verification before release.
-The checked-in Android replacement now includes the allocator fix and weak-history
+The Android replacement that shipped included the allocator fix and weak-history
 additions below; its checksums are in the retirement section above.
 
 ## Ownership-change investigation (#2179)

@@ -10,7 +10,7 @@ class QJSEngine;
 // Shared text fields call this after their text changes. Qt Quick 6.12 emits
 // TextUpdated for programmatic TextInput::setText() changes, but the Wasm
 // accessibility backend does not handle that event in its editable-text path
-// (qtdeclarative/src/quick/items/qquicktextinput.cpp:3885-3889;
+// (QTBUG-151711, fixed for 6.12.2; qtdeclarative/src/quick/items/qquicktextinput.cpp:3885-3889;
 // qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:838-879). Send the
 // ValueChanged event that the existing Wasm handler does handle
 // (qwasmaccessibility.cpp:850-853). A native no-op.

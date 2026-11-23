@@ -375,7 +375,7 @@ The gate runs in every default desktop build and fails it on a new diagnostic; a
    whose type propagation re-ran (typically a loop) discarded every finding buffered earlier in
    that file (`qqmljslogger.cpp:411-418` in 6.12.0; QTBUG-151969, fixed in 6.12.1 at `:387,419`).
    It hid 60 findings here, four of them shipped `ReferenceError`s. JSON also names every file
-   linted, so a run that prints nothing still proves coverage.
+   linted (`tools/qmllint/main.cpp:562,595`), so a run that prints nothing still proves coverage.
 
 ## Settings search: `SettingsCard`, titles, and the scanner
 

@@ -68,7 +68,7 @@ from the tests that exercise them.
 **4. The binary is recovered from git history, not kept in the tree.** The retirement record
 names the last commit that contains it (`4229107cf`, #2181), its SHA-256 and build ID from the
 manifest, and notes that the override README, manifest and `verify_artifact.py` are at the same
-commit. It also names `62fef1177`, where this branch started, as the place to recover the app-side
+commit. It also names `62fef1177`, a `main` commit holding the app-side code unchanged since #2181, as the place to recover the app-side
 code from decision 10, which changed after #2181. Keeping a 10 MB library that nothing packages was the alternative; history already
 holds it.
 
@@ -77,8 +77,8 @@ holds it.
 future artifact is packaged; the record says to restore this script from the same commit.
 
 **6. The CMake minimum moves to 6.12.1.** `find_package(Qt6 6.12.0 REQUIRED …)` would let a
-6.12.0 kit build an Android package with neither the override nor the upstream fix. The README
-badge and the Raspberry Pi guide move with it.
+6.12.0 kit build an Android package with neither the override nor the upstream fix. The Raspberry Pi
+guide moves with it; the README badge names the series (`Qt-6.12`) only.
 
 **7. Wasm pins move; the GC tool pins do not.** `tools/qtmodules-wasm/`, the packaging scripts,
 `scripts/build_webclient.py` and `cmake/webclient_bundle.cmake` are part of the shipped web
@@ -137,8 +137,8 @@ scripts read it too, not only CI.
   it is missing or malformed. The root project, `src/webclient`, `tools/qtmodules-wasm`,
   `tools/webclient/media-repro` and `tools/qt-gc-diagnostics/ownership-repro` include it by
   relative path. Each `find_package` keeps its current strictness: the root stays a minimum,
-  the Wasm and tool projects stay `EXACT`. `tools/qt-gc-diagnostics/tests` keeps its literal
-  `6.12.0`: it is tied to the unported patches, not to the current version.
+  the Wasm and tool projects stay `EXACT`. The unported GC instrumentation test is removed
+  rather than kept on `6.12.0`; it is at `62fef1177` with the app-side code it tests.
 - *Python*: one helper, `scripts/qt_version.py`, used by `build_webclient.py`,
   `qmllint_report.py` (to build its default `qmllint` paths) and the two
   `tools/qtmodules-wasm` scripts. No script parses the file itself.
@@ -148,10 +148,10 @@ scripts read it too, not only CI.
   workflow-level `QT_VERSION: '6.12.0'` goes. `nightly-sanitizers.yml` has no `plan` job, so it
   reads the file in a step. `install-qt-action`'s own caches already key on the version, so
   their `cache-key-prefix` values do not change.
-- *Check*: `scripts/check_qt_version_pins.py`, run by `text-invariants.yml`, fails on the
-  current version (read from the file) appearing as a literal in workflows, CMake files, and
-  build scripts outside comments. Because it matches the *current* version only, dated
-  references to older releases and the GC patch pins pass without an allowlist. Its `paths:`
+- *Check*: `scripts/check_qt_version_pins.py`, run by `text-invariants.yml`, fails on any Qt 6.1x
+  version appearing as a literal in workflows, CMake files and build scripts outside whole-line
+  comments, which catches a stale copy as well as a new one. A file that must keep an earlier
+  version lists it in the script's `DATED` allowlist. Its `paths:`
   filter gains `qt-version.txt`, `**/CMakeLists.txt`, `cmake/**`, `scripts/**` and `tools/**`.
 
 Not centralized, by nature: prose docs (`CLAUDE.md` and the guides point at the file and write
@@ -244,7 +244,7 @@ note, the Qt Jira status of every cited bug, and the 6.12.1 source:
   proof; the local macOS build already links with Xcode 27.2.
 
 - **A job reads the version before checkout, or not at all** → `plan` does not check out the
-  repository today; it gains a sparse checkout of `qt-version.txt` only. A job using an empty
+  repository today; it gains a sparse checkout of `qt-version.txt` and `scripts/qt_version.py`, which validates it. A job using an empty
   output would ask `install-qt-action` for version ``,
   so `plan` fails if the file yields nothing that matches `^\d+\.\d+\.\d+$`.
 - **A cross-validation difference would no longer be logged** → Accepted. It was a diagnostic

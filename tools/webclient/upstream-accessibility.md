@@ -113,11 +113,11 @@ Filed [QTBUG-151799](https://qt-project.atlassian.net/browse/QTBUG-151799) on 20
 
 Qt 6.12 `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:907-925` updates checkbox state through the checked content attribute; its bool helper at `:303-309` adds/removes the attribute. A live checked property can diverge after user activation. The group-box checkbox path at `:929-946` uses the same update. Focused authenticated tracker searches found no matching state-sync report; the new report references QTBUG-144330.
 
-`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:955-971`), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:211-212`). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
+`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:991-1008` in 6.12.1), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:211-212`). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
 
 ## Resolved: custom numeric values
 
-**Resolved by Qt 6.12.1, 2026-11-23:** `setRole()` now connects the value signal (`qquickaccessibleattached.cpp:479`) and Wasm exposes a slider as `role="slider"` (`qwasmaccessibility.cpp:470-475`) whose `aria-valuenow` follows ValueChanged (`:1149-1154`). `ValueInput` dropped its per-change notification; the record below is kept as history.
+**Resolved by Qt 6.12.1, 2026-11-23:** `setRole()` now connects the value signal (`qquickaccessibleattached.cpp:479`) and Wasm exposes a slider as `role="slider"` (`qwasmaccessibility.cpp:470-475`) whose `aria-valuenow` follows ValueChanged (`:1149-1154`). `ValueInput` dropped its own ValueChanged notifications, on change and at completion. The two paragraphs below are the superseded investigation; nothing in them is open.
 
 On 2026-10-22 a custom numeric control visibly changed 10→15 and its accessible label changed, while the DOM input `.value` remained `10`. The preference was restored. This application/DOM observation still needs a standalone reproduction before filing another report.
 

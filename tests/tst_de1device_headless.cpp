@@ -89,6 +89,11 @@ private slots:
         f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Ready));
         QVERIFY(f.device.isSteamPurgeActive());
 
+        // The stop-at-weight stop.
+        f.transport.clearWrites();
+        f.device.stopOperationUrgent();
+        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{QByteArray(1, char(DE1::State::Idle))});
+
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
             QStringLiteral(".*DE1 DISCONNECTED while Steam.*unrequested drop.*")));
         f.device.onTransportDisconnected();

@@ -11,12 +11,12 @@ The Qt version the project builds against SHALL be written in exactly one file i
 - **THEN** every CMake project that requires a Qt version, every build or packaging script that checks one, and every CI job that installs Qt or keys a cache or artifact on it SHALL use the new version without any other file being edited
 
 #### Scenario: A version is hard-coded again
-- **WHEN** a change adds the current Qt version as a literal to a workflow, CMake file or script outside the single source file
+- **WHEN** a change adds a Qt version as a literal to a workflow, CMake file or build script outside the single source file
 - **THEN** the per-PR text-invariants check SHALL fail and name the file and line
 
 #### Scenario: A dated reference to an earlier Qt version
-- **WHEN** a comment, document or standalone tool names a Qt version other than the current one, such as a source citation or a reproduction recorded against an earlier release
-- **THEN** the check SHALL NOT fail on it, because it records history rather than selecting a build
+- **WHEN** a workflow, CMake file or build script must keep an earlier Qt version as a dated record, or a whole-line comment or prose document names one
+- **THEN** the check SHALL NOT fail on it: a dated file and version are listed in the check's allowlist, and whole-line comments and prose docs are not checked
 
 ### Requirement: Apple Builds Use The Current SDK
 

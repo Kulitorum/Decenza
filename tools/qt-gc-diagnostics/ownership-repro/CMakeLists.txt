@@ -63,14 +63,4 @@ if(DECENZA_QT_DIAGNOSTIC_SOURCE AND DECENZA_QT_REFERENCE_SOURCE)
         QT_BUILD_QML_LIB QT_NO_DEBUG WTF_EXPORT_PRIVATE=)
     target_compile_options(qt_gc_history_compile PRIVATE -include
         "${DECENZA_QT_DIAGNOSTIC_SOURCE}/src/qml/memory/qv4mmdefs_p.h")
-    # Build the diagnostic assertions, but do not register a runnable CTest until
-    # a complete QtQml framework containing the new patch is available.
-    find_package(Qt6 REQUIRED COMPONENTS Bluetooth)
-    add_executable(tst_qtgc_history_compile ../tests/tst_qtgc_diagnostics.cpp
-        ../../../src/core/btlogfilter.cpp)
-    target_include_directories(tst_qtgc_history_compile PRIVATE ../../../src)
-    target_link_libraries(tst_qtgc_history_compile PRIVATE
-        Qt6::Core Qt6::Bluetooth Qt6::Qml Qt6::QmlPrivate Qt6::Test)
-    target_compile_definitions(tst_qtgc_history_compile PRIVATE
-        DECENZA_TEST_QML_FRAMEWORK_DIR="${DECENZA_QT_DIAGNOSTIC_SOURCE}/build/lib")
 endif()

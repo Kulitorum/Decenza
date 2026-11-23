@@ -173,7 +173,7 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
         QVERIFY(object->setProperty("hostValue", value));
         QVERIFY(sawValue(object.get(), value));
         QVERIFY(sawValue(popupItem, value));
-        // Qt 6.12.1 sends these itself; a second sender makes a screen reader repeat the value.
+        // Qt sends these itself; a second sender makes a screen reader repeat the value.
         QCOMPARE(eventsFor(object.get()), 1);
         QCOMPARE(eventsFor(popupItem), 1);
         QCOMPARE(iface->valueInterface()->currentValue().toDouble(), value);

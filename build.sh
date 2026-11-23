@@ -50,7 +50,7 @@ echo "Building for target: $TARGET ($BUILD_TYPE)"
 if [[ "$OS" == "Darwin" ]]; then
     # macOS host
     QT_PATH=~/Qt
-    QT_VERSION=$(tr -d '[:space:]' < "$(dirname "$0")/qt-version.txt")
+    QT_VERSION=$(python3 "$(dirname "$0")/scripts/qt_version.py") || exit 1
     NINJA=$(find "$QT_PATH/Tools" -name "ninja" | head -1)
 
     if [ -z "$NINJA" ]; then

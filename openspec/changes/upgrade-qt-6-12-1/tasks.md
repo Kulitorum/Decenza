@@ -36,7 +36,7 @@ shared resource or spend CI time and need a go-ahead first.
 
 - [x] 2.1 Delete `android/qt-overrides/` and `tools/qt-gc-diagnostics/verify_artifact.py`.
       Verify `git grep -n "qt-overrides\|verify_artifact"` returns only the retirement record
-      and `docs/qt-patches/README.md`.
+      and this change.
 - [x] 2.2 In `.github/workflows/release.yml` remove the "Install instrumented QtQml" step and
       the "Verify instrumented QtQml in the APK" step. Verify no later step reads
       `$RUNNER_TEMP/qt-android-gc` or depends on the staged `QT_ROOT_DIR`, and that the workflow
@@ -52,7 +52,7 @@ shared resource or spend CI time and need a go-ahead first.
       `:5276`. Check the two `QObject::connect` handles are not disconnected or referenced
       further down before deleting them.
 - [x] 3.2 Delete `src/core/gcdeferredabort.h` and drop it from any source list. Verify
-      `git grep -n gcdeferredabort` is empty.
+      `git grep -n gcdeferredabort` is empty outside the retirement record and this change.
 - [x] 3.3 `src/core/btlogfilter.{h,cpp}`: remove `enableGcCrossValidation`, `setGcPageStack`,
       `setGcMismatchHandler`, `gcCrossValidationLine` and its helpers, the batch state and
       `recordGcMiss`, the `DEFERRED_ABORT` branch, the Android stack capture, and the includes
@@ -108,7 +108,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
       `tools/qtmodules-wasm/CMakeLists.txt`, `tools/webclient/media-repro/CMakeLists.txt` and
       `tools/qt-gc-diagnostics/ownership-repro/CMakeLists.txt` (all `EXACT`) use
       `${DECENZA_QT_VERSION}` in `find_package` and in their version checks and messages.
-      Leave `tools/qt-gc-diagnostics/tests/CMakeLists.txt` on its literal `6.12.0`.
+      (`tools/qt-gc-diagnostics/tests/` was later removed: it could not build without the
+      app-side code this change deletes, and it is at `62fef1177`.)
 - [x] 4.4 Python: `scripts/build_webclient.py` replaces its `QT_VERSION` constant with the
       helper; `scripts/qmllint_report.py` builds its two default `qmllint` paths from it;
       `tools/qtmodules-wasm/package-ci.py` and `verify-ci-package.py` use it. Verify
@@ -125,8 +126,9 @@ fixes. 4.4-4.6 replace those literals with the single source.
 - [x] 4.6 `.github/workflows/nightly-sanitizers.yml`: read the file in a step after checkout and
       use it for `version:`.
 - [x] 4.7 Add `scripts/check_qt_version_pins.py`: read the current version through the helper
-      and fail, naming file and line, on that version as a literal outside comments in
-      `.github/**`, `**/CMakeLists.txt`, `cmake/**`, `scripts/**` and `tools/**`. Run it from
+      and fail, naming file and line, on any Qt 6.1x version as a literal outside whole-line
+      comments in workflows, CMake files and build scripts (the roots and the `DATED` allowlist
+      are in the script). Run it from
       `text-invariants.yml` and add `qt-version.txt`, `**/CMakeLists.txt`, `cmake/**`,
       `scripts/**` and `tools/**` to both `paths:` lists. Verify it passes on the finished tree,
       then re-add one literal `6.12.1` to a workflow and watch it fail.
@@ -277,6 +279,7 @@ fixes. 4.4-4.6 replace those literals with the single source.
       stopped at its 3 s limit; a second, stopped by command, returned to Idle/Ready.
       Pre-existing, not from this change: `Theme.capAccessibleText` returns undefined for its
       one-argument callers (`CrashReportDialog.qml:244`, `SubsystemLogView.qml:221`), also on 6.12.0.
+      Fixed in 6b.7.
 
 - [ ] 8.6 **(ask Jeff, destructive)** Once 8.2-8.5 pass, reclaim the 6.12.0 build space. Before
       deleting, re-list and re-measure, and confirm the exact list with Jeff. Candidates measured
@@ -284,8 +287,8 @@ fixes. 4.4-4.6 replace those literals with the single source.
       `Qt_6_12_0_for_iOS_Device` (14 MB). In the other clone, `~/Development/GitHub/Decenza`
       (12 GB macOS build, plus Wasm and iOS 6.12.0 dirs), only if that clone is also moved to
       6.12.1 — it is on another branch. The `~/Qt/6.12.0` SDK (31 GB) is removed through Qt's
-      Maintenance Tool by Jeff, not by deleting the folder; removing it leaves the unported
-      `tools/qt-gc-diagnostics/tests` and patch-1 dry runs without their source tree.
+      Maintenance Tool by Jeff, not by deleting the folder; removing it leaves the patch-1
+      dry runs without their source tree.
 
 ## 9. CI and field validation
 

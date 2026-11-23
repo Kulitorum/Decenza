@@ -624,7 +624,7 @@ Item {
                 }
 
                 background: Rectangle {
-                    color: "#80000000"
+                    color: Theme.dialogDimColor
                 }
 
                 // Content

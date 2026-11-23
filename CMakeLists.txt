@@ -202,11 +202,8 @@ if(ENABLE_QUICK3D)
     endif()
 endif()
 
-# Silence Qt policy warnings (qt_policy introduced in Qt 6.5)
-if(Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0")
-    qt_policy(SET QTP0001 NEW)
-    qt_policy(SET QTP0004 NEW)
-endif()
+qt_policy(SET QTP0001 NEW)
+qt_policy(SET QTP0004 NEW)
 
 # Enable QML debugging in debug builds, or in an optimised build with DECENZA_QML_DEBUG
 # (release.yml's qml_profiling input): the QML profiler needs the debug services,
