@@ -294,6 +294,9 @@ fixes. 4.4-4.6 replace those literals with the single source.
       `upload_to_release=false`. Verify every platform job is green and the Wasm module
       artifact carries the 6.12.1 name. This is the only compile of the Android-guarded code
       group 3 removes.
+      Dispatch 45238440136 found two 6.12.1/Xcode 27 changes, both fixed: Linux Multimedia now
+      links `libva.so.2`/`libva-drm.so.2` (added to `install-linux-packages`), and Xcode 27.2's
+      `lipo` rejects two archs per `-verify_arch` (now one call per arch).
 - [ ] 9.3 From the Android job's APK, confirm `lib/arm64-v8a/libQt6Qml_arm64-v8a.so` does not
       contain the string `gcdiag` and that the manifest still declares targetSdkVersion 37 and
       minSdkVersion 28.

@@ -1293,8 +1293,12 @@ jobs:
       - name: Verify universal embedded resources
         run: |
           cmake --build build/macos --config Release --target decenza-verify-webclient --parallel
-          lipo build/macos/Release/Decenza.app/Contents/MacOS/Decenza -verify_arch x86_64 arm64
-          lipo build/macos/Release/decenza-verify-webclient -verify_arch x86_64 arm64
+          # Xcode 27.2's lipo rejects more than one arch per -verify_arch ("requires exactly
+          # one input file"), so check them one at a time.
+          for binary in build/macos/Release/Decenza.app/Contents/MacOS/Decenza \
+                        build/macos/Release/decenza-verify-webclient; do
+            for arch in x86_64 arm64; do lipo "$binary" -verify_arch "$arch"; done
+          done
           arch -arm64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
           arch -x86_64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
 
