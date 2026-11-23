@@ -103,8 +103,8 @@ QtObject {
             // EmojiAssets is a QML_SINGLETON reached through this file's own `import Decenza`,
             // so an engine that loaded Theme.qml must have it. The generated qmldir disproves
             // that: it lists QML files only (`singleton Theme 1.0 qml/Theme.qml`) and NO C++
-            // types. Types declared with QML_ELEMENT arrive by a second, independent path —
-            // qml_register_types_Decenza(), called explicitly from main.cpp — and that path has
+            // types. Types declared with QML_ELEMENT arrive by a second, independent path — the
+            // module's generated registration, run on first import — and that path has
             // failed in this codebase before, producing 1,081 ReferenceErrors with a green
             // build. `import Decenza` succeeding says nothing about whether it ran. See the
             // header of tests/tst_qmlregistration.cpp.
@@ -117,13 +117,13 @@ QtObject {
             // Do NOT "fix" this by adding setContextProperty("EmojiAssets", ...). A context
             // property of the same name SHADOWS the singleton and is invisible to qmllint,
             // qmlcachegen and the language server — that is the defect PR Kulitorum/Decenza#1661 fixed, in this exact file. If this
-            // warning ever fires, the thing to check is qml_register_types_Decenza().
+            // warning ever fires, look for a runtime qmlRegister* call into "Decenza".
             if (!_warnedNoEmojiAssets) {
                 _warnedNoEmojiAssets = true
                 WebDebugLogger.warn("Font", "Theme", ["EmojiAssets unresolvable — every emoji in this QML engine "
                            + "will be stripped. The type is registered by "
-                           + "qml_register_types_Decenza() in main.cpp, NOT by the qmldir, so "
-                           + "check that call rather than the import."].map(String).join(" "))
+                           + "the module's generated registration, NOT by the qmldir; a runtime "
+                           + "qmlRegister* call into Decenza skips it."].map(String).join(" "))
             }
             return ""
         }
