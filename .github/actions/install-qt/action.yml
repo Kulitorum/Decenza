@@ -1,0 +1,125 @@
+name: 'Install Qt (cached)'
+description: >
+  jurplel/install-qt-action@v4 behind a cache whose key names only what changes the
+  install. The action's own key also names the runner's kernel (os.release(),
+  main.ts:617-619), and runners alternate between kernels, so every Qt install was
+  stored twice (2026-11-24: 1014-aws and 1017-azure, ~1 GB of copies). On a hit the
+  action does not run at all, so neither do its pip install and aqt version lookup.
+
+# A hit skips install-deps and setup-python with the rest of the action. Callers
+# that need aqt afterwards install it themselves.
+
+inputs:
+  cache-key-prefix:
+    required: true
+  version:
+    required: true
+  target:
+    required: true
+  arch:
+    required: true
+  host:
+    required: false
+    default: ''
+  modules:
+    required: false
+    default: ''
+  tools:
+    required: false
+    default: ''
+  dir:
+    description: Parent of the Qt folder, as for install-qt-action (default the runner workspace)
+    required: false
+    default: ''
+  aqtsource:
+    required: false
+    default: ''
+  setup-python:
+    required: false
+    default: 'true'
+  install-deps:
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the Qt cache key
+      id: key
+      shell: bash
+      env:
+        PREFIX: ${{ inputs.cache-key-prefix }}
+        VERSION: ${{ inputs.version }}
+        TARGET: ${{ inputs.target }}
+        ARCH: ${{ inputs.arch }}
+        MODULES: ${{ inputs.modules }}
+        TOOLS: ${{ inputs.tools }}
+        DIR: ${{ inputs.dir }}
+        AQTSOURCE: ${{ inputs.aqtsource }}
+      run: |
+        dir="${DIR:-$RUNNER_WORKSPACE}"
+        # install-qt-action installs into path.resolve(dir, "Qt") (main.ts:558).
+        if [ "$RUNNER_OS" = Windows ]; then qt_dir="$dir\\Qt"; else qt_dir="$dir/Qt"; fi
+        # Not the host: a blank one resolves from the runner OS/arch the key already names,
+        # and hashing the raw input split the Wasm host step (`linux`) from the Linux job.
+        hash=$(printf '%s\n' "$TARGET" "$ARCH" "$VERSION" "$dir" "$MODULES" "$TOOLS" "$AQTSOURCE" \
+          | sha256sum | cut -c1-12)
+        {
+          echo "dir=$dir"
+          echo "qt-dir=$qt_dir"
+          echo "hash=$hash"
+          echo "key=$PREFIX-$RUNNER_OS-$RUNNER_ARCH-$VERSION-$ARCH-$hash"
+          echo "python=$(command -v python || command -v python3)"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore Qt
+      id: restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.key.outputs.qt-dir }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Note the environment before installing
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        "${{ steps.key.outputs.python }}" "$GITHUB_ACTION_PATH/qt_env.py" snapshot \
+          "$RUNNER_TEMP/qt-env-${{ steps.key.outputs.hash }}.json"
+
+    - name: Install Qt
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: ${{ inputs.version }}
+        target: ${{ inputs.target }}
+        arch: ${{ inputs.arch }}
+        host: ${{ inputs.host }}
+        modules: ${{ inputs.modules }}
+        tools: ${{ inputs.tools }}
+        dir: ${{ steps.key.outputs.dir }}
+        aqtsource: ${{ inputs.aqtsource }}
+        setup-python: ${{ inputs.setup-python }}
+        install-deps: ${{ inputs.install-deps }}
+        cache: false
+
+    - name: Record the environment Qt set
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        "${{ steps.key.outputs.python }}" "$GITHUB_ACTION_PATH/qt_env.py" record \
+          "$RUNNER_TEMP/qt-env-${{ steps.key.outputs.hash }}.json" "${{ steps.key.outputs.qt-dir }}"
+
+    # Saved now, not in a post step, so a later build failure still keeps the install.
+    - name: Save Qt
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.key.outputs.qt-dir }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Restore the environment Qt set
+      if: steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        "${{ steps.key.outputs.python }}" "$GITHUB_ACTION_PATH/qt_env.py" replay \
+          "${{ steps.key.outputs.qt-dir }}"

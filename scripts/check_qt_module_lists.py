@@ -5,7 +5,8 @@ Each install's `modules:` must be ${{ steps.<id>.outputs.list }} of an earlier, 
 in the same job whose run block is the two-line selector below, and that selector's profiles must
 resolve through scripts/qt_modules.sh. Parsed by indentation, so the raw count of install-qt-action
 lines in each file must equal the parsed count; a step the parser cannot see is a failure, not a
-smaller OK. Composite actions may not install Qt.
+smaller OK. Composite actions may not install Qt, except WRAPPER, which caches the install and must
+pass its caller's list through unchanged; its callers are checked as installs.
 """
 from __future__ import annotations
 
@@ -15,7 +16,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALL = re.compile(r"^\s*(-\s+)?uses:\s*['\"]?jurplel/install-qt-action@")
+ACTION = re.compile(r"^\s*(-\s+)?uses:\s*['\"]?jurplel/install-qt-action@")
+INSTALL = re.compile(r"^\s*(-\s+)?uses:\s*['\"]?(jurplel/install-qt-action@"
+                     r"|\./\.github/actions/install-qt['\"]?\s*(#.*)?$)")
+WRAPPER = Path(".github/actions/install-qt/action.yml")
+PASS_THROUGH = re.compile(r"^\s*modules:\s*\$\{\{\s*inputs\.modules\s*\}\}\s*(#.*)?$")
 KEY = re.compile(r"^(\s*)(['\"]?)([A-Za-z0-9_-]+)\2:\s*(#.*)?$")
 MODULES_REF = re.compile(r"^\s*modules:\s*\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.list\s*\}\}\s*(#.*)?$")
 SELECT = re.compile(r'^\s*list="\$\(bash scripts/qt_modules\.sh ([a-z -]+)\)"\s*$')
@@ -120,8 +125,15 @@ def main() -> int:
     installs = sum(check_workflow(wf, problems)
                    for wf in sorted([*gh.glob("workflows/*.yml"), *gh.glob("workflows/*.yaml")]))
     for action in sorted([*gh.glob("actions/**/action.yml"), *gh.glob("actions/**/action.yaml")]):
-        if any(INSTALL.match(l) for l in code(action.read_text(encoding="utf-8").split("\n"))):
-            problems.append(f"{action.relative_to(ROOT)}: install Qt in a workflow job, not a composite action")
+        rel = action.relative_to(ROOT)
+        lines = code(action.read_text(encoding="utf-8").split("\n"))
+        if not any(ACTION.match(l) for l in lines):
+            continue
+        mods = [l for l in lines if re.match(r"^\s*modules:\s*[^\s#]", l)]  # not the bare `inputs:` key
+        if rel != WRAPPER:
+            problems.append(f"{rel}: install Qt in a workflow job or through {WRAPPER}, not a new composite action")
+        elif sum(1 for l in lines if ACTION.match(l)) != 1 or len(mods) != 1 or not PASS_THROUGH.match(mods[0]):
+            problems.append(f"{rel}: must install Qt once, with `modules: ${{{{ inputs.modules }}}}`")
     if installs == 0:
         problems.append("no install-qt-action steps found; the parser is blind")
     if problems:

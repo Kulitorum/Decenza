@@ -371,11 +371,10 @@ jobs:
       # No step above touches these on the newest tag or on main, so two kinds
       # piled up there:
       #
-      #   superseded  The key embeds a runner image or kernel version
-      #               (`linux-7.0.0-1017-azure`, `ubuntu24-20261026.354.1`), so one
-      #               build on a different host saves a second full copy. Measured
-      #               2026-11-03: a 440 MB `…1014-aws` Qt install on v2.1.0, last
-      #               used once, beside the `…1017-azure` one every build uses.
+      #   superseded  The key embeds a runner image version (`ubuntu24-20261026.354.1`)
+      #               or a Qt version, so a new image or Qt release saves a second
+      #               full copy. (Qt keys also named the kernel until
+      #               .github/actions/install-qt replaced install-qt-action's key.)
       #               Family = the key up to its first dotted-version token; an
       #               entry last used more than a day before its most recently used
       #               sibling in the family is collected. Siblings share its ref, and
