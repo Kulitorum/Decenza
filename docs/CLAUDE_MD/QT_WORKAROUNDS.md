@@ -58,7 +58,6 @@ Last checked against Qt 6.12.1 (2026-11-23). A report is filed when we are at le
 
 | Where | What we do against Qt's design | Qt's intended way |
 |---|---|---|
-| `src/main.cpp` (`qmlRegisterModuleTypes`) | Registers `ShotProjection` into the module at runtime, so Qt's lazy import skips the module's declarative types (QTBUG-152559) | Compile-time registration, which also removes the explicit call (PR #2239; drop this row when it merges) |
 | `qml/main.qml` (singleton guard) | A singleton can be registered with no instance, which reads as truthy | Always provide an instance |
 | `qml/components/layout/items/ShotPlanItem.qml` | Changes `Accessible.role` at runtime; Qt cannot signal role changes | A fixed role per item |
 | `qml/pages/ScreensaverPage.qml` | Reads `Qt.application.state`, which is not guaranteed to be a QQuickApplication (QTBUG-119643) | The QtQuick `Application` singleton |
