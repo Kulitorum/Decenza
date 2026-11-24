@@ -12,10 +12,8 @@
 //
 // The response and the thread's deleteLater() share ONE finished() slot on
 // purpose. A worker that posts its response itself answers before finished()
-// is delivered, so a caller that stops pumping events once it has the answer
-// never frees the QThread. McpTestFixture::callAsyncTool is such a caller on
-// the last tool call of a test binary: LeakSanitizer, 836 bytes in
-// tst_mcptools_shots_debuglog, nightly run 45419785997.
+// is delivered, so a caller that stops processing events once it has the
+// answer never frees the QThread.
 inline void mcpRespondFromWorker(std::function<QJsonObject()> work,
                                  std::function<void(QJsonObject)> respond)
 {
