@@ -35,7 +35,7 @@ Last checked against Qt 6.12.1 (2026-11-23). A report is filed when we are at le
 | `src/ble/applebtstate.h` | iOS has no working QBluetoothLocalDevice | QTBUG-152204 | Reported |
 | `src/ble/scales/decentscalewifi.cpp`, `src/network/mdnsresolver.h` | No `.local` resolution on Android; no DNS-SD browse | QTBUG-97534, QTBUG-30823 | Open |
 | `cmake/qmlcachegen_stable.py` | qmlcachegen rewrites byte-identical output, defeating Ninja restat | None: build-speed request, not a defect | |
-| `cmake/QmlCacheGeneration.cmake` | Cachegen units do not depend on the QML files they read types from | QTBUG-110961 | Open (6.12 falls back to the interpreter instead of failing) |
+| `cmake/QmlCacheGeneration.cmake` | Cachegen units do not depend on the QML files they read types from | QTBUG-110961 | Closed: Qt added a runtime check, so a stale unit now runs interpreted instead of failing |
 | `cmake/remote_object_replicas.cmake` | repc replica moc emits no metatypes JSON | QTBUG-130903 | Fixed on dev (expect 6.13) |
 | `CMakeLists.txt` (per-directory includes) | qmltyperegistrar includes generated headers by basename | QTBUG-93443 | Reported |
 | `tests/CMakeLists.txt` (duplicate URI) | Two modules with one URI in a directory overwrite each other's qmldir resource | QTBUG-123169 | Reported |
