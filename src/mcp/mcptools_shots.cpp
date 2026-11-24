@@ -3,6 +3,7 @@
 #include "mcplogging.h"
 #include "mcptools_shots_helpers.h"
 #include "mcplogfilter.h"
+#include "mcpworker.h"
 #include "../history/shotcomparison.h"
 #include "../history/shothistorystorage.h"
 #include "../ai/shotsummarizer.h"
@@ -16,8 +17,6 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
-#include <QThread>
-#include <QMetaObject>
 #include <QCoreApplication>
 
 
@@ -154,10 +153,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create(
+            mcpRespondFromWorker(
                 [dbPath, limit, offset, profileFilter, beanFilter,
                  minEnjoyment, hasRating, hasNotes, hasTds,
-                 afterEpoch, beforeEpoch, currentDateTime, respond]() {
+                 afterEpoch, beforeEpoch, currentDateTime]() -> QJsonObject {
                 QJsonObject result;
                 QJsonArray shots;
                 qint64 totalCount = 0;
@@ -386,13 +385,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["_resourceLinks"] = links;
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result]() {
-                    respond(result);
-                }, Qt::QueuedConnection);
-            });
-
-            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-            thread->start();
+                return result;
+            }, respond);
         },
         "read", McpTierCore);
 
@@ -432,7 +426,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             const bool fullDetail = wantsFullDetail(args);
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, fullDetail, respond]() {
+            mcpRespondFromWorker([dbPath, shotId, fullDetail]() -> QJsonObject {
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_detail", [&](QSqlDatabase& db) {
@@ -462,13 +456,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["_resourceLinks"] = QJsonArray{ link };
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result]() {
-                    respond(result);
-                }, Qt::QueuedConnection);
-            });
-
-            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-            thread->start();
+                return result;
+            }, respond);
         },
         "read", McpTierCore);
 
@@ -512,7 +501,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             const bool fullDetail = wantsFullDetail(args);
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, idArray, fullDetail, respond]() {
+            mcpRespondFromWorker([dbPath, idArray, fullDetail]() -> QJsonObject {
                 QJsonObject result;
                 QJsonArray shots;
                 QJsonArray unresolved;
@@ -611,13 +600,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     result["comparison"] = ShotComparison::compare(projections, 0);
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result]() {
-                    respond(result);
-                }, Qt::QueuedConnection);
-            });
-
-            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-            thread->start();
+                return result;
+            }, respond);
         },
         "read", McpTierCore);
 
@@ -686,7 +670,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, offset, limit, filter, regexMode, tailActive, tail, dedupe, respond]() {
+            mcpRespondFromWorker([dbPath, shotId, offset, limit, filter, regexMode, tailActive, tail, dedupe]() -> QJsonObject {
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_debug", [&](QSqlDatabase& db) {
@@ -762,13 +746,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         result["error"] = "Failed to open shot database";
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result]() {
-                    respond(result);
-                }, Qt::QueuedConnection);
-            });
-
-            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-            thread->start();
+                return result;
+            }, respond);
         },
         "read");
 }
