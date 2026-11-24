@@ -303,7 +303,7 @@ void DecentScaleWifi::attemptHostname() {
     // cycle and never evicted, for as long as resolution kept failing.
 
 #ifdef Q_OS_ANDROID
-    // Qt's resolver (getaddrinfo) doesn't speak mDNS on Android, so opening
+    // Qt's resolver (getaddrinfo) doesn't speak mDNS on Android (QTBUG-97534), so opening
     // ws://<name>.local fails with HostNotFoundError. Resolve the ".local"
     // name to an IP via a direct mDNS A-query — the same MdnsResolver path
     // MqttClient uses — on a worker thread (resolveHostname blocks), then dial

@@ -42,7 +42,7 @@ GraphsTheme {
     axisY.mainColor: Qt.rgba(1, 1, 1, 0.85)
 
     // Thin axis spines + suppress the sub-feature. Qt 6.11 GraphsTheme has no
-    // tickLength property; reducing mainWidth and zeroing subWidth is the
+    // tickLength property (QTBUG-151286); reducing mainWidth and zeroing subWidth is the
     // closest lever to dampen the long tick protrusions Qt Graphs draws by
     // default between the spine and the labels.
     axisX.mainWidth: 1

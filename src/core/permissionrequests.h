@@ -12,7 +12,7 @@ class QString;
 //
 // Android answers a request made while another one's dialog is pending with empty results
 // at once (Activity.requestPermissions), and Qt reports an empty answer to a QPermission as
-// Granted and caches it (qpermissions_android.cpp:137-146, :179-186). So two concurrent
+// Granted and caches it (QTBUG-152553; qpermissions_android.cpp:137-146, :179-186). So two concurrent
 // requests do not both ask: the second one silently "succeeds".
 //
 // Main thread only. The callback is skipped if `context` has been destroyed.

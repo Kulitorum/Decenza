@@ -9,7 +9,7 @@
 namespace RemoteServiceReplica {
 
 // Network replicas must be Valid. The local in-process node can also expose
-// an initialized replica without Valid state. In Qt 6.12,
+// an initialized replica without Valid state (QTBUG-152555). In Qt 6.12,
 // qremoteobjectreplica.cpp:308 counts Suspect as initialized, while
 // setDisconnected() clears the connection and sets Suspect at lines 480-484.
 inline bool isReady(QRemoteObjectNode* node, QRemoteObjectReplica* replica,

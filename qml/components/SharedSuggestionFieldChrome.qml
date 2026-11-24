@@ -20,7 +20,7 @@ Item {
     Row {
         // Keep actions beside the field: Qt maps EditableText to an HTML input
         // (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:528-535),
-        // whose nested buttons disappear from the browser accessibility tree.
+        // whose nested buttons disappear from the browser accessibility tree (QTBUG-152558).
         parent: root.field
         visible: !root.accessibilityMode
         x: root.field.textField.x + root.field.textField.width
