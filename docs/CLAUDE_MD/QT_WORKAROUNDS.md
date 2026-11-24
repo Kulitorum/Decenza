@@ -51,7 +51,7 @@ Removed on source evidence. Delete each row once its check passes; restore the w
 | Removed | Why 6.12.1 no longer needs it | Check |
 |---|---|---|
 | `src/main.cpp`: iOS clipboard `blockSignals` | Text fields test only the pasteboard's types, never its text (`qquicktextcontrol.cpp:1648`, `qiosclipboard.mm:91-104`; QTBUG-149610) | iPhone: copy in Safari, return; no "Allow Paste" prompt |
-| `src/main.cpp`: Android `QAccessible::setActive(false/true)` on suspend/resume | `eglSurface()` takes no lock, and accessibility calls refuse to run while suspended (`androidjniaccessibility.cpp:104-118`) | TalkBack tablet: background and resume several times |
+| `src/main.cpp`: Android `QAccessible::setActive(false/true)` on suspend/resume | `eglSurface()` takes no lock and no deadlock protector (`qandroidplatformopenglwindow.cpp:43-58`), so the accessibility thread's blocking call to the main thread has nothing to deadlock with. Calls still run while suspended: `background_running=true` turns off that check (`androidjniaccessibility.cpp:113-114`) | TalkBack tablet: background and resume several times |
 | `src/main.cpp`: iOS `QSG_RENDER_LOOP=basic` | Added for the FFmpeg backend; the darwin backend makes no UIKit call from the render thread | iPad: cycle screensaver videos |
 
 ## Our code, not Qt's: change it rather than work around
