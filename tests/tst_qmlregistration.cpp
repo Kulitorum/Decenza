@@ -13,7 +13,7 @@
 //     (qqmltypeloader.cpp: `if (!module) qmlRegisterModuleTypes(uri)`, QTBUG-152559). A runtime
 //     registration or qmlTypeId() lookup into "Decenza" before QML first imports it leaves every
 //     QML_ELEMENT type in the module absent at runtime — 1,081 ReferenceErrors, zero build
-//     output. So main.cpp makes none.
+//     output. So nothing under src/ makes one.
 //
 // Neither is reachable from a unit test the normal way: the registration is emitted by
 // qmltyperegistrar on the Decenza QML module target, which the test binaries do not link. So
@@ -722,25 +722,36 @@ private slots:
     // not: an engine-constructed singleton must have NO publish call.
 
     // Qt registers a module's declarative types only `if (!module)` (file header, QTBUG-152559).
-    // One runtime qmlRegister*("Decenza", ...) or qmlTypeId("Decenza", ...) creates the module
-    // first and silently drops every QML_ELEMENT type. Comments are stripped before matching.
-    void mainMakesNoRuntimeRegistrationIntoTheModule()
+    // One runtime qmlRegister*("Decenza", ...) or qmlTypeId("Decenza", ...) anywhere in the app,
+    // run before the first import, creates the module first and silently drops every QML_ELEMENT
+    // type. Comments are stripped before matching.
+    void noRuntimeRegistrationIntoTheModule()
     {
-        QString main = readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/main.cpp");
-        QVERIFY2(!main.isEmpty(), "cannot read src/main.cpp");
         static const QRegularExpression comments(
             QStringLiteral("//[^\n]*|/\\*.*?\\*/"), QRegularExpression::DotMatchesEverythingOption);
-        main.remove(comments);
-
         static const QRegularExpression runtimeRe(
             QStringLiteral("(qmlRegister\\w*|qmlTypeId)\\s*(<[^>]*>)?\\s*\\([^;]*\"Decenza\""));
-        const QRegularExpressionMatch m = runtimeRe.match(main);
-        QVERIFY2(!m.hasMatch(),
-                 qPrintable(QStringLiteral("main.cpp registers into \"Decenza\" at runtime (%1). That "
-                                           "creates the module before QML imports it, so Qt skips "
-                                           "the module's declarative registration and every "
-                                           "QML_ELEMENT type is missing at runtime. Register it "
-                                           "with a QML_* macro instead.").arg(m.captured(0).left(80))));
+
+        int scanned = 0;
+        QStringList offenders;
+        QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + "/src",
+                        {QStringLiteral("*.cpp"), QStringLiteral("*.h"), QStringLiteral("*.mm")},
+                        QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            QString text = readOrEmpty(it.next());
+            ++scanned;
+            text.remove(comments);
+            const QRegularExpressionMatch m = runtimeRe.match(text);
+            if (m.hasMatch())
+                offenders << QStringLiteral("%1: %2").arg(it.fileName(), m.captured(0).left(80));
+        }
+        QVERIFY2(scanned > 100, qPrintable(QStringLiteral("scanned only %1 files under src/").arg(scanned)));
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral("Runtime registration into \"Decenza\" (%1). That creates "
+                                           "the module before QML imports it, so Qt skips the "
+                                           "module's declarative registration and every QML_ELEMENT "
+                                           "type is missing at runtime. Register it with a QML_* "
+                                           "macro instead.").arg(offenders.join(QStringLiteral("; ")))));
     }
 };
 
