@@ -216,8 +216,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 brotli
+          scripts/apt_install_missing.sh -- ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 brotli
           # The packager decodes its Brotli output to verify it. 1.1.0-2ubuntu0.1 is
           # noble's backport of the CVE-2026-111497 decoder fix (libbrotli1 holds the
           # decoder); the CLI still reports upstream 1.1.0, so check the package.
@@ -475,11 +474,7 @@ jobs:
           java-version: '21'
 
       - name: Install minimal host dependencies
-        # update first: the runner image's package index goes stale, and a
-        # superseded .deb is a 404 on the mirror.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
+        run: scripts/apt_install_missing.sh --no-install-recommends -- libegl1 libgl1 ninja-build
 
       # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
       # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
