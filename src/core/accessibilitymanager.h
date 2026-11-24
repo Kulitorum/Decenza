@@ -24,10 +24,6 @@ class AccessibilityManager : public QObject
     // Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server learn about
     // C++ types. A runtime qmlRegisterSingletonInstance() would be invisible to all three, which
     // is why this replaced a setContextProperty.
-    //
-    // Registering the type is necessary but NOT sufficient: main.cpp must also call
-    // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the
-    // runtime registry at all. See the comment at that call site.
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool ttsEnabled READ ttsEnabled WRITE setTtsEnabled NOTIFY ttsEnabledChanged)
     Q_PROPERTY(bool tickEnabled READ tickEnabled WRITE setTickEnabled NOTIFY tickEnabledChanged)

@@ -15,10 +15,6 @@
 // references in QML counted as an unqualified-access warning. A compile-time registration puts
 // the type in the module's generated Decenza.qmltypes, which is the only place qmllint learns
 // about C++ types.
-//
-// NOTE: registering the type is necessary but NOT sufficient — main.cpp must also call
-// qml_register_types_Decenza() explicitly, or none of this module's declarative types reach the
-// runtime registry. See the comment at that call site; it is a Qt guard that this app trips.
 
 #include "core/contextsingletons_qml.h"
 #include <QtQmlIntegration/qqmlintegration.h>
