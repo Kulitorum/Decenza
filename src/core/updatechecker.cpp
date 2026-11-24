@@ -1008,9 +1008,8 @@ void UpdateChecker::dismissUpdate()
 
 void UpdateChecker::onPeriodicCheck()
 {
-    // Don't check while app is suspended — attempting to show a popup while
-    // the EGL surface is destroyed causes a deadlock between the accessibility
-    // thread and the render thread on Android (see issue #178)
+    // Not while suspended: no one would see the popup, and resume runs its own
+    // check (main.cpp). (Before Qt 6.12.1 it could also deadlock on Android, #178.)
     if (QGuiApplication::applicationState() != Qt::ApplicationActive) return;
 
     // Ahead of the busy-guard below on purpose: HdsFirmwareUpdateController's
