@@ -102,10 +102,6 @@ class MainController : public QObject,
     // against this one's 879 — and the 879 anchor was itself stale; the measured reduction was
     // 916).
     //
-    // Registering the type is necessary but NOT sufficient: main.cpp must also call
-    // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the
-    // runtime registry at all. See the comment at that call site.
-    //
     // This class used to carry QML_ELEMENT/QML_SINGLETON directly, and a long note here argued
     // that direct macros were fine because settings_qml.h's stated reason for the wrapper (a
     // <QtQml/...> include being "a build break" in saw_parity) was measurably false. That

@@ -16,6 +16,7 @@
 // visualizer.coffee uploader's JSON builder).
 
 #include <QMetaType>
+#include <QtQmlIntegration/qqmlintegration.h>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -42,6 +43,7 @@ inline QVector<QPointF> curveToPoints(const QVariantList& curve)
 
 class ShotProjection {
     Q_GADGET
+    QML_VALUE_TYPE(shotProjection)
 
     Q_PROPERTY(qint64 id MEMBER id)
     Q_PROPERTY(QString uuid MEMBER uuid)
