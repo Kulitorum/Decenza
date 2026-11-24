@@ -250,6 +250,11 @@ git tag -f vX.Y.Z HEAD && git push origin vX.Y.Z --force
 ```
 Both steps are required — updating release notes alone does NOT trigger builds. The tag must be moved to include the new commits, and the force-push is what triggers CI.
 
+**Unless HEAD is the bot's `ci: bump version code … [skip ci]` commit**, as it is right after every release build: GitHub then skips the tag push silently. Dispatch on the tag instead. Every release step keys on `refs/tags/v…`, so this builds and publishes exactly as a push does:
+```bash
+gh workflow run release.yml --ref vX.Y.Z -f platforms=all -f upload_to_release=true
+```
+
 ### Promoting a pre-release to stable
 When promoting a pre-release to a full release, you must also set it as "latest" — GitHub does not do this automatically:
 ```bash
