@@ -251,7 +251,7 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install matching host Qt tools
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           setup-python: false
           version: ${{ needs.plan.outputs.qt_version }}
@@ -260,7 +260,6 @@ jobs:
           arch: linux_gcc_64
           install-deps: false  # Host build tools use the minimal dependencies installed above.
           modules: ${{ steps.qt_modules_host.outputs.list }}
-          cache: true
           cache-key-prefix: 'qt-linux-v4'
 
       - name: Remember host tools
@@ -273,7 +272,7 @@ jobs:
           list="$(bash scripts/qt_modules.sh wasm)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
-      # install-qt-action caches its whole `dir` (main.ts:930), so the SDK gets its
+      # The Qt cache holds its whole `<dir>/Qt`, so the SDK gets its
       # own: in the host's folder its entry also held the shared host Qt (483 MiB,
       # run 40278609430). aqt skips installing a host when <dir>/<version>/gcc_64/bin/qmake
       # is a file (metadata.py:608-613), which a symlink satisfies; tar caches the link.
@@ -284,7 +283,7 @@ jobs:
           test -f "$RUNNER_TEMP/qt-wasm-sdk/Qt/${{ needs.plan.outputs.qt_version }}/gcc_64/bin/qmake"
 
       - name: Install single-threaded Qt Wasm SDK
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           setup-python: false
           version: ${{ needs.plan.outputs.qt_version }}
@@ -297,8 +296,7 @@ jobs:
           # (true) runs apt-get update plus ~35 desktop packages BEFORE the cache restore
           # (install-qt-action v4 main.ts:700-713): 3.2 min of the critical-path Wasm job.
           install-deps: false
-          cache: true
-          cache-key-prefix: qt-wasm-singlethread-${{ needs.plan.outputs.qt_version }}-v4
+          cache-key-prefix: qt-wasm-singlethread-v4
 
       - name: Install Emscripten 5.0.5
         # Qt 6.12's binary SDK requires this ABI: https://doc.qt.io/qt-6.12/wasm.html
@@ -311,6 +309,9 @@ jobs:
       - name: Fetch stock Qt module sources
         if: steps.wasm-module-artifact.outputs.run_id == ''
         run: |
+          # The Qt steps install aqt only on a cache miss. This is install-qt-action's
+          # default aqtversion (action.yml in v4).
+          python -m pip install --quiet 'aqtinstall==3.3.*'
           python -m aqt install-src linux ${{ needs.plan.outputs.qt_version }} --outputdir "$RUNNER_TEMP/qt-wasm-src/Qt" --archives qtmultimedia qtremoteobjects
 
       - name: Build stock Multimedia and Remote Objects for Wasm
@@ -505,7 +506,7 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt for Android
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
@@ -520,7 +521,6 @@ jobs:
           arch: 'android_arm64_v8a'
           modules: ${{ steps.qt_modules.outputs.list }}
           install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
-          cache: true
           cache-key-prefix: 'qt-android-v1'
 
       - name: Install Android NDK and compile platform
@@ -1494,7 +1494,7 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
@@ -1503,7 +1503,6 @@ jobs:
           arch: 'win64_msvc2022_64'
           modules: ${{ steps.qt_modules.outputs.list }}
           tools: 'tools_ninja'
-          cache: true
           cache-key-prefix: 'qt-windows-v3-aqt-master'
           # Qt 6.11.0 reorganised the Windows online repo layout: the
           # `qt6_6110/qt6_6110/Updates.xml` path was replaced by per-arch
@@ -1738,7 +1737,7 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
@@ -1747,7 +1746,6 @@ jobs:
           arch: 'linux_gcc_64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.
           modules: ${{ steps.qt_modules.outputs.list }}
-          cache: true
           cache-key-prefix: 'qt-linux-v4'
 
       - name: Set up ccache
@@ -1961,7 +1959,7 @@ jobs:
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           # aqt runs on the Python pinned above, not one this action installs.
           setup-python: false
@@ -1970,7 +1968,6 @@ jobs:
           arch: 'linux_gcc_arm64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.
           modules: ${{ steps.qt_modules.outputs.list }}
-          cache: true
           cache-key-prefix: 'qt-linux-arm64-v1'
 
       - name: Set up ccache

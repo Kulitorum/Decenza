@@ -94,14 +94,13 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: ./.github/actions/install-qt
         with:
           version: ${{ steps.qt.outputs.version }}
           target: 'desktop'
           arch: 'linux_gcc_64'
           install-deps: false  # install-linux-packages installs Qt's dependencies too.
           modules: ${{ steps.qt_modules.outputs.list }}
-          cache: true
           cache-key-prefix: 'qt-linux-v4'
 
       - name: Configure CMake
