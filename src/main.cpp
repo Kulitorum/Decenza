@@ -184,7 +184,6 @@ extern "C" const char* __ubsan_default_options()
 #include <QFontInfo>
 #include <QFontMetrics>
 #include <QAccessible>
-#include <QClipboard>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
