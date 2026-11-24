@@ -529,18 +529,14 @@ jobs:
           echo "Compile platform: $PLATFORM"
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;$PLATFORM"
 
-          # Try to detect which NDK version Qt expects
-          QT_NDK_VERSION=""
-          for TOOLCHAIN in "$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
-                           "$QT_ROOT_DIR/lib/cmake/Qt6/android.toolchain.cmake"; do
-            if [ -f "$TOOLCHAIN" ] && [ -z "$QT_NDK_VERSION" ]; then
-              QT_NDK_VERSION=$(grep -oP 'ANDROID_NDK_REVISION\s+"?\K[0-9.]+' "$TOOLCHAIN" 2>/dev/null || true)
-            fi
-          done
-
-          # Fallback: the NDK Qt 6.12 documents (r27c), matching the local dev NDK
+          # Build with the NDK Qt was built with, read from Qt's own record. Its libraries
+          # need that NDK's libc++_shared: Qt 6.12.1 moved to r30, and an APK packed with
+          # r27c's runtime could not load libQt6Multimedia (no std::__ndk1::__hash_memory),
+          # so the app died at launch (#2243). No fallback version: a guess is what shipped.
+          QT_NDK_VERSION=$(jq -r '.platforms[0].targets[0].ndk_version // empty' "$QT_ROOT_DIR/modules/Core.json")
           if [ -z "$QT_NDK_VERSION" ]; then
-            QT_NDK_VERSION="27.2.12479018"
+            echo "::error::No ndk_version in $QT_ROOT_DIR/modules/Core.json; refusing to guess the NDK."
+            exit 1
           fi
 
           echo "NDK version needed: $QT_NDK_VERSION"
