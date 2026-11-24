@@ -118,7 +118,7 @@
         },
         onExit: exitData => reportFailure(exitData.text || `exit code ${exitData.code}`)
       }
-    }).then(instance => {
+    }).then(() => {
       installQtDialogAccessibility(screen);
       // Qt 6.12 disables touch gestures on its shadow-root divs
       // (qtbase/src/plugins/platforms/wasm/qwasmcssstyle.cpp:30-32).
@@ -134,23 +134,6 @@
         }`;
         qtShadow.appendChild(style);
       }
-      // iOS can settle its container size after Qt's synchronous resize callback.
-      // Re-read it after layout through Qt's public API; no polling or Qt patches.
-      let resizeFrame = 0;
-      const resize = () => {
-        if (resizeFrame) return;
-        resizeFrame = requestAnimationFrame(() => {
-          resizeFrame = 0;
-          instance.qtResizeContainerElement(screen);
-        });
-      };
-      new ResizeObserver(resize).observe(screen);
-      window.visualViewport?.addEventListener("resize", resize);
-      window.addEventListener("orientationchange", resize);
-      window.addEventListener("pageshow", resize);
-      document.addEventListener("visibilitychange", () => {
-        if (!document.hidden) resize();
-      });
     }).catch(reportFailure);
   </script>
 </body>

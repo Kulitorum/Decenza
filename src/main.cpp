@@ -515,12 +515,6 @@ int main(int argc, char *argv[])
     // Include wall clock in all log messages on all platforms
     qSetMessagePattern("[LOG] [%{time HH:mm:ss.zzz}] %{message}");
 
-#ifdef Q_OS_IOS
-    // Use basic (single-threaded) render loop on iOS to avoid threading issues
-    // with Qt Multimedia VideoOutput calling UIKit APIs from render thread
-    qputenv("QSG_RENDER_LOOP", "basic");
-#endif
-
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     // Use native AVFoundation backend instead of FFmpeg on Apple platforms.
     // The FFmpeg/VideoToolbox backend leaks ~10 MB of Metal/IOSurface memory
@@ -575,19 +569,6 @@ int main(int argc, char *argv[])
         DIAG_WARN(NETWORK, "main") << "Secure Transport TLS backend unavailable; HTTPS will not work. Backends:"
                                    << QSslSocket::availableBackends();
     }
-#endif
-
-#ifdef Q_OS_IOS
-    // Stops the iOS "Allow Paste" prompt on every return to the app (QTBUG-147008). When the
-    // pasteboard changed while backgrounded, Qt emits dataChanged on becoming
-    // active (qiosclipboard.mm:40-43, 64-72), and every live editable
-    // TextInput/TextEdit — visible or not, e.g. the always-built BrewDialog —
-    // reads the clipboard text to refresh canPaste (qquicktextinput.cpp:2894,
-    // 3008-3009; qquicktextedit.cpp:2824). That read is what prompts. Nothing
-    // here reads canPaste or listens to the signal, and user-initiated paste
-    // goes through UIKit's paste: action, not this signal. QTBUG-149610 (fixed
-    // in 6.12.1) may make this unnecessary; check on an iPhone.
-    QGuiApplication::clipboard()->blockSignals(true);
 #endif
 
     // --- Bundled UI font (issues #1469, #1537) -----------------------------
@@ -4629,15 +4610,6 @@ int main(int argc, char *argv[])
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
 
-#ifdef Q_OS_ANDROID
-            // Disable accessibility bridge before surface is destroyed.
-            // Prevents deadlock between QtAndroidAccessibility::runInObjectContext()
-            // and QAndroidPlatformOpenGLWindow::eglSurface() that causes SIGABRT
-            // when the render thread tries to swap buffers after Android destroys
-            // the EGL surface while the accessibility thread holds the lock.
-            QAccessible::setActive(false);
-#endif
-
             // Scale is NOT put to sleep when the app is backgrounded — scale sleep
             // is tied to the machine going to sleep, not the app lifecycle. Users
             // frequently switch to other apps (e.g., Claude) and expect the scale
@@ -4673,9 +4645,8 @@ int main(int argc, char *argv[])
             // Flush queued database writes LAST in this branch, and last for the
             // same reason the quit-path call is last: it pumps events, so it must
             // not be queued in front of anything time-critical. Here that is
-            // QAccessible::setActive(false) above — which exists to close an
-            // EGL-surface/accessibility deadlock window — and ensureChargerOn(),
-            // whose comment records a SIGSEGV from racing CoreBluetooth teardown.
+            // ensureChargerOn(), whose comment records a SIGSEGV from racing
+            // CoreBluetooth teardown.
             // The database is local and loses nothing by waiting.
             //
             // Why it is needed at all: aboutToQuit is not emitted when the OS kills
@@ -4711,11 +4682,6 @@ int main(int argc, char *argv[])
             // is a no-op for the app side on iOS) rather than forcing a check
             // the user may have turned off — see checkForSoftwareUpdates().
             mainController.checkForSoftwareUpdates(false);
-
-#ifdef Q_OS_ANDROID
-            // Re-enable accessibility bridge now that the EGL surface is valid again
-            QAccessible::setActive(true);
-#endif
 
             // Sync settings from disk to ensure we have latest values
             // (prevents theme colors from falling back to defaults on wake)

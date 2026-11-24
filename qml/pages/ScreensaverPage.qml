@@ -230,11 +230,9 @@ T.Page {
     property real preDestroyRss: 0  // RSS at the last transition line PRINTED (for delta logging)
     property int videoTransitionsSinceLog: 0  // transitions folded into the next line that speaks
 
-    // Track app suspend state to stop rendering when display is off.
-    // On Android, the EGL surface is destroyed when the display turns off
-    // (QTBUG-118231). If we keep rendering (especially video playback),
-    // Qt's render thread gets stuck on the dead surface and the app
-    // freezes (ANR on resume).
+    // Stop playback while suspended: decoding video to a screen that is off
+    // only spends battery. (It once also avoided an Android ANR on the dead
+    // EGL surface, QTBUG-118231, fixed in Qt 6.9.)
     property bool appSuspended: false
 
     onVisibleChanged: {

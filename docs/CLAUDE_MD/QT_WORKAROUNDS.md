@@ -41,18 +41,18 @@ Last checked against Qt 6.12.1 (2026-11-23). A report is filed when we are at le
 | `tests/CMakeLists.txt` (duplicate URI) | Two modules with one URI in a directory overwrite each other's qmldir resource | QTBUG-123169 | Reported |
 | `.github/qt-modules.txt` (qttasktree) | Qt6Qml pulls in AssetDownloader, which requires TaskTree | QTBUG-151927 | Reported |
 | `src/webclient/CMakeLists.txt`, `release.yml` | No Multimedia or Remote Objects package for `wasm_singlethread` | QTBUG-137351 (Multimedia); QTBUG-145598 (RO, out of scope) | Closed, still unshipped |
+| `src/main.cpp`, `CMakeLists.txt` (darwin media backend on Apple) | The FFmpeg backend leaked ~10 MB per video transition on macOS (March 2026) | None: a choice, not re-tested. The darwin backend works and keeps FFmpeg out of the iOS app | |
 | `cmake/webclient_bundle.cmake` (Xcode) | `BIG_RESOURCES` does not work with the Xcode generator | QTBUG-103497 | Documented |
 
-## Possibly no longer needed (needs a device or CI check)
+## Removed for 6.12.1, to confirm in the beta
 
-| Where | Why it may be fixed | Check |
+Removed on source evidence. Delete each row once its check passes; restore the workaround if it fails.
+
+| Removed | Why 6.12.1 no longer needs it | Check |
 |---|---|---|
-| `src/main.cpp` (iOS clipboard `blockSignals`) | QTBUG-149610 fixed in 6.12.1: text fields only test formats | iPhone: remove it, copy in Safari, return; no "Allow Paste" prompt means remove |
-| `src/main.cpp` (Android `QAccessible::setActive(false)` on suspend) | `eglSurface()` takes no lock in 6.12.1; QTBUG-140674 and QTBUG-140490 fixed | TalkBack tablet: background and resume |
-| `resources/webclient/index.html` (resize hook) | 6.12.1 observes container resizes itself | iPhone Safari: rotate, keyboard, back-forward cache |
-| `qml/pages/ScreensaverPage.qml` (suspend gating) | QTBUG-118231 fixed in 6.9 | Tablet: screensaver video, power off and on, check for ANR |
-| `src/main.cpp` (iOS `QSG_RENDER_LOOP=basic`) | No UIKit call from Qt Multimedia's render path in 6.12.1 | iPad: cycle screensaver videos |
-| `src/main.cpp`, `CMakeLists.txt` (FFmpeg backend off on Apple) | Leak not decidable from source | macOS with `QT_MEDIA_BACKEND=ffmpeg`: 20 videos, watch memory |
+| `src/main.cpp`: iOS clipboard `blockSignals` | Text fields test only the pasteboard's types, never its text (`qquicktextcontrol.cpp:1648`, `qiosclipboard.mm:91-104`; QTBUG-149610) | iPhone: copy in Safari, return; no "Allow Paste" prompt |
+| `src/main.cpp`: Android `QAccessible::setActive(false/true)` on suspend/resume | `eglSurface()` takes no lock, and accessibility calls refuse to run while suspended (`androidjniaccessibility.cpp:104-118`) | TalkBack tablet: background and resume several times |
+| `src/main.cpp`: iOS `QSG_RENDER_LOOP=basic` | Added for the FFmpeg backend; the darwin backend makes no UIKit call from the render thread | iPad: cycle screensaver videos |
 
 ## Our code, not Qt's: change it rather than work around
 
