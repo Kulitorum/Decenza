@@ -44,6 +44,12 @@ runs:
       with:
         name: matched-wasm-bundle
         path: .ci/webclient
+        # With a token it finds the artifact through the public REST API, the one the wait
+        # above lists it from (download-artifact.ts:66-75 at v8). Without one it asks the
+        # internal artifact service, which lagged the listing and reported "Artifact not
+        # found" (release run 45307503212).
+        github-token: ${{ github.token }}
+        run-id: ${{ github.run_id }}
 
     - name: Snapshot QML objects before embedding
       if: ${{ inputs.relink == 'true' }}
