@@ -1,6 +1,6 @@
 # Qt workarounds
 
-Every place Decenza works around a Qt defect or missing Qt feature, with the Qt issue that tracks it. CLAUDE.md's rule: no new row without a verified defect and a QTBUG, and on each Qt upgrade check every issue's status and remove what the new release fixes. Line numbers drift; search for the cited QTBUG.
+Every place Decenza works around a Qt defect or missing Qt feature, with the Qt issue that tracks it. CLAUDE.md's rule: no new row without a verified defect and a QTBUG (a missing feature or a build-speed workaround says why instead), and on each Qt upgrade check every issue's status and remove what the new release fixes. Line numbers drift; search for the cited QTBUG.
 
 Last checked against Qt 6.12.1 (2026-11-23). A report is filed when we are at least 75% sure it is a Qt bug rather than intended behaviour.
 
