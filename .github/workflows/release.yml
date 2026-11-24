@@ -216,14 +216,15 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 brotli
+          scripts/apt_install_missing.sh -- ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 brotli
           # The packager decodes its Brotli output to verify it. 1.1.0-2ubuntu0.1 is
           # noble's backport of the CVE-2026-111497 decoder fix (libbrotli1 holds the
-          # decoder); the CLI still reports upstream 1.1.0, so check the package.
-          brotli_version="$(dpkg-query -W -f='${Version}' libbrotli1)"
-          dpkg --compare-versions "$brotli_version" ge 1.1.0-2ubuntu0.1 \
-            || { echo "::error::libbrotli1 $brotli_version lacks the CVE-2026-111497 fix"; exit 1; }
+          # decoder); the CLI still reports upstream 1.1.0, so check the package. An
+          # older one is upgraded from a fresh index, which the helper above skips.
+          brotli_fixed() { dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge 1.1.0-2ubuntu0.1; }
+          brotli_fixed || { sudo apt-get update && sudo apt-get install -y --only-upgrade brotli libbrotli1; }
+          brotli_fixed \
+            || { echo "::error::libbrotli1 $(dpkg-query -W -f='${Version}' libbrotli1) lacks the CVE-2026-111497 fix"; exit 1; }
 
       - name: Set up Wasm compiler cache
         uses: ./.github/actions/setup-compiler-cache
@@ -475,11 +476,7 @@ jobs:
           java-version: '21'
 
       - name: Install minimal host dependencies
-        # update first: the runner image's package index goes stale, and a
-        # superseded .deb is a 404 on the mirror.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
+        run: scripts/apt_install_missing.sh --no-install-recommends -- libegl1 libgl1 ninja-build
 
       # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
       # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
