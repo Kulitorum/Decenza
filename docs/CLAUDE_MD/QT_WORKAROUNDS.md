@@ -23,6 +23,7 @@ Last checked against Qt 6.12.1 (2026-11-23). A report is filed when we are at le
 | `src/remote/remoteservice.h` | QtRO: an in-process replica never reaches `State::Valid` | QTBUG-152555 | Reported |
 | `src/remote/localfileselection.cpp` | Wasm: `weblocalfile:` QFile reads block the main thread (`suspendExclusive`) | None: feature request, not filed | |
 | `src/controllers/maincontroller.h` (QML_FOREIGN wrappers) | QML: `new T` is preferred over `T::create()` when T is default-constructible | QTBUG-119369 | Reported |
+| `tests/tst_qmlregistration.cpp` (`noRuntimeRegistrationIntoTheModule`) | QML: a `qmlRegister*` or `qmlTypeId` call into a plugin-less module before its first import drops every `QML_ELEMENT` type in it, silently | QTBUG-152559 | Reported (6.13). Qt accepts the `qmlTypeId` half only; mixing registration styles stays unsupported, so the guard is permanent |
 | `qml/components/OperationCompletionOverlay.qml` | qmlcachegen segfaults on the call inside the bool binding | QTBUG-152061 | Fixed (6.12.2) |
 | `qml/components/graphs/DecenzaGraphsTheme.qml` | Qt Graphs: no tick-length setting | QTBUG-151286 | Open |
 | `src/history/coffeebagstorage.cpp` | QSQLITE: `numRowsAffected()` reports the connection's latest statement | QTBUG-152551 | Reported |
