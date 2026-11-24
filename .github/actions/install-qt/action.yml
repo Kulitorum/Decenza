@@ -52,7 +52,6 @@ runs:
         VERSION: ${{ inputs.version }}
         TARGET: ${{ inputs.target }}
         ARCH: ${{ inputs.arch }}
-        HOST: ${{ inputs.host }}
         MODULES: ${{ inputs.modules }}
         TOOLS: ${{ inputs.tools }}
         DIR: ${{ inputs.dir }}
@@ -61,7 +60,9 @@ runs:
         dir="${DIR:-$RUNNER_WORKSPACE}"
         # install-qt-action installs into path.resolve(dir, "Qt") (main.ts:558).
         if [ "$RUNNER_OS" = Windows ]; then qt_dir="$dir\\Qt"; else qt_dir="$dir/Qt"; fi
-        hash=$(printf '%s\n' "$HOST" "$TARGET" "$ARCH" "$VERSION" "$dir" "$MODULES" "$TOOLS" "$AQTSOURCE" \
+        # Not the host: a blank one resolves from the runner OS/arch the key already names,
+        # and hashing the raw input split the Wasm host step (`linux`) from the Linux job.
+        hash=$(printf '%s\n' "$TARGET" "$ARCH" "$VERSION" "$dir" "$MODULES" "$TOOLS" "$AQTSOURCE" \
           | sha256sum | cut -c1-12)
         {
           echo "dir=$dir"
