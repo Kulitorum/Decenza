@@ -293,6 +293,10 @@ jobs:
           arch: wasm_singlethread
           modules: ${{ steps.qt_modules.outputs.list }}
           dir: ${{ runner.temp }}/qt-wasm-sdk
+          # The SDK holds Wasm libraries only; nothing in it runs on the host. The default
+          # (true) runs apt-get update plus ~35 desktop packages BEFORE the cache restore
+          # (install-qt-action v4 main.ts:700-713): 3.2 min of the critical-path Wasm job.
+          install-deps: false
           cache: true
           cache-key-prefix: qt-wasm-singlethread-${{ needs.plan.outputs.qt_version }}-v4
 
