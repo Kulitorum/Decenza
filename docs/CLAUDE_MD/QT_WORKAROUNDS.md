@@ -31,7 +31,7 @@ Last checked against Qt 6.12.1 (2026-11-23). A report is filed when we are at le
 | `src/main.cpp`, `DecenzaActivity.java` (BLE binder death) | Android QtBluetoothLE: DeadObject in `writeCharacteristic`/`writeDescriptor` kills the app | QTBUG-152552 | Reported |
 | `src/ble/blegattqueue.h` | Android QtBluetoothLE: a GATT timeout emits no error | QTBUG-152556 | Reported |
 | `DecenzaActivity.java` (alias launch) | Android: an `activity-alias` launch skips loading Qt, then crashes in `onResume` (regression from the QTBUG-142822 fix) | QTBUG-152557 | Reported |
-| `src/core/permissionrequests.h` | Android: a cancelled permission request is reported as Granted and cached | QTBUG-152553 | Reported |
+| `src/core/permissionrequests.h` | Android: a cancelled permission request is reported as Granted and cached | QTBUG-152553 | Fixed (6.12.2). Keep the serialization: after the fix a cancelled request reports Denied without asking (Gerrit 791917), so on upgrade only the header's reason changes |
 | `src/network/locationprovider.cpp` | CoreLocation backend reports every error as AccessError | QTBUG-152554 | Reported |
 | `src/ble/applebtstate.h` | iOS has no working QBluetoothLocalDevice | QTBUG-152204 | Reported |
 | `src/ble/scales/decentscalewifi.cpp`, `src/network/mdnsresolver.h` | No `.local` resolution on Android; no DNS-SD browse | QTBUG-97534, QTBUG-30823 | Open |
