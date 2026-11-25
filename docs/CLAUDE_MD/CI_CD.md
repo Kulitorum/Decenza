@@ -135,7 +135,7 @@ git push origin vX.Y.Z
 
 ### Release Process
 
-**IMPORTANT: Always use tag pushes to build releases.** Never use `workflow_dispatch` for release builds — it skips version code bumps and causes duplicate upload errors (especially iOS App Store). The `workflow_dispatch` trigger is only for test builds that don't upload anywhere.
+**IMPORTANT: Always build releases from the tag.** Never dispatch a release build on a branch — it skips version code bumps and causes duplicate upload errors (especially iOS App Store). A branch dispatch is only for test builds that don't upload anywhere. The one release dispatch is on the tag itself, when GitHub skipped the tag push (see "Updating a pre-release with new commits").
 
 **IMPORTANT**: Release notes should only include **user-experience changes** (new features, UI changes, bug fixes users would notice). Skip internal changes like code refactoring, developer tools, translation system improvements, or debug logging changes. Use sectioned format: `### New Features`, `### Improvements`, `### Bug Fixes`.
 
@@ -263,7 +263,7 @@ gh release edit vX.Y.Z --prerelease=false --latest
 Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version. Note: promoting does NOT re-trigger the release builds — the artifacts from the pre-release tag push are already attached. It fires the `release: released` event, which nothing listens for any more (`warm-main-cache.yml` did, and was removed — see "Compiler caches are tag-scoped" above).
 
 ### Notes
-- **Always use tag pushes** — never `workflow_dispatch` — for release builds
+- **Always build releases from the tag**: a tag push, or a dispatch on the tag when the push was skipped — never a branch dispatch
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
 - `Build: XXXX` is injected automatically by CI — do not add manually
 - Always include direct APK link in release notes (old browsers can't see Assets section)
