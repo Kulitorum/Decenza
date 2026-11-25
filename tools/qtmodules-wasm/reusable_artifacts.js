@@ -27,10 +27,10 @@ module.exports = async function trustedArtifacts({ github, context }, name) {
     const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId });
     const sameRepository = run.head_repository?.id === repository.data.id;
     const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
-    // A dispatch on a tag is how a pre-release is rebuilt when HEAD is a [skip ci] commit (CI_CD.md).
-    const trustedTag = ['push', 'workflow_dispatch'].includes(run.event) && /^v\d/.test(run.head_branch || '');
+    // release.yml's push trigger is tags only. A dispatch is not trusted by name: it can target a branch called v….
+    const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
     const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
-    if (!sameRepository || (!trustedBranchDispatch && !trustedTag)
+    if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
         || workflowPath !== '.github/workflows/release.yml') continue;
 
     const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
