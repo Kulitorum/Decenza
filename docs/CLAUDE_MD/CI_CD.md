@@ -31,9 +31,9 @@ The Wasm caches always save, with no repository-budget check: every native packa
 
 QML inventory validation uses each target's own generated manifest: the Wasm job checks its manifest before uploading, and native tests always check the native manifest. Local paired builds also check the adjacent Wasm manifest when present. The deployment artifact contains runtime assets only, so native CI does not require another job's build-tree metadata.
 
-This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. Manual dispatch retains the existing test-only defaults and does not bump the version code.
+This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. A branch dispatch keeps the test-only defaults and does not bump the version code.
 
-On tag push: the producer and all native jobs use the same bumped version code and build. All upload to the GitHub Release; iOS also uploads to App Store Connect, and its release `.ipa` is App Store-signed, so it installs only through TestFlight. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
+On tag push: the producer and all native jobs use the same bumped version code and build. All upload to the GitHub Release; iOS also uploads to App Store Connect, and its release `.ipa` is App Store-signed, so it installs only through TestFlight. On a branch `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in). A dispatch on a `v*` tag behaves as the tag push does.
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)
 
@@ -124,7 +124,7 @@ git push origin vX.Y.Z
 ### Platform notes
 - iOS bundle ID: `io.github.kulitorum.decenza` (differs from Android: `io.github.kulitorum.decenza_de1`)
 - iOS signing credentials expire yearly — see `docs/IOS_CI_FOR_CLAUDE.md` for renewal
-- iOS tag-push builds upload to App Store Connect automatically (available in TestFlight). Manual `workflow_dispatch` builds default to `upload_to_appstore=false` (test only). App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
+- iOS tag-push builds upload to App Store Connect automatically (available in TestFlight). A branch dispatch uploads only with `upload_to_release=true` (default false). App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
 - Android signing is Qt's own (`QT_ANDROID_SIGN_APK` plus `QT_ANDROID_KEYSTORE_*` env vars) and the workflow renames the signed APK to `Decenza_<version>.apk` — see `PLATFORM_BUILD.md`
 
 ## Publishing Releases
@@ -135,7 +135,7 @@ git push origin vX.Y.Z
 
 ### Release Process
 
-**IMPORTANT: Always use tag pushes to build releases.** Never use `workflow_dispatch` for release builds — it skips version code bumps and causes duplicate upload errors (especially iOS App Store). The `workflow_dispatch` trigger is only for test builds that don't upload anywhere.
+**IMPORTANT: Always build releases from the tag.** Never dispatch a release build on a branch — it skips version code bumps and causes duplicate upload errors (especially iOS App Store). A branch dispatch is only for test builds that don't upload anywhere. The one release dispatch is on the tag itself, when GitHub skipped the tag push (see "Updating a pre-release with new commits").
 
 **IMPORTANT**: Release notes should only include **user-experience changes** (new features, UI changes, bug fixes users would notice). Skip internal changes like code refactoring, developer tools, translation system improvements, or debug logging changes. Use sectioned format: `### New Features`, `### Improvements`, `### Bug Fixes`.
 
@@ -250,6 +250,11 @@ git tag -f vX.Y.Z HEAD && git push origin vX.Y.Z --force
 ```
 Both steps are required — updating release notes alone does NOT trigger builds. The tag must be moved to include the new commits, and the force-push is what triggers CI.
 
+**Unless HEAD is the bot's `ci: bump version code … [skip ci]` commit**, as it is right after every release build: GitHub then skips the tag push silently. Dispatch on the tag instead. Every release step keys on `refs/tags/v…`, so this builds and publishes exactly as a push does:
+```bash
+gh workflow run release.yml --ref vX.Y.Z -f platforms=all -f upload_to_release=true
+```
+
 ### Promoting a pre-release to stable
 When promoting a pre-release to a full release, you must also set it as "latest" — GitHub does not do this automatically:
 ```bash
@@ -258,7 +263,7 @@ gh release edit vX.Y.Z --prerelease=false --latest
 Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version. Note: promoting does NOT re-trigger the release builds — the artifacts from the pre-release tag push are already attached. It fires the `release: released` event, which nothing listens for any more (`warm-main-cache.yml` did, and was removed — see "Compiler caches are tag-scoped" above).
 
 ### Notes
-- **Always use tag pushes** — never `workflow_dispatch` — for release builds
+- **Always build releases from the tag**: a tag push, or a dispatch on the tag when the push was skipped — never a branch dispatch
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
 - `Build: XXXX` is injected automatically by CI — do not add manually
 - Always include direct APK link in release notes (old browsers can't see Assets section)

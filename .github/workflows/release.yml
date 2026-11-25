@@ -147,39 +147,14 @@ jobs:
         with:
           retries: 3
           script: |
-            const artifactName = process.env.ARTIFACT_NAME;
-            const repository = await github.rest.repos.get(context.repo);
-            const trustedBranches = new Set([
-              context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : null,
-              repository.data.default_branch,
-            ].filter(Boolean));
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              ...context.repo, workflow_id: 'release.yml', status: 'completed', per_page: 100,
-            });
-            for (const run of data.workflow_runs) {
-              const sameRepository = run.head_repository?.id === repository.data.id;
-              const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
-              const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
-              const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
-              if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
-                  || workflowPath !== '.github/workflows/release.yml') continue;
-
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                ...context.repo, run_id: run.id, filter: 'all', per_page: 100,
-              });
-              const wasmJob = jobs
-                .filter(job => job.name === 'Wasm bundle')
-                .sort((a, b) => b.id - a.id)[0];
-              if (wasmJob?.conclusion !== 'success') continue;
-
-              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-                ...context.repo, run_id: run.id, per_page: 100,
-              });
-              if (artifacts.data.artifacts.some(a => a.name === artifactName && !a.expired)) {
-                core.setOutput('run_id', String(run.id));
-                core.info(`Found reusable module package in successful Wasm job ${wasmJob.id} of run ${run.id}.`);
-                return;
-              }
+            const trustedArtifacts = require(`${process.env.GITHUB_WORKSPACE}/tools/qtmodules-wasm/reusable_artifacts.js`);
+            // Not this run's own: a re-run attempt would otherwise reuse its unfinished first attempt.
+            const found = (await trustedArtifacts({ github, context }, process.env.ARTIFACT_NAME))
+              .find(t => t.runId !== context.runId);
+            if (found) {
+              core.setOutput('run_id', String(found.runId));
+              core.info(`Found reusable module package in successful Wasm job ${found.wasmJobId} of run ${found.runId}.`);
+              return;
             }
             core.setOutput('run_id', '');
             core.info('No unexpired exact-recipe module artifact found; the module build will run.');
@@ -397,42 +372,9 @@ jobs:
         with:
           retries: 3
           script: |
-            const artifactName = process.env.ARTIFACT_NAME;
-            const repository = await github.rest.repos.get(context.repo);
-            const trustedBranches = new Set([
-              context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : null,
-              repository.data.default_branch,
-            ].filter(Boolean));
-            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
-              ...context.repo, per_page: 100,
-            });
-            const candidates = all
-              .filter(a => a.name === artifactName && !a.expired)
-              .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-            const valid = [];
-            for (const artifact of candidates) {
-              const runId = artifact.workflow_run?.id;
-              if (!runId) continue;
-              if (runId === context.runId) {
-                valid.push(artifact);
-                continue;
-              }
-              const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId });
-              const sameRepository = run.head_repository?.id === repository.data.id;
-              const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
-              const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
-              const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
-              if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
-                  || workflowPath !== '.github/workflows/release.yml') continue;
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                ...context.repo, run_id: runId, filter: 'all', per_page: 100,
-              });
-              const wasmJob = jobs
-                .filter(job => job.name === 'Wasm bundle')
-                .sort((a, b) => b.id - a.id)[0];
-              if (wasmJob?.conclusion === 'success') valid.push(artifact);
-            }
-            for (const artifact of valid.slice(2)) {
+            const trustedArtifacts = require(`${process.env.GITHUB_WORKSPACE}/tools/qtmodules-wasm/reusable_artifacts.js`);
+            const valid = await trustedArtifacts({ github, context }, process.env.ARTIFACT_NAME);
+            for (const { artifact } of valid.slice(2)) {
               await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: artifact.id });
               core.info(`Deleted older reusable module artifact ${artifact.id}.`);
             }
