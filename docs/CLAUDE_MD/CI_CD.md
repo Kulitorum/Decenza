@@ -124,7 +124,7 @@ git push origin vX.Y.Z
 ### Platform notes
 - iOS bundle ID: `io.github.kulitorum.decenza` (differs from Android: `io.github.kulitorum.decenza_de1`)
 - iOS signing credentials expire yearly — see `docs/IOS_CI_FOR_CLAUDE.md` for renewal
-- iOS tag-push builds upload to App Store Connect automatically (available in TestFlight). Manual `workflow_dispatch` builds default to `upload_to_appstore=false` (test only). App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
+- iOS tag-push builds upload to App Store Connect automatically (available in TestFlight). A branch dispatch uploads only with `upload_to_release=true` (default false). App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
 - Android signing is Qt's own (`QT_ANDROID_SIGN_APK` plus `QT_ANDROID_KEYSTORE_*` env vars) and the workflow renames the signed APK to `Decenza_<version>.apk` — see `PLATFORM_BUILD.md`
 
 ## Publishing Releases
