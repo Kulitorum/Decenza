@@ -33,7 +33,7 @@ QML inventory validation uses each target's own generated manifest: the Wasm job
 
 This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. Manual dispatch retains the existing test-only defaults and does not bump the version code.
 
-On tag push: the producer and all native jobs use the same bumped version code and build. All upload to the GitHub Release; iOS also uploads to App Store Connect, and its release `.ipa` is App Store-signed, so it installs only through TestFlight. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
+On tag push: the producer and all native jobs use the same bumped version code and build. All upload to the GitHub Release; iOS also uploads to App Store Connect, and its release `.ipa` is App Store-signed, so it installs only through TestFlight. On a branch `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in). A dispatch on a `v*` tag behaves as the tag push does.
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)
 
