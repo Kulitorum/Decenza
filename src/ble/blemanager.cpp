@@ -99,6 +99,20 @@ constexpr auto kKeyHuntChain     = "hunt.chain";
 
 BLEManager* BLEManager::s_instance = nullptr;
 
+#ifdef Q_OS_ANDROID
+namespace {
+// Called by DecenzaActivity's uncaught-exception handler on Qt's dying BLE
+// handler thread (QTBUG-152552); everything else happens on the Qt thread.
+void nativeOnBleBinderDied(JNIEnv*, jclass)
+{
+    QMetaObject::invokeMethod(qApp, []() {
+        if (BLEManager* manager = BLEManager::instance())
+            manager->onBleBinderDied();
+    }, Qt::QueuedConnection);
+}
+}  // namespace
+#endif
+
 BLEManager::BLEManager(QObject* parent)
     : QObject(parent)
 {
@@ -115,6 +129,18 @@ BLEManager::BLEManager(QObject* parent)
     m_localDevice = new QBluetoothLocalDevice(this);
     connect(m_localDevice, &QBluetoothLocalDevice::hostModeStateChanged,
             this, &BLEManager::onHostModeStateChanged);
+#endif
+
+#ifdef Q_OS_ANDROID
+    {
+        QJniEnvironment env;
+        const JNINativeMethod methods[] = {
+            {"nativeOnBleBinderDied", "()V", reinterpret_cast<void*>(nativeOnBleBinderDied)},
+        };
+        if (!env.registerNativeMethods("io/github/kulitorum/decenza_de1/DecenzaActivity", methods, 1))
+            BT_WARN_TAGGED("BLEManager", QStringLiteral(
+                "could not register the dead-binder callback — a BLE binder death will not force a reconnect"));
+    }
 #endif
 
     // Timer for scale connection timeout (20 seconds)
@@ -286,7 +312,36 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
     }
 #endif
 
+    if (m_rearmWhenBluetoothOn && isBluetoothAvailable()) {
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("Bluetooth back on — reconnecting after the BLE thread death"));
+        rearmAfterBinderDeath();
+    }
+
     emit bluetoothAvailableChanged();
+}
+
+void BLEManager::onBleBinderDied()
+{
+    BT_WARN_TAGGED("BLEManager", QStringLiteral(
+        "Qt's BLE thread died with the Bluetooth binder — forcing DE1 and scale reconnect"));
+    emit bleBinderDied();
+    resetScaleConnectionState();
+    if (isBluetoothAvailable()) {
+        rearmAfterBinderDeath();
+    } else {
+        m_rearmWhenBluetoothOn = true;
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("Bluetooth is off — reconnecting once it is back on"));
+    }
+}
+
+void BLEManager::rearmAfterBinderDeath()
+{
+    m_rearmWhenBluetoothOn = false;
+    emit bleStackRecovered();
+    // Scan-only: a parked direct connect to a scale that may be gone is the
+    // contention #1303 avoids; the scan reconnects it when it advertises.
+    if (!m_savedScaleAddress.isEmpty())
+        tryDirectConnectToScale(/*allowDirectConnect=*/false);
 }
 
 // Android API level, or -1 where it cannot be read (and on every other

@@ -1832,45 +1832,16 @@ int main(int argc, char *argv[])
         "idleGc", "()V");
     idleGcTimer->start();
 
-    // BLE dead-binder recovery: when the Bluetooth GATT binder/process dies
-    // (toggled off, OEM power policy, GATT proxy unbound) Qt's BLE handler
-    // thread raises a DeadObjectException (or its DeadSystemException
-    // subclass if system_server itself died; QTBUG-152552). The Java crash handler catches
-    // both, keeps the app alive, and writes a flag file; we poll for it
-    // every 10 s and trigger BLE reconnection if found. Issues #189, #1227.
-    auto* bleRecoveryTimer = new QTimer();
-    bleRecoveryTimer->setInterval(10000);
-    QObject::connect(bleRecoveryTimer, &QTimer::timeout,
-                     [&bleManager, &de1Device]() {
-        // Use same path as CrashHandler (proven to match Java getFilesDir())
-        QString flagPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                         + "/ble_dead_system";
-        QFile flagFile(flagPath);
-        if (!flagFile.exists())
-            return;
-
-        DIAG_WARN(APP, "main") << "BLE recovery: dead BLE binder detected, triggering reconnect";
-        flagFile.remove();
-
-        // The BLE handler thread is dead — Qt's QLowEnergyController won't emit
-        // disconnected() on its own. Force-disconnect and re-scan.
-        if (de1Device.isConnected()) {
+    // BLE dead-binder recovery (issues #189, #1227; QTBUG-152552): the Java
+    // crash handler keeps the app alive and BLEManager emits bleBinderDied().
+    // The DE1's dead controller never emits disconnected(), so force it; the
+    // reconnect ladder restarts from bleStackRecovered().
+    QObject::connect(&bleManager, &BLEManager::bleBinderDied, [&de1Device]() {
+        if (de1Device.isConnected() || de1Device.isConnecting()) {
             DIAG_WARN(DE1, "main") << "BLE recovery: forcing DE1 disconnect";
             de1Device.disconnect();
         }
-        bleManager.resetScaleConnectionState();
-
-        // Attempt reconnection after a short delay to let Android restart Bluetooth.
-        // Scale uses scan-only (allowDirectConnect=false): right after a BLE-stack
-        // death a parked direct-connect to a possibly-absent scale is exactly the
-        // contention we avoid (#1303); the scan reconnects it when it advertises.
-        QTimer::singleShot(3000, [&bleManager]() {
-            DIAG_DEBUG(APP, "main") << "BLE recovery: attempting reconnect";
-            bleManager.tryDirectConnectToDE1();
-            bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
-        });
     });
-    bleRecoveryTimer->start();
 #endif
 
     checkpoint("WeightProcessor wiring");

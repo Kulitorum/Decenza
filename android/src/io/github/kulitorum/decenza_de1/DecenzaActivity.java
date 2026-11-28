@@ -165,6 +165,9 @@ public class DecenzaActivity extends QtActivity {
                 () -> super.onRequestPermissionsResult(requestCode, permissions, grantResults));
     }
 
+    // Registered by BLEManager's constructor (blemanager.cpp).
+    private static native void nativeOnBleBinderDied();
+
     // Catches three closely-related dead-binder cases:
     //   1. DeadObjectException — the common case: a remote Bluetooth binder
     //      we were writing to died (BT toggled off, OEM power policy, driver
@@ -203,19 +206,17 @@ public class DecenzaActivity extends QtActivity {
             // GATT proxy unbound) — or, in the DeadSystemException subclass
             // case, system_server itself died. In all of these the BLE
             // handler thread is gone but the UI thread and the rest of the
-            // app are fine, so we drop a flag file for the C++ side to
-            // observe and trigger reconnect (see main.cpp ble recovery
-            // timer), and explicitly do NOT call defaultHandler — the
-            // process must stay alive.
+            // app are fine, so we tell BLEManager (onBleBinderDied), which
+            // forces the reconnect, and explicitly do NOT call
+            // defaultHandler — the process must stay alive.
             if (isDeadObjectException(throwable)) {
                 Log.w(TAG, "DeadObjectException on thread " + thread.getName() // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
                         + " — BLE binder died, signaling BLE recovery");
                 try {
-                    File flagFile = new File(getFilesDir(), "ble_dead_system");
-                    flagFile.createNewFile();
-                    Log.w(TAG, "Wrote BLE recovery flag: " + flagFile.getAbsolutePath()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
-                } catch (Exception e) {
-                    Log.e(TAG, "Failed to write BLE recovery flag: " + e.getMessage()); // log-marker-exempt: uncaught-exception handler writes logcat and a separate crash report without reentering Qt
+                    nativeOnBleBinderDied();
+                } catch (Throwable e) {
+                    // UnsatisfiedLinkError if BLEManager never registered it.
+                    Log.e(TAG, "Could not signal BLE recovery: " + e); // log-marker-exempt: the native call into Qt just failed, so logcat is the only place left to report it
                 }
                 // Don't call defaultHandler — keep the app alive.
                 // The BLE handler thread is dead but the UI thread and app are fine.

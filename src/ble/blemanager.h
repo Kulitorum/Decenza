@@ -200,6 +200,9 @@ public:
     // See onDe1LinkFault()/onScaleConnectionTimeout() for the discriminator and
     // maybeRecoverWedgedStack() for the Android-only adapter power-cycle.
     void noteDe1Connected(bool connected);
+    // Android: DecenzaActivity caught a dead-binder exception on Qt's BLE
+    // thread. Force-disconnects, then reconnects now or once Bluetooth is on.
+    void onBleBinderDied();
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
 
@@ -833,9 +836,13 @@ signals:
     // Emitted when an automatic BLE-adapter power-cycle begins / completes
     // (#1309). main.cpp uses bleStackRecovered() to reset the DE1 reconnect
     // budget and kick a fresh reconnect once the adapter is back, mirroring the
-    // AutoWake re-arm path. bleStackRecoveryStarted() is informational (UI/log).
+    // AutoWake re-arm path; it is also emitted once the stack is usable after a
+    // binder death. bleStackRecoveryStarted() is informational (UI/log).
     void bleStackRecoveryStarted();
     void bleStackRecovered();
+    // Qt's BLE handler thread died with the Bluetooth binder (Android). Its
+    // controllers never report the loss, so main.cpp force-disconnects the DE1.
+    void bleBinderDied();
 
 
 private slots:
@@ -1019,6 +1026,8 @@ private:
     // silently) and flag it so the next attempt powers it on rather than
     // mistaking it for a user-disabled adapter — and we do NOT claim recovery.
     void finishAdapterRecovery(bool adapterOn);
+    // After a binder death: emits bleStackRecovered() and re-arms the scale scan.
+    void rearmAfterBinderDeath();
     // Turn the Bluetooth adapter on/off for the wedge power-cycle. Android-only:
     // QBluetoothLocalDevice has NO powerOff() (it exists on neither Android nor
     // macOS in this Qt build; powerOn() also routes through a consent dialog), so
@@ -1222,6 +1231,7 @@ private:
     QDateTime m_lastDe1FaultTime;           // Last DE1 controller fault (onDe1LinkFault)
     QDateTime m_wedgeSince;                 // When the wedge condition first held (invalid = not currently wedged)
     bool m_adapterRecoveryInFlight = false; // A powerOff→powerOn cycle is underway
+    bool m_rearmWhenBluetoothOn = false;    // A binder death happened with Bluetooth off
     bool m_recoverySawPoweredOff = false;   // powerOff took effect; now awaiting power-on
     bool m_recoveryLeftAdapterOff = false;  // A cycle ended with the adapter still off (our doing, not the user's)
     QDateTime m_lastAdapterRecovery;        // For the inter-cycle backoff
