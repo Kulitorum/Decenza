@@ -181,9 +181,11 @@ public class DecenzaActivity extends QtActivity {
     //      `instanceof` check misses it. We fall back to a class-name
     //      substring match to cover it. (Was caught by the original
     //      `contains("DeadSystem")` filter in PR #544 / issue #538.)
-    // Qt's QtBluetoothLE.executeWriteJob doesn't wrap the
-    // BluetoothGatt.writeCharacteristic binder call in try/catch (verified
-    // through Qt 6.11.1; QTBUG-152552), so the RuntimeException it raises lands here.
+    // Through Qt 6.12.1, QtBluetoothLE doesn't wrap its BluetoothGatt binder
+    // calls in try/catch (QTBUG-152552), so the RuntimeException they raise
+    // lands here. 6.12.2 wraps the read/write jobs (Gerrit 792798) but not
+    // mBluetoothGatt.close() in handleOnConnectionStateChange or
+    // setCharacteristicNotification in handleOnDescriptorRead.
     // Issues #189 (v1.5.0), #538 (v1.4.x DeadSystemRuntimeException),
     // #1227 (v1.7.3 DeadObjectException).
     private static boolean isDeadObjectException(Throwable t) {

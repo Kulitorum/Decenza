@@ -575,7 +575,7 @@ T.Page {
                         screensaverPage.currentVideoLoaded = true
                     } else if (mediaStatus === MediaPlayer.EndOfMedia) {
                         // Qt 6.12 Wasm maps HTML "emptied" to EndOfMedia, including on
-                        // load (qwasmvideooutput.cpp:841-849; QTBUG-151769, fixed in 6.13).
+                        // load (qwasmvideooutput.cpp:846-847; QTBUG-151769, fixed in 6.13).
                         // Do not consume the new host ticket before it has played.
                         if (ScreensaverService.isRemoteClient
                                 && (!screensaverPage.currentVideoLoaded || duration <= 0 || position < duration))

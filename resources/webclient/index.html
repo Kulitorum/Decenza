@@ -48,6 +48,8 @@
             // for URL-backed videos whose native srcObject is null. Keep the
             // decoder/source intact and supply an empty track list to that probe.
             // This prevents the exception; continuous iOS rendering is still open.
+            // Fixed in 6.13 (Gerrit 791703). Remove this with it: the empty stream
+            // passes Qt's new null check and would turn on camera rotation.
             if (videoStreamProperty) {
               Object.defineProperty(node, "srcObject", {
                 configurable: true,
