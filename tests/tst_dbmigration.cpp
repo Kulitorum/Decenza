@@ -1737,6 +1737,8 @@ private slots:
         QCOMPARE(spy.last().at(2).toInt(), 1);
 
         s.close();
+        // The last request's thread is freed by the event loop, and no later test pumps it.
+        QTRY_VERIFY(s.isDbWorkIdle());
     }
 
     // Migration 40: the grind picker's reads must be served by a COVERING index,
