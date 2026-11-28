@@ -326,6 +326,11 @@ void BLEManager::onBleBinderDied()
         "Qt's BLE thread died with the Bluetooth binder — forcing DE1 and scale reconnect"));
     emit bleBinderDied();
     resetScaleConnectionState();
+    // Each Qt controller has its own handler thread (QtBluetoothLE.java:827-829),
+    // so if the scale's died it still reports connected, and the reconnect below
+    // would skip it as "already connected".
+    if (m_scaleDevice && m_scaleDevice->bleTransport())
+        emit disconnectScaleRequested();
     if (isBluetoothAvailable()) {
         rearmAfterBinderDeath();
     } else {
