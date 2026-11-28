@@ -696,7 +696,9 @@ T.Page {
                         setEditing(false, -1)
                 }
 
-                // Accessibility: announce the English text and translation status
+                // Accessibility: announce the English text and translation status.
+                // Grouping, not ListItem: on Wasm a ListItem's NameChanged removes
+                // the nested editor (QTBUG-151770, fixed in 6.12.2).
                 Accessible.role: Accessible.Grouping
                 Accessible.name: {
                     var name = TranslationManager.translate("stringBrowser.accessible.english", "English: ") + delegateRoot.model.fallback + ". "

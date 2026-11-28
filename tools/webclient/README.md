@@ -176,7 +176,7 @@ Screen-reader support is activated per browser document through Qt's **Enable
 Screen Reader** button; the accessibility tree stays inactive otherwise. Actual
 mobile screen-reader acceptance remains open. On iPhone, the video screensaver
 currently cycles images rather than providing continuous playback while
-[QTBUG-151807](https://bugreports.qt.io/browse/QTBUG-151807) is unresolved.
+[QTBUG-151807](https://bugreports.qt.io/browse/QTBUG-151807) is unfixed in 6.12 (fixed in 6.13).
 
 
 ### Mac trackpad scrolling
