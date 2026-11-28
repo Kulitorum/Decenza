@@ -532,10 +532,10 @@ public:
     // its result — covering BOTH the FIFO CRUD worker and the one-shot read
     // threads from runDetachedDbThread(). False only while something is in flight.
     //
-    // "Waiting to deliver its result" is exact for the CRUD worker. For a detached
-    // read thread it means the thread has finished touching the DB FILE; its
-    // result callback is already posted and m_destroyed guards it. That is the
-    // granularity callers actually need — it is what makes deleting the file safe.
+    // A detached read thread counts until its QThread object is destroyed, which
+    // happens on the creating thread's event loop after the thread finishes. So
+    // this turns true only once the loop has run, and a caller must pump events
+    // while waiting on it.
     //
     // For callers that must not continue until the DB work has really finished —
     // a test tearing this object down, a factory reset about to delete the file —
@@ -925,7 +925,7 @@ private:
     // read on background threads (before QMetaObject::invokeMethod).
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
 
-    // Number of runDetachedDbThread() threads currently touching the DB file.
+    // Number of runDetachedDbThread() QThread objects not yet destroyed.
     // shared_ptr for the same reason as m_destroyed — a thread may outlive `this`
     // and still has to decrement. Read by isDbWorkIdle().
     std::shared_ptr<std::atomic<int>> m_detachedDbThreads = std::make_shared<std::atomic<int>>(0);
